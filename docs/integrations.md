@@ -25,8 +25,8 @@
 抓包默认交由 nte-core 自动选择网卡；设置页仍保留手动网卡字段供明确排障使用。诊断仅在未获得自动推荐且
 存在候选设备时提供二次确认后的高级入口，选择结果先填入设置，保存后才会影响后续 capture 会话。
 
-新采集要求 nte-core battle contract v4；旧 v3 战报只保证可查看，不补写新字段，也不承诺按 v4 重新校准。
-v4 继续保留逐击 `overkill_damage`，并新增结构化 `max_hp_reduction`。正数表示 Core 已对该来源逐击完成生命
+新采集要求 nte-core battle contract v5；旧 v4 及更早战报只保证可查看，不补写新字段，也不承诺按 v5
+重新校准。v4 继续保留逐击 `overkill_damage`，并新增结构化 `max_hp_reduction`。正数表示 Core 已对该来源逐击完成生命
 上限扣减校准；零值只表示 Core 没有为该击生成结构化修正，不证明所有尚未注册语义的机制都没有发生。
 应用不得恢复全局样本猜测，只能按[战报功能契约](features.md#9-战报)列出的已审计机制做窄回退。record ID 在当前 Core 进程内稳定，
 generation、cursor、sequence 和总数按十进制字符串保留；axis 每页限制 1～500 行。逐击页携带 generation，
@@ -49,8 +49,17 @@ Core 已脱敏字段，战报数据库不保存网络包、端点或 PCAP。设�
 保留供逐击合计审计，不新增页面业务指标、不单独投影为历史字段，也不进入伤害、DPS、角色贡献或生命上限
 结算公式。正式生命上限结算仍只消费最终完整轴的逐击 `max_hp_reduction`，并按结算前生命比例计算有效损失。
 每场采集在握手后冻结 `core_version`、协商协议、数据版本和 nte-core EXE SHA-256，并随战报持久化；同为
-battle contract v4 但 Core 构建不同的记录不得仅凭 contract version 视为同一解析语义。原始 summary、
+battle contract v5 但 Core 构建不同的记录不得仅凭 contract version 视为同一解析语义。原始 summary、
 record 和逐击 JSON 仍保持 Core 返回值，不注入应用来源字段。
+
+v5 为每个 `time_stop_intervals` 元素新增 `pause_type_mask`。新近保留区间携带非零 u32 mask，并在 mask
+变化处精确切段；Core 为控制内存而生成的压缩历史区间以 `null` 明确表示类型未知。应用把所有完整区间的
+并集用于有效时长和 DPS 扣除，但 Q 动作锚定只消费 mask 的 type2/type3/type4 位；type6 不得拉长 Q，
+只作为灵可 E/QTE 派生推论的辅助旁证，不能单独证明 E 或同频触发。旧 v4 记录缺少 mask 时保持既有 Q
+锚定兼容并明确标为旧类型未知；完整 E 与唯一后续同目标队友 QTE 另可形成低置信选人暂停回退。该回退从
+E 第四段末击到 QTE 静态动作起点，静态起点不可用或不晚于 E4 时退到 QTE 首击；只有正区间才参与有效
+时钟，且不会成为 Q 锚定证据。
+v5 的 `null` 压缩区间不会伪装成 Q 或 type6。
 
 `team_snapshot_id` 当前为空，逐击也没有暴击事实、Buff/Debuff 区间、护盾/治疗或角色施法事件。应用不得
 用当前 UI 队伍、固定暴击率或相邻血量补造这些事实。完整队伍、正式敌人实例、场景 ID、时间线 UI 和

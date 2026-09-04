@@ -285,6 +285,83 @@ class BattleTargetInstanceMappingServiceTests(unittest.TestCase):
             ),
         )
 
+    def test_mixed_confirmation_keeps_equal_hp_profiles_in_their_half(self) -> None:
+        upper = replace(
+            _profile("mon_upper", 5000.0, 900.0, 0.10),
+            selection_target_id=(
+                "Abyss_9:10:EAbyssFightStage::FirstHalf:0:0"
+            ),
+        )
+        lower = replace(
+            _profile("mon_lower", 5000.0, 1300.0, 0.45),
+            selection_target_id=(
+                "Abyss_9:10:EAbyssFightStage::SecondHalf:0:0"
+            ),
+        )
+        condition = replace(
+            _condition(upper, lower),
+            environment_ref="Abyss_9|10|mixed",
+        )
+
+        resolutions = BattleTargetInstanceMappingService.resolve(
+            _evidence(
+                ("upper", "7", 5000.0),
+                ("lower", "7", 5000.0),
+            ),
+            condition,
+        )
+
+        assert all(row.target_condition is not None for row in resolutions)
+        self.assertEqual(
+            {"upper": 900.0, "lower": 1300.0},
+            {
+                row.scope_half: row.target_condition.enemy_defense_base
+                for row in resolutions
+                if row.target_condition is not None
+            },
+        )
+
+    def test_confirmed_profile_survives_wire_instance_count_drift(self) -> None:
+        upper = replace(
+            _profile("mon_upper", 1000.0, 900.0, 0.10),
+            selection_target_id=(
+                "Abyss_9:10:EAbyssFightStage::FirstHalf:0:0"
+            ),
+        )
+        lower = replace(
+            _profile("mon_lower", 2000.0, 1300.0, 0.45),
+            selection_target_id=(
+                "Abyss_9:10:EAbyssFightStage::SecondHalf:0:0"
+            ),
+        )
+        condition = replace(
+            _condition(upper, lower),
+            environment_ref="Abyss_9|10|mixed",
+        )
+
+        resolutions = BattleTargetInstanceMappingService.resolve(
+            _evidence(
+                ("upper", "upper-a", 1000.0),
+                ("upper", "upper-b", 1000.0),
+                ("lower", "lower-a", 2000.0),
+            ),
+            condition,
+        )
+
+        by_key = {
+            (row.scope_half, row.captured_target_id): row
+            for row in resolutions
+        }
+        self.assertIsNotNone(by_key[("upper", "upper-a")].target_condition)
+        self.assertIsNotNone(by_key[("upper", "upper-b")].target_condition)
+        lower_resolution = by_key[("lower", "lower-a")]
+        self.assertIsNotNone(lower_resolution.target_condition)
+        assert lower_resolution.target_condition is not None
+        self.assertEqual(
+            1300.0,
+            lower_resolution.target_condition.enemy_defense_base,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

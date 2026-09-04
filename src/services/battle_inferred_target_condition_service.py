@@ -32,11 +32,16 @@ from src.services.battle_inferred_target_resolution_support import (
 from src.services.battle_mixed_outer_realm_inference_service import (
     infer_mixed_outer_realm,
 )
+from src.services.battle_outer_realm_period_service import (
+    BattleOuterRealmPeriod,
+    filter_candidates_for_period,
+    resolve_outer_realm_period,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 INFERRED_ENCOUNTER_SOURCE_KIND = "inferred_encounter_hp_injective_default"
-INFERRED_ENCOUNTER_ALGORITHM_VERSION = "battle-encounter-hp-residual-v2"
+INFERRED_ENCOUNTER_ALGORITHM_VERSION = "battle-encounter-hp-residual-v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,10 +158,16 @@ class BattleInferredTargetConditionService:
         evidence: Mapping[str, Any] | None,
         range_start_us: int | None,
         range_end_us: int | None,
+        battle_occurred_at_utc: object = None,
     ) -> BattleInferredEncounter | None:
         del range_start_us, range_end_us  # UI detail range never scopes recognition.
         if static_database_path is None:
             return None
+        outer_period = cls._outer_realm_period(
+            static_database_path,
+            combat_context_kind=combat_context_kind,
+            battle_occurred_at_utc=battle_occurred_at_utc,
+        )
         mixed = infer_mixed_outer_realm(
             static_database_path=static_database_path,
             combat_context_kind=combat_context_kind,
@@ -165,6 +176,8 @@ class BattleInferredTargetConditionService:
             range_start_us=None,
             range_end_us=None,
             infer_half=cls.infer,
+            battle_occurred_at_utc=battle_occurred_at_utc,
+            outer_realm_period=outer_period,
         )
         if mixed is not None:
             return mixed
@@ -185,11 +198,14 @@ class BattleInferredTargetConditionService:
                     evidence,
                     static_dao,
                 )
-                candidates = BattleEncounterCatalogService.filter_hard_context(
-                    BattleEncounterCatalogService.load(static_dao),
-                    combat_context_kind=combat_context_kind,
-                    floor=floor,
-                    scope_half=scope_half,
+                candidates = filter_candidates_for_period(
+                    BattleEncounterCatalogService.filter_hard_context(
+                        BattleEncounterCatalogService.load(static_dao),
+                        combat_context_kind=combat_context_kind,
+                        floor=floor,
+                        scope_half=scope_half,
+                    ),
+                    outer_period,
                 )
                 selection = BattleEncounterCandidateSelectionService.select_default(
                     BattleEncounterCandidateSelectionService.strict_matches(
@@ -247,6 +263,12 @@ class BattleInferredTargetConditionService:
                 )
                 + f"{selection.default_reason}"
                 + (
+                    f"；{outer_period.inference_basis}"
+                    if outer_period is not None
+                    and candidate.environment_kind == "outer_realm"
+                    else ""
+                )
+                + (
                     "；严格候选的公式画像不等价，先使用稳定默认画像参与公式，"
                     "并保留全部冲突候选进入原始逐击残差裁决。"
                     if profile_ambiguous
@@ -280,6 +302,24 @@ class BattleInferredTargetConditionService:
             formula_matches=(selection.default, *selection.alternatives),
             formula_profile_conflict=profile_ambiguous,
         )
+
+    @staticmethod
+    def _outer_realm_period(
+        static_database_path: Path,
+        *,
+        combat_context_kind: str,
+        battle_occurred_at_utc: object,
+    ) -> BattleOuterRealmPeriod | None:
+        if str(combat_context_kind or "").strip().casefold() != "abyss":
+            return None
+        try:
+            with StaticGameDataDao(static_database_path) as static_dao:
+                return resolve_outer_realm_period(
+                    static_dao.list_outer_realm_configs(),
+                    battle_occurred_at_utc,
+                )
+        except (OSError, RuntimeError, ValueError, sqlite3.Error):
+            return None
 
     @classmethod
     def select_residual_candidate(

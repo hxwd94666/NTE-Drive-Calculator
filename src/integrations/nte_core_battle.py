@@ -289,7 +289,23 @@ def parse_battle_record(value: Any) -> dict[str, Any]:
         raise NteCoreProtocolError("state must be live or finalized")
     intervals = _array(item.get("time_stop_intervals", ()), "time_stop_intervals")
     for index, interval in enumerate(intervals):
-        _object(interval, f"time_stop_intervals[{index}]")
+        interval_item = _object(interval, f"time_stop_intervals[{index}]")
+        field = f"time_stop_intervals[{index}].pause_type_mask"
+        if "pause_type_mask" not in interval_item:
+            if contract_version >= 5:
+                raise NteCoreProtocolError(f"{field} is required for contract v5")
+            continue
+        pause_type_mask = interval_item.get("pause_type_mask")
+        if pause_type_mask is None:
+            continue
+        if (
+            isinstance(pause_type_mask, bool)
+            or not isinstance(pause_type_mask, int)
+            or not 0 < pause_type_mask <= 0xFFFF_FFFF
+        ):
+            raise NteCoreProtocolError(
+                f"{field} must be null or a non-zero u32 integer"
+            )
     summary = _object(item.get("summary"), "summary")
     abyss = _object(item.get("abyss", {}), "abyss")
     quality = _object(item.get("quality", {}), "quality")

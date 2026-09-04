@@ -158,10 +158,15 @@ def render_attribute_results(
         )
         tooltip = (
             f"{result.assumption}\n"
-            f"角色分母：{quantification_status_text(result.role_denominator_status)}；"
+            f"面板关联分母：{quantification_status_text(result.role_denominator_status)}；"
             f"团队分母：{quantification_status_text(result.team_denominator_status)}。\n"
             f"{_quantification_tooltip(result.quantification)}"
         )
+        if result.property_id.startswith("DamagePenetrate"):
+            tooltip += (
+                "\n此处只显示角色侧面板穿透；精确调频等目标减抗已经进入"
+                "目标抗性区基线，不计入角色穿透数值。"
+            )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
             item.setToolTip(tooltip)

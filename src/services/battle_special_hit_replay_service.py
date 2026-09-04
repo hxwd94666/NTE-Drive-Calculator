@@ -15,7 +15,7 @@ from src.domain.battle_report import (
     BattleSkillDamageEvidence,
 )
 from src.services.battle_hit_replay_support import (
-    ceil_replay_damage,
+    settle_replay_damage,
     dot_final_replay_factors,
     literal_replay_term,
 )
@@ -40,16 +40,6 @@ _ELEMENT_PENETRATION_PROPERTIES = {
     "nature": "DamagePenetrateNature",
     "psyche": "DamagePenetratePsyche",
     "psychically": "DamagePenetratePsychically",
-}
-
-_ELEMENT_DAMAGE_PROPERTIES = {
-    "chaos": "DamageUpChaosBase",
-    "cosmos": "DamageUpCosmosBase",
-    "incantation": "DamageUpIncantationBase",
-    "lakshana": "DamageUpLakshanaBase",
-    "nature": "DamageUpNatureBase",
-    "psyche": "DamageUpPsycheBase",
-    "psychically": "DamageUpPsychicallyBase",
 }
 
 _ELEMENT_RESISTANCE_PROPERTIES = {
@@ -155,7 +145,7 @@ class BattleSpecialHitReplayService:
                 critical_state="unreplayable",
                 confidence="未解析",
                 factors=(),
-                missing_evidence=("缺少与覆纹同一正式事件的原伤害",),
+                missing_evidence=("缺少与覆纹同一正式事件的被记录原伤害",),
                 formula_type=formula_label,
             )
         baseline = next(
@@ -176,20 +166,8 @@ class BattleSpecialHitReplayService:
         base_extra_ratio = 0.30 if lingke_passive else 0.20
         followup_multiplier = (1.0 + base_extra_ratio) * strength_multiplier - 1.0
 
-        attribute_property = _ELEMENT_DAMAGE_PROPERTIES.get(
-            str(hit.damage_attribute).casefold(), ""
-        )
-        existing_damage_bonus = float(values.get("DamageUpGeneralBase", 0.0))
-        if attribute_property:
-            existing_damage_bonus += float(values.get(attribute_property, 0.0))
-        existing_damage_zone = max(0.000001, 1.0 + existing_damage_bonus)
-        passive_damage_zone = (
-            (existing_damage_zone + 0.10) / existing_damage_zone
-            if lingke_passive
-            else 1.0
-        )
-        predicted = ceil_replay_damage(
-            triggering_hit.damage * followup_multiplier * passive_damage_zone
+        predicted = settle_replay_damage(
+            triggering_hit.damage * followup_multiplier
         )
         signed_error = _signed_error(hit.damage, predicted)
         absolute_error = None if signed_error is None else abs(signed_error)
@@ -229,21 +207,6 @@ class BattleSpecialHitReplayService:
                     else "基础覆纹规则"
                 ),
                 f"(1 + {base_extra_ratio:.0%}) × 覆纹环合强度区 - 1",
-            ),
-            _factor(
-                "lingke_damage_up",
-                "覆纹限定增伤补正",
-                passive_damage_zone,
-                (
-                    "弱点感应：覆纹追加攻击通伤 +10%，与原通伤相加"
-                    if lingke_passive
-                    else "队伍未启用弱点感应"
-                ),
-                (
-                    "(原增伤区 + 10%) / 原增伤区"
-                    if lingke_passive
-                    else "固定为 1"
-                ),
             ),
         )
         return BattleHitReplayResult(
@@ -519,10 +482,10 @@ class BattleSpecialHitReplayService:
             * vulnerability
             * dot_final_multiplier
         )
-        non_critical = ceil_replay_damage(raw_non_critical)
+        non_critical = settle_replay_damage(raw_non_critical)
         crit_damage = max(0.0, float(values.get("CritDamageBase", 0.50)))
         if channel_id == "reaction_scorch":
-            critical = ceil_replay_damage(raw_non_critical * (1.0 + crit_damage))
+            critical = settle_replay_damage(raw_non_critical * (1.0 + crit_damage))
             noncrit_error = abs(_signed_error(hit.damage, non_critical) or 0.0)
             crit_error = abs(_signed_error(hit.damage, critical) or 0.0)
             is_critical = crit_error < noncrit_error
@@ -687,7 +650,7 @@ class BattleSpecialHitReplayService:
             base_resistance + target_resistance - penetration
         )
         vulnerability = 1.0 + condition.vulnerability
-        predicted = ceil_replay_damage(
+        predicted = settle_replay_damage(
             level_multiplier * ring_multiplier * resistance * vulnerability
         )
         signed_error = _signed_error(hit.damage, predicted)

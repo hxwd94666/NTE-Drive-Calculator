@@ -5,6 +5,10 @@ import unittest
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+    BattleDamageQuantification,
+)
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleCharacterBaseline,
@@ -124,6 +128,47 @@ def _vital(*, evidence_event_ids: tuple[str, ...]) -> BattleMaxHpReductionEvent:
 def _analysis(*, evidence_event_ids: tuple[str, ...] = ("nightmare:1",)):
     hit = _nightmare()
     vital = _vital(evidence_event_ids=evidence_event_ids)
+    identity_ratio = BattleCounterfactualRatio.complete(
+        1.0,
+        method="fixture_saved_candidate",
+        confidence="高",
+        dependency_scope="target_sensitive",
+        included_dimension_ids=("structured_formula",),
+        explanation="夹具保存了与原轴相同的当前候选。",
+    )
+    denominator = BattleDamageQuantification.from_buckets(
+        status="complete",
+        fully_quantified_damage=1_800.0,
+        quantified_increment=0.0,
+    )
+    saved_candidate = SimpleNamespace(
+        hits=(SimpleNamespace(
+            event_id=hit.event_id,
+            candidate_damage=hit.damage,
+            known_projection_damage=hit.damage,
+            quantification=identity_ratio,
+        ),),
+        roles=(SimpleNamespace(
+            character_id=CHARACTER_ID,
+            candidate_damage=1_800.0,
+            known_projection_damage=1_800.0,
+            quantification=denominator,
+        ),),
+        candidate_damage=1_800.0,
+        known_projection_damage=1_800.0,
+        quantification=denominator,
+        vital_events=(SimpleNamespace(
+            event_id=vital.event_id,
+            candidate_damage=vital.effective_hp_loss,
+            known_projection_damage=vital.effective_hp_loss,
+            quantification=identity_ratio,
+            candidate_state=(
+                vital.old_max_hp,
+                vital.hp_before_settlement,
+                vital.max_hp_reduction,
+            ),
+        ),),
+    )
     return _AnalysisFixture(
         baselines=(_baseline(),),
         hits=(hit,),
@@ -134,7 +179,7 @@ def _analysis(*, evidence_event_ids: tuple[str, ...] = ("nightmare:1",)):
             max_hp_reduction_damage=vital.effective_hp_loss,
         ),),
         effective_damage=hit.damage + vital.effective_hp_loss,
-        build_counterfactual=None,
+        build_counterfactual=saved_candidate,
         target_condition=None,
         target_conditions_by_half=(),
         target_instance_resolutions=(),

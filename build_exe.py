@@ -44,6 +44,13 @@ STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"
 SHARED_DATABASE_SEED_PATH = ROOT / "data" / "app_shared.sqlite3"
 MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" / "workspace"
 MOD_LOADER_PATH = THIRD_PARTY_DIR / "mod-loader" / "bin" / "nte-mod-loader.exe"
+CONFIG_RELEASE_FILES = (
+    "gameplay_effect_semantics.json",
+    "global_ui_preferences.json",
+    "stats.json",
+    "workshop_weight_template.json",
+)
+CONFIG_RELEASE_DIRECTORIES = ("github", "templates")
 NTE_CORE_RELEASE_FILES = (
     "LICENSE",
     "SOURCE.md",
@@ -56,6 +63,7 @@ NTE_CORE_RELEASE_FILES = (
 
 SYSTEM_ICU_SHADOW_DLL = "icuuc.dll"
 FORBIDDEN_AMBIENT_ICU_DLLS = ("icuuc.dll", "icudt78.dll")
+FORBIDDEN_RUNTIME_CACHE_NAMES = ("NTE_SDK.bin", "NTE_SDK.checksum")
 
 
 def _is_same_path(left: Path, right: Path) -> bool:
@@ -110,6 +118,21 @@ def _validate_no_ambient_icu_dlls(output: Path) -> None:
         raise RuntimeError(f"打包产物混入外部 ICU DLL，已拒绝发布：{joined}")
 
 
+def _validate_no_runtime_caches(output: Path) -> None:
+    """Reject local SDK caches that must be generated on the user's machine."""
+
+    if not output.is_dir():
+        return
+    found = [
+        path.relative_to(output)
+        for name in FORBIDDEN_RUNTIME_CACHE_NAMES
+        for path in output.rglob(name)
+    ]
+    if found:
+        joined = "、".join(str(path) for path in found)
+        raise RuntimeError(f"打包产物混入本机运行时缓存，已拒绝发布：{joined}")
+
+
 def _running_in_automation() -> bool:
     return build_cli.running_in_automation()
 
@@ -149,7 +172,6 @@ config_dir = ROOT / "config"
 assets_dir = ROOT / "assets"
 icon_path = assets_dir / "app_icon.ico"
 sep = ";" if sys.platform == "win32" else ":"
-args.append(f"--add-data={config_dir}{sep}config")
 if assets_dir.exists():
     args.append(f"--add-data={assets_dir}{sep}assets")
 if icon_path.exists():
@@ -162,6 +184,19 @@ def _append_add_data(src: str | Path, dst: str):
 
 def _append_add_binary(src: str | Path, dst: str):
     args.append(f"--add-binary={Path(src)}{sep}{dst}")
+
+
+# 发行配置采用显式白名单，避免把 config 下的账号数据或运行时 SDK 缓存带入安装包。
+for release_name in CONFIG_RELEASE_FILES:
+    release_path = config_dir / release_name
+    if not release_path.is_file():
+        raise FileNotFoundError(f"打包缺少发行配置文件：{release_path}")
+    _append_add_data(release_path, "config")
+for release_name in CONFIG_RELEASE_DIRECTORIES:
+    release_path = config_dir / release_name
+    if not release_path.is_dir():
+        raise FileNotFoundError(f"打包缺少发行配置目录：{release_path}")
+    _append_add_data(release_path, f"config/{release_name}")
 
 
 def _first_existing_file(*candidates: str | Path | None) -> Path | None:
@@ -413,6 +448,7 @@ if onefile:
 
 if output.exists():
     _validate_no_ambient_icu_dlls(output)
+    _validate_no_runtime_caches(output)
     size_mb = sum(
         f.stat().st_size for f in output.rglob("*") if f.is_file()
     ) / (1024 * 1024)

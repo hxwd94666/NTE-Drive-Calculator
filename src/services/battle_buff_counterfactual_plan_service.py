@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
+    BattleHitBuffProjection,
     BattleInferredBuffInterval,
 )
 from src.services.battle_buff_interval_index import BattleBuffIntervalIndex
@@ -23,12 +24,32 @@ def battle_buff_counterfactual_key(
         or getattr(interval, "buff_asset_path", "")
         or getattr(interval, "buff_name", "")
     )
+    modifier_identity = ",".join(sorted({
+        modifier.property_id for modifier in interval.modifiers
+    }))
     return "\x1f".join((
         str(getattr(interval, "source_character_id", 0)),
         source_identity,
         getattr(interval, "buff_asset_path", ""),
         getattr(interval, "target_scope", "unknown"),
+        modifier_identity,
     ))
+
+
+def battle_buff_applied_hits(
+    active_hits: Sequence[BattleAnalysisHit],
+    projections: Mapping[str, BattleHitBuffProjection],
+    intervals: Sequence[BattleInferredBuffInterval],
+) -> tuple[BattleAnalysisHit, ...]:
+    """Keep only hits whose formula projection actually consumed this group."""
+
+    interval_ids = frozenset(interval.interval_id for interval in intervals)
+    return tuple(
+        hit
+        for hit in active_hits
+        if (projection := projections.get(hit.event_id)) is not None
+        and interval_ids.intersection(projection.applied_interval_ids)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,5 +111,6 @@ class BattleBuffCounterfactualPlanService:
 __all__ = [
     "BattleBuffCounterfactualGroupPlan",
     "BattleBuffCounterfactualPlanService",
+    "battle_buff_applied_hits",
     "battle_buff_counterfactual_key",
 ]

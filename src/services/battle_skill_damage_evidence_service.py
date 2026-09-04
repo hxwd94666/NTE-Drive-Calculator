@@ -25,6 +25,7 @@ from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService,
 )
 from src.services.battle_character_awakening_hit_service import (
+    character_awakening_damage_id,
     character_awakening_damage_multiplier,
 )
 from src.services.battle_damage_composition_service import (
@@ -44,7 +45,10 @@ _NON_CRITICAL_DAMAGE_IDS = frozenset({
     "ge_reaction_4_new_1070_damage",
     "ge_reaction_3_new_1071_damage",
 })
-_NO_SKILL_LEVEL_DAMAGE_IDS = frozenset({"ge_reaction_3_new_1071_damage"})
+_NO_SKILL_LEVEL_DAMAGE_IDS = frozenset({
+    "ge_player_kuhara_seedreaction_damage",
+    "ge_reaction_3_new_1071_damage",
+})
 _KUHARA_EFFECT_CURVE_TABLE = (
     "/Game/DataTable/Skill/GlobalCharacterData/DT_KuharaEffectFigure"
 )
@@ -123,6 +127,38 @@ def _character_builds(build: Mapping[str, Any] | None) -> dict[int, Mapping[str,
     }
 
 
+def _character_element(static_dao: Any, character_id: int | None) -> str:
+    if character_id is None or not hasattr(static_dao, "get_character"):
+        return "unknown"
+    character = static_dao.get_character(character_id) or {}
+    value = str(character.get("element_type") or "")
+    marker = "CHARACTER_ELEMENT_TYPE_"
+    return (
+        value.rsplit(marker, 1)[-1].casefold()
+        if marker in value
+        else value.casefold() or "unknown"
+    )
+
+
+def _targets_with_weave(analysis: BattleAnalysisSnapshot) -> set[tuple[int, str]]:
+    return {
+        (hit.sequence, hit.target_id)
+        for hit in getattr(analysis, "timeline_hits", analysis.hits)
+        if hit.is_follow_up and hit.classification == "weave" and hit.target_id
+    }
+
+
+def _is_formal_follow_up(static_dao: Any, damage_id: str) -> bool:
+    if not hasattr(static_dao, "gameplay_effect_has_tag"):
+        return False
+    return bool(
+        static_dao.gameplay_effect_has_tag(
+            damage_id,
+            "Ability.Player.Nanally.XieTongDamage",
+        )
+    )
+
+
 def _canonical_reaction_damage_id(
     *,
     channel_id: str,
@@ -184,7 +220,7 @@ def _skill_level_ability_id(
     """Resolve a derived GE to the player-levelled parent ability when bounded."""
 
     if damage_id.casefold() in _NO_SKILL_LEVEL_DAMAGE_IDS:
-        return "", "正式被动派生倍率不读取 Q 或其他技能等级"
+        return "", "正式被动派生倍率不读取 A 或其他技能等级"
 
     if not hasattr(static_dao, "list_skill_level_ability_candidates"):
         return imported_ability_id or observed_ability_id, ""
@@ -258,6 +294,11 @@ class BattleSkillDamageEvidenceService:
             builds.get(1036),
         )
         co_timed_damage_ids = _co_timed_damage_ids(analysis)
+        linko_inferences = {
+            row.event_id: row
+            for row in getattr(analysis, "linko_coattack_inferences", ())
+        }
+        targets_with_weave = _targets_with_weave(analysis)
         cache: dict[str, dict[str, Any] | None] = {}
         evidence = []
         for hit in analysis.hits:
@@ -293,12 +334,17 @@ class BattleSkillDamageEvidenceService:
                 damage_id, inferred_basis = co_timed_damage_ids[hit.event_id]
             if not damage_id:
                 continue
+            damage_id = character_awakening_damage_id(
+                builds.get(1072),
+                damage_id=damage_id,
+            )
             if damage_id not in cache:
                 cache[damage_id] = static_dao.get_skill_damage(damage_id)
             row = cache[damage_id]
             if row is None:
                 continue
-            source_character_id = (
+            action_character_id = hit.character_id
+            definition_owner_character_id = (
                 1036
                 if damage_id.casefold() == _ZANKOU_SCORCH_DAMAGE_ID.casefold()
                 else hit.character_id
@@ -312,30 +358,66 @@ class BattleSkillDamageEvidenceService:
                 )
                 if len(formal_owner_ids) == 1:
                     formal_owner_id = formal_owner_ids[0]
-                    if formal_owner_id != source_character_id:
+                    if formal_owner_id != definition_owner_character_id:
                         inferred_basis = (
                             f"{inferred_basis}；" if inferred_basis else ""
                         ) + (
                             f"正式伤害技能属于角色 {formal_owner_id}，"
-                            f"不采用 Core 会话归属角色 {source_character_id} 的面板"
+                            f"不采用 Core 会话归属角色 {definition_owner_character_id} 的公式定义"
                         )
-                    source_character_id = formal_owner_id
-            character = builds.get(source_character_id or -1)
-            if character is None:
+                    definition_owner_character_id = formal_owner_id
+            panel_character_id = definition_owner_character_id
+            skill_level_character_id = definition_owner_character_id
+            damage_attribute_source_character_id = definition_owner_character_id
+            damage_attribute_source = "static_gameplay_effect"
+            formula_context_kind = ""
+            formula_context_confidence = ""
+            formula_context_basis = ""
+            linko_inference = linko_inferences.get(hit.event_id)
+            if linko_inference is not None:
+                action_character_id = linko_inference.action_character_id
+                definition_owner_character_id = (
+                    linko_inference.definition_owner_character_id
+                )
+                panel_character_id = linko_inference.panel_character_id
+                skill_level_character_id = linko_inference.skill_level_character_id
+                damage_attribute_source_character_id = (
+                    linko_inference.damage_attribute_source_character_id
+                )
+                damage_attribute_source = linko_inference.damage_attribute_source
+                formula_context_kind = f"linko_coattack:{linko_inference.trigger_kind}"
+                formula_context_confidence = linko_inference.confidence
+                formula_context_basis = linko_inference.inference_basis
+                inferred_basis = (
+                    f"{inferred_basis}；" if inferred_basis else ""
+                ) + linko_inference.inference_basis
+            character = builds.get(panel_character_id or -1)
+            level_character = builds.get(skill_level_character_id or -1)
+            if character is None or level_character is None:
                 continue
             imported_ability_id = str(row.get("ability_id") or "")
-            ability_id, level_owner_basis = _skill_level_ability_id(
-                static_dao,
-                character_id=int(character["character_id"]),
-                damage_id=damage_id,
-                observed_ability_id=str(hit.ability_id or ""),
-                imported_ability_id=imported_ability_id,
-            )
+            if linko_inference is not None:
+                ability_id = linko_inference.skill_level_ability_id
+                level_owner_basis = (
+                    "同频合击推论仅覆盖面板与等级来源：倍率定义仍取执行角色伤害项，"
+                    f"等级读取角色 {skill_level_character_id} 的 {ability_id}；"
+                    f"置信度 {linko_inference.confidence}"
+                )
+            else:
+                ability_id, level_owner_basis = _skill_level_ability_id(
+                    static_dao,
+                    character_id=int(level_character["character_id"]),
+                    damage_id=damage_id,
+                    observed_ability_id=str(hit.ability_id or ""),
+                    imported_ability_id=imported_ability_id,
+                )
             if ability_id:
                 effective_level = _effective_level(
-                    character,
+                    level_character,
                     ability_id,
-                    awakenings_by_character.get(int(character["character_id"]), ()),
+                    awakenings_by_character.get(
+                        int(level_character["character_id"]), ()
+                    ),
                 )
                 tier = skill_tier_for_effective_level(
                     effective_level,
@@ -364,6 +446,18 @@ class BattleSkillDamageEvidenceService:
             coefficient = 1.0
             fixed_crit_rate = float(row.get("fixed_crit_rate") or 0.0)
             damage_attribute = str(row.get("damage_type") or "unknown").casefold()
+            if linko_inference is not None:
+                inferred_attribute = str(
+                    linko_inference.damage_attribute or ""
+                ).casefold()
+                damage_attribute = (
+                    inferred_attribute
+                    if inferred_attribute not in {"", "unknown"}
+                    else _character_element(
+                        static_dao,
+                        damage_attribute_source_character_id,
+                    )
+                )
             critical_policy = (
                 "unknown" if damage_attribute == "true"
                 else "disabled"
@@ -460,7 +554,7 @@ class BattleSkillDamageEvidenceService:
                 multiplier_coefficient=coefficient,
                 effective_skill_level=effective_level,
                 evidence_basis=basis,
-                source_character_id=source_character_id,
+                source_character_id=panel_character_id,
                 formula_kind=(
                     "reaction" if reaction_level_multiplier is not None else "skill"
                 ),
@@ -498,5 +592,18 @@ class BattleSkillDamageEvidenceService:
                     zankou_q_final.evidence_basis
                     if zankou_q_final is not None else ""
                 ),
+                action_character_id=action_character_id,
+                definition_owner_character_id=definition_owner_character_id,
+                panel_character_id=panel_character_id,
+                skill_level_character_id=skill_level_character_id,
+                damage_attribute_source_character_id=(
+                    damage_attribute_source_character_id
+                ),
+                damage_attribute_source=damage_attribute_source,
+                formula_context_kind=formula_context_kind,
+                formula_context_confidence=formula_context_confidence,
+                formula_context_basis=formula_context_basis,
+                is_formal_follow_up=_is_formal_follow_up(static_dao, damage_id),
+                target_has_weave=(hit.sequence, hit.target_id) in targets_with_weave,
             ))
         return tuple(evidence)

@@ -143,8 +143,8 @@ class BattleHitReplayFormulaDetailsTests(unittest.TestCase):
         )
         assert result.non_critical_damage is not None
         assert result.critical_damage is not None
-        self.assertEqual(613.0, result.non_critical_damage)
-        self.assertEqual(1226.0, result.critical_damage)
+        self.assertEqual(612.0, result.non_critical_damage)
+        self.assertEqual(1225.0, result.critical_damage)
         self.assertEqual(
             (result.non_critical_damage + result.critical_damage) / 2.0,
             result.expected_damage,

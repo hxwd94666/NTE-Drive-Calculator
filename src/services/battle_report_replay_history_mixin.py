@@ -91,6 +91,33 @@ class BattleReportReplayHistoryMixin:
         except (OSError, RuntimeError, ValueError):
             return ()
 
+    def _load_character_elements(
+        self,
+        build: dict[str, Any] | None,
+    ) -> dict[int, str]:
+        """Load static character elements for versioned formula inference only."""
+        static_path = self._dependencies.static_database_path
+        character_ids = tuple(
+            int(row.get("character_id") or 0)
+            for row in (build or {}).get("characters") or ()
+            if int(row.get("character_id") or 0) > 0
+        )
+        if static_path is None or not character_ids:
+            return {}
+        try:
+            with StaticGameDataDao(static_path) as static_dao:
+                return {
+                    character_id: str(
+                        (static_dao.get_character(character_id) or {}).get(
+                            "element_type"
+                        )
+                        or ""
+                    )
+                    for character_id in character_ids
+                }
+        except (OSError, RuntimeError, ValueError):
+            return {}
+
     def _load_buff_rules(
         self,
         build: dict[str, Any] | None,

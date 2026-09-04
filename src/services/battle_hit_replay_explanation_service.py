@@ -425,6 +425,21 @@ class BattleHitReplayExplanationService:
             f"目标：{hit.target_name}",
             "",
         ]
+        if replay is not None and replay.formula_context_kind:
+            lines.extend((
+                "【派生公式归属】",
+                (
+                    f"执行角色：{replay.formula_action_character_id or '未知'}；倍率定义角色："
+                    f"{replay.formula_definition_owner_character_id or '未知'}；"
+                    f"面板角色：{replay.formula_panel_character_id or '未知'}"
+                ),
+                f"技能等级角色：{replay.formula_skill_level_character_id or '未知'}；等级技能：{replay.formula_skill_level_ability_id or '未知'}",
+                f"公式属性：{replay.formula_damage_attribute or 'unknown'}；属性来源：{replay.formula_damage_attribute_source or 'unknown'}",
+                f"推论类型：{replay.formula_context_kind}；置信度：{replay.formula_context_confidence or '未知'}",
+                f"依据：{replay.formula_context_basis}",
+                "口径：这里只覆盖公式消费者，不改写 Core 原始逐击角色、动作泳道或技能构成。",
+                "",
+            ))
         if counterfactual is not None:
             quantification = counterfactual.quantification
             projection = (
@@ -543,7 +558,7 @@ class BattleHitReplayExplanationService:
                     f"实际伤害期望：{_damage(replay.corrected_expected_damage)}"
                 ),
                 (
-                    "期望口径：向上取整后的未暴击/暴击候选按暴击率加权；"
+                    "期望口径：向下取整后的未暴击/暴击候选按暴击率加权；"
                     "实际期望按本击有符号误差同比补正。"
                 ),
                 (
@@ -612,7 +627,7 @@ class BattleHitReplayExplanationService:
             lines.extend((
                 f"团队倾陷伤害 = {expression}",
                 f"  = {substituted}",
-                f"  = ceil({raw_damage:,.6f}) = {_damage(replay.non_critical_damage)}",
+                f"  = floor({raw_damage:,.6f}) = {_damage(replay.non_critical_damage)}",
             ))
         elif _REQUIRED_FORMULA_FACTOR_IDS.issubset(factors):
             expression = " × ".join(factor.label for factor in formula_factors)
@@ -621,7 +636,7 @@ class BattleHitReplayExplanationService:
             lines.extend((
                 f"伤害（未暴击） = {expression}",
                 f"  = {substituted}",
-                f"  = ceil({noncrit:,.6f}) = {_damage(replay.non_critical_damage)}",
+                f"  = floor({noncrit:,.6f}) = {_damage(replay.non_critical_damage)}",
             ))
             critical = factors.get("critical")
             if critical is not None:
@@ -629,7 +644,7 @@ class BattleHitReplayExplanationService:
                 lines.extend((
                     f"伤害（暴击） = 未取整伤害 × {critical.label}",
                     f"  = {noncrit:,.2f} × {_factor_value(critical)}",
-                    f"  = ceil({raw_critical:,.6f}) = {_damage(replay.critical_damage)}",
+                    f"  = floor({raw_critical:,.6f}) = {_damage(replay.critical_damage)}",
                 ))
         elif _REQUIRED_REACTION_FACTOR_IDS.issubset(factors):
             expression = " × ".join(
@@ -646,7 +661,7 @@ class BattleHitReplayExplanationService:
             lines.extend((
                 f"伤害（未暴击） = {expression}",
                 f"  = {substituted}",
-                f"  = ceil({noncrit:,.6f}) = {_damage(replay.non_critical_damage)}",
+                f"  = floor({noncrit:,.6f}) = {_damage(replay.non_critical_damage)}",
             ))
             critical = factors.get("critical")
             if critical is not None:
@@ -654,7 +669,7 @@ class BattleHitReplayExplanationService:
                 lines.extend((
                     f"伤害（暴击） = 未取整伤害 × {critical.label}",
                     f"  = {noncrit:,.2f} × {_factor_value(critical)}",
-                    f"  = ceil({raw_critical:,.6f}) = {_damage(replay.critical_damage)}",
+                    f"  = floor({raw_critical:,.6f}) = {_damage(replay.critical_damage)}",
                 ))
         else:
             missing_target = any(

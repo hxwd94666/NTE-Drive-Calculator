@@ -34,7 +34,7 @@ from src.services.battle_target_control_policy_service import (
     BattleTargetControlPolicyService, CONTROL_CONFIRMED_ALL_BOSS,
 )
 
-BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v29"
+BUFF_INFERENCE_MODEL_VERSION = "battle-static-buff-v30"
 @dataclass(frozen=True, slots=True)
 class _SelectedEffect:
     character_id: int

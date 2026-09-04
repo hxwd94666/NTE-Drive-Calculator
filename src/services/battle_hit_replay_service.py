@@ -28,7 +28,7 @@ from src.services.battle_topple_hit_replay_service import (
     BattleToppleCharacterConfig, BattleToppleHitReplayService,
 )
 from src.services.battle_hit_replay_support import (
-    apply_observed_damage_correction, ceil_replay_damage,
+    apply_observed_damage_correction, settle_replay_damage,
     dot_final_replay_factors,
     first_replay_value as _first_value,
     literal_replay_term,
@@ -62,7 +62,8 @@ from src.services.battle_hit_buff_projection_cache import (
     BattleHitBuffProjectionCache,
 )
 from src.services.battle_weave_source_service import find_paired_weave_source_hit
-HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v32"
+from src.services.battle_formula_hit_projection_service import project_formula_hit, project_replay_formula_context
+HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v36"
 class BattleHitReplayService:
     @classmethod
     def replay(
@@ -138,8 +139,7 @@ class BattleHitReplayService:
                 )
             channel_id, formula_label = classify_battle_hit_channel(hit)
             evidence = evidence_by_event.get(hit.event_id)
-            formula_hit = replace(hit, character_id=evidence.source_character_id) \
-                if evidence and evidence.source_character_id is not None else hit
+            formula_hit = project_formula_hit(hit, evidence)
             if channel_id == "reaction_hexed":
                 source_hit = find_paired_weave_source_hit(
                     hit,
@@ -182,7 +182,7 @@ class BattleHitReplayService:
                     character_configs=topple_character_configs or {},
                     source_character_id=1054, formula_type="达芙蒂尔·额外倾陷伤害",
                 )
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             if channel_id == "other_topple":
                 result = BattleToppleHitReplayService.replay(
@@ -190,7 +190,7 @@ class BattleHitReplayService:
                     analysis=hit_analysis,
                     character_configs=topple_character_configs or {},
                 )
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             if channel_id == "special_fadia_shared_damage":
                 result = cls._unreplayable(
@@ -202,7 +202,7 @@ class BattleHitReplayService:
                     ),
                     formula_label,
                 )
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             if baseline is None and (channel_id != "reaction_hexed" or source_hit is not None):
                 result = cls._unreplayable(
@@ -211,7 +211,7 @@ class BattleHitReplayService:
                     "缺少角色面板",
                     formula_label,
                 )
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             if channel_id == "reaction_hexed":
                 projection = (
@@ -239,7 +239,7 @@ class BattleHitReplayService:
                     analysis=hit_analysis,
                 )
                 assert result is not None
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             if evidence is None:
                 result = cls._unreplayable(
@@ -248,7 +248,7 @@ class BattleHitReplayService:
                     "缺少等级解析后的技能倍率",
                     formula_label,
                 )
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             if getattr(hit_analysis, "target_condition", None) is None:
                 result = cls._unreplayable(
@@ -257,7 +257,7 @@ class BattleHitReplayService:
                     "尚未保存用户确认的单目标防御与抗性",
                     "直伤",
                 )
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             projection = (
                 None
@@ -293,7 +293,7 @@ class BattleHitReplayService:
                         formula_label,
                     )
                 )
-                results.append(apply_observed_damage_correction(result, hit))
+                results.append(apply_observed_damage_correction(project_replay_formula_context(result, formula_hit, evidence), hit))
                 continue
             rendered_formula_label = (
                 formula_label
@@ -335,7 +335,7 @@ class BattleHitReplayService:
             else:
                 result = reanchor_direct_replay_result(template, formula_hit)
             results.append(apply_observed_damage_correction(
-                result,
+                project_replay_formula_context(result, formula_hit, evidence),
                 hit,
             ))
         raw_results = tuple(results)
@@ -469,13 +469,13 @@ class BattleHitReplayService:
         crit_damage_bonus = max(0.0, values.get("CritDamageBase", 0.50))
         stack_coefficient = max(1.0, evidence.state_multiplier)
         raw_non_critical = one_stack_non_critical * stack_coefficient
-        non_critical = ceil_replay_damage(raw_non_critical)
+        non_critical = settle_replay_damage(raw_non_critical)
         critical_disabled = evidence.critical_policy == "disabled"
         critical_unknown = evidence.critical_policy == "unknown"
         critical = (
             None
             if critical_disabled
-            else ceil_replay_damage(raw_non_critical * (1.0 + crit_damage_bonus))
+            else settle_replay_damage(raw_non_critical * (1.0 + crit_damage_bonus))
         )
         critical_rate = (
             None

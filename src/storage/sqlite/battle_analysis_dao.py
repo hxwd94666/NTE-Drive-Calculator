@@ -562,7 +562,7 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
         intervals = self._rows(
             """
             SELECT ordinal, start_unix_us, end_unix_us, duration_us,
-                   raw_interval_json
+                   pause_type_mask, raw_interval_json
             FROM battle_time_stop_interval
             WHERE capture_id = ? ORDER BY ordinal
             """,

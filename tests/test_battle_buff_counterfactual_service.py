@@ -368,7 +368,7 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
             (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
 
         self.assertEqual("partial", result.quantification.status)
-        self.assertEqual(2, result.affected_hits)
+        self.assertEqual(1, result.affected_hits)
         self.assertEqual(1, result.quantified_hits)
         self.assertAlmostEqual(115.0, result.damage_coverage.covered_damage)
         self.assertAlmostEqual(900.0, result.damage_coverage.unresolved_damage)
@@ -539,8 +539,9 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
 
         self.assertEqual("component_ratio_unavailable", result.method)
         self.assertEqual("unavailable", result.quantification.status)
-        self.assertEqual(1, result.affected_hits)
+        self.assertEqual(0, result.affected_hits)
         self.assertEqual(0, result.quantified_hits)
+        self.assertAlmostEqual(900.0, result.damage_coverage.unresolved_damage)
         self.assertIsNone(result.without_buff_damage)
         self.assertIsNone(result.damage_gain)
         self.assertIsNone(result.gain_percent)
@@ -592,7 +593,7 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
         self.assertIsNone(result.beneficiaries[0].quantified_damage_gain)
         self.assertIsNone(result.quantified_unattributed_damage_gain)
 
-    def test_attack_buff_is_complete_when_target_profile_is_unknown(self) -> None:
+    def test_attack_buff_is_partial_when_buff_state_is_inferred(self) -> None:
         hit = _hit("hit1", 1_150.0)
         baseline = BattleCharacterBaseline(
             1,
@@ -614,9 +615,10 @@ class BattleBuffCounterfactualServiceTests(unittest.TestCase):
 
         (result,) = BattleBuffCounterfactualService.calculate(analysis, ())
 
-        self.assertEqual("complete", result.quantification.status)
-        self.assertAlmostEqual(1_000.0, result.without_buff_damage)
-        self.assertAlmostEqual(150.0, result.damage_gain)
+        self.assertEqual("partial", result.quantification.status)
+        self.assertIsNone(result.without_buff_damage)
+        self.assertIsNone(result.damage_gain)
+        self.assertAlmostEqual(1_000.0, result.without_quantified_effect_damage)
         self.assertAlmostEqual(150.0, result.quantified_damage_gain)
 
     def test_target_resistance_buff_is_unavailable_without_target_profile(self) -> None:

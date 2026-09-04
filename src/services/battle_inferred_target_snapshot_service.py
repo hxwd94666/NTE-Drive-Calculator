@@ -225,6 +225,7 @@ class BattleInferredTargetSnapshotService:
         combat_context_kind: str,
         floor: int | None,
         evidence: Mapping[str, Any] | None,
+        battle_occurred_at_utc: object = None,
         dependencies: Any,
         context_is_current: Callable[[Any], bool],
     ) -> tuple[
@@ -261,6 +262,7 @@ class BattleInferredTargetSnapshotService:
                     evidence=evidence,
                     range_start_us=None,
                     range_end_us=None,
+                    battle_occurred_at_utc=battle_occurred_at_utc,
                 )
                 inferred_cache[battle_record_id] = inferred
         saved_seed = bool(

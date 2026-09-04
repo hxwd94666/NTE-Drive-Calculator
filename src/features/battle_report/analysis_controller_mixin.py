@@ -150,6 +150,7 @@ class BattleReportAnalysisControllerMixin:
         detail_scope: str | None = None,
         detail_level: str = "overview",
         marginal_candidate: BattleMarginalCandidate | None = None,
+        marginal_benefit_candidate: BattleMarginalCandidate | None = None,
         comparison_baseline: BattleAnalysisSnapshot | None = None,
         completion_kind: str = "",
         completion_payload: object | None = None,
@@ -172,6 +173,9 @@ class BattleReportAnalysisControllerMixin:
                 detail_scope=detail_scope,
                 detail_level=detail_level,
                 marginal_candidate=marginal_candidate,
+                marginal_benefit_candidate=marginal_benefit_candidate,
+                selected_character_id=selected_character_id,
+                static_database_path=self._app_context.paths.static_database_path,
                 comparison_baseline=comparison_baseline,
             ),
             account_id=account.active_account_id,
@@ -300,6 +304,7 @@ class BattleReportAnalysisControllerMixin:
                 analysis,
                 detail_scope=request.load.detail_scope,
                 is_candidate=request.load.marginal_candidate is not None,
+                marginal_benefits=result.marginal_benefits,
             )
         else:
             self._page.set_analysis(

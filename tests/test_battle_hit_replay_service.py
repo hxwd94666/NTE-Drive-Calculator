@@ -2,25 +2,23 @@
 from __future__ import annotations
 
 import unittest
-from math import ceil
+from math import floor
 from types import SimpleNamespace
 
 from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitBuffProjection,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
-    BattleTargetCondition,
+    BattleAnalysisHit, BattleAnalysisSnapshot,
+    BattleCharacterBaseline, BattleCharacterStat,
+    BattleHitBuffProjection, BattleHitReplayFactor, BattleHitReplayResult,
+    BattleSkillDamageEvidence, BattleTargetCondition,
 )
 from src.services.battle_hit_replay_service import BattleHitReplayService
 from src.services.battle_hit_local_crit_inference_service import (
     BattleHitLocalCritInferenceService,
 )
-from src.services.battle_hit_replay_support import apply_observed_damage_correction
+from src.services.battle_hit_replay_support import (
+    apply_observed_damage_correction,
+    settle_replay_damage,
+)
 from src.services.battle_special_hit_replay_service import (
     BattleSpecialHitReplayService,
 )
@@ -28,8 +26,11 @@ from src.services.battle_topple_hit_replay_service import (
     BattleToppleCharacterConfig,
 )
 
-
 class BattleHitReplayServiceTests(unittest.TestCase):
+    def test_replay_settlement_floors_only_after_all_factors(self) -> None:
+        self.assertEqual(10.0, settle_replay_damage(10.75))
+        self.assertEqual(0.0, settle_replay_damage(-0.25))
+
     def test_overkill_uses_raw_report_for_formula_but_effective_damage_for_total(self) -> None:
         hit = BattleAnalysisHit(
             event_id="1049:primary",
@@ -197,7 +198,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             for factor in result.factors
             if factor.factor_id == "topple_character:1054"
         )
-        self.assertEqual(float(ceil(expected)), result.selected_damage)
+        self.assertEqual(float(floor(expected)), result.selected_damage)
         self.assertAlmostEqual(expected, contribution.value)
         self.assertIn(f"{defense:.6f}", contribution.formula)
         self.assertIn("0.800000", contribution.formula)
@@ -279,12 +280,12 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         )
 
         assert result is not None and result.selected_damage is not None
-        self.assertEqual(
-            float(ceil(1000.0 * (1.30 * 1.08 - 1.0) * (1.60 / 1.50))),
-            result.selected_damage,
-        )
+        expected = float(floor(1000.0 * (1.30 * 1.08 - 1.0)))
+        self.assertEqual(expected, result.selected_damage)
         self.assertEqual("not_applicable", result.critical_state)
         self.assertIn("弱点感应", result.factors[2].evidence_basis)
+        factor_ids = {factor.factor_id for factor in result.factors}
+        self.assertNotIn("lingke_damage_up", factor_ids)
 
     def test_weave_uses_paired_damage_source_magbase_including_dot(self) -> None:
         primary = BattleAnalysisHit(
@@ -354,7 +355,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         )
         replay = next(row for row in results if row.event_id == weave.event_id)
 
-        self.assertEqual(297.0, replay.selected_damage)
+        self.assertEqual(296.0, replay.selected_damage)
         strength = next(
             row for row in replay.factors if row.factor_id == "weave_strength"
         )
@@ -517,7 +518,7 @@ class BattleHitReplayServiceTests(unittest.TestCase):
             channel_id="reaction_scorch",
             character_id=1003,
             attribute="incantation",
-            observed=6204.0,
+            observed=6203.0,
             level_multiplier=2700.0,
             static_multiplier=1.5,
             ring_strength=60.0,
@@ -541,10 +542,10 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         assert stacked_scorch.selected_damage is not None
         assert enhanced_scorch is not None
         assert enhanced_scorch.selected_damage is not None
-        self.assertEqual(5199.0, creation.selected_damage)
-        self.assertEqual(1379.0, scorch.selected_damage)
-        self.assertEqual(4136.0, stacked_scorch.selected_damage)
-        self.assertEqual(2068.0, enhanced_scorch.selected_damage)
+        self.assertEqual(5198.0, creation.selected_damage)
+        self.assertEqual(1378.0, scorch.selected_damage)
+        self.assertEqual(4135.0, stacked_scorch.selected_damage)
+        self.assertEqual(2067.0, enhanced_scorch.selected_damage)
         self.assertNotIn(
             "reaction_multiplier",
             {factor.factor_id for factor in scorch.factors},

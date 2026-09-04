@@ -268,9 +268,9 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
         replay = BattleHitReplayResult(
             event_id=hit.event_id,
             observed_damage=1_630.0,
-            non_critical_damage=1_631.0,
+            non_critical_damage=1_630.0,
             critical_damage=None,
-            selected_damage=1_631.0,
+            selected_damage=1_630.0,
             selected_error_percent=0.0257,
             critical_state="non_critical",
             confidence="中",
@@ -291,7 +291,7 @@ class BattleHitReplayExplanationServiceTests(unittest.TestCase):
             "0.920000 × 1.000000 × 1.000000 × 1.500000",
             text,
         )
-        self.assertIn("ceil(1,630.418705) = 1,631.00", text)
+        self.assertIn("floor(1,630.418705) = 1,630.00", text)
 
     def test_unreplayable_hit_explains_missing_adapter(self) -> None:
         hit = BattleAnalysisHit(

@@ -14,6 +14,7 @@ from src.domain.battle_encounter import (
     BattleEncounterTargetPreset,
 )
 from src.services.battle_encounter_candidate_support import world_boss_candidates
+from src.services.battle_outer_realm_period_service import period_label_for_config
 from src.services.battle_target_candidate_graph_service import normalized_monster_key
 
 
@@ -195,6 +196,9 @@ class BattleEncounterCatalogService:
         names: Mapping[str, str],
     ) -> tuple[BattleEncounterCandidate, ...]:
         configs = tuple(static_dao.list_outer_realm_configs()[:2])
+        config_details = {
+            str(row.get("level_config_id") or ""): row for row in configs
+        }
         config_rank = {
             str(row.get("level_config_id") or ""): index
             for index, row in enumerate(configs)
@@ -248,7 +252,9 @@ class BattleEncounterCatalogService:
                     environment_kind="outer_realm",
                     environment_ref=f"{config_id}|{floor}|{stage}",
                     environment_name=(
-                        f"轨外之境第{floor}层{'上半' if half == 'upper' else '下半'}"
+                        "轨外之境 · "
+                        f"{period_label_for_config(config_details[config_id])} · "
+                        f"第{floor}层{'上半' if half == 'upper' else '下半'}"
                     ),
                     scope_half=half,
                     outer_realm_floor=floor,

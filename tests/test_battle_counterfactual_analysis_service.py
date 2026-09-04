@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 from src.domain.battle_report import (
     BattleHitReplayFactor,
     BattleHitReplayResult,
+    BattleLinkoCoattackInference,
 )
 from src.services.battle_action_inference_service import (
     BattleActionAnimationCandidate,
@@ -94,6 +96,13 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
                 gameplay_tags=("State.Damage.Dot",),
             ),
         )
+        self.assertEqual(
+            "mechanic",
+            classification(
+                "摄食模式",
+                gameplay_effect_name="GE_Player_Sagiri_Branch_Kill_Damage",
+            ),
+        )
 
     def test_range_uses_half_open_boundary_and_keeps_full_timeline(self) -> None:
         result = BattleCounterfactualAnalysisService.analyze(
@@ -111,9 +120,51 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual("weave", result.hits[1].classification)
         self.assertEqual(1, len(result.targets))
         self.assertEqual(1, len(result.inferred_actions))
-        self.assertEqual("battle-action-window-v14", result.action_inference_version)
+        self.assertEqual("battle-action-window-v15", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
-        self.assertEqual("battle-counterfactual-v22", result.formula_model_version)
+        self.assertEqual("battle-counterfactual-v24", result.formula_model_version)
+
+    def test_linko_formula_inference_is_derived_before_range_projection(self) -> None:
+        inference = BattleLinkoCoattackInference(
+            event_id="1:primary",
+            trigger_kind="skill",
+            action_character_id=1036,
+            definition_owner_character_id=1036,
+            panel_character_id=1072,
+            skill_level_character_id=1072,
+            skill_level_ability_id="GA_Radio072_QTE",
+            damage_attribute_source_character_id=1036,
+            damage_attribute="incantation",
+            damage_attribute_source="initiator_character_static_profile",
+            confidence="中",
+            inference_basis="测试派生入口",
+            evidence_event_ids=("1:primary",),
+        )
+        with patch(
+            "src.services.battle_counterfactual_analysis_service."
+            "BattleLinkoCoattackInferenceService.infer",
+            return_value=(inference,),
+        ) as infer:
+            result = BattleCounterfactualAnalysisService.analyze(
+                battle_record_id=7,
+                evidence=_evidence(),
+                build=_build(),
+                capability_level="hit_axis",
+                requested_start_us=2_000_000,
+                character_elements={1036: "CHARACTER_ELEMENT_TYPE_INCANTATION"},
+            )
+
+        self.assertEqual((inference,), result.linko_coattack_inferences)
+        self.assertEqual(
+            "linko-coattack-v1",
+            result.linko_coattack_inference_version,
+        )
+        self.assertNotIn("1:primary", {hit.event_id for hit in result.hits})
+        self.assertIn("1:primary", {hit.event_id for hit in result.timeline_hits})
+        self.assertEqual(
+            {1036: "CHARACTER_ELEMENT_TYPE_INCANTATION"},
+            infer.call_args.kwargs["character_elements"],
+        )
 
     def test_follow_up_uses_its_own_formal_timestamp(self) -> None:
         evidence = _evidence()

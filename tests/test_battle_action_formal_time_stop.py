@@ -1,7 +1,8 @@
-# 验证 nte-core 正式时停覆盖 Q 动作，不再受静态动画 GE 分支名否决。
+# 验证 nte-core 记录时停只锚定 Q 展示边界，不受静态动画 GE 分支名否决。
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from src.domain.battle_report import BattleAnalysisHit
 from src.services.battle_action_inference_service import (
@@ -34,6 +35,29 @@ def _q_hit(sequence: int, time_us: int, effect_id: str) -> BattleAnalysisHit:
 
 
 class BattleActionFormalTimeStopTests(unittest.TestCase):
+    def test_legacy_zankou_magic_and_force_halves_form_one_q_action(self) -> None:
+        q_hits = (
+            _q_hit(1, 10_000_000, "GE_Player_Zankou_MagicUltraSkill1_Damage"),
+            _q_hit(2, 11_000_000, "GE_Player_Zankou_MagicUltraSkill2_Damage"),
+            _q_hit(3, 17_000_000, "GE_Player_Zankou_ForceUltraSkill1_Damage"),
+            _q_hit(4, 17_600_000, "GE_Player_Zankou_ForceUltraSkill2_Damage"),
+        )
+        interleaved = replace(
+            _q_hit(5, 12_000_000, "GE_Player_Zankou_Melee1_Damage"),
+            skill_name="普攻",
+            attack_type="普攻",
+            ability_id="GA_Zankou_Melee",
+        )
+
+        actions = BattleActionInferenceService.infer((*q_hits, interleaved))
+        q_actions = tuple(action for action in actions if action.input_kind == "Q")
+
+        self.assertEqual(1, len(q_actions))
+        self.assertEqual(
+            tuple(hit.event_id for hit in q_hits),
+            q_actions[0].evidence_event_ids,
+        )
+
     def test_formal_time_stop_keeps_q_when_animation_uses_base_ge_ids(self) -> None:
         hits = (
             _q_hit(1, 10_020_699, "GE_Player_Zankou_MagicUltraSkill1_Damage"),

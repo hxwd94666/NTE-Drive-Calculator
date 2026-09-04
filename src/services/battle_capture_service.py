@@ -144,7 +144,7 @@ def _freeze_nte_core_provenance(client: BattleCoreClient) -> dict[str, Any]:
     }
 
 
-_BATTLE_READ_CONTRACT_VERSION = 4
+_BATTLE_READ_CONTRACT_VERSION = 5
 
 
 class BattleCaptureService:
@@ -557,7 +557,7 @@ class BattleCaptureService:
         if raw_record is None:
             return None
         record = parse_battle_record(raw_record)
-        self._require_contract_v4(record)
+        self._require_contract_v5(record)
         source_record_id = str(record["battle_record_id"])
         if self._source_battle_record_id is None:
             self._source_battle_record_id = source_record_id
@@ -582,7 +582,7 @@ class BattleCaptureService:
             if raw_page is None:
                 break
             page = parse_battle_axis(raw_page)
-            self._require_contract_v4(page)
+            self._require_contract_v5(page)
             writer = self._summary_writer
             if writer is not None:
                 writer.append_axis_page(
@@ -608,7 +608,7 @@ class BattleCaptureService:
         if raw_record is None:
             return None
         record = parse_battle_record(raw_record)
-        self._require_contract_v4(record)
+        self._require_contract_v5(record)
         source_record_id = str(record["battle_record_id"])
         generation = str(record["generation"])
         incomplete_reason: str | None = None
@@ -636,7 +636,7 @@ class BattleCaptureService:
                 if raw_page is None:
                     break
                 page = parse_battle_axis(raw_page)
-                self._require_contract_v4(page)
+                self._require_contract_v5(page)
                 if (
                     str(page["generation"]) != generation
                     or str(page["battle_record_id"]) != source_record_id
@@ -671,7 +671,7 @@ class BattleCaptureService:
                 incomplete_reason = "final_record_disappeared"
             else:
                 verified = parse_battle_record(verify_raw)
-                self._require_contract_v4(verified)
+                self._require_contract_v5(verified)
                 if (
                     str(verified["generation"]) != generation
                     or str(verified["battle_record_id"]) != source_record_id
@@ -702,10 +702,10 @@ class BattleCaptureService:
         return incomplete_record
 
     @staticmethod
-    def _require_contract_v4(payload: Mapping[str, Any]) -> None:
+    def _require_contract_v5(payload: Mapping[str, Any]) -> None:
         if int(payload.get("contract_version") or 0) < _BATTLE_READ_CONTRACT_VERSION:
             raise RuntimeError(
-                "当前 nte-core 战斗契约低于 v4，不能开始新的战报采集"
+                "当前 nte-core 战斗契约低于 v5，不能开始新的战报采集"
             )
 
     def _on_summary_event(self, event: dict[str, object]) -> None:

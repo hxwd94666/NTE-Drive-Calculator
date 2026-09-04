@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
+from src.domain.battle_marginal_benefit import BattleMarginalBenefits
 from src.domain.battle_report import BattleAnalysisSnapshot
 from src.services.battle_build_counterfactual_service import (
     BattleBuildCounterfactualService,
@@ -14,6 +16,9 @@ from src.services.battle_build_timeline_projection_service import (
 )
 from src.services.battle_report_history_service import BattleReportHistoryService
 from src.services.battle_marginal_candidate_service import BattleMarginalCandidate
+from src.services.battle_marginal_benefit_service import (
+    BattleMarginalBenefitService,
+)
 from src.services.battle_analysis_progress import (
     BattleAnalysisProgressCallback,
     report_battle_analysis_progress,
@@ -28,6 +33,9 @@ class BattleReportAnalysisLoadRequest:
     detail_scope: str | None = None
     detail_level: str = "overview"
     marginal_candidate: BattleMarginalCandidate | None = None
+    marginal_benefit_candidate: BattleMarginalCandidate | None = None
+    selected_character_id: int | None = None
+    static_database_path: Path | None = None
     comparison_baseline: BattleAnalysisSnapshot | None = field(
         default=None,
         compare=False,
@@ -40,6 +48,7 @@ class BattleReportAnalysisLoadResult:
     analysis: BattleAnalysisSnapshot | None
     target_catalog: dict[str, object] | None
     target_catalog_error: Exception | None = None
+    marginal_benefits: BattleMarginalBenefits | None = None
 
 
 class BattleReportAnalysisLoadService:
@@ -108,6 +117,16 @@ class BattleReportAnalysisLoadService:
             and candidate.battle_record_id != request.battle_record_id
         ):
             raise ValueError("marginal candidate belongs to another battle report")
+        benefit_candidate = request.marginal_benefit_candidate
+        if benefit_candidate is not None and detail_level != "marginal":
+            raise ValueError("marginal benefits require marginal detail level")
+        if (
+            benefit_candidate is not None
+            and benefit_candidate.battle_record_id != request.battle_record_id
+        ):
+            raise ValueError(
+                "marginal benefit candidate belongs to another battle report"
+            )
         include_hit_replays = detail_level != "overview"
         include_buff_counterfactuals = detail_level in {"buff", "marginal"}
         candidate_options = (
@@ -213,8 +232,43 @@ class BattleReportAnalysisLoadService:
                         **progress_options,
                     ),
                 )
+        marginal_benefits = None
+        if (
+            detail_level == "marginal"
+            and analysis is not None
+            and benefit_candidate is not None
+            and request.selected_character_id is not None
+        ):
+            def load_variant(
+                variant: BattleMarginalCandidate,
+            ) -> BattleAnalysisSnapshot | None:
+                return history.load_analysis(
+                    request.battle_record_id,
+                    start_us=request.start_us,
+                    end_us=request.end_us,
+                    detail_scope=request.detail_scope,
+                    use_build_edit=False,
+                    marginal_candidate=variant,
+                    include_buff_inference=True,
+                    include_hit_replays=True,
+                    include_buff_counterfactuals=False,
+                    **progress_options,
+                )
+
+            marginal_benefits = BattleMarginalBenefitService.calculate(
+                current=analysis,
+                candidate=benefit_candidate,
+                character_id=request.selected_character_id,
+                static_database_path=request.static_database_path,
+                load_variant=load_variant,
+                progress_callback=progress_callback,
+            )
         if analysis is None or not analysis.timeline_hits:
-            return BattleReportAnalysisLoadResult(analysis, None)
+            return BattleReportAnalysisLoadResult(
+                analysis,
+                None,
+                marginal_benefits=marginal_benefits,
+            )
         report_battle_analysis_progress(
             progress_callback,
             phase="catalog",
@@ -223,5 +277,14 @@ class BattleReportAnalysisLoadService:
         try:
             target_catalog = history.load_target_catalog()
         except Exception as error:
-            return BattleReportAnalysisLoadResult(analysis, None, error)
-        return BattleReportAnalysisLoadResult(analysis, target_catalog)
+            return BattleReportAnalysisLoadResult(
+                analysis=analysis,
+                target_catalog=None,
+                target_catalog_error=error,
+                marginal_benefits=marginal_benefits,
+            )
+        return BattleReportAnalysisLoadResult(
+            analysis,
+            target_catalog,
+            marginal_benefits=marginal_benefits,
+        )

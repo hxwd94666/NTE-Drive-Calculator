@@ -249,6 +249,41 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         )
         self.assertEqual(2, len(mixed.identities))
 
+    def test_battle_time_keeps_current_season_when_one_half_target_mapping_conflicts(self) -> None:
+        inferred = BattleInferredTargetConditionService.infer(
+            static_database_path=STATIC_DATABASE,
+            combat_context_kind="abyss",
+            floor=10,
+            evidence={
+                "hits": (
+                    _hit(1, 2_906_977.0, "enemy-wire:upper-boss-1", "upper"),
+                    _hit(2, 2_906_977.0, "enemy-wire:upper-boss-2", "upper"),
+                    _hit(3, 894_455.0, "enemy-wire:upper-small", "upper"),
+                    _hit(4, 2_906_977.0, "enemy-wire:lower-boss", "lower"),
+                    _hit(5, 521_765.0, "enemy-wire:lower-small-1", "lower"),
+                    _hit(6, 521_765.0, "enemy-wire:lower-small-2", "lower"),
+                    _hit(7, 521_765.0, "enemy-wire:lower-small-3", "lower"),
+                    _hit(8, 521_765.0, "enemy-wire:lower-small-4", "lower"),
+                )
+            },
+            range_start_us=None,
+            range_end_us=None,
+            battle_occurred_at_utc="2026-09-04T08:16:46.743+00:00",
+        )
+
+        assert inferred is not None
+        self.assertEqual("Abyss_9|10|mixed", inferred.environment_ref)
+        self.assertIn("幽语环线", inferred.environment_name)
+        self.assertEqual("battle_time_partial_mixed", inferred.selection_mode)
+        self.assertEqual("中", inferred.confidence)
+        self.assertFalse(inferred.ambiguous)
+        self.assertEqual(
+            {"lower"},
+            {half for half, _condition in inferred.target_conditions_by_half},
+        )
+        self.assertIn("上半目标映射仍冲突", inferred.inference_basis)
+        self.assertIn("2026-09-04 16:16:46", inferred.inference_basis)
+
     def test_non_unique_signature_does_not_match(self) -> None:
         unknown = BattleInferredTargetConditionService.infer(
             static_database_path=STATIC_DATABASE,

@@ -183,6 +183,68 @@ class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
         self.assertIn("target_defense", result.cancelled_dimension_ids)
         self.assertIn("target_resistance", result.cancelled_dimension_ids)
 
+    def test_inferred_buff_state_downgrades_formula_complete_to_partial(self) -> None:
+        projection = battle_report.BattleHitBuffProjection(
+            event_id="hit:1",
+            modifiers=(battle_report.BattleProjectedBuffModifier(
+                property_id="AtkUp",
+                additive_value=0.16,
+                interval_ids=("buff:mofeikesi",),
+                buff_names=("好狗狗走四方：控制额外攻击",),
+                confidence="低",
+                target_scope="team",
+            ),),
+            applied_interval_ids=("buff:mofeikesi",),
+            excluded_interval_ids=(),
+            exclusion_reasons=(),
+            confidence="低",
+        )
+
+        result = self._compare(
+            _baseline(AtkBase=1100.0),
+            original_projection=projection,
+            candidate_projection=projection,
+        )
+
+        self.assertEqual("partial", result.status)
+        self.assertAlmostEqual(1100.0 / 1000.0, result.quantified_ratio)
+        self.assertIn("scaling", result.included_dimension_ids)
+        self.assertTrue(any(
+            gap.code == "buff_state_inferred"
+            and gap.property_ids == ("AtkUp",)
+            for gap in result.gaps
+        ))
+
+    def test_unrelated_inferred_buff_does_not_downgrade_changed_dimension(self) -> None:
+        projection = battle_report.BattleHitBuffProjection(
+            event_id="hit:1",
+            modifiers=(battle_report.BattleProjectedBuffModifier(
+                property_id="DamageUpNatureBase",
+                additive_value=0.20,
+                interval_ids=("buff:nature",),
+                buff_names=("灵属性增伤",),
+                confidence="低",
+                target_scope="self",
+            ),),
+            applied_interval_ids=("buff:nature",),
+            excluded_interval_ids=(),
+            exclusion_reasons=(),
+            confidence="低",
+        )
+
+        result = self._compare(
+            _baseline(CritDamageBase=1.2),
+            original_projection=projection,
+            candidate_projection=projection,
+            original_replay=_selected_replay(1000.0),
+        )
+
+        self.assertEqual("complete", result.status)
+        self.assertNotIn(
+            "buff_state_inferred",
+            {gap.code for gap in result.gaps},
+        )
+
     def test_unknown_scaling_does_not_default_to_attack(self) -> None:
         result = self._compare(
             _baseline(AtkUp=0.1),

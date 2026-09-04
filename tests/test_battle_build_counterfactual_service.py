@@ -233,8 +233,9 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             candidate=replace(original, buff_intervals=(_buff_interval((modifier,)),)),
         )
 
-        self.assertEqual("complete", result.hits[0].quantification.status)
-        self.assertAlmostEqual(110.0, result.hits[0].candidate_damage)
+        self.assertEqual("partial", result.hits[0].quantification.status)
+        self.assertIsNone(result.hits[0].candidate_damage)
+        self.assertAlmostEqual(110.0, result.hits[0].known_projection_damage)
 
     def test_zero_candidate_is_not_replaced_by_baseline_in_composition(self) -> None:
         hit = _hit(

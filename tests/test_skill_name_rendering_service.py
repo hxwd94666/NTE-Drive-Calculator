@@ -108,6 +108,34 @@ class SkillNameRenderingServiceTests(unittest.TestCase):
 
         self.assertEqual("敌方飞弹反射伤害", identity.damage_name)
 
+    def test_bundled_sagiri_devour_is_named_without_fake_formula_ability(self):
+        renderer = SkillNameRenderingService.from_static_database()
+
+        identity = renderer.render_axis_identity(
+            ability_id=None,
+            damage_id=None,
+            gameplay_effect_index=None,
+            gameplay_effect_name="GE_Player_Sagiri_Branch_Kill_Damage",
+            attack_type="其他",
+        )
+
+        self.assertEqual("摄食模式", identity.skill_name)
+        self.assertEqual("摄食模式", identity.damage_name)
+        self.assertEqual(
+            "",
+            renderer.resolve_ability_id(
+                None,
+                "GE_Player_Sagiri_Branch_Kill_Damage",
+            ),
+        )
+        self.assertEqual(
+            "摄食模式",
+            renderer.resolve_attack_type(
+                "GE_Player_Sagiri_Branch_Kill_Damage",
+                captured="其他",
+            ),
+        )
+
     def test_damage_semantic_can_include_parent_ability_name(self):
         self.assertEqual(
             "酸甜口味的制裁 · 第一段",

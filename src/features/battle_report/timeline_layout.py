@@ -110,9 +110,19 @@ def format_analysis_evidence(analysis: BattleAnalysisSnapshot) -> str:
 
 def format_time_stop_evidence(analysis: BattleAnalysisSnapshot) -> str:
     return {
-        "nte_core": f"正式时停 {len(analysis.time_stop_intervals)} 段",
+        "nte_core": f"nte-core 记录时停 {len(analysis.time_stop_intervals)} 段",
+        "nte_core_plus_inferred_linko_e": (
+            f"nte-core 时停 + 灵可 E 推算 {len(analysis.time_stop_intervals)} 段"
+            "（含低置信）"
+        ),
         "inferred_q_action": (
             f"Q 动作推算时停 {len(analysis.time_stop_intervals)} 段（低置信）"
+        ),
+        "inferred_linko_e": (
+            f"灵可 E 推算时停 {len(analysis.time_stop_intervals)} 段（低置信）"
+        ),
+        "inferred_q_and_linko_e": (
+            f"Q / 灵可 E 推算时停 {len(analysis.time_stop_intervals)} 段（低置信）"
         ),
     }.get(getattr(analysis, "time_stop_source_kind", "none"), "未取得时停")
 

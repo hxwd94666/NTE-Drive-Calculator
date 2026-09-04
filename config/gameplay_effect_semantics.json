@@ -76,6 +76,15 @@
       "damage_name_zh": "重拳出击（第3段）",
       "damage_name_ja": "渾身の一撃（3段目）"
     },
+    "GE_Player_Sagiri_Branch_Kill_Damage": {
+      "owner_character_id": 1003,
+      "override_observed_attack_type": true,
+      "attack_type": "摄食模式",
+      "show_parent_ability": false,
+      "damage_name_zh": "摄食模式",
+      "damage_name_en": "摄食模式",
+      "damage_name_ja": "摄食模式"
+    },
     "GE_Player_Kuhara_BudBoom_Damage": {
       "owner_character_id": 1055,
       "attack_type": "Special Damage",

@@ -63,7 +63,10 @@ class UserDataV38MigrationTests(unittest.TestCase):
                 pass
             connection = sqlite3.connect(database)
             connection.execute("DROP TABLE battle_inferred_target_snapshot")
-            connection.execute("DELETE FROM schema_migration WHERE version = 38")
+            connection.execute(
+                "ALTER TABLE battle_time_stop_interval DROP COLUMN pause_type_mask"
+            )
+            connection.execute("DELETE FROM schema_migration WHERE version >= 38")
             connection.commit()
             connection.close()
 
@@ -94,7 +97,10 @@ class UserDataV38MigrationTests(unittest.TestCase):
                 pass
             connection = sqlite3.connect(database)
             connection.execute("DROP TABLE battle_inferred_target_snapshot")
-            connection.execute("DELETE FROM schema_migration WHERE version = 38")
+            connection.execute(
+                "ALTER TABLE battle_time_stop_interval DROP COLUMN pause_type_mask"
+            )
+            connection.execute("DELETE FROM schema_migration WHERE version >= 38")
             connection.commit()
             connection.close()
             invalid = root / "invalid_v38.sql"

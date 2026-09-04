@@ -106,6 +106,9 @@ class CharacterProfileForkBreakthroughTests(unittest.TestCase):
                 "DROP COLUMN fork_breakthrough_stage"
             )
             connection.execute("DROP TABLE battle_inferred_target_snapshot")
+            connection.execute(
+                "ALTER TABLE battle_time_stop_interval DROP COLUMN pause_type_mask"
+            )
             connection.execute("DELETE FROM schema_migration WHERE version >= 37")
             connection.commit()
             connection.close()

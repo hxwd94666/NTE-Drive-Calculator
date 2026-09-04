@@ -169,6 +169,7 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
             detail_scope="first",
             detail_level="marginal",
             marginal_candidate=candidate,
+            marginal_benefit_candidate=candidate,
             comparison_baseline=None,
             completion_kind="marginal",
         )
@@ -257,6 +258,7 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
             detail_scope=page.marginal_detail_scope(),
             detail_level="marginal",
             marginal_candidate=None,
+            marginal_benefit_candidate=None,
             completion_kind="marginal",
         )
 
@@ -452,6 +454,22 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
 
         self.assertIsNone(page._marginal_result_scope)
         set_source.assert_called_once_with(source)
+
+    def test_switching_role_in_same_half_refreshes_role_benefits(self) -> None:
+        page = BattleReportPage(game_ui_asset_root="data/game_ui")
+        page._marginal_result_scope = "first"
+        page._marginal_result_is_candidate = True
+
+        with patch.object(
+            page,
+            "_request_marginal_lazy_recalculation",
+        ) as reload_marginal:
+            page._marginal_role_changed("first")
+
+        reload_marginal.assert_called_once_with(
+            force=True,
+            use_candidate=True,
+        )
 
 
 if __name__ == "__main__":

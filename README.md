@@ -94,7 +94,7 @@
 
 推荐下载最新版安装包：
 
-- GitHub Release: <https://github.com/hxwd94666/NTE-Drive-Calc/releases>
+- GitHub Release: <https://github.com/hxwd94666/NTE-Drive-Calculator/releases>
 - Mirror酱（付费）: <https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&channel=stable>
 - 夸克网盘（免费）: <https://pan.quark.cn/s/82f16b845aec>
 - 百度网盘（免费）: <https://pan.baidu.com/s/1sPVqCpzmkQwKYCGstcZuIQ?pwd=ygke>

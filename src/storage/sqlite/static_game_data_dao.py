@@ -93,6 +93,9 @@ from src.storage.sqlite.static_game_data_terminology_queries import (
 from src.storage.sqlite.static_game_data_progression_queries import (
     StaticGameDataProgressionQueriesMixin,
 )
+from src.storage.sqlite.static_game_data_skill_damage_queries import (
+    StaticGameDataSkillDamageQueriesMixin,
+)
 
 
 class StaticGameDataDao(
@@ -101,6 +104,7 @@ class StaticGameDataDao(
     StaticGameDataEncounterQueriesMixin,
     StaticGameDataBuffQueriesMixin,
     StaticGameDataCombatBlueprintQueriesMixin,
+    StaticGameDataSkillDamageQueriesMixin,
     StaticGameDataExtendedQueriesMixin,
 ):
     """面向当前发行静态数据库 schema 的轻量查询边界。

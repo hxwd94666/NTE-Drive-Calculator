@@ -39,7 +39,7 @@ def _summary_payload() -> dict[str, Any]:
 
 
 class _Core:
-    def __init__(self, *, contract_version: int = 4) -> None:
+    def __init__(self, *, contract_version: int = 5) -> None:
         self.capture_started = threading.Event()
         self.finalized = False
         self.final_axis_complete = True
@@ -376,8 +376,8 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         self.assertEqual("error", states[-1].phase)
         self.assertIn("停止超时", states[-1].error)
 
-    def test_new_capture_rejects_v3_core_contract(self) -> None:
-        core = _Core(contract_version=3)
+    def test_new_capture_rejects_v4_core_contract(self) -> None:
+        core = _Core(contract_version=4)
         writer = _Writer()
         states = []
         service = BattleCaptureService(
@@ -393,7 +393,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         service.close(timeout=2.0)
 
         self.assertEqual("error", states[-1].phase)
-        self.assertIn("低于 v4", states[-1].error)
+        self.assertIn("低于 v5", states[-1].error)
         self.assertTrue(writer.discarded)
 
     def test_incomplete_final_axis_is_marked_without_final_replacement(self) -> None:

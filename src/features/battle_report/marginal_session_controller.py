@@ -119,6 +119,7 @@ class BattleMarginalSessionController:
             detail_scope=self._page.marginal_detail_scope(),
             detail_level="marginal",
             marginal_candidate=None,
+            marginal_benefit_candidate=session.entry_candidate,
             completion_kind="marginal",
         )
 
@@ -150,6 +151,7 @@ class BattleMarginalSessionController:
             detail_scope=self._page.marginal_detail_scope(),
             detail_level="marginal",
             marginal_candidate=candidate,
+            marginal_benefit_candidate=candidate,
             comparison_baseline=self._page.marginal_comparison_baseline(),
             completion_kind="marginal",
         )

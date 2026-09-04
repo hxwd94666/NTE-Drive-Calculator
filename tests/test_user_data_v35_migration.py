@@ -46,6 +46,15 @@ class UserDataV35MigrationTests(unittest.TestCase):
             CREATE TABLE battle_character_build_edit (
                 battle_record_id INTEGER PRIMARY KEY
             );
+            CREATE TABLE battle_time_stop_interval (
+                capture_id INTEGER NOT NULL,
+                ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+                start_unix_us INTEGER,
+                end_unix_us INTEGER,
+                duration_us INTEGER CHECK (duration_us IS NULL OR duration_us >= 0),
+                raw_interval_json TEXT NOT NULL CHECK (json_valid(raw_interval_json)),
+                PRIMARY KEY (capture_id, ordinal)
+            );
             CREATE TABLE battle_target_condition (
                 battle_record_id INTEGER PRIMARY KEY,
                 resistance_chaos REAL NOT NULL

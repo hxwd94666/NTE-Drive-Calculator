@@ -240,8 +240,12 @@ class BattleForkRefinementServiceTests(unittest.TestCase):
         stack_intervals = tuple(
             row for row in intervals if "Q 暴击伤害层数" in row.buff_name
         )
-        self.assertEqual(1_500_000, stack_intervals[0].start_us)
-        self.assertEqual(2_400_000, stack_intervals[-1].start_us)
+        self.assertEqual(1_000_000, stack_intervals[0].start_us)
+        self.assertEqual(2_000_000, stack_intervals[-1].start_us)
+        self.assertLess(stack_intervals[0].start_us, actions[0].end_us)
+        self.assertLessEqual(stack_intervals[0].start_us, 1_200_000)
+        self.assertGreater(stack_intervals[0].end_us, 1_200_000)
+        self.assertIn("QTE 开始事件", stack_intervals[-1].inference_basis)
 
     def test_door_treatment_does_not_require_positive_effective_healing(self) -> None:
         rules = _rules(

@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from src.domain.battle_time_stop import BattleObservedTimeStopInterval
+
 import src.domain.battle_counterfactual as battle_counterfactual
 from src.domain.battle_buff_counterfactual import BattleBuffCounterfactualResult
 from src.domain.battle_target import (
@@ -219,6 +221,12 @@ class BattleAnalysisHit:
     damage_correction_confidence: str = ""
     damage_correction_basis: str = ""
     damage_overlap_correction: float = 0.0
+    # 公式消费者上下文仅存在于派生副本，不改写 Core 原始逐击归属。
+    is_formal_follow_up: bool = False
+    target_has_weave: bool = False
+    formula_context_kind: str = ""
+    formula_context_confidence: str = ""
+    formula_context_basis: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +252,33 @@ class BattleInferredAction:
     input_start_us: int | None = None
     input_end_us: int | None = None
     hold_damage_mode: Literal["none", "during_hold", "after_hold"] = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class BattleLinkoCoattackInference:
+    """Versioned formula context inferred for one Linko-associated teammate QTE."""
+
+    event_id: str
+    trigger_kind: str
+    action_character_id: int
+    definition_owner_character_id: int
+    panel_character_id: int
+    skill_level_character_id: int
+    skill_level_ability_id: str
+    damage_attribute_source_character_id: int
+    damage_attribute: str
+    damage_attribute_source: str
+    confidence: str
+    inference_basis: str
+    evidence_event_ids: tuple[str, ...]
+    trigger_action_id: str = ""
+    qte_action_id: str = ""
+    raw_gap_us: int | None = None
+    active_gap_us: int | None = None
+    time_stop_source_kind: str = "none"
+    time_stop_confidence: str = ""
+    selection_pause_start_us: int | None = None
+    selection_pause_end_us: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -555,6 +590,17 @@ class BattleSkillDamageEvidence:
     critical_policy: Literal["character", "fixed", "disabled", "unknown"] = "character"
     skill_final_multiplier: float = 1.0
     skill_final_multiplier_basis: str = ""
+    action_character_id: int | None = None
+    definition_owner_character_id: int | None = None
+    panel_character_id: int | None = None
+    skill_level_character_id: int | None = None
+    damage_attribute_source_character_id: int | None = None
+    damage_attribute_source: str = "static_gameplay_effect"
+    formula_context_kind: str = ""
+    formula_context_confidence: str = ""
+    formula_context_basis: str = ""
+    is_formal_follow_up: bool = False
+    target_has_weave: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -620,6 +666,17 @@ class BattleHitReplayResult:
     observed_damage_basis: str = ""
     # 正式重放解析出的公式属性；用于原始逐击属性缺失或被通用标签污染时。
     formula_damage_attribute: str = ""
+    formula_action_character_id: int | None = None
+    formula_definition_owner_character_id: int | None = None
+    formula_panel_character_id: int | None = None
+    formula_skill_level_character_id: int | None = None
+    formula_skill_level_ability_id: str = ""
+    formula_damage_attribute_source: str = ""
+    formula_context_kind: str = ""
+    formula_context_confidence: str = ""
+    formula_context_basis: str = ""
+    formula_is_formal_follow_up: bool = False
+    formula_target_has_weave: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -661,6 +718,9 @@ class BattleAnalysisSnapshot:
     skills: tuple[BattleRangeSkillSummary, ...]
     targets: tuple[BattleTargetSummary, ...]
     baselines: tuple[BattleCharacterBaseline, ...]
+    linko_coattack_inferences: tuple[BattleLinkoCoattackInference, ...] = ()
+    linko_coattack_inference_version: str = ""
+    linko_coattack_buff_model_version: str = ""
     treatment_events: tuple[BattleTreatmentEvent, ...] = ()
     treatment_event_model_version: str = ""
     timeline_buff_intervals: tuple[BattleInferredBuffInterval, ...] = ()
@@ -670,6 +730,13 @@ class BattleAnalysisSnapshot:
     outer_realm_buff_model_version: str = ""
     time_stop_intervals: tuple[tuple[int | None, int | None], ...] = ()
     observed_time_stop_intervals: tuple[tuple[int | None, int | None], ...] = ()
+    observed_typed_time_stop_intervals: tuple[
+        BattleObservedTimeStopInterval, ...
+    ] = ()
+    q_action_time_stop_intervals: tuple[tuple[int, int], ...] = ()
+    type6_time_stop_intervals: tuple[tuple[int, int], ...] = ()
+    inferred_linko_e_time_stop_intervals: tuple[tuple[int, int], ...] = ()
+    has_unknown_time_stop_types: bool = False
     time_stop_source_kind: str = "none"
     time_stop_confidence: str = ""
     time_stop_inference_basis: str = ""

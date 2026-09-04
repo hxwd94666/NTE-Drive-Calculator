@@ -292,8 +292,9 @@ class _AsyncPage:
         *,
         detail_scope=None,
         is_candidate=False,
+        marginal_benefits=None,
     ) -> None:
-        del detail_scope, is_candidate
+        del detail_scope, is_candidate, marginal_benefits
         self.loaded_ranges.append(analysis.range_start_us)
         self.loop.quit()
 
@@ -317,6 +318,7 @@ class _AsyncHost(BattleReportAnalysisControllerMixin, QObject):
         self._app_context = SimpleNamespace(
             account=SimpleNamespace(active_account_id="test-account"),
             generation=3,
+            paths=SimpleNamespace(static_database_path=None),
         )
         self._closing = False
         self._build_snapshot_controller = SimpleNamespace(

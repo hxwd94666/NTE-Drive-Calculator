@@ -51,6 +51,111 @@ class NteCoreBattleAxisTests(unittest.TestCase):
         self.assertFalse(record["axis_complete"])
         self.assertIsNone(record["team_snapshot_id"])
 
+    def test_v5_record_preserves_precise_time_stop_type_mask(self) -> None:
+        record = parse_battle_record(
+            {
+                "contract_version": 5,
+                "battle_record_id": "battle-typed-time-stop",
+                "generation": "5",
+                "state": "finalized",
+                "source": "capture",
+                "axis_complete": True,
+                "axis_total_hits": "0",
+                "time_stop_intervals": [
+                    {
+                        "start_offset_seconds": 1.0,
+                        "end_offset_seconds": 2.0,
+                        "pause_type_mask": 1 << 6,
+                    }
+                ],
+                "abyss": {},
+                "summary": {},
+                "quality": {},
+            }
+        )
+
+        self.assertEqual(1 << 6, record["time_stop_intervals"][0]["pause_type_mask"])
+
+    def test_v5_record_preserves_null_for_compacted_unknown_time_stop_type(self) -> None:
+        record = parse_battle_record(
+            {
+                "contract_version": 5,
+                "battle_record_id": "battle-compacted-time-stop",
+                "generation": "5",
+                "state": "finalized",
+                "source": "capture",
+                "axis_complete": True,
+                "axis_total_hits": "0",
+                "time_stop_intervals": [
+                    {
+                        "start_offset_seconds": 1.0,
+                        "end_offset_seconds": 2.0,
+                        "pause_type_mask": None,
+                    }
+                ],
+                "abyss": {},
+                "summary": {},
+                "quality": {},
+            }
+        )
+
+        self.assertIsNone(record["time_stop_intervals"][0]["pause_type_mask"])
+
+    def test_v5_record_requires_present_null_or_nonzero_u32_time_stop_mask(self) -> None:
+        for invalid in ("missing", 0, True, -1, 1 << 32):
+            interval = {
+                "start_offset_seconds": 1.0,
+                "end_offset_seconds": 2.0,
+            }
+            if invalid != "missing":
+                interval["pause_type_mask"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                NteCoreProtocolError,
+                "pause_type_mask",
+            ):
+                parse_battle_record(
+                    {
+                        "contract_version": 5,
+                        "battle_record_id": "battle-invalid-time-stop",
+                        "generation": "5",
+                        "state": "finalized",
+                        "source": "capture",
+                        "axis_complete": True,
+                        "axis_total_hits": "0",
+                        "time_stop_intervals": [interval],
+                        "abyss": {},
+                        "summary": {},
+                        "quality": {},
+                    }
+                )
+
+    def test_v4_record_keeps_missing_time_stop_type_unknown(self) -> None:
+        record = parse_battle_record(
+            {
+                "contract_version": 4,
+                "battle_record_id": "battle-legacy-time-stop",
+                "generation": "4",
+                "state": "finalized",
+                "source": "capture",
+                "axis_complete": True,
+                "axis_total_hits": "0",
+                "time_stop_intervals": [
+                    {
+                        "start_offset_seconds": 1.0,
+                        "end_offset_seconds": 2.0,
+                    }
+                ],
+                "abyss": {},
+                "summary": {},
+                "quality": {},
+            }
+        )
+
+        self.assertNotIn(
+            "pause_type_mask",
+            record["time_stop_intervals"][0],
+        )
+
     def test_axis_normalizes_hit_without_inventing_unsupported_facts(self) -> None:
         page = parse_battle_axis(
             {

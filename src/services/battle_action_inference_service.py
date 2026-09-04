@@ -12,9 +12,13 @@ from statistics import median
 from typing import Literal
 
 from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
+from src.services.battle_action_normalization_service import (
+    ZANKOU_DUAL_FORM_MAX_GAP_US,
+    merge_zankou_dual_form_actions,
+)
 
 
-ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v14"
+ACTION_INFERENCE_MODEL_VERSION = "battle-action-window-v15"
 
 _Q_TIME_STOP_FOLLOW_TOLERANCE_US = 350_000
 
@@ -70,6 +74,8 @@ def _action_kind(hit: BattleAnalysisHit) -> str:
     attack = hit.attack_type.casefold()
     effect = hit.gameplay_effect_id.casefold()
     if "ai_qte" in ability or "ai_qte" in effect:
+        return ""
+    if "ultraskilllte_aoe" in ability or "ultralskilllte_aoe" in effect:
         return ""
     if "qte" in ability or attack.startswith("环合·"):
         return "QTE"
@@ -350,6 +356,18 @@ def _continues_action(
         for start_us, end_us in time_stop_intervals
     ):
         return True
+    if (
+        kind == "Q"
+        and hit.ability_id.casefold() == "ga_zankou_ultraskill"
+        and any(
+            "magicultraskill" in row.gameplay_effect_id.casefold()
+            for row in current
+        )
+        and "forceultraskill" in hit.gameplay_effect_id.casefold()
+        and hit.relative_time_us - previous.relative_time_us
+        <= ZANKOU_DUAL_FORM_MAX_GAP_US
+    ):
+        return True
     gap_limit = _GAP_LIMITS_US.get(key[2], 900_000)
     if hit.relative_time_us - previous.relative_time_us > gap_limit:
         return False
@@ -482,7 +500,7 @@ def _expand_action_from_animation(
     hits: Sequence[BattleAnalysisHit],
     candidates: Sequence[BattleActionAnimationCandidate],
 ) -> BattleInferredAction:
-    if action.input_kind == "Q" and "关联正式时停区间" in action.inference_basis:
+    if action.input_kind == "Q" and "关联 nte-core 记录时停区间" in action.inference_basis:
         return action
     resolved = tuple(
         result
@@ -590,7 +608,7 @@ def _truncate_interrupted_actions(
             next_action = ordered[index + 1]
             if (
                 action.input_kind == "Q"
-                and "关联正式时停区间" in action.inference_basis
+                and "关联 nte-core 记录时停区间" in action.inference_basis
             ):
                 result.append(action)
                 continue
@@ -663,8 +681,9 @@ def _anchor_q_actions_to_time_stops(
                 start_us=start_us,
                 end_us=max(action.end_us, end_us),
                 inference_basis=(
-                    f"{action.inference_basis} Q 动作边界关联正式时停区间，"
-                    "开始锚定到时停头、结束至少覆盖时停尾；不代表精确按键时刻。"
+                    f"{action.inference_basis} Q 动作边界关联 nte-core 记录时停区间，"
+                    "开始锚定到时停头、结束至少覆盖时停尾；该关联只修正动作"
+                    "展示边界，不证明暂停由该 Q 触发，也不代表精确按键时刻。"
                 ),
             )
         )
@@ -728,8 +747,9 @@ class BattleActionInferenceService:
                 action_hits[action.action_id] = tuple(current)
                 ordinal += 1
 
+        normalized_actions = merge_zankou_dual_form_actions(actions, action_hits)
         anchored = _anchor_q_actions_to_time_stops(
-            actions,
+            normalized_actions,
             time_stop_intervals,
         )
         expanded = tuple(

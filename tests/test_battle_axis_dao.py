@@ -448,6 +448,7 @@ class BattleAxisDaoTests(unittest.TestCase):
                     {
                         "start_offset_seconds": 2.5,
                         "end_offset_seconds": 4.0,
+                        "pause_type_mask": 1 << 6,
                     }
                 ],
             },
@@ -540,10 +541,12 @@ class BattleAxisDaoTests(unittest.TestCase):
             {
                 "start_offset_seconds": 2.5,
                 "end_offset_seconds": 4.0,
+                "pause_type_mask": 1 << 6,
             },
             axis["time_stop_intervals"][0]["raw_interval"],
         )
         self.assertEqual(1_500_000, axis["time_stop_intervals"][0]["duration_us"])
+        self.assertEqual(1 << 6, axis["time_stop_intervals"][0]["pause_type_mask"])
 
     def test_in_progress_capture_does_not_pin_pre_battle_snapshot(self) -> None:
         first = self.dao.import_inventory_snapshot(

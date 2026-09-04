@@ -43,6 +43,38 @@ def _stable_profile_key(profile: BattleSelectedTargetProfile) -> tuple[str, ...]
     )
 
 
+def _profile_matches_half(
+    scope_half: str,
+    profile: BattleSelectedTargetProfile,
+) -> bool:
+    selection_id = profile.selection_target_id
+    profile_half = (
+        "upper" if "FirstHalf" in selection_id
+        else "lower" if "SecondHalf" in selection_id
+        else ""
+    )
+    return not scope_half or not profile_half or scope_half == profile_half
+
+
+def _feasible_slots_by_half(
+    observed: Sequence[tuple[str, str, str, float, int]],
+    edges: Sequence[tuple[int, ...]],
+) -> tuple[tuple[int, ...], ...]:
+    """Keep one malformed half from invalidating the other half's mapping."""
+
+    grouped: dict[str, list[int]] = {}
+    for index, row in enumerate(observed):
+        grouped.setdefault(row[0], []).append(index)
+    result: list[tuple[int, ...]] = [()] * len(observed)
+    for indexes in grouped.values():
+        feasible = feasible_slots(tuple(edges[index] for index in indexes))
+        if not feasible:
+            continue
+        for local_index, observed_index in enumerate(indexes):
+            result[observed_index] = feasible[local_index]
+    return tuple(result)
+
+
 def _condition_signature(condition: BattleTargetCondition) -> tuple[object, ...]:
     return (
         round(condition.enemy_level, 6),
@@ -123,17 +155,24 @@ class BattleTargetInstanceMappingService:
             tuple(
                 index
                 for index, profile in enumerate(slots)
-                if cls._compatible(row[2], row[3], profile)
+                if _profile_matches_half(row[0], profile)
+                and cls._compatible(row[2], row[3], profile)
             )
             for row in observed
         )
-        graph_feasible = feasible_slots(edges) if roster_mapping else edges
-        complete = bool(observed) and bool(graph_feasible)
+        graph_feasible = (
+            _feasible_slots_by_half(observed, edges)
+            if roster_mapping
+            else edges
+        )
+        if condition.source_kind == "user_confirmed":
+            graph_feasible = tuple(
+                feasible or edges[index]
+                for index, feasible in enumerate(graph_feasible)
+            )
         result = []
         for observed_index, row in enumerate(observed):
-            candidate_indexes = (
-                graph_feasible[observed_index] if complete else ()
-            )
+            candidate_indexes = graph_feasible[observed_index]
             candidate_profiles = tuple(dict.fromkeys(
                 slots[index] for index in candidate_indexes
             ))

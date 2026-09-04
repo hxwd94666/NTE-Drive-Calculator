@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from src.domain.battle_report import (
     BattleAnalysisSnapshot,
@@ -15,6 +15,7 @@ from src.services.battle_buff_interval_index import BattleBuffIntervalIndex
 from src.services.battle_hit_buff_projection_cache import (
     BattleHitBuffProjectionCache,
 )
+from src.services.battle_formula_hit_projection_service import project_formula_hit
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,20 +42,14 @@ class BattleHitProjectionPreparationService:
             if hit.direction != "outgoing":
                 continue
             evidence = evidence_by_event.get(hit.event_id)
-            formula_character_id = (
-                evidence.source_character_id
-                if evidence is not None
-                and evidence.source_character_id is not None
-                else hit.character_id
-            )
-            formula_hit = (
-                hit
-                if formula_character_id == hit.character_id
-                else replace(hit, character_id=formula_character_id)
-            )
+            formula_hit = project_formula_hit(hit, evidence)
             projection = projection_cache.project(formula_hit)
             formula_by_event[hit.event_id] = projection
-            if formula_hit is hit:
+            if (
+                formula_hit.character_id == hit.character_id
+                or evidence is not None
+                and evidence.formula_context_kind.startswith("linko_coattack:")
+            ):
                 beneficiary_by_event[hit.event_id] = projection
         return PreparedBattleHitProjections(
             interval_index=interval_index,

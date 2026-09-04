@@ -19,18 +19,13 @@ from src.domain.battle_report import (
     BattleCharacterStat,
     BattleHitReplayResult,
 )
-from src.services.battle_buff_attribute_projection_service import (
-    BattleBuffAttributeProjectionService,
-)
 from src.services.battle_buff_counterfactual_projection_support import (
     HitProjection,
     VitalProjection,
     vital_projections,
 )
-from src.services.battle_damage_composition_service import (
-    BattleDamageCompositionService,
-    classify_battle_hit_channel,
-)
+from src.services.battle_damage_composition_service import BattleDamageCompositionService
+from src.services.battle_damage_composition_service import classify_battle_hit_channel
 from src.services.battle_fixed_critical_ratio_service import (
     continuous_direct_attribute,
     is_continuous_direct_hit,
@@ -39,9 +34,6 @@ from src.services.battle_fixed_critical_ratio_service import (
 from src.services.battle_hit_counterfactual_ratio_service import (
     BattleHitCounterfactualRatioService,
 )
-from src.services.battle_target_instance_mapping_service import (
-    BattleTargetInstanceMappingService,
-)
 from src.services.battle_marginal_calculation_support import (
     ATTRIBUTE_ELEMENT_PROPERTY as _ATTRIBUTE_ELEMENT_PROPERTY,
     DAMAGE_PENETRATION_PROPERTY as _DAMAGE_PENETRATION_PROPERTY,
@@ -49,8 +41,14 @@ from src.services.battle_marginal_calculation_support import (
     MARGINAL_LABELS as _MARGINAL_LABELS,
     WEAVE_SOURCE_PROPERTIES as _WEAVE_SOURCE_PROPERTIES,
     default_marginal_units,
+    formula_context_assumption,
     marginal_assumption,
     quantify_marginal,
+)
+from src.services.battle_marginal_formula_scope import (
+    extend_panel_denominator,
+    prepare_marginal_formula_scope,
+    property_owner_matches,
 )
 from src.services.battle_marginal_display_metrics import marginal_display_metrics
 from src.services.battle_weave_source_service import find_paired_weave_source_hit
@@ -93,44 +91,11 @@ class BattleMarginalCalculationService:
             **frozen,
             **{str(key): float(value) for key, value in edited_values.items()},
         }
-        outgoing_hits = tuple(
-            hit for hit in analysis.hits if hit.direction == "outgoing"
-        )
-        role_hits = tuple(
-            hit for hit in outgoing_hits
-            if hit.character_id == character_id and hit.classification != "weave"
-            or hit.classification == "weave" and (
-                (source := find_paired_weave_source_hit(hit, outgoing_hits))
-                is not None and source.character_id == character_id
-                or source is None and hit.character_id == character_id
-            )
-        )
+        scope = prepare_marginal_formula_scope(analysis, character_id)
+        outgoing_hits = scope.outgoing_hits
+        role_hits = scope.role_hits
         max_hp_events = tuple(getattr(analysis, "max_hp_events", ()))
-        replays = {row.event_id: row for row in analysis.hit_replays}
-        projections = {
-            hit.event_id: BattleBuffAttributeProjectionService.project_hit(
-                hit,
-                analysis.buff_intervals,
-            )
-            for hit in role_hits
-        }
-        target_conditions = {
-            hit.event_id: BattleTargetInstanceMappingService.analysis_for_hit(
-                analysis,
-                hit,
-            ).target_condition
-            for hit in role_hits
-        }
-        applied_intervals = {
-            interval_id
-            for projection in projections.values()
-            for interval_id in projection.applied_interval_ids
-        }
-        excluded_intervals = {
-            interval_id
-            for projection in projections.values()
-            for interval_id in projection.excluded_interval_ids
-        }
+        replays = scope.replays
         derived_damage = next(
             (
                 role.max_hp_reduction_damage
@@ -139,7 +104,9 @@ class BattleMarginalCalculationService:
             ),
             0.0,
         )
-        fallback_role_damage = sum(hit.damage for hit in role_hits) + derived_damage
+        fallback_role_damage = sum(
+            hit.damage for hit in outgoing_hits if hit.character_id == character_id
+        ) + derived_damage
         composition = BattleDamageCompositionService.calculate_from_hits(
             roles=(),
             hits=outgoing_hits,
@@ -197,6 +164,10 @@ class BattleMarginalCalculationService:
                 fallback=observed_role_damage,
             )
         )
+        role_damage, role_denominator_status = extend_panel_denominator(
+            role_damage, comparison_role, role_hits, character_id,
+            anchor_damage, anchor_quantification,
+        )
         team_damage = (
             max(0.0, float(analysis.effective_damage))
             if comparison is None
@@ -205,6 +176,7 @@ class BattleMarginalCalculationService:
                 fallback=max(0.0, float(analysis.effective_damage)),
             )
         )
+        team_denominator_status = cls._denominator_status(comparison)
         results = []
         for property_id, raw_unit in units.items():
             unit = float(raw_unit)
@@ -215,7 +187,14 @@ class BattleMarginalCalculationService:
             relevant_hits = tuple(
                 hit
                 for hit in role_hits
-                if cls._supports(
+                if property_owner_matches(
+                    property_id,
+                    hit,
+                    outgoing_hits,
+                    replays,
+                    character_id=character_id,
+                    weave_source_properties=_WEAVE_SOURCE_PROPERTIES,
+                ) and cls._supports(
                     property_id,
                     hit,
                     replay=replays.get(hit.event_id),
@@ -223,6 +202,7 @@ class BattleMarginalCalculationService:
                 )
             )
             hit_ratios: dict[str, BattleCounterfactualRatio] = {}
+            property_projections = {}
             for hit in relevant_hits:
                 formula_hit = cls._attack_formula_hit(
                     property_id,
@@ -230,17 +210,35 @@ class BattleMarginalCalculationService:
                     outgoing_hits,
                 )
                 if formula_hit is None:
+                    property_projections[hit.event_id] = scope.formula_projections[
+                        hit.event_id
+                    ]
                     hit_ratios[hit.event_id] = cls._missing_linked_source_ratio()
                 else:
+                    projection_hit = (
+                        find_paired_weave_source_hit(hit, outgoing_hits)
+                        if property_id == "MagBase"
+                        and hit.classification == "weave"
+                        else formula_hit
+                    )
+                    projection_map = (
+                        scope.raw_projections
+                        if property_id == "MagBase"
+                        and hit.classification == "weave"
+                        else scope.formula_projections
+                    )
+                    property_projections[hit.event_id] = projection_map[
+                        projection_hit.event_id
+                    ]
                     hit_ratios[hit.event_id] = (
                         BattleHitCounterfactualRatioService.compare(
                             hit=formula_hit,
                             original_baseline=edited_baseline,
                             candidate_baseline=changed_baseline,
-                            original_projection=projections[formula_hit.event_id],
-                            candidate_projection=projections[formula_hit.event_id],
+                            original_projection=property_projections[hit.event_id],
+                            candidate_projection=property_projections[hit.event_id],
                             original_replay=replays.get(formula_hit.event_id),
-                            target_condition=target_conditions[formula_hit.event_id],
+                            target_condition=scope.target_conditions[hit.event_id],
                         )
                     )
                 hit_ratios[hit.event_id] = cls._inherit_anchor_status(
@@ -363,7 +361,7 @@ class BattleMarginalCalculationService:
             quantified_role_gain = (
                 None
                 if known_increment is None
-                or cls._denominator_status(comparison_role) == "unavailable"
+                or role_denominator_status == "unavailable"
                 else (
                     known_increment / baseline_damage * 100.0
                     if baseline_damage
@@ -373,21 +371,19 @@ class BattleMarginalCalculationService:
             quantified_team_gain = (
                 None
                 if known_increment is None
-                or cls._denominator_status(comparison) == "unavailable"
+                or team_denominator_status == "unavailable"
                 else known_increment / team_damage * 100.0 if team_damage else 0.0
             )
             full_role_gain = (
                 quantified_role_gain
                 if quantification.status in {"complete", "not_applicable"}
-                and cls._denominator_status(comparison_role)
-                in {"complete", "not_applicable"}
+                and role_denominator_status in {"complete", "not_applicable"}
                 else None
             )
             full_team_gain = (
                 quantified_team_gain
                 if quantification.status in {"complete", "not_applicable"}
-                and cls._denominator_status(comparison)
-                in {"complete", "not_applicable"}
+                and team_denominator_status in {"complete", "not_applicable"}
                 else None
             )
             percent = property_id not in {
@@ -408,7 +404,7 @@ class BattleMarginalCalculationService:
                 property_id=property_id,
                 panel_value=panel_value,
                 relevant_hits=relevant_hits,
-                projections=projections,
+                projections=property_projections,
                 linked_vitals=linked_vital,
                 max_hp_events=max_hp_events,
                 topple_hits=topple_hits,
@@ -438,8 +434,16 @@ class BattleMarginalCalculationService:
                 assumption=marginal_assumption(
                     property_id,
                     quantification.status,
-                    applied_count=len(applied_intervals),
-                    excluded_count=len(excluded_intervals),
+                    applied_count=len({
+                        interval_id
+                        for projection in property_projections.values()
+                        for interval_id in projection.applied_interval_ids
+                    }),
+                    excluded_count=len({
+                        interval_id
+                        for projection in property_projections.values()
+                        for interval_id in projection.excluded_interval_ids
+                    }),
                     critical_policies=tuple(
                         "fixed" if is_fixed_half_critical_hit(hit)
                         else cls._critical_policy(replays.get(hit.event_id))
@@ -447,9 +451,9 @@ class BattleMarginalCalculationService:
                         if is_fixed_half_critical_hit(hit) or hit.classification
                         in {"direct", "direct_follow_up", "weave"}
                     ),
-                    ),
-                role_denominator_status=cls._denominator_status(comparison_role),
-                team_denominator_status=cls._denominator_status(comparison),
+                ) + formula_context_assumption(relevant_hits, replays),
+                role_denominator_status=role_denominator_status,
+                team_denominator_status=team_denominator_status,
                 panel_value=panel_value,
                 weighted_effective_value=weighted_value,
                 related_damage=related_damage,
@@ -589,6 +593,8 @@ class BattleMarginalCalculationService:
         character_id: int,
     ) -> bool:
         channel, _label = classify_battle_hit_channel(hit)
+        if channel in {"other_topple", "special_daffodill_extra_topple"}:
+            return False
         if channel in {
             "other_reflected_projectile",
             "special_fadia_shared_damage",
@@ -667,7 +673,8 @@ class BattleMarginalCalculationService:
             formal_attribute = (
                 "nature"
                 if kuhara_formula
-                else continuous_direct_attribute(hit)
+                else str(getattr(replay, "formula_damage_attribute", "") or "").casefold()
+                or continuous_direct_attribute(hit)
                 or hit.damage_attribute.casefold()
             )
             return (
@@ -690,7 +697,11 @@ class BattleMarginalCalculationService:
     ) -> BattleAnalysisHit | None:
         """Route source-consuming weave fields through the paired direct hit."""
 
-        if property_id not in _WEAVE_SOURCE_PROPERTIES or hit.classification != "weave":
+        if hit.classification != "weave":
+            return hit
+        if property_id == "MagBase":
+            return hit if find_paired_weave_source_hit(hit, all_hits) else None
+        if property_id not in _WEAVE_SOURCE_PROPERTIES:
             return hit
         return find_paired_weave_source_hit(hit, all_hits)
 
@@ -700,7 +711,7 @@ class BattleMarginalCalculationService:
             code="linked_source_hit_missing",
             dimension_id="weave_recorded_source_hit",
             dependency_scope="mechanic_specific",
-            property_ids=tuple(sorted(_WEAVE_SOURCE_PROPERTIES)),
+            property_ids=tuple(sorted({*_WEAVE_SOURCE_PROPERTIES, "MagBase"})),
             explanation="覆纹缺少同序列、同半场、同目标、同方向的原伤害。",
         )
         return BattleCounterfactualRatio.unavailable(

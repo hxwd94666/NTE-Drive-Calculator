@@ -44,6 +44,7 @@ from src.services.battle_analysis_progress import (
 from src.services.battle_hit_buff_projection_cache import (
     BattleHitBuffProjectionCache,
 )
+from src.services.battle_formula_hit_projection_service import project_formula_hit
 
 
 def _formula_character_id(
@@ -51,21 +52,25 @@ def _formula_character_id(
     evidence: BattleSkillDamageEvidence | None,
 ) -> int | None:
     return (
-        evidence.source_character_id
-        if evidence is not None and evidence.source_character_id is not None
+        (
+            evidence.panel_character_id
+            if evidence.panel_character_id is not None
+            else evidence.source_character_id
+        )
+        if evidence is not None
+        and (
+            evidence.panel_character_id is not None
+            or evidence.source_character_id is not None
+        )
         else hit.character_id
     )
 
 
 def _formula_hit(
     hit: BattleAnalysisHit,
-    formula_character_id: int | None,
+    evidence: BattleSkillDamageEvidence | None,
 ) -> BattleAnalysisHit:
-    return (
-        hit
-        if formula_character_id == hit.character_id
-        else replace(hit, character_id=formula_character_id)
-    )
+    return project_formula_hit(hit, evidence)
 
 
 def _progressive_hits(
@@ -101,12 +106,17 @@ def _resolve_projection_gap(
         if decision.status == "unresolved"
         for reason in decision.reasons
     )
-    if ratio.status != "not_applicable" and (applied or not unresolved):
+    if ratio.status != "not_applicable" and applied:
         return ratio
     beneficiary_unknown = any("逐击角色未知" in reason for reason in unresolved)
     lacks_formula = not any(row.modifiers for row in group_intervals)
     if not applied and not unresolved and not lacks_formula:
-        return ratio
+        return BattleCounterfactualRatio.not_applicable(
+            method="buff_projection_not_applied",
+            dependency_scope=ratio.dependency_scope,
+            cancelled_dimension_ids=ratio.cancelled_dimension_ids,
+            explanation="正式 Buff 修正已确认不适用于本击，移除前后倍率相同。",
+        )
     explanation = (
         "逐击角色未知，无法确认该击是否属于来源角色之外的队友。"
         if beneficiary_unknown
@@ -211,22 +221,32 @@ class BattleBuffCounterfactualBatchExecutor:
             event_id = hit.event_id
             formula_hit = _formula_hit(
                 hit,
-                formula_character_id_by_event[event_id],
+                audit_inputs.evidence_by_event.get(event_id),
             )
             candidate_formula_projection_by_event[event_id] = (
                 candidate_projection_by_event[event_id]
                 if formula_hit is hit
                 else candidate_projection_cache.project(formula_hit)
             )
-        group_projection_by_event = {
-            hit.event_id: group_projection_cache.project(hit)
-            for hit in _progressive_hits(
+        group_projection_by_event = {}
+        for hit in _progressive_hits(
                 active_hits,
                 progress_callback,
                 phase="buff_counterfactual_prepare",
                 message="正在核对当前 Buff 组的逐击覆盖范围…",
+        ):
+            evidence = audit_inputs.evidence_by_event.get(hit.event_id)
+            formula_hit = project_formula_hit(hit, evidence)
+            consumer_hit = (
+                formula_hit
+                if formula_hit.character_id == hit.character_id
+                or evidence is not None
+                and evidence.formula_context_kind.startswith("linko_coattack:")
+                else hit
             )
-        }
+            group_projection_by_event[hit.event_id] = (
+                group_projection_cache.project(consumer_hit)
+            )
         target_condition_by_event = {
             event_id: target_condition
             for event_id, target_condition
@@ -246,7 +266,7 @@ class BattleBuffCounterfactualBatchExecutor:
                             original_projection_by_event
                         ),
                         candidate_projection_by_event=(
-                            candidate_projection_by_event
+                            candidate_formula_projection_by_event
                         ),
                         target_condition_by_event=target_condition_by_event,
                         audit_inputs=audit_inputs,
@@ -287,7 +307,9 @@ class BattleBuffCounterfactualBatchExecutor:
                     candidate_by_event.get(hit.event_id),
                     formula_character_id_by_event=formula_character_id_by_event,
                     original_projection_by_event=original_projection_by_event,
-                    candidate_projection_by_event=candidate_projection_by_event,
+                    candidate_projection_by_event=(
+                        candidate_formula_projection_by_event
+                    ),
                     target_condition_by_event=target_condition_by_event,
                     audit_inputs=audit_inputs,
                 )
@@ -348,7 +370,9 @@ class BattleBuffCounterfactualBatchExecutor:
                     candidate_by_event.get(representative.event_id),
                     formula_character_id_by_event=formula_character_id_by_event,
                     original_projection_by_event=original_projection_by_event,
-                    candidate_projection_by_event=candidate_projection_by_event,
+                    candidate_projection_by_event=(
+                        candidate_formula_projection_by_event
+                    ),
                     target_condition_by_event=target_condition_by_event,
                     audit_inputs=audit_inputs,
                 )
@@ -401,7 +425,7 @@ class BattleBuffCounterfactualBatchExecutor:
                             original_projection_by_event
                         ),
                         candidate_projection_by_event=(
-                            candidate_projection_by_event
+                            candidate_formula_projection_by_event
                         ),
                         target_condition_by_event=target_condition_by_event,
                         audit_inputs=audit_inputs,

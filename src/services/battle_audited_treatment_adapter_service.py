@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from math import ceil
+from math import floor
 from typing import Any
 
 from src.domain.battle_report import (
@@ -20,7 +20,7 @@ from src.services.battle_timeline_time_service import (
 )
 
 
-AUDITED_TREATMENT_ADAPTER_MODEL_VERSION = "battle-audited-treatment-v1"
+AUDITED_TREATMENT_ADAPTER_MODEL_VERSION = "battle-audited-treatment-v2"
 
 _LACRIMOSA_IDS = frozenset({1004})
 _LACRIMOSA_PERIOD_US = 3_000_000
@@ -269,7 +269,7 @@ class BattleAuditedTreatmentAdapterService:
             for source_id, damage in damage_by_source.items():
                 if damage <= 0:
                     continue
-                raw_heal = float(ceil(damage * _LACRIMOSA_RECOVER_RATIO))
+                raw_heal = float(floor(damage * _LACRIMOSA_RECOVER_RATIO))
                 evidence_ids = tuple(
                     row.event_id for row in window_hits
                     if row.character_id == source_id
@@ -289,7 +289,8 @@ class BattleAuditedTreatmentAdapterService:
                     evidence_event_ids=evidence_ids,
                     inference_basis=(
                         "安魂曲五觉每 3 个有效战斗秒汇总上一窗口的噩梦本体伤害，"
-                        "并按总和的 1.5% 向上取整自疗；无正数噩梦伤害的窗口不"
+                        "并按总和的 1.5% 依当前统一结算规则向下取整自疗；"
+                        "无正数噩梦伤害的窗口不"
                         "推断来源侧治疗广播。"
                     ),
                     target_character_ids=(source_id,),
@@ -297,7 +298,7 @@ class BattleAuditedTreatmentAdapterService:
                     is_periodic=True,
                     application_tick=tick_active_us // _LACRIMOSA_PERIOD_US,
                     amount_basis=(
-                        f"ceil({damage:g} × {_LACRIMOSA_RECOVER_RATIO:g})"
+                        f"floor({damage:g} × {_LACRIMOSA_RECOVER_RATIO:g})"
                     ),
                 ))
         return tuple(results)

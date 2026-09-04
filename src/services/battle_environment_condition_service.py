@@ -133,7 +133,11 @@ def display_battle_environment_name(condition: BattleTargetCondition) -> str:
     if kind == "outer_realm":
         parts = condition.environment_ref.split("|")
         if len(parts) >= 3 and parts[1].isdigit():
-            half = "上半" if "FirstHalf" in parts[2] else "下半"
+            half = (
+                "上下半" if parts[2] == "mixed"
+                else "上半" if "FirstHalf" in parts[2]
+                else "下半"
+            )
             return f"轨外之境第{int(parts[1])}层{half}"
         return "轨外之境"
     prefix = {

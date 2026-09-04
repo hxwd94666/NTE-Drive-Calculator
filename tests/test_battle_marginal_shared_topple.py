@@ -1,14 +1,57 @@
-# 验证队友名下的团队倾陷伤害不会重复进入当前角色伤害基数。
+# 验证团队倾陷按结构化公式贡献归入当前角色伤害基数。
 from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
 
+from src.domain.battle_counterfactual_quantification import (
+    BattleCounterfactualRatio,
+    BattleQuantificationGap,
+)
 from src.services.battle_marginal_calculation_support import quantify_marginal
 
 
 class BattleMarginalSharedToppleTest(unittest.TestCase):
-    def test_cross_owner_topple_keeps_increment_out_of_role_basis(self) -> None:
+    def test_zero_damage_partial_marker_does_not_create_empty_partial_bucket(
+        self,
+    ) -> None:
+        hit = SimpleNamespace(event_id="marker:1", character_id=1008)
+        gap = BattleQuantificationGap(
+            code="buff_state_inferred",
+            dimension_id="buff_state_evidence",
+            dependency_scope="character_only",
+            property_ids=("AtkUp",),
+            explanation="零伤害事件上的状态推断。",
+        )
+        ratio = BattleCounterfactualRatio.partial(
+            1.1,
+            method="fixture",
+            confidence="低",
+            dependency_scope="character_only",
+            included_dimension_ids=("scaling",),
+            cancelled_dimension_ids=(),
+            gaps=(gap,),
+            explanation="仅用于零伤害标记回归。",
+        )
+
+        quantification, increment = quantify_marginal(
+            role_damage=0.0,
+            relevant_hits=(hit,),
+            hit_ratios={hit.event_id: ratio},
+            vital_projections=(),
+            topple_hits=(),
+            topple_ratios={},
+            replays={},
+            anchor_damage=lambda _hit: 0.0,
+            anchor_quantification=lambda _hit: None,
+            character_id=1008,
+        )
+
+        self.assertEqual("not_applicable", quantification.status)
+        self.assertEqual(0.0, increment)
+        self.assertEqual(0.0, quantification.basis_damage)
+
+    def test_cross_owner_topple_uses_formula_contribution_in_role_basis(self) -> None:
         character_id = 1008
         hit = SimpleNamespace(event_id="topple:1", character_id=1020)
         replay = SimpleNamespace(
@@ -22,7 +65,7 @@ class BattleMarginalSharedToppleTest(unittest.TestCase):
         )
 
         quantification, increment = quantify_marginal(
-            role_damage=100.0,
+            role_damage=600.0,
             relevant_hits=(),
             hit_ratios={},
             vital_projections=(),
@@ -35,10 +78,10 @@ class BattleMarginalSharedToppleTest(unittest.TestCase):
         )
 
         self.assertEqual("complete", quantification.status)
-        self.assertEqual(100.0, quantification.basis_damage)
-        self.assertEqual(0.0, quantification.fully_quantified_damage)
-        self.assertEqual(100.0, quantification.proven_unchanged_damage)
-        self.assertEqual(10.0, increment)
+        self.assertEqual(600.0, quantification.basis_damage)
+        self.assertEqual(600.0, quantification.fully_quantified_damage)
+        self.assertEqual(0.0, quantification.proven_unchanged_damage)
+        self.assertAlmostEqual(10.0, increment)
 
 
 if __name__ == "__main__":

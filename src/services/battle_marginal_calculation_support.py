@@ -23,6 +23,10 @@ from src.services.battle_fixed_critical_ratio_service import (
 from src.services.battle_hit_counterfactual_ratio_service import (
     BattleHitCounterfactualRatioService,
 )
+from src.services.battle_marginal_formula_scope import (
+    formula_panel_character_id,
+    property_owner_matches,
+)
 from src.services.battle_buff_counterfactual_projection_support import (
     VitalProjection,
 )
@@ -55,6 +59,19 @@ MARGINAL_UNITS = {
     "MagBase": 6.0,
     "UnbalIntensityBase": 6.0,
 }
+DRIVE_SUBSTAT_PROPERTIES = {
+    "暴击率%": "CritBase",
+    "暴击伤害%": "CritDamageBase",
+    "伤害增加%": "DamageUpGeneralBase",
+    "攻击力%": "AtkUp",
+    "攻击力": "AtkAdd",
+    "防御力": "DefAdd",
+    "防御力%": "DefUp",
+    "生命值%": "HPMaxUp",
+    "生命值": "HPMaxAdd",
+    "环合强度": "MagBase",
+    "倾陷强度": "UnbalIntensityBase",
+}
 DAMAGE_PENETRATION_PROPERTY = {
     "chaos": "DamagePenetrateChaos", "cosmos": "DamagePenetrateCosmos",
     "incantation": "DamagePenetrateIncantation",
@@ -65,10 +82,30 @@ DAMAGE_PENETRATION_PROPERTY = {
 WEAVE_SOURCE_PROPERTIES = {
     "AtkUp", "AtkAdd", "HPMaxUp", "HPMaxAdd", "DefUp", "DefAdd",
     "CritBase", "CritDamageBase", "DamageUpGeneralBase", "DefIgnore",
-    "MagBase",
     *ELEMENT_PROPERTIES,
     *DAMAGE_PENETRATION_PROPERTY.values(),
 }
+
+
+def drive_substat_marginal_units(
+    gold_base_values: Mapping[str, float] | None,
+) -> dict[str, float]:
+    """Return only rollable drive sub-stats in the canonical catalog order."""
+
+    values = gold_base_values or {}
+    units: dict[str, float] = {}
+    for stat_name, property_id in DRIVE_SUBSTAT_PROPERTIES.items():
+        if values and stat_name not in values:
+            continue
+        configured = values.get(stat_name)
+        if configured is None:
+            configured = MARGINAL_UNITS[property_id]
+            units[property_id] = float(configured)
+        else:
+            units[property_id] = float(configured) / (
+                100.0 if stat_name.endswith("%") else 1.0
+            )
+    return units
 
 
 def default_marginal_units(
@@ -79,6 +116,7 @@ def default_marginal_units(
     topple_ratio: Callable[..., float | None],
 ) -> dict[str, float]:
     present = {row.property_id for row in baseline.stats}
+    replay_map = {} if replays is None else replays
     result = {
         property_id: float(unit)
         for property_id, unit in MARGINAL_UNITS.items()
@@ -90,10 +128,16 @@ def default_marginal_units(
         (
             "nature"
             if BattleHitCounterfactualRatioService.is_kuhara_formula_hit(hit)
-            else continuous_direct_attribute(hit) or hit.damage_attribute.casefold()
+            else str(getattr(
+                replay_map.get(hit.event_id), "formula_damage_attribute", ""
+            ) or "").casefold()
+            or continuous_direct_attribute(hit)
+            or hit.damage_attribute.casefold()
         )
         for hit in hits
-        if hit.character_id == baseline.character_id and hit.direction == "outgoing"
+        if formula_panel_character_id(hit, replay_map.get(hit.event_id))
+        == baseline.character_id
+        and hit.direction == "outgoing"
     }
     if not formal_attributes:
         formal_attributes = {
@@ -108,7 +152,6 @@ def default_marginal_units(
             result[element_property] = float(MARGINAL_UNITS["ElementDamage"])
         if penetration_property is not None:
             result[penetration_property] = 0.01
-    replay_map = {} if replays is None else replays
     if any(
         topple_ratio(
             replay_map.get(hit.event_id),
@@ -119,10 +162,17 @@ def default_marginal_units(
     ):
         result["UnbalIntensityBase"] = float(MARGINAL_UNITS["UnbalIntensityBase"])
     if any(
-        hit.character_id == baseline.character_id
-        and BattleHitCounterfactualRatioService.supports_ring_strength(
+        BattleHitCounterfactualRatioService.supports_ring_strength(
             hit,
             replay_map.get(hit.event_id),
+        )
+        and property_owner_matches(
+            "MagBase",
+            hit,
+            hits,
+            replay_map,
+            character_id=baseline.character_id,
+            weave_source_properties=WEAVE_SOURCE_PROPERTIES,
         )
         for hit in hits
     ):
@@ -182,6 +232,8 @@ def quantify_marginal(
     for hit in relevant_hits:
         ratio = hit_ratios[hit.event_id]
         damage = anchor_damage(hit)
+        if damage <= 0.0:
+            continue
         relevant_event_ids.add(hit.event_id)
         statuses.append(ratio.status)
         gaps.extend(ratio.gaps)
@@ -190,6 +242,8 @@ def quantify_marginal(
         if ratio.quantified_ratio is not None and ratio.status in {"complete", "partial"}:
             known_increment += damage * (ratio.quantified_ratio - 1.0)
     for row in vital_projections:
+        if row.baseline_damage <= 0.0:
+            continue
         statuses.append(row.status)
         gaps.extend(row.gaps)
         if row.status in buckets:
@@ -208,6 +262,8 @@ def quantify_marginal(
         )
         if contribution is None:
             continue
+        if contribution <= 0.0:
+            continue
         relevant_event_ids.add(hit.event_id)
         anchor = anchor_quantification(hit)
         anchor_status: QuantificationStatus = (
@@ -216,11 +272,11 @@ def quantify_marginal(
         statuses.append(anchor_status)
         if anchor is not None:
             gaps.extend(anchor.gaps)
-        # The factor describes this character's share of a team topple hit, but
-        # the observed hit belongs to exactly one role damage total.  Keep the
-        # shared increment attributable to this character below, while only
-        # putting its baseline share into role-owned buckets for the hit owner.
-        if anchor_status in buckets and hit.character_id == character_id:
+        # Team topple is emitted as one observed hit, while its structured
+        # factors assign a separate contribution to every participating role.
+        # The role denominator already uses that same contribution split, so
+        # the quantified bucket must not depend on the packet's raw owner.
+        if anchor_status in buckets:
             buckets[anchor_status] += contribution
         if anchor_status in {"complete", "partial"}:
             known_increment += team_damage * (ratio - 1.0)
@@ -305,4 +361,23 @@ def marginal_assumption(
     return (
         f"{basis}已将 {applied_count} 个动态 Buff 区间按击投影；"
         f"{excluded_count} 个区间因常驻重复或证据不足未进入数值。"
+    )
+
+
+def formula_context_assumption(
+    hits: Sequence[BattleAnalysisHit],
+    replays: Mapping[str, BattleHitReplayResult],
+) -> str:
+    confidences = tuple(sorted({
+        replay.formula_context_confidence
+        for hit in hits
+        if (replay := replays.get(hit.event_id)) is not None
+        and replay.formula_context_kind
+        and replay.formula_context_confidence
+    }))
+    if not confidences:
+        return ""
+    return (
+        f" 其中包含公式身份推论（置信度：{'/'.join(confidences)}）；"
+        "逐击数值可重放不会提高该身份推论的置信度。"
     )

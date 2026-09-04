@@ -172,7 +172,9 @@ def _normalized_label(value: str) -> str:
     return label.removeprefix("环合·")
 
 
-def _has_hit_source_evidence(hit: BattleAnalysisHit) -> bool:
+def has_hit_source_evidence(hit: BattleAnalysisHit) -> bool:
+    """Return whether a hit carries a source identity usable by composition."""
+
     return any(
         str(value or "").strip().casefold() not in _MISSING_SOURCE_LABELS
         for value in (
@@ -704,7 +706,7 @@ class BattleDamageCompositionService:
         for hit in hits:
             if hit.direction != "outgoing" or hit.damage <= 0:
                 continue
-            if not _has_hit_source_evidence(hit):
+            if not has_hit_source_evidence(hit):
                 public_damage["unattributed_missing_source"] += hit.damage
                 public_labels["unattributed_missing_source"] = "来源字段缺失"
                 continue

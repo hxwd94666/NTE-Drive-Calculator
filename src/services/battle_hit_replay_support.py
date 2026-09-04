@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from math import ceil
+from math import floor
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
@@ -26,10 +26,10 @@ _PANEL_PROPERTIES = {
 }
 
 
-def ceil_replay_damage(value: float) -> float:
-    """Round one deterministic replay settlement upward after all factors."""
+def settle_replay_damage(value: float) -> float:
+    """Round one deterministic replay settlement down after all factors."""
 
-    return float(ceil(max(0.0, float(value))))
+    return float(floor(max(0.0, float(value))))
 
 
 def first_replay_value(values: Mapping[str, float], property_id: str) -> float:

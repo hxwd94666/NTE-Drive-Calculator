@@ -310,7 +310,7 @@ class BattleDaffodillAwakeningServiceTests(unittest.TestCase):
             factors=(BattleHitReplayFactor(
                 factor_id="topple_character:1054",
                 label="达芙蒂尔倾陷贡献",
-                value=250.0,
+                value=250.75,
                 evidence_basis="fixture",
             ),),
         )

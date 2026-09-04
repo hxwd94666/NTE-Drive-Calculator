@@ -152,6 +152,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
         self.assertTrue(created_options[0]["allow_equipment_replacement"])
         self.assertFalse(created_options[0]["show_equipment_context_selector"])
+        self.assertFalse(created_options[0]["show_fork_direct_damage_margin"])
         self.assertFalse(page.use_inferred_facts.isHidden())
         self.assertEqual((), page.disabled_inferred_fact_ids())
         page.use_inferred_facts.setChecked(False)
@@ -170,6 +171,55 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         self.assertNotIn("同步养成到角色页", button_texts)
         self.assertNotIn("保存修改副本", button_texts)
         self.assertNotIn("清除手工属性", button_texts)
+
+    def test_fork_fixed_axis_benefit_moves_into_selected_role_fork_group(self) -> None:
+        attached: list[tuple[int, QWidget]] = []
+
+        class FakeEditor(QWidget):
+            changed = Signal()
+
+            def __init__(self, detail, *_args, **_kwargs) -> None:
+                super().__init__()
+                self.detail = detail
+
+            def set_fork_analysis_widget(self, widget: QWidget) -> None:
+                widget.setParent(self)
+                attached.append((self.detail["character"]["character_id"], widget))
+
+            def profile(self):
+                return dict(self.detail["profile"])
+
+            def selected_equipment_context(self):
+                return "battle", self.detail["equipment_contexts"]["battle"]
+
+        def detail(character_id: int) -> dict:
+            return {
+                "character": {"character_id": character_id, "name_zh": f"角色{character_id}"},
+                "profile": {"character_id": character_id},
+                "equipment_contexts": {"battle": {"items": []}},
+            }
+
+        with patch(
+            "src.features.battle_report.marginal_page.OfficialRoleProfileEditor",
+            FakeEditor,
+        ):
+            page = BattleMarginalPage()
+            page.set_editor_data({"details": [detail(1001), detail(1002)]})
+            self.assertEqual(1001, attached[-1][0])
+            self.assertIs(page.fork_benefit_panel.parentWidget(), page.editor_stack.currentWidget())
+
+            page.character_combo.setCurrentIndex(1)
+
+        self.assertEqual(1002, attached[-1][0])
+        self.assertIs(page.fork_benefit_panel.parentWidget(), page.editor_stack.currentWidget())
+        self.assertEqual(
+            "固定轴综合收益",
+            page.fork_benefit_panel.findChild(QLabel, "battleForkBenefitTitle").text(),
+        )
+        self.assertEqual(9, page.fork_benefit_table.columnCount())
+        self.assertEqual("无弧盘角色伤害", page.fork_benefit_table.horizontalHeaderItem(0).text())
+        self.assertEqual(88, page.fork_benefit_table.minimumHeight())
+        self.assertEqual(88, page.fork_benefit_table.maximumHeight())
 
     def test_navigation_and_role_selector_are_outside_the_scroll_area(self) -> None:
         page = BattleMarginalPage()

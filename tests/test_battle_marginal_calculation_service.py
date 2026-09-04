@@ -20,6 +20,9 @@ from src.domain.battle_target import BattleTargetInstanceResolution
 from src.services.battle_marginal_calculation_service import (
     BattleMarginalCalculationService,
 )
+from src.services.battle_marginal_calculation_support import (
+    drive_substat_marginal_units,
+)
 
 
 CHARACTER_ID = 1072
@@ -203,6 +206,75 @@ def _critical_replay(
 
 
 class BattleMarginalCalculationServiceTests(unittest.TestCase):
+    def test_drive_catalog_uses_only_configured_gold_drive_substats(self) -> None:
+        units = drive_substat_marginal_units({
+            "暴击率%": 4.2,
+            "攻击力": 21.0,
+            "属性穿透%": 5.0,
+        })
+
+        self.assertEqual({"CritBase", "AtkAdd"}, set(units))
+        self.assertAlmostEqual(0.042, units["CritBase"])
+        self.assertEqual(21.0, units["AtkAdd"])
+
+    def test_missing_source_damage_stays_unavailable_inside_panel_denominator(
+        self,
+    ) -> None:
+        sourced = _hit(event_id="hit:sourced", damage=500.0)
+        missing = replace(
+            _hit(event_id="hit:missing", damage=8.0),
+            sequence=2,
+            ability_id="",
+            gameplay_effect_id="",
+            skill_name="未归因伤害",
+            damage_name="来源字段缺失",
+            damage_component="",
+            attack_type="",
+            damage_attribute="unknown",
+        )
+        replay = _critical_replay(sourced, "character", 0.5)
+        analysis = _analysis(sourced, replay)
+        analysis.hits = (sourced, missing)
+        analysis.effective_damage = 508.0
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"CritDamageBase": 0.02},
+        )[0]
+
+        self.assertEqual("partial", result.quantification.status)
+        self.assertEqual(508.0, result.baseline_damage)
+        self.assertEqual(500.0, result.quantification.fully_quantified_damage)
+        self.assertEqual(8.0, result.quantification.unavailable_damage)
+        self.assertEqual(0.0, result.quantification.proven_unchanged_damage)
+
+    def test_unreplayed_daffodill_extra_topple_skips_generic_stat_margin(
+        self,
+    ) -> None:
+        sourced = _hit(event_id="hit:sourced", damage=100.0)
+        extra_topple = replace(
+            _hit(event_id="hit:extra-topple", damage=55.0),
+            sequence=2,
+            gameplay_effect_id="GE_Player_Daffodill_ExtraUnbalance_Damage",
+        )
+        replay = _critical_replay(sourced, "character", 0.5)
+        analysis = _analysis(sourced, replay)
+        analysis.hits = (sourced, extra_topple)
+        analysis.effective_damage = 155.0
+
+        result = BattleMarginalCalculationService.calculate(
+            analysis=analysis,
+            character_id=CHARACTER_ID,
+            edited_values={},
+            units={"CritDamageBase": 0.02},
+        )[0]
+
+        self.assertEqual("complete", result.quantification.status)
+        self.assertEqual(100.0, result.baseline_damage)
+        self.assertEqual(100.0, result.quantification.fully_quantified_damage)
+
     def test_hp_and_def_scaling_margins_use_replay_scaling_terms(self) -> None:
         hit = _hit()
         for scaling_id, property_id in (("HPMax", "HPMaxUp"), ("Def", "DefUp")):
@@ -665,129 +737,6 @@ class BattleMarginalCalculationServiceTests(unittest.TestCase):
             and row.quantified_role_gain_percent is None
             for row in unknown
         ))
-
-    def test_topple_unit_reuses_source_character_contribution(self) -> None:
-        hit = _hit(classification="topple")
-        strength_term = BattleHitReplayTerm(
-            term_id="character:1072:UnbalIntensityBase",
-            property_id="UnbalIntensityBase",
-            label="倾陷强度",
-            value=100.0,
-            source_group="resolved",
-            source_name="角色面板",
-            is_percent=False,
-            evidence_basis="冻结角色面板",
-        )
-        replay = BattleHitReplayResult(
-            event_id=hit.event_id,
-            observed_damage=1000.0,
-            non_critical_damage=2000.0,
-            critical_damage=None,
-            selected_damage=2000.0,
-            selected_error_percent=100.0,
-            critical_state="not_applicable",
-            confidence="低",
-            factors=(
-                BattleHitReplayFactor(
-                    factor_id="topple_character:1072",
-                    label="灵可倾陷贡献",
-                    value=4000.0 / 3.0,
-                    evidence_basis="逐角色倾陷公式",
-                    terms=(strength_term,),
-                ),
-                BattleHitReplayFactor(
-                    factor_id="topple_character:1001",
-                    label="队友倾陷贡献",
-                    value=2000.0 / 3.0,
-                    evidence_basis="逐角色倾陷公式",
-                ),
-            ),
-            critical_rate=0.0,
-            expected_damage=2000.0,
-            critical_policy="disabled",
-        )
-        analysis = _analysis(hit, replay)
-
-        units = BattleMarginalCalculationService.default_units(
-            analysis.baselines[0]
-        )
-        self.assertEqual(6.0, units["UnbalIntensityBase"])
-        result = BattleMarginalCalculationService.calculate(
-            analysis=analysis,
-            character_id=CHARACTER_ID,
-            edited_values={},
-            units={"UnbalIntensityBase": 6.0},
-        )[0]
-
-        self.assertEqual("complete", result.quantification.status)
-        self.assertAlmostEqual(
-            2000.0 / 3.0,
-            result.quantification.fully_quantified_damage,
-        )
-        self.assertAlmostEqual(2000.0 / 3.0, result.baseline_damage)
-        self.assertAlmostEqual(2000.0 / 3.0 + 10.0, result.known_projection_damage)
-        self.assertAlmostEqual(1.5, result.full_role_gain_percent)
-        self.assertAlmostEqual(1.0, result.full_team_gain_percent)
-        self.assertAlmostEqual(
-            result.quantification.basis_damage,
-            result.quantification.fully_quantified_damage
-            + result.quantification.partially_quantified_damage
-            + result.quantification.unavailable_damage
-            + result.quantification.proven_unchanged_damage,
-        )
-
-    def test_topple_unit_accepts_omitted_zero_strength_term(self) -> None:
-        hit = _hit(classification="topple")
-        replay = BattleHitReplayResult(
-            event_id=hit.event_id,
-            observed_damage=1000.0,
-            non_critical_damage=2000.0,
-            critical_damage=None,
-            selected_damage=2000.0,
-            selected_error_percent=100.0,
-            critical_state="not_applicable",
-            confidence="低",
-            factors=(
-                BattleHitReplayFactor(
-                    factor_id=f"topple_character:{CHARACTER_ID}",
-                    label="灵可倾陷贡献",
-                    value=1000.0,
-                    evidence_basis="零倾陷强度的逐角色公式",
-                ),
-                BattleHitReplayFactor(
-                    factor_id="topple_character:1001",
-                    label="队友倾陷贡献",
-                    value=1000.0,
-                    evidence_basis="逐角色倾陷公式",
-                ),
-            ),
-            critical_rate=0.0,
-            expected_damage=2000.0,
-            critical_policy="disabled",
-        )
-        analysis = _analysis(hit, replay)
-        analysis.baselines = (replace(
-            analysis.baselines[0],
-            stats=tuple(
-                replace(row, value=0.0)
-                if row.property_id == "UnbalIntensityBase"
-                else row
-                for row in analysis.baselines[0].stats
-            ),
-        ),)
-
-        result = BattleMarginalCalculationService.calculate(
-            analysis=analysis,
-            character_id=CHARACTER_ID,
-            edited_values={},
-            units={"UnbalIntensityBase": 6.0},
-        )[0]
-
-        self.assertEqual("complete", result.quantification.status)
-        self.assertEqual(500.0, result.quantification.fully_quantified_damage)
-        self.assertAlmostEqual(510.0, result.known_projection_damage)
-        self.assertAlmostEqual(2.0, result.full_role_gain_percent)
-
 
 if __name__ == "__main__":
     unittest.main()

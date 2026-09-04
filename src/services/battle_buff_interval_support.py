@@ -269,7 +269,7 @@ class BattleBuffIntervalSupportMixin:
                     for row in ordered[1:]:
                         results.append(BuffOccurrence(
                             row.relative_time_us,
-                            "中",
+                            "低",
                             action_ids=(action.action_id,),
                             event_ids=(row.event_id,),
                             target_id=row.target_id,

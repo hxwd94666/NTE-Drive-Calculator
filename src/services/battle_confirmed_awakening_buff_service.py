@@ -8,6 +8,7 @@ from typing import Any
 
 from src.services.battle_character_awakening_hit_service import (
     FADIA_GODSLAYER_REQUIREMENT,
+    LINKO_COATTACK_REQUIREMENT,
     MITSUKI_ULTRA_REQUIREMENT,
     ZERO_FIRST_GAZE_REQUIREMENT,
 )
@@ -84,6 +85,15 @@ _SPECS = {
         "华彩乐章（觉醒五）", "self", "STATIC_EQUIPPED_SOURCE", None,
         (("CritBase", 0.15, MITSUKI_ULTRA_REQUIREMENT),),
     ),
+    "character_awaken:1072:Effect6": ConfirmedAwakeningBuffSpec(
+        "世界将予你回声（觉醒六）", "team", "STATIC_EQUIPPED_SOURCE", None,
+        (("CritBase", 0.25, LINKO_COATTACK_REQUIREMENT),),
+    ),
+    "character_awaken:1072:resonance_6": ConfirmedAwakeningBuffSpec(
+        "万籁同频的刹那（六觉共鸣）", "team",
+        "ABILITY_EVENT|Q|GA_Radio072_UltraSkill", 13.0,
+        (("DamageUpNatureBase", 0.30), ("DamageUpIncantationBase", 0.30)),
+    ),
 }
 
 _REPLACES_GENERIC = frozenset({
@@ -94,6 +104,8 @@ _REPLACES_GENERIC = frozenset({
     "character_awaken:1039:resonance_6",
     "character_awaken:1070:Effect5",
     "character_awaken:1075:Effect5",
+    "character_awaken:1072:Effect6",
+    "character_awaken:1072:resonance_6",
 })
 
 

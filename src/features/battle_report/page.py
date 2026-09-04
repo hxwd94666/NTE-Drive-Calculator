@@ -313,6 +313,11 @@ class BattleReportPage(QWidget):
             )
         elif self._marginal_result_scope is None:
             self._request_marginal_lazy_recalculation()
+        else:
+            self._request_marginal_lazy_recalculation(
+                force=True,
+                use_candidate=self._marginal_result_is_candidate,
+            )
 
     def _request_marginal_lazy_recalculation(
         self,
@@ -516,6 +521,7 @@ class BattleReportPage(QWidget):
         *,
         detail_scope=None,
         is_candidate: bool = False,
+        marginal_benefits=None,
     ) -> None:
         """Update the selected-role half without replacing report scope."""
 
@@ -526,7 +532,10 @@ class BattleReportPage(QWidget):
         self._marginal_result_is_candidate = bool(is_candidate)
         if not self._marginal_result_is_candidate:
             self._marginal_baseline_by_scope[scope] = analysis
-        self.marginal_page.set_marginal_result(analysis)
+        self.marginal_page.set_marginal_result(
+            analysis,
+            marginal_benefits=marginal_benefits,
+        )
 
     def complete_analysis_details(self, kind: str, payload: object) -> None:
         self.long_analysis_view.complete_analysis_details(kind, payload)

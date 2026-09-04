@@ -562,6 +562,107 @@ class StaticGameDataDaoTest(unittest.TestCase):
         self.assertEqual(level["spawns"][0]["attribute_pack_id"], "AbyssBoss1")
         self.assertEqual(level["spawns"][0]["monster_level"], 43)
 
+    def test_linko_lte_damage_follows_linko_qte_skill_level(self):
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "INSERT INTO character VALUES (1072, '灵可', NULL, NULL, 'NATURE', "
+            "'Group', '/Game/Player_072_radio', NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_cultivation_guide VALUES "
+            "(1072, 1, 1.0, 1.0, NULL, NULL, 0, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_cultivation_stage VALUES "
+            "(1072, 0, 80, 80, 'Core1', 80, 80)"
+        )
+        connection.execute(
+            "INSERT INTO character_cultivation_stage_skill VALUES "
+            "(1072, 0, 'common', 0, 'GA_Radio072_QTE', 10)"
+        )
+        connection.execute(
+            "INSERT INTO gameplay_ability_catalog VALUES "
+            "('GA_Radio072_QTE', '恶灵左直拳！', NULL, NULL, NULL, NULL, NULL, 0, 1)"
+        )
+        connection.execute(
+            "INSERT INTO gameplay_ability_level_hint VALUES "
+            "('GA_Radio072_QTE', 0, NULL, '灵可同频合击', '{0}%', NULL, "
+            "'UseGEDamageType', '[\"GE_Player_Radio072_LTE_Damage\"]', '[]', '[]')"
+        )
+        connection.executemany(
+            "INSERT INTO combat_blueprint_asset VALUES (?,?,?,?,1072,2)",
+            (
+                (
+                    "/Game/Ability_072/GA_Radio072_QTE",
+                    "GA_Radio072_QTE",
+                    "BlueprintGeneratedClass",
+                    "ability",
+                ),
+                (
+                    "/Game/Ability_072/GA_Radio072_QTE_BackToLTE",
+                    "GA_Radio072_QTE_BackToLTE",
+                    "BlueprintGeneratedClass",
+                    "ability",
+                ),
+                (
+                    "/Game/Ability_072/GA_Radio072_QTE_FrontToLTE",
+                    "GA_Radio072_QTE_FrontToLTE",
+                    "BlueprintGeneratedClass",
+                    "ability",
+                ),
+            ),
+        )
+        for damage_id, ability_id in (
+            (
+                "GE_Player_Radio072_LTE_Damage",
+                "GA_Radio072_QTE_BackToLTE",
+            ),
+            (
+                "GE_Player_Radio072_LTE_Xiaozhen_Damage",
+                "GA_Radio072_QTE_FrontToLTE",
+            ),
+        ):
+            connection.execute(
+                """
+                INSERT INTO skill_damage VALUES (
+                    ?, ?, 'NATURE', 0.0, 0.0, 0.0, 'H', 0.0,
+                    '[5.0,9.995]', '[]', '[]', 1.0, 'Middle',
+                    0, 0.0, 0, 0.0, 0, 0.0, 1
+                )
+                """,
+                (damage_id, ability_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO combat_blueprint_reference VALUES (
+                    ?, '$[7].Properties.FollowSkillClass', 0, 'reference',
+                    '/Game/Ability_072/GA_Radio072_QTE',
+                    '/Game/Ability_072/GA_Radio072_QTE.1',
+                    'GA_Radio072_QTE_C', 1
+                )
+                """,
+                (f"/Game/Ability_072/{ability_id}",),
+            )
+        connection.commit()
+        connection.close()
+
+        with StaticGameDataDao(self.database_path) as dao:
+            back_candidates = dao.list_skill_level_ability_candidates(
+                1072,
+                "GE_Player_Radio072_LTE_Damage",
+            )
+            front_candidates = dao.list_skill_level_ability_candidates(
+                1072,
+                "GE_Player_Radio072_LTE_Xiaozhen_Damage",
+            )
+            front_damage = dao.get_skill_damage(
+                "GE_Player_Radio072_LTE_Xiaozhen_Damage"
+            )
+
+        self.assertEqual(["GA_Radio072_QTE"], back_candidates)
+        self.assertEqual(["GA_Radio072_QTE"], front_candidates)
+        self.assertEqual("GA_Radio072_QTE_FrontToLTE", front_damage["ability_id"])
+
     def test_outer_realm_target_preset_keeps_official_localized_name(self):
         with StaticGameDataDao(self.database_path) as dao:
             preset = dao.list_outer_realm_target_presets()[0]

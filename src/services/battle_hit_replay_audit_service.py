@@ -16,7 +16,7 @@ from src.domain.battle_report import (
     BattleHitReplayResult,
 )
 from src.services.battle_hit_replay_support import (
-    ceil_replay_damage,
+    settle_replay_damage,
     replay_error_percent,
     replay_signed_error_percent,
 )
@@ -251,13 +251,13 @@ class BattleHitReplayAuditService:
             ):
                 continue
             formal_layers = float(stack_factor.value)
-            single_noncritical = ceil_replay_damage(
+            single_noncritical = settle_replay_damage(
                 result.non_critical_damage / formal_layers
             )
             single_critical = (
                 None
                 if result.critical_damage is None
-                else ceil_replay_damage(result.critical_damage / formal_layers)
+                else settle_replay_damage(result.critical_damage / formal_layers)
             )
             candidates: list[tuple[str, float, bool, float]] = [
                 ("正式满份", formal_layers, False, result.non_critical_damage),
@@ -522,11 +522,11 @@ class BattleHitReplayAuditService:
     ) -> BattleHitReplayResult:
         ratio = layers / stack_factor.value
         assert result.non_critical_damage is not None
-        noncrit = ceil_replay_damage(result.non_critical_damage * ratio)
+        noncrit = settle_replay_damage(result.non_critical_damage * ratio)
         critical = (
             None
             if result.critical_damage is None
-            else ceil_replay_damage(result.critical_damage * ratio)
+            else settle_replay_damage(result.critical_damage * ratio)
         )
         selected = critical if inferred_critical and critical is not None else noncrit
         state = "critical" if inferred_critical and critical is not None else "non_critical"

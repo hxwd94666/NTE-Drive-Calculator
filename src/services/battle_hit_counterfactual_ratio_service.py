@@ -18,18 +18,22 @@ from src.domain.battle_report import (
     BattleSkillDamageEvidence,
     BattleTargetCondition,
 )
-from src.services.battle_buff_attribute_projection_service import (
-    BattleBuffAttributeProjectionService,
-)
 from src.services.battle_damage_composition_service import (
     classify_battle_hit_channel,
 )
 from src.services.battle_fixed_critical_ratio_service import (
     CONTINUOUS_DIRECT_CHANNEL_IDS,
-    FIXED_HALF_CRIT_CHANNEL_IDS,
     continuous_direct_attribute,
     fixed_half_critical_counterfactual,
-    fixed_half_critical_ratio,
+)
+from src.services.battle_hit_counterfactual_formula_support import (
+    ELEMENT_PROPERTY as _ELEMENT_PROPERTY,
+    SCALING_PROPERTIES as _SCALING_PROPERTIES,
+    critical_ratio,
+    increase_factor,
+    projected_values,
+    scaling_id,
+    scaling_ratio,
 )
 from src.services.battle_replay_formula_ratio_service import paired_replay_formula
 from src.services.battle_reaction_counterfactual_ratio_service import (
@@ -42,21 +46,10 @@ from src.services.battle_hit_counterfactual_target_support import (
     target_resistance_delta,
 )
 from src.services.damage_calculation_service import (
-    calculate_attribute_value,
-    calculate_critical_multiplier,
     calculate_weave_strength_multiplier,
 )
 
 
-_ELEMENT_PROPERTY = {
-    "chaos": "DamageUpChaosBase",
-    "cosmos": "DamageUpCosmosBase",
-    "incantation": "DamageUpIncantationBase",
-    "lakshana": "DamageUpLakshanaBase",
-    "nature": "DamageUpNatureBase",
-    "psyche": "DamageUpPsycheBase",
-    "psychically": "DamageUpPsychicallyBase",
-}
 _PENETRATION_PROPERTY = {
     "chaos": "DamagePenetrateChaos",
     "cosmos": "DamagePenetrateCosmos",
@@ -65,11 +58,6 @@ _PENETRATION_PROPERTY = {
     "nature": "DamagePenetrateNature",
     "psyche": "DamagePenetratePsyche",
     "psychically": "DamagePenetratePsychically",
-}
-_SCALING_PROPERTIES = {
-    "Atk": ("AtkBase", "AtkUp", "AtkAdd"),
-    "HPMax": ("HPMaxBase", "HPMaxUp", "HPMaxAdd"),
-    "Def": ("DefBase", "DefUp", "DefAdd"),
 }
 _ALL_ELEMENT_PROPERTIES = frozenset(_ELEMENT_PROPERTY.values())
 _ALL_PENETRATION_PROPERTIES = frozenset(_PENETRATION_PROPERTY.values())
@@ -97,12 +85,17 @@ _STANDARD_RING_CHANNELS = frozenset({
     "reaction_nova",
     "reaction_scorch",
 })
-
-
-def _stats(baseline: BattleCharacterBaseline | None) -> dict[str, float]:
-    if baseline is None:
-        return {}
-    return {row.property_id: float(row.value) for row in baseline.stats}
+_DIMENSION_PROPERTIES = {
+    "scaling": _ALL_SCALING_PROPERTIES,
+    "critical": _CRITICAL_PROPERTIES,
+    "damage_increase": frozenset({
+        "DamageUpGeneralBase",
+        *_ALL_ELEMENT_PROPERTIES,
+    }),
+    "ring_strength": frozenset({"MagBase"}),
+    "target_defense": frozenset({"DefIgnore"}),
+    "target_resistance": _ALL_PENETRATION_PROPERTIES,
+}
 
 
 def _changed(
@@ -182,8 +175,8 @@ class BattleHitCounterfactualRatioService:
         channel_id, _channel_label = classify_battle_hit_channel(hit)
         if cls.is_kuhara_formula_hit(hit):
             channel_id = "special_kuhara_formula"
-        original = cls._projected_values(original_baseline, original_projection)
-        candidate = cls._projected_values(candidate_baseline, candidate_projection)
+        original = projected_values(original_baseline, original_projection)
+        candidate = projected_values(candidate_baseline, candidate_projection)
         if not original or not candidate:
             gap = _gap(
                 "scaling_dependency_unresolved",
@@ -214,22 +207,30 @@ class BattleHitCounterfactualRatioService:
             replay=original_replay,
         )
         if fixed_critical is not None:
-            return fixed_critical
+            return cls._apply_projection_evidence_boundary(
+                fixed_critical,
+                original_projection,
+                candidate_projection,
+            )
         if channel_id in _STANDARD_RING_CHANNELS:
-            return compare_standard_reaction(
-                channel_id=channel_id,
-                hit=hit,
-                original=original,
-                candidate=candidate,
-                changed_properties=changed_properties,
-                original_baseline=original_baseline,
-                candidate_baseline=candidate_baseline,
-                original_projection=original_projection,
-                candidate_projection=candidate_projection,
-                replay=original_replay,
-                target_condition=target_condition,
-                penetration_properties=_PENETRATION_PROPERTY,
-                ring_strength_ratio=cls._ring_strength_ratio,
+            return cls._apply_projection_evidence_boundary(
+                compare_standard_reaction(
+                    channel_id=channel_id,
+                    hit=hit,
+                    original=original,
+                    candidate=candidate,
+                    changed_properties=changed_properties,
+                    original_baseline=original_baseline,
+                    candidate_baseline=candidate_baseline,
+                    original_projection=original_projection,
+                    candidate_projection=candidate_projection,
+                    replay=original_replay,
+                    target_condition=target_condition,
+                    penetration_properties=_PENETRATION_PROPERTY,
+                    ring_strength_ratio=cls._ring_strength_ratio,
+                ),
+                original_projection,
+                candidate_projection,
             )
         if changed_properties == {"MagBase"} and cls.supports_ring_strength(
             hit,
@@ -242,15 +243,19 @@ class BattleHitCounterfactualRatioService:
                 replay=original_replay,
             )
             if ratio is not None:
-                return BattleCounterfactualRatio.complete(
-                    ratio,
-                    method="structured_ring_ratio",
-                    confidence="高",
-                    dependency_scope="character_only",
-                    included_dimension_ids=("ring_strength",),
-                    explanation=(
-                        "按该逐击已保存的正式环合公式分支，仅替换环合强度乘区。"
+                return cls._apply_projection_evidence_boundary(
+                    BattleCounterfactualRatio.complete(
+                        ratio,
+                        method="structured_ring_ratio",
+                        confidence="高",
+                        dependency_scope="character_only",
+                        included_dimension_ids=("ring_strength",),
+                        explanation=(
+                            "按该逐击已保存的正式环合公式分支，仅替换环合强度乘区。"
+                        ),
                     ),
+                    original_projection,
+                    candidate_projection,
                 )
             gap = _gap(
                 "ring_strength_dependency_unresolved",
@@ -324,7 +329,7 @@ class BattleHitCounterfactualRatioService:
         target_sensitive_change = False
         mechanic_specific_change = False
 
-        scaling_id = cls._scaling_id(
+        resolved_scaling_id = scaling_id(
             skill_evidence,
             original_replay,
             candidate_replay,
@@ -337,10 +342,12 @@ class BattleHitCounterfactualRatioService:
             _ALL_SCALING_PROPERTIES,
         )
         scaling_properties = (
-            () if scaling_id is None else _SCALING_PROPERTIES[scaling_id]
+            ()
+            if resolved_scaling_id is None
+            else _SCALING_PROPERTIES[resolved_scaling_id]
         )
         scaling_changes = _changed(original, candidate, scaling_properties)
-        if scaling_id is None and all_scaling_changes:
+        if resolved_scaling_id is None and all_scaling_changes:
             gaps.append(_gap(
                 "scaling_dependency_unresolved",
                 "scaling",
@@ -349,7 +356,7 @@ class BattleHitCounterfactualRatioService:
                 "角色缩放属性发生变化，但该击缺少正式缩放属性证据。",
             ))
         elif scaling_changes:
-            ratio = cls._scaling_ratio(
+            ratio = scaling_ratio(
                 original,
                 candidate,
                 scaling_properties,
@@ -371,7 +378,7 @@ class BattleHitCounterfactualRatioService:
         critical_changes = _changed(original, candidate, _CRITICAL_PROPERTIES)
         handled_properties.update(_CRITICAL_PROPERTIES)
         if critical_changes:
-            ratio = cls._critical_ratio(
+            ratio = critical_ratio(
                 original,
                 candidate,
                 original_replay,
@@ -406,8 +413,8 @@ class BattleHitCounterfactualRatioService:
         handled_properties.add("DamageUpGeneralBase")
         if increase_changes:
             ratio = _safe_ratio(
-                cls._increase_factor(candidate, attribute),
-                cls._increase_factor(original, attribute),
+                increase_factor(candidate, attribute),
+                increase_factor(original, attribute),
             )
             if ratio is None:
                 gaps.append(_gap(
@@ -613,14 +620,79 @@ class BattleHitCounterfactualRatioService:
                 cancelled_dimension_ids=cancelled_ids,
                 explanation="已证明本次变化不作用于该击，精确保持原值。",
             )
-        return BattleCounterfactualRatio.complete(
-            component_ratio,
-            method="component_ratio",
-            confidence="中",
-            dependency_scope=scope,
-            included_dimension_ids=included_ids,
-            cancelled_dimension_ids=cancelled_ids,
-            explanation="已量化全部变化乘区；其余共同乘区在前后比值中相消。",
+        return cls._apply_projection_evidence_boundary(
+            BattleCounterfactualRatio.complete(
+                component_ratio,
+                method="component_ratio",
+                confidence="中",
+                dependency_scope=scope,
+                included_dimension_ids=included_ids,
+                cancelled_dimension_ids=cancelled_ids,
+                explanation="已量化全部变化乘区；其余共同乘区在前后比值中相消。",
+            ),
+            original_projection,
+            candidate_projection,
+        )
+
+    @staticmethod
+    def _apply_projection_evidence_boundary(
+        result: BattleCounterfactualRatio,
+        original_projection: BattleHitBuffProjection | None,
+        candidate_projection: BattleHitBuffProjection | None,
+    ) -> BattleCounterfactualRatio:
+        """Keep formula completeness separate from inferred state evidence."""
+
+        if result.status not in {"complete", "partial"}:
+            return result
+        relevant_properties = frozenset(
+            property_id
+            for dimension_id in result.included_dimension_ids
+            for property_id in _DIMENSION_PROPERTIES.get(dimension_id, ())
+        )
+        if "target_resistance" in result.included_dimension_ids:
+            resistance_prefix = "damageresist"
+        else:
+            resistance_prefix = ""
+        uncertain = tuple(sorted({
+            modifier.property_id
+            for projection in (original_projection, candidate_projection)
+            if projection is not None
+            for modifier in projection.modifiers
+            if modifier.confidence != "高"
+            and (
+                modifier.property_id in relevant_properties
+                or (
+                    resistance_prefix
+                    and modifier.property_id.casefold().startswith(
+                        resistance_prefix
+                    )
+                )
+            )
+        }))
+        if not uncertain:
+            return result
+        gap = _gap(
+            "buff_state_inferred",
+            "buff_state_evidence",
+            result.dependency_scope,
+            uncertain,
+            (
+                "相关乘区公式已经计算，但其中包含非高置信 Buff/目标状态；"
+                "数值仅代表该推断状态成立时的条件结果。"
+            ),
+        )
+        return BattleCounterfactualRatio.partial(
+            float(result.quantified_ratio),
+            method=f"{result.method}_state_inferred",
+            confidence="低",
+            dependency_scope=result.dependency_scope,
+            included_dimension_ids=result.included_dimension_ids,
+            cancelled_dimension_ids=result.cancelled_dimension_ids,
+            gaps=tuple((*result.gaps, gap)),
+            explanation=(
+                "公式变化乘区已量化；由于相关 Buff/目标状态仅为推断，"
+                "结果按部分量化展示。"
+            ),
         )
 
     @staticmethod
@@ -678,123 +750,5 @@ class BattleHitCounterfactualRatioService:
             - 1.0
         )
         return _safe_ratio(candidate_followup, original_followup)
-
-    @staticmethod
-    def _projected_values(
-        baseline: BattleCharacterBaseline | None,
-        projection: BattleHitBuffProjection | None,
-    ) -> dict[str, float]:
-        values = _stats(baseline)
-        if projection is None:
-            return values
-        return BattleBuffAttributeProjectionService.apply_additive(
-            values,
-            projection,
-        )
-
-    @staticmethod
-    def _scaling_id(
-        evidence: BattleSkillDamageEvidence | None,
-        original_replay: BattleHitReplayResult | None,
-        candidate_replay: BattleHitReplayResult | None,
-        *,
-        channel_id: str = "",
-    ) -> str | None:
-        value = "" if evidence is None else str(evidence.scaling_property_id)
-        if value in _SCALING_PROPERTIES:
-            return value
-        if channel_id in CONTINUOUS_DIRECT_CHANNEL_IDS:
-            return "Atk"
-        if channel_id == "special_kuhara_formula":
-            return "Atk"
-
-        for replay in (original_replay, candidate_replay):
-            if replay is None:
-                continue
-            candidates: set[str] = set()
-            for factor in replay.factors:
-                if factor.factor_id != "scaling":
-                    continue
-                term_properties = {term.property_id for term in factor.terms}
-                for scaling_id, property_ids in _SCALING_PROPERTIES.items():
-                    if term_properties & set((*property_ids, scaling_id)):
-                        candidates.add(scaling_id)
-                label_id = factor.label.partition(" ")[0]
-                if label_id in _SCALING_PROPERTIES:
-                    candidates.add(label_id)
-            if len(candidates) == 1:
-                return next(iter(candidates))
-        return None
-
-    @staticmethod
-    def _scaling_ratio(
-        original: Mapping[str, float],
-        candidate: Mapping[str, float],
-        properties: tuple[str, str, str],
-    ) -> float | None:
-        base_id, up_id, add_id = properties
-        original_value = calculate_attribute_value(
-            original.get(base_id, 0.0),
-            original.get(up_id, 0.0),
-            original.get(add_id, 0.0),
-        )
-        candidate_value = calculate_attribute_value(
-            candidate.get(base_id, 0.0),
-            candidate.get(up_id, 0.0),
-            candidate.get(add_id, 0.0),
-        )
-        return _safe_ratio(candidate_value, original_value)
-
-    @staticmethod
-    def _critical_ratio(
-        original: Mapping[str, float],
-        candidate: Mapping[str, float],
-        replay: BattleHitReplayResult | None,
-        *,
-        channel_id: str = "",
-    ) -> float | None:
-        fixed_half = channel_id in FIXED_HALF_CRIT_CHANNEL_IDS
-        if fixed_half:
-            return fixed_half_critical_ratio(original, candidate, replay)
-        if (replay is None or replay.critical_policy == "unknown") and not fixed_half:
-            return None
-        state = "unreplayable" if replay is None else replay.critical_state
-        if state == "critical":
-            original_factor = 1.0 + max(0.0, original.get("CritDamageBase", 0.5))
-            candidate_factor = 1.0 + max(0.0, candidate.get("CritDamageBase", 0.5))
-        elif state == "non_critical":
-            return 1.0
-        elif state in {"ambiguous", "unreplayable", "not_applicable"}:
-            if replay is not None and replay.critical_policy == "disabled":
-                return 1.0
-            if replay is not None and replay.critical_policy == "fixed":
-                saved_rate = float(replay.critical_rate or 0.5)
-                rate = min(1.0, max(0.0, saved_rate))
-                original_rate = candidate_rate = rate
-            else:
-                original_rate = min(1.0, max(0.0, original.get("CritBase", 0.05)))
-                candidate_rate = min(1.0, max(0.0, candidate.get("CritBase", 0.05)))
-            original_factor = calculate_critical_multiplier(
-                original_rate,
-                max(0.0, original.get("CritDamageBase", 0.5)),
-            )
-            candidate_factor = calculate_critical_multiplier(
-                candidate_rate,
-                max(0.0, candidate.get("CritDamageBase", 0.5)),
-            )
-        else:
-            return None
-        return _safe_ratio(candidate_factor, original_factor)
-
-    @staticmethod
-    def _increase_factor(values: Mapping[str, float], attribute: str) -> float:
-        property_id = _ELEMENT_PROPERTY.get(attribute, "")
-        return max(
-            0.0,
-            1.0
-            + values.get("DamageUpGeneralBase", 0.0)
-            + values.get(property_id, 0.0),
-        )
-
 
 __all__ = ["BattleHitCounterfactualRatioService"]

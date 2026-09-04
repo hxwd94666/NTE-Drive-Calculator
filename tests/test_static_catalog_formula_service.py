@@ -61,6 +61,10 @@ class StaticCatalogFormulaServiceTests(unittest.TestCase):
         domain = StaticCatalogFormulaService.from_snapshot(evidence_snapshot())
         direct = next(row for row in domain.formulas if row.key == "direct_damage")
         skill = next(row for row in domain.formulas if row.key == "skill_multiplier")
+        critical = next(row for row in domain.formulas if row.key == "critical")
+        settlement = next(
+            row for row in domain.formulas if row.key == "settlement_rounding"
+        )
 
         self.assertEqual("project_rule", direct.boundary)
         self.assertIn("project_contract", {row.kind for row in direct.evidence})
@@ -68,6 +72,11 @@ class StaticCatalogFormulaServiceTests(unittest.TestCase):
         self.assertIn("official_static", {row.kind for row in skill.evidence})
         static_sources = [row for row in skill.evidence if row.kind == "official_static"]
         self.assertTrue(all("inputs" in row.note or "rows=" in row.note for row in static_sources))
+        self.assertIn("floor(FullPrecision)", critical.expression)
+        self.assertEqual(
+            "Settlement = floor(max(0, FullPrecisionDamage))",
+            settlement.expression,
+        )
 
     def test_matrix_has_four_states_and_gaps_for_incomplete_support(self) -> None:
         domain = StaticCatalogFormulaService.from_snapshot(evidence_snapshot())

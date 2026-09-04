@@ -464,6 +464,7 @@ class BattleTargetConditionSelector(QGroupBox):
             "本分区对象：" + "、".join(target["name_zh"] for target in targets)
             if targets else "本层没有可用的怪物属性包。"
         )
+        targets_text += "\n完整上下半战报保存任一分区后，会自动确认本层两个分区。"
         buff = config.get("season_buff") or {}
         if buff:
             targets_text += f"\n赛季 Buff：{buff['buff_name_zh']}——{buff['description_zh']}"

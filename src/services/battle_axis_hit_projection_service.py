@@ -18,7 +18,11 @@ _REACTION_MARKERS = (
 )
 _WEAVE_MARKERS = ("覆纹", "weave")
 _TOPPLE_MARKERS = ("倾陷", "topple", "tenacity")
-_MECHANIC_MARKERS = ("ge_boss_05_hitbullet", "敌方飞弹反射")
+_MECHANIC_MARKERS = (
+    "ge_boss_05_hitbullet",
+    "ge_player_sagiri_branch_kill_damage",
+    "敌方飞弹反射",
+)
 
 
 def _text(value: Any, fallback: str = "") -> str:

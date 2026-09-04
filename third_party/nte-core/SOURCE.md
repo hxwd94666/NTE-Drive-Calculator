@@ -1,16 +1,16 @@
 # nte-core 对应源码
 
-本仓库随附的 `bin/nte-core.exe` 来自 `kongbaiz/nte-dps-toolkit`：
+本仓库随附的 `bin/nte-core.exe` 基于 `kongbaiz/nte-dps-toolkit`，对应源码已发布到维护分支：
 
-- 二进制版本：`0.4.3`（`nte-core version --json`）
-- 源码：<https://github.com/kongbaiz/nte-dps-toolkit>
-- 源码分支：[`master`](https://github.com/kongbaiz/nte-dps-toolkit/tree/master)
-- 源码标签：[`v0.4.3-build-146-bff9f56`](https://github.com/kongbaiz/nte-dps-toolkit/releases/tag/v0.4.3-build-146-bff9f56)
-- 源码基线提交：[`bff9f569ae19fc659b61a3a810407c01be5fc71a`](https://github.com/kongbaiz/nte-dps-toolkit/commit/bff9f569ae19fc659b61a3a810407c01be5fc71a)
-- 构建工具链：`1.98.0-x86_64-pc-windows-msvc`
-- 构建文件：`nte-core-windows-x64-0.4.3-bff9f56.zip`，由上述源码提交本地构建，不是 GitHub Release 资产
-- 构建 ZIP SHA-256：`BF622EA5F9B5A090B9A51CBADD26B948E9AF28E3E4B415556708BBAB56EFB7D6`
-- 当前二进制 SHA-256：`8F7DE146B74187988443B19EA7E140E6948FD4490D7BDEEED96A0B8C0D287AC9`
-- 许可证：本目录的 `LICENSE`（AGPL-3.0）
+- 二进制版本：`0.4.4`
+- 上游源码：<https://github.com/kongbaiz/nte-dps-toolkit>
+- 公开源码分支：<https://github.com/ternary-chen/nte-dps-toolkit/tree/codex/fix-battle-capture-v044>
+- 对应源码提交：<https://github.com/ternary-chen/nte-dps-toolkit/commit/24bb078fe38675d1719d24e92465a313baf65b3e>
+- 本地增量：战斗读取契约 v5、类型化时停、目标身份/逐击对账、活动期有界读取和无目标死亡结算标记过滤
+- 构建工具链：Rust `1.98.0-x86_64-pc-windows-msvc`
+- 构建命令：`cargo build --release --bin nte-core --no-default-features --features cli`
+- 未压缩 SHA-256：`CCE437B16BDE3EC444E87AF1F2725349471055E2F9A8EE31791CEE501BE4DAA6`
+- UPX 5.2.0 压缩后 SHA-256：`92C5931948F7121942F617939CB8AE5B6638027969DCD0753E1AF7B939D6B6C5`
+- 许可证：本目录 `LICENSE`（AGPL-3.0）
 
-本文件与二进制一同提供，以满足上游组件的源码获取说明要求。二进制 SHA-256、协议文件与其第三方依赖声明见 `COMPONENT.md` 和同目录文件。
+这是从上述公开提交构建的开发组件；分发时必须同时保留对应完整源码入口与许可证材料。

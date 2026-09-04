@@ -1,24 +1,28 @@
 # nte-core 组件记录
 
 - 上游项目：`kongbaiz/nte-dps-toolkit`
-- 当前二进制版本：`0.4.3`（`nte-core version --json`）
-- 源码基线分支：`master`
-- 源码基线标签：`v0.4.3-build-146-bff9f56`
-- 源码基线提交：`bff9f569ae19fc659b61a3a810407c01be5fc71a`
+- 当前二进制版本：`0.4.4`（`nte-core version --json`）
+- CLI 协议版本 / 数据版本：`1` / `1`
+- 战斗读取契约版本：`5`
+- 公开源码分支：`ternary-chen/nte-dps-toolkit` 的 `codex/fix-battle-capture-v044`
+- 源码提交：`24bb078fe38675d1719d24e92465a313baf65b3e`
+- 源码状态：该提交已发布到上述公开分支，分发记录以提交 ID 和二进制哈希共同定位
 - 构建工具链：`1.98.0-x86_64-pc-windows-msvc`
 - 构建命令：`cargo build --release --bin nte-core --no-default-features --features cli`
-- 构建包：`nte-core-windows-x64-0.4.3-bff9f56.zip`
-- 构建包 SHA-256：`BF622EA5F9B5A090B9A51CBADD26B948E9AF28E3E4B415556708BBAB56EFB7D6`
-- 当前二进制 SHA-256：`8F7DE146B74187988443B19EA7E140E6948FD4490D7BDEEED96A0B8C0D287AC9`
-- 上游许可证：AGPL-3.0；本项目根目录的 AGPL-3.0 仅适用于项目自有代码，不能自动改变此组件的许可证。
+- 未压缩二进制 SHA-256：`CCE437B16BDE3EC444E87AF1F2725349471055E2F9A8EE31791CEE501BE4DAA6`
+- 当前随附二进制 SHA-256：`92C5931948F7121942F617939CB8AE5B6638027969DCD0753E1AF7B939D6B6C5`
+- 压缩工具：UPX 5.2.0，`--best --lzma`；已通过 `upx -t` 完整性检查
+- 上游许可证：AGPL-3.0；本项目根目录许可证不能改变此组件的许可证
 
-`bin/nte-core.exe` 从上述远端分支提交在 Windows x64 本地构建，不是已发布的 GitHub Release 资产。
-发行副本使用仓库 CI 固定的 UPX 5.2.0 `--best --lzma` 压缩并通过 `upx -t` 完整性检查。该二进制会随
-本仓库提交并用于 CI 构建。对应源码获取地址、许可证、构建来源和第三方声明必须与二进制一同保留；更新
-二进制时必须同步更新本文件中的版本、源码提交和 SHA-256。
+本次本地增量包含四条行为链：战斗读取契约 v5 的 `pause_type_mask`；目标句柄规范化、HP 回执与正式
+wire target 的逐击去重；活动抓包期间四个战报读取 RPC 的有界 EngineEvent 追赶；无 `target_id` 的敌方
+死亡结算标记过滤。暂停事件解释已统一为
+一个内部 segmenter，历史裁剪与运行态不再各自维护 Started/MaskChanged/Ended 状态机。
 
-当前 Core 的 CLI `protocol_version` 仍为 1；`battle.get_summary`、`battle.get_record` / `battle.get_axis`
-响应契约提供与 `total_damage` 分离的权威 `max_hp_reduction` 聚合值及逐击值。随包中英文协议文件与该
-源码基线保持一致。
+目标补全只会在 settlement 的目标句柄与 CurrentHP 同时匹配该候选逐击时立即释放；同包内其他目标的
+settlement 不再提前释放该逐击。没有匹配 settlement 时，候选会在现有 0.5 秒窗口内等待正式 target 记录。
 
-本目录的协议文件和许可证清单为集成记录，不替代上游完整源码或上游许可证。
+轻量增量验证覆盖：相关逐击去重与混合 settlement、3-bit 身份规范化、暂停 mask 运行态与历史裁剪、live RPC
+事件上限、无目标死亡结算标记、CLI `cargo check`、契约版本一致性和 native lifecycle 源码门禁。随附二进制自报
+`0.4.4 / protocol 1 / data 1`。它是从公开源码提交生成的本机开发构建，不是 GitHub Release 资产；
+分发时仍需随安装包保留对应源码入口及许可证材料。

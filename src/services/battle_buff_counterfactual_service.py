@@ -21,6 +21,7 @@ from src.services.battle_buff_counterfactual_batch_executor import (
 )
 from src.services.battle_buff_counterfactual_plan_service import (
     BattleBuffCounterfactualPlanService,
+    battle_buff_applied_hits,
 )
 from src.services.battle_buff_interval_index import BattleBuffIntervalIndex
 from src.services.battle_buff_counterfactual_projection_support import (
@@ -44,7 +45,7 @@ from src.services.battle_hit_buff_projection_cache import (
 )
 
 
-BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v11"
+BUFF_COUNTERFACTUAL_MODEL_VERSION = "battle-buff-counterfactual-v13"
 _CONFIDENCE_ORDER = {"未解析": 0, "低": 1, "中": 2, "高": 3}
 
 
@@ -93,6 +94,8 @@ def _minimum_confidence(
 
 def _damage_coverage(
     active_hits: Sequence[BattleAnalysisHit],
+    applied_hits: Sequence[BattleAnalysisHit],
+    hit_projections: Mapping[str, HitProjection],
     projected_vitals: Sequence[VitalProjection],
     intervals: Sequence[BattleInferredBuffInterval],
     *,
@@ -102,14 +105,13 @@ def _damage_coverage(
     scope = intervals[0].target_scope if intervals else "unknown"
     covered = 0.0
     unresolved = 0.0
+    applied_ids = {hit.event_id for hit in applied_hits}
     for hit in active_hits:
         damage = max(0.0, float(hit.damage))
-        if scope == "unknown" or (
-            scope == "team_others" and hit.character_id is None
-        ):
-            unresolved += damage
-        else:
+        if hit.event_id in applied_ids:
             covered += damage
+        elif hit_projections[hit.event_id].quantification.status == "unavailable":
+            unresolved += damage
     linked_vital_damage = sum(
         max(0.0, float(row.baseline_damage))
         for row in projected_vitals
@@ -262,6 +264,11 @@ class BattleBuffCounterfactualService:
         progress_callback: BattleAnalysisProgressCallback | None,
     ) -> BattleBuffCounterfactualResult:
         first = group_intervals[0]
+        affected_hits = battle_buff_applied_hits(
+            active_hits,
+            original_projection_by_event,
+            group_intervals,
+        )
         active_ratios = BattleBuffCounterfactualBatchExecutor.calculate_ratios(
             analysis=analysis,
             outgoing_hits=outgoing_hits,
@@ -352,7 +359,7 @@ class BattleBuffCounterfactualService:
         gain_percent = quantified_gain_percent if full_available else None
         beneficiary_ids = {
             int(hit.character_id)
-            for hit in active_hits
+            for hit in affected_hits
             if hit.character_id is not None and int(hit.character_id) > 0
         } | {
             int(row.character_id)
@@ -449,7 +456,7 @@ class BattleBuffCounterfactualService:
                 start_us=analysis.range_start_us,
                 end_us=analysis.range_end_us,
             ),
-            affected_hits=len(active_hits),
+            affected_hits=len(affected_hits),
             quantified_hits=len(quantified_ids),
             baseline_damage=derived_baseline,
             without_quantified_effect_damage=(
@@ -471,6 +478,8 @@ class BattleBuffCounterfactualService:
             unattributed_damage_gain=unattributed_damage_gain,
             damage_coverage=_damage_coverage(
                 active_hits,
+                affected_hits,
+                hit_projections,
                 projected_vitals,
                 group_intervals,
                 basis_damage=derived_baseline,

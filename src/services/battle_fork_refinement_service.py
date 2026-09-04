@@ -31,7 +31,7 @@ from src.services.battle_timeline_time_service import (
 )
 
 
-FORK_REFINEMENT_MODEL_VERSION = "battle-fork-refinement-v4"
+FORK_REFINEMENT_MODEL_VERSION = "battle-fork-refinement-v5"
 WUSHOUTIEYU_Q_WINDOW_EVENT = "FORK_WUSHOUTIEYU_Q_BEGIN"
 WUSHOUTIEYU_E_STACK_EVENT = "FORK_WUSHOUTIEYU_E_END_STACK"
 GOLD_RECORD_QTE_STACK_EVENT = "FORK_GOLD_RECORD_QTE_ACTION_STACK"
@@ -650,7 +650,7 @@ class BattleForkRefinementService:
             event_ids: tuple[str, ...] = ()
             segment = 0
             for action in role_actions:
-                trigger_us = action.end_us
+                trigger_us = action.start_us
                 now_active = _active_time(trigger_us, time_stop_intervals)
                 if expires_active_us is not None and now_active >= expires_active_us:
                     expiry = _raw_expiry(
@@ -667,7 +667,7 @@ class BattleForkRefinementService:
                         end_us=min(battle_end_us, expiry),
                         stacks=stack,
                         basis=(
-                            "每次独立 QTE 动作只增加一层 Q 暴击伤害；"
+                            "装备者每次独立 QTE 开始事件只增加一层 Q 暴击伤害；"
                             "QTE 的逐击数量不复制叠层。"
                         ),
                         action_ids=action_ids,
@@ -685,7 +685,7 @@ class BattleForkRefinementService:
                         end_us=trigger_us,
                         stacks=stack,
                         basis=(
-                            "每次独立 QTE 动作只增加一层 Q 暴击伤害；"
+                            "装备者每次独立 QTE 开始事件只增加一层 Q 暴击伤害；"
                             "QTE 的逐击数量不复制叠层。"
                         ),
                         action_ids=action_ids,
@@ -712,8 +712,8 @@ class BattleForkRefinementService:
                     end_us=min(battle_end_us, expiry),
                     stacks=stack,
                     basis=(
-                        "每次独立 QTE 动作只增加一层 Q 暴击伤害；"
-                        "QTE 的逐击数量不复制叠层；在该次 QTE 伤害动作结束后生效。"
+                        "装备者每次独立 QTE 开始事件只增加一层 Q 暴击伤害；"
+                        "QTE 的逐击数量不复制叠层；从该次 QTE 开始时生效。"
                     ),
                     action_ids=action_ids,
                     event_ids=event_ids,

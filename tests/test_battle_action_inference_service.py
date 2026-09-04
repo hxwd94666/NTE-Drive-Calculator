@@ -64,7 +64,7 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual("battle-action-window-v14", ACTION_INFERENCE_MODEL_VERSION)
+        self.assertEqual("battle-action-window-v15", ACTION_INFERENCE_MODEL_VERSION)
         self.assertEqual(1, len(actions))
         self.assertEqual("E", actions[0].input_kind)
         self.assertEqual("E1 E2", actions[0].input_sequence)
@@ -134,7 +134,7 @@ class BattleActionInferenceServiceTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual("battle-action-window-v14", ACTION_INFERENCE_MODEL_VERSION)
+        self.assertEqual("battle-action-window-v15", ACTION_INFERENCE_MODEL_VERSION)
         self.assertEqual(("A", "A"), tuple(action.input_kind for action in actions))
 
     def test_simultaneous_melee_and_parry_damage_are_one_a_operation(self) -> None:

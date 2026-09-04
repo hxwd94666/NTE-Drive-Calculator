@@ -770,6 +770,9 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             duration = value.get("duration_seconds")
             start_offset = value.get("start_offset_seconds")
             end_offset = value.get("end_offset_seconds")
+            pause_type_mask = _optional_integer(value.get("pause_type_mask"), "time_stop.pause_type_mask")
+            if pause_type_mask is not None and not 0 < pause_type_mask <= 0xFFFF_FFFF:
+                raise UserDataValidationError("time_stop.pause_type_mask 必须是非零 u32 整数或 null")
             if duration is None and isinstance(start, (int, float)) and isinstance(
                 end, (int, float)
             ):
@@ -782,8 +785,8 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 """
                 INSERT INTO battle_time_stop_interval(
                     capture_id, ordinal, start_unix_us, end_unix_us,
-                    duration_us, raw_interval_json
-                ) VALUES (?,?,?,?,?,?)
+                    duration_us, raw_interval_json, pause_type_mask
+                ) VALUES (?,?,?,?,?,?,?)
                 """,
                 (
                     capture_id,
@@ -792,5 +795,6 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     _microseconds(end, "time_stop.end"),
                     _microseconds(duration, "time_stop.duration"),
                     _json_object(value, "time_stop_interval"),
+                    pause_type_mask,
                 ),
             )

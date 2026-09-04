@@ -231,6 +231,7 @@ class BattleTreatmentEventServiceTests(unittest.TestCase):
                     1004,
                     ability_id="GA_Lacrimosa_Melee",
                     damage_name="噩梦",
+                    damage=1001.0,
                 ),
                 _hit(
                     "2:primary",
@@ -238,6 +239,7 @@ class BattleTreatmentEventServiceTests(unittest.TestCase):
                     1004,
                     ability_id="GA_Lacrimosa_Melee",
                     damage_name="噩梦",
+                    damage=1001.0,
                 ),
             ),
             battle_end_us=7_000_000,
@@ -253,6 +255,7 @@ class BattleTreatmentEventServiceTests(unittest.TestCase):
         self.assertEqual((15.0, 15.0), tuple(
             row.raw_healing_amount for row in periods
         ))
+        self.assertTrue(all("floor(" in row.amount_basis for row in periods))
 
     def test_edgar_hold_segments_and_q_field_use_actual_axis_boundaries(self) -> None:
         hold_hit = _hit(

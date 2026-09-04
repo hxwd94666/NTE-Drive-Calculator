@@ -36,6 +36,10 @@ from src.features.battle_report.marginal_derived_settlement_view import BattleMa
 from src.features.battle_report.marginal_buff_render_mixin import (
     BattleMarginalBuffRenderMixin,
 )
+from src.features.battle_report.marginal_benefit_view import (
+    build_marginal_benefit_sections,
+    render_marginal_benefits,
+)
 from src.features.battle_report.marginal_result_table_view import (
     BUFF_BENEFIT_HEADERS,
     BUFF_BENEFIT_WIDTHS,
@@ -63,6 +67,9 @@ from src.services.battle_marginal_candidate_service import (
 from src.services.battle_marginal_calculation_service import (
     BattleMarginalCalculationService,
 )
+from src.services.battle_marginal_calculation_support import (
+    drive_substat_marginal_units,
+)
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
@@ -89,6 +96,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         self._game_ui_asset_root = game_ui_asset_root
         self._analysis: BattleAnalysisSnapshot | None = None
         self._candidate_analysis: BattleAnalysisSnapshot | None = None
+        self._marginal_benefits = None
         self._details: list[dict] = []
         self._editors: list[OfficialRoleProfileEditor | None] = []
         self._editor_character_ids: list[int] = []
@@ -221,11 +229,12 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         )
         timeline_layout.addWidget(self.counterfactual_timeline_scroll)
         root.addWidget(timeline_card)
-
-        attribute_card, attribute_layout = analysis_section("属性单位边际")
+        attribute_card, attribute_layout = analysis_section("驱动副词条单位边际")
         attribute_note = QLabel(
-            "默认单位为一格金色驱动词条；面板属性是当前生效基线，伤害加权平均属性按关联伤害发生时的"
-            "动态属性加权。三个伤害百分比分别使用角色总伤害和全队总伤害作明确分母。"
+            "只展示实际可刷出的金色驱动副词条，每行默认单位为一格；面板属性是当前生效基线，"
+            "伤害加权当前面板属性按公式面板"
+            "关联伤害发生时的动态属性加权。灵可面板控制的队友同频伤害也进入这里，因此面板关联"
+            "伤害可以大于顶部原始角色伤害；Core 原始伤害归属不改写。"
         )
         attribute_note.setStyleSheet(
             themed_style("color:#8b949e;font-size:12px")
@@ -236,11 +245,11 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             (
                 "属性单位",
                 "面板属性",
-                "伤害加权平均属性",
-                "角色期望收益",
+                "伤害加权当前面板属性",
+                "面板关联收益",
                 "全队期望收益",
-                "关联角色伤害",
-                "角色伤害",
+                "关联面板伤害",
+                "面板关联伤害",
                 "关联全队伤害",
             ),
             280,
@@ -249,6 +258,13 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         attribute_layout.addWidget(self.attribute_table)
         root.addWidget(attribute_card)
 
+        (
+            self.core_main_table,
+            self.core_main_notice,
+            self.fork_benefit_panel,
+            self.fork_benefit_table,
+            self.fork_benefit_notice,
+        ) = build_marginal_benefit_sections(root)
         buff_card, buff_layout = analysis_section("团队 Buff 边际")
         buff_note = QLabel(
             "逐个独立移除 Buff，并按实际造成伤害的角色拆分收益；"
@@ -311,6 +327,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         *,
         selected_character_id: int | None = None,
     ) -> None:
+        self.fork_benefit_panel.setParent(None)
         while self.editor_stack.count():
             widget = self.editor_stack.widget(0)
             self.editor_stack.removeWidget(widget)
@@ -352,6 +369,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         self._draft_dirty = False
         self._analysis = None
         self._candidate_analysis = None
+        self._marginal_benefits = None
         for label in self.metric_labels.values():
             label.setText("—")
         for key, text in {
@@ -364,16 +382,25 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         self.counterfactual_timeline.set_analysis(None)
         self.composition_panel.clear()
         self.attribute_table.setRowCount(0)
+        self.core_main_table.setRowCount(0)
+        self.fork_benefit_table.setRowCount(0)
         self.buff_benefit_table.setRowCount(0)
         self.roles_table.setRowCount(0)
         self.roles_pie.set_roles(())
         self.derived_settlements.render(None)
 
     def set_source_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
+        self._marginal_benefits = None
         self._render_analysis(analysis)
 
-    def set_marginal_result(self, analysis: BattleAnalysisSnapshot) -> None:
+    def set_marginal_result(
+        self,
+        analysis: BattleAnalysisSnapshot,
+        *,
+        marginal_benefits=None,
+    ) -> None:
         self._draft_dirty = False
+        self._marginal_benefits = marginal_benefits
         self._render_analysis(analysis)
 
     def _render_analysis(self, analysis: BattleAnalysisSnapshot) -> None:
@@ -576,7 +603,9 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
     def _character_changed(self, _index: int = -1) -> None:
         index = self.character_combo.currentIndex()
         if 0 <= index < self.editor_stack.count():
-            self._ensure_editor(index)
+            editor = self._ensure_editor(index)
+            if hasattr(editor, "set_fork_analysis_widget"):
+                editor.set_fork_analysis_widget(self.fork_benefit_panel)
             self.editor_stack.setCurrentIndex(index)
         self._render_selected_role()
         self._refresh_change_summary()
@@ -627,6 +656,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self,
             include_analysis=False,
             include_equipment=True,
+            show_fork_direct_damage_margin=False,
             allow_equipment_replacement=self._equipment_editable,
             show_equipment_context_selector=False,
             equipment_replacement_handler=(
@@ -703,6 +733,14 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             analysis.buff_counterfactuals,
             passive_results=getattr(analysis, "passive_counterfactuals", ()),
         )
+        render_marginal_benefits(
+            self.core_main_table,
+            self.core_main_notice,
+            self.fork_benefit_table,
+            self.fork_benefit_notice,
+            self._marginal_benefits,
+            character_id=character_id,
+        )
         comparison = analysis.build_counterfactual
         role = next(
             (row for row in (comparison.roles if comparison else ()) if row.character_id == character_id),
@@ -744,10 +782,10 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         if baseline is None or analysis is None:
             self.attribute_table.setRowCount(0)
             return
-        units = BattleMarginalCalculationService.default_units(
-            baseline,
-            hits=analysis.hits,
-            replays={row.event_id: row for row in analysis.hit_replays},
+        scoring_engine = getattr(self.window(), "scoring_engine", None)
+        stat_catalog = getattr(scoring_engine, "stat_catalog", None)
+        units = drive_substat_marginal_units(
+            getattr(stat_catalog, "gold_base_values", None),
         )
         results = BattleMarginalCalculationService.calculate(
             analysis=analysis,

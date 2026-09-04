@@ -168,6 +168,15 @@ _DIRECT_RULES: dict[str, tuple[dict[str, Any], ...]] = {
         "stack_limit_count": 10,
         "cooldown_seconds": 1.0,
     },),
+    "PASSIVE-1072-GA_Radio072_Passive_1": ({
+        "scope": "team",
+        "event": "PASSIVE_STATIC",
+        "modifiers": ((
+            "DamageUpGeneralBase",
+            0.10,
+            "battle-passive|follow-up-consumer=true;target-weave=true",
+        ),),
+    },),
 }
 
 
@@ -217,6 +226,25 @@ def passive_requirement_applies(
             actual = hit.gameplay_effect_id.casefold()
             matched = any(actual.startswith(value) for value in values)
             label = "伤害项"
+        elif key == "formal-follow-up":
+            actual = hit.is_formal_follow_up
+            matched = str(actual).casefold() in values
+            label = "正式追加攻击身份"
+        elif key == "follow-up-consumer":
+            actual = (
+                not hit.is_follow_up
+                and hit.classification != "weave"
+                and (
+                    hit.is_formal_follow_up
+                    or hit.formula_context_kind.startswith("linko_coattack:")
+                )
+            )
+            matched = str(actual).casefold() in values
+            label = "追加攻击公式消费者身份"
+        elif key == "target-weave":
+            actual = hit.target_has_weave
+            matched = str(actual).casefold() in values
+            label = "目标覆纹状态"
         else:
             return False, f"角色被动消费者条件 {key} 尚未支持"
         if not matched:

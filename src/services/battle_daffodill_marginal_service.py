@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from math import ceil
 
 from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
 from src.domain.battle_counterfactual_quantification import (
@@ -18,10 +17,11 @@ from src.domain.battle_report import (
     BattleHitReplayResult,
     BattleInferredBuffInterval,
 )
+from src.services.battle_hit_replay_support import settle_replay_damage
 from src.services.battle_replay_formula_ratio_service import replay_formula_value
 
 
-DAFFODILL_MARGINAL_MODEL_VERSION = "battle-daffodill-marginal-v1"
+DAFFODILL_MARGINAL_MODEL_VERSION = "battle-daffodill-marginal-v2"
 DAFFODILL_EFFECT_FIVE_METHOD = "candidate_derived_daffodill_effect5"
 _BASE_TOPPLE_EFFECT = "buff_tenacity_damage"
 _EXTRA_TOPPLE_EFFECT = "ge_player_daffodill_extraunbalance_damage"
@@ -133,7 +133,9 @@ class BattleDaffodillMarginalService:
                     )
                     if factor.factor_id == "topple_character:1054"
                 ), None)
-                settlement = None if factor is None else float(ceil(factor.value))
+                settlement = (
+                    None if factor is None else settle_replay_damage(factor.value)
+                )
             if settlement is None or settlement <= 0.0:
                 continue
             for ordinal in range(1, interval.stacks + 1):

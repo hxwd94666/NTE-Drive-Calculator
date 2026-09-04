@@ -44,6 +44,7 @@ class OfficialRoleProfileEditor(QWidget):
         *,
         include_analysis: bool = False,
         include_equipment: bool | None = None,
+        show_fork_direct_damage_margin: bool = True,
         allow_equipment_replacement: bool = False,
         show_equipment_context_selector: bool = True,
         equipment_replacement_handler: Callable[[dict, str], bool] | None = None,
@@ -85,7 +86,14 @@ class OfficialRoleProfileEditor(QWidget):
             layout.addWidget(
                 _build_margin_group(self, character_id, detail, self._editor)
             )
-        layout.addWidget(_build_fork_group(self, character_id, detail, self._editor))
+        self._fork_group = _build_fork_group(
+            self,
+            character_id,
+            detail,
+            self._editor,
+            show_direct_damage_margin=show_fork_direct_damage_margin,
+        )
+        layout.addWidget(self._fork_group)
         if self._include_equipment:
             layout.addWidget(
                 _build_drive_summary_group(
@@ -122,6 +130,10 @@ class OfficialRoleProfileEditor(QWidget):
             "ordinal": int(source.get("ordinal") or 0),
         })
         return profile
+
+    def set_fork_analysis_widget(self, widget: QWidget) -> None:
+        """Place a caller-owned analysis panel beside the fork configuration."""
+        self._fork_group.layout().addWidget(widget)
 
     def selected_equipment_context(self) -> tuple[str, dict] | None:
         """Expose the selected public context without owning its persistence."""

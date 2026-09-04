@@ -619,7 +619,14 @@ def _display_property_value(detail: dict, property_id: str, value: float) -> str
     return f"+{value:.2f}".rstrip("0").rstrip(".")
 
 
-def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> QGroupBox:
+def _build_fork_group(
+    window,
+    character_id: int,
+    detail: dict,
+    editor: dict,
+    *,
+    show_direct_damage_margin: bool = True,
+) -> QGroupBox:
     profile = detail["profile"]
     group = QGroupBox("弧盘加成")
     group.setObjectName("officialRoleForkGroup")
@@ -656,6 +663,7 @@ def _build_fork_group(window, character_id: int, detail: dict, editor: dict) -> 
     identity.addWidget(refinement)
     margin_label = QLabel("直伤收益: --")
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
+    margin_label.setVisible(show_direct_damage_margin)
     identity.addWidget(margin_label)
     layout.addLayout(identity)
     base_label = QLabel("基础加成（橙色为精炼无条件常驻）：")

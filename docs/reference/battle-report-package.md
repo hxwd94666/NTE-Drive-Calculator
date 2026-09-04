@@ -44,9 +44,12 @@ schema、当前静态 dataset/schema/hash 和本次导出账号昵称。`manifes
 - 当前战报存在时保存详情范围、时间范围和角色筛选页面状态；
 - `database_rows` 保存白名单战报表的精确可移植行图，作为读取功能的唯一数据库导入输入。
 
-当前 v2 读取器明确接受账号库 schema 36、37 和 38，不按当前账号库版本做机械的严格相等判断。schema 36
-战报缺少 `fork_breakthrough_stage` 时，导入到 schema 38 的 nullable 列保持 `NULL`，继续使用旧战报的
-等级派生语义且不改写原始快照；低于 36 或高于 38 的包必须拒绝，新增 schema 兼容性需逐版审计后显式加入。
+当前 v2 读取器明确接受账号库 schema 36、37、38 和 39，不按当前账号库版本做机械的严格相等判断。schema 36
+战报缺少 `fork_breakthrough_stage` 时，导入到 schema 39 的 nullable 列保持 `NULL`，继续使用旧战报的
+等级派生语义且不改写原始快照；schema 36～38 的时停行缺少 `pause_type_mask` 时也以 `NULL` 导入，保留旧
+记录类型未知及旧 Q 锚定兼容，不从时间或技能反推 mask。schema 39 的 v5 压缩区间可显式保存 `NULL`，仅
+参与有效时钟扣除，不视为 Q 或 type6 证据。低于 36 或高于 39 的包必须拒绝，新增 schema 兼容性需逐版
+审计后显式加入。
 
 ## 写出和导入
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
-from math import ceil
+from math import floor
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
@@ -134,9 +134,9 @@ class BattleToppleHitReplayServiceTests(unittest.TestCase):
             topple_character_configs=configs,
         )[0]
 
-        self.assertEqual(191_640.0, result.selected_damage)
+        self.assertEqual(191_639.0, result.selected_damage)
         self.assertAlmostEqual(
-            (191_640.0 - 191_670.0) / 191_670.0 * 100.0,
+            (191_639.0 - 191_670.0) / 191_670.0 * 100.0,
             result.signed_error_percent,
         )
         cells = tuple(
@@ -147,12 +147,12 @@ class BattleToppleHitReplayServiceTests(unittest.TestCase):
         self.assertEqual(4, len(cells))
         self.assertEqual(
             result.selected_damage,
-            float(ceil(sum(row.value for row in cells))),
+            float(floor(sum(row.value for row in cells))),
         )
         self.assertEqual("not_applicable", result.critical_state)
         detail = BattleHitReplayExplanationService.build(hit, result)
         self.assertIn("团队倾陷伤害 = 早雾倾陷贡献 + 安魂曲倾陷贡献", detail)
-        self.assertIn("ceil(191,639.002817) = 191,640.00", detail)
+        self.assertIn("floor(191,639.002817) = 191,639.00", detail)
 
     def test_split_topple_uses_only_the_complete_same_half_roster(self) -> None:
         hit = BattleAnalysisHit(
@@ -267,9 +267,9 @@ class BattleToppleHitReplayServiceTests(unittest.TestCase):
             {int(row.factor_id.rsplit(":", 1)[1]) for row in cells},
         )
         self.assertAlmostEqual(50 / 3, result.factors[0].value)
-        self.assertEqual(119_157.0, result.selected_damage)
+        self.assertEqual(119_156.0, result.selected_damage)
         self.assertAlmostEqual(
-            (119_157.0 - 119_156.0) / 119_156.0 * 100.0,
+            0.0,
             result.signed_error_percent,
         )
 

@@ -534,10 +534,8 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         analysis = self._visible_analysis()
         if analysis is None:
             return
-        inferred = (
-            getattr(analysis, "time_stop_source_kind", "")
-            == "inferred_q_action"
-        )
+        source_kind = getattr(analysis, "time_stop_source_kind", "")
+        inferred = "inferred" in source_kind
         for start_us, end_us in analysis.time_stop_intervals:
             if start_us is None or end_us is None or end_us <= start_us:
                 continue

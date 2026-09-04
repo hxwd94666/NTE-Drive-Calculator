@@ -60,6 +60,10 @@ from src.services.battle_timeline_projection_service import (
     TIMELINE_PROJECTION_MODEL_VERSION,
     BattleTimelineProjectionService,
 )
+from src.services.battle_timeline_time_service import (
+    ACTIVE_TIME_MODE,
+    projected_range_duration_us,
+)
 from src.services.battle_target_vital_analysis_service import (
     TARGET_VITAL_MODEL_VERSION,
     BattleTargetVitalAnalysisService,
@@ -84,9 +88,18 @@ from src.services.battle_treatment_replay_service import (
     BattleTreatmentReplayService,
 )
 from src.services.battle_daffodill_awakening_service import BattleDaffodillAwakeningService
+from src.services.battle_linko_coattack_inference_service import (
+    LINKO_COATTACK_INFERENCE_MODEL_VERSION,
+    BattleLinkoCoattackInferenceService,
+    BattleLinkoType6Evidence,
+)
+from src.services.battle_linko_coattack_buff_service import (
+    LINKO_COATTACK_BUFF_MODEL_VERSION,
+    BattleLinkoCoattackBuffService,
+)
 
 
-FORMULA_MODEL_VERSION = "battle-counterfactual-v22"
+FORMULA_MODEL_VERSION = "battle-counterfactual-v24"
 
 def _text(value: Any, fallback: str = "") -> str:
     normalized = str(value or "").strip()
@@ -184,6 +197,7 @@ class BattleCounterfactualAnalysisService:
         requested_start_us: int | None = None,
         requested_end_us: int | None = None,
         animation_candidates: Sequence[BattleActionAnimationCandidate] = (),
+        character_elements: Mapping[int, str] | None = None,
         buff_rules: Sequence[BattleStaticBuffRule] = (),
         target_condition: Mapping[str, Any] | BattleTargetCondition | None = None,
         zankou_form_config: BattleZankouFormConfig | None = None,
@@ -231,21 +245,70 @@ class BattleCounterfactualAnalysisService:
                 observed_events=all_max_hp_events,
             )
         )
-        observed_time_stop_intervals = (
-            BattleTimeStopProjectionService.observed_intervals(
+        observed_typed_time_stop_intervals = (
+            BattleTimeStopProjectionService.observed_typed_intervals(
                 (evidence or {}).get("time_stop_intervals") or (),
                 origin_us=origin_us,
+                contract_version=int((evidence or {}).get("contract_version") or 0),
+            )
+        )
+        observed_time_stop_intervals = tuple(
+            (interval.start_us, interval.end_us)
+            for interval in observed_typed_time_stop_intervals
+        )
+        q_action_time_stop_intervals = (
+            BattleTimeStopProjectionService.q_action_intervals(
+                observed_typed_time_stop_intervals
             )
         )
         inferred_actions = BattleActionInferenceService.infer(
             all_hits,
-            time_stop_intervals=observed_time_stop_intervals,
+            time_stop_intervals=q_action_time_stop_intervals,
             animation_candidates=animation_candidates,
         )
         time_stop_projection = BattleTimeStopProjectionService.resolve(
-            observed_time_stop_intervals,
+            observed_typed_time_stop_intervals,
             inferred_actions,
         )
+        type6_evidence = tuple(
+            BattleLinkoType6Evidence(
+                event_id=f"time-stop:type6:{ordinal}",
+                relative_time_us=start_us,
+                end_relative_time_us=end_us,
+                confidence="高",
+                evidence_basis=(
+                    "nte-core battle contract v5 的 pause_type_mask 包含 type6。"
+                ),
+            )
+            for ordinal, (start_us, end_us) in enumerate(
+                time_stop_projection.type6_intervals
+            )
+        )
+        linko_coattack_inferences = BattleLinkoCoattackInferenceService.infer(
+            all_hits,
+            inferred_actions,
+            time_stop_projection=time_stop_projection,
+            animation_candidates=animation_candidates,
+            type6_evidence=type6_evidence,
+            allow_legacy_e_fallback=(
+                int((evidence or {}).get("contract_version") or 0) < 5
+            ),
+            character_elements=character_elements,
+        )
+        if int((evidence or {}).get("contract_version") or 0) < 5:
+            time_stop_projection = (
+                BattleTimeStopProjectionService.with_inferred_linko_e(
+                    time_stop_projection,
+                    tuple(
+                        (
+                            inference.selection_pause_start_us,
+                            inference.selection_pause_end_us,
+                        )
+                        for inference in linko_coattack_inferences
+                        if inference.trigger_kind == "skill"
+                    ),
+                )
+            )
         intervals = time_stop_projection.intervals
         inferred_inputs = BattleTimelineProjectionService.infer_inputs(
             inferred_actions
@@ -341,6 +404,13 @@ class BattleCounterfactualAnalysisService:
                     battle_end_us=maximum,
                     time_stop_intervals=intervals,
                 ),
+                *BattleLinkoCoattackBuffService.infer(
+                    build=build,
+                    inferences=linko_coattack_inferences,
+                    hits=all_hits,
+                    battle_end_us=maximum,
+                    time_stop_intervals=intervals,
+                ),
             ))
             witch_interval = battle_witch_buff_interval(
                 resolved_target_condition,
@@ -385,7 +455,16 @@ class BattleCounterfactualAnalysisService:
             float(hit.raw_damage if hit.raw_damage is not None else hit.damage)
             for hit in outgoing
         )
-        duration = max((end_us - start_us) / 1_000_000.0, 0.001)
+        duration = max(
+            projected_range_duration_us(
+                start_us,
+                end_us,
+                intervals=intervals,
+                mode=ACTIVE_TIME_MODE,
+            )
+            / 1_000_000.0,
+            0.001,
+        )
         total_damage = sum(hit.damage for hit in outgoing)
         damage_correction_total = sum(
             max(0.0, float(hit.raw_damage or hit.damage) - hit.damage)
@@ -552,6 +631,13 @@ class BattleCounterfactualAnalysisService:
             raw_total_damage=raw_total_damage,
             timeline_hits=all_hits,
             inferred_actions=inferred_actions,
+            linko_coattack_inferences=linko_coattack_inferences,
+            linko_coattack_inference_version=(
+                LINKO_COATTACK_INFERENCE_MODEL_VERSION
+            ),
+            linko_coattack_buff_model_version=(
+                LINKO_COATTACK_BUFF_MODEL_VERSION if infer_buffs else ""
+            ),
             inferred_inputs=inferred_inputs,
             timeline_damage_groups=timeline_damage_groups,
             treatment_events=treatment_events,
@@ -580,6 +666,19 @@ class BattleCounterfactualAnalysisService:
             ),
             time_stop_intervals=intervals,
             observed_time_stop_intervals=observed_time_stop_intervals,
+            observed_typed_time_stop_intervals=(
+                observed_typed_time_stop_intervals
+            ),
+            q_action_time_stop_intervals=(
+                time_stop_projection.q_action_intervals
+            ),
+            type6_time_stop_intervals=time_stop_projection.type6_intervals,
+            inferred_linko_e_time_stop_intervals=(
+                time_stop_projection.inferred_linko_e_intervals
+            ),
+            has_unknown_time_stop_types=(
+                time_stop_projection.has_unknown_types
+            ),
             time_stop_source_kind=time_stop_projection.source_kind,
             time_stop_confidence=time_stop_projection.confidence,
             time_stop_inference_basis=time_stop_projection.inference_basis,

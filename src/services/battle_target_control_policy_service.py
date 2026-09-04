@@ -27,7 +27,10 @@ class BattleTargetControlPolicyService:
             return False, "正式怪物目录将已解析目标分类为 Boss，不默认控制成功。"
         if policy == CONTROL_BLOCKED_FORMAL_IMMUNITY:
             return False, "正式目标标签表明控制免疫，不默认控制成功。"
-        return True, "目标身份未知或无正式免控证据，按用户确认规则默认受到控制。"
+        return True, (
+            "目标身份未知或无正式免控证据；仅允许由可识别控制技能作低置信"
+            "推断，不等同于 Core 实测控制状态。"
+        )
 
     @staticmethod
     def resolve_formal_policy(

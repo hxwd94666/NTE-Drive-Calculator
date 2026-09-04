@@ -230,7 +230,7 @@ def _formula_entries(
             section="直伤乘区",
             title="暴击分支与期望",
             expression=(
-                "NonCrit = ceil(FullPrecision); Crit = ceil(FullPrecision × "
+                "NonCrit = floor(FullPrecision); Crit = floor(FullPrecision × "
                 "(1 + CritDamage)); Expected = (1-r)×NonCrit + r×Crit"
             ),
             boundary="project_rule",
@@ -400,19 +400,25 @@ def _formula_entries(
         FormulaEntry(
             key="settlement_rounding",
             section="结算",
-            title="最终伤害取整",
-            expression="Settlement = ceil(max(0, FullPrecisionDamage))",
+            title="最终伤害向下取整",
+            expression="Settlement = floor(max(0, FullPrecisionDamage))",
             boundary="project_rule",
             variables=(FormulaVariable("FullPrecisionDamage", "所有适用乘区完整精度乘积"),),
             applicable_when=("一次实际直伤、DOT、特殊伤害、覆纹或倾陷出口",),
             limitations=("中间属性与乘区不取整；暴击期望允许小数。",),
             evidence=(
-                _ref("project_contract", contract, "直伤总公式", "最终出口统一向上取整"),
+                _ref("project_contract", contract, "直伤总公式", "最终出口统一向下取整"),
                 _ref(
                     "implementation",
                     "src/services/battle_hit_replay_support.py",
-                    "ceil_replay_damage",
+                    "settle_replay_damage",
                     "固定轴确定性结算出口",
+                ),
+                _ref(
+                    "public_behavior_test",
+                    "tests/test_battle_hit_replay_service.py",
+                    "test_replay_settlement_floors_only_after_all_factors",
+                    "小数伤害只在最终出口向下取整",
                 ),
             ),
         ),

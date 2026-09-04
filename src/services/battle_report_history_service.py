@@ -9,10 +9,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from src.domain.battle_report import (
-    BattleAnalysisSnapshot,
-    BattleRetentionMutation,
-)
+from src.domain.battle_report import BattleAnalysisSnapshot, BattleRetentionMutation
 from src.services.battle_counterfactual_analysis_service import (
     BattleCounterfactualAnalysisService,
 )
@@ -91,8 +88,10 @@ from src.services.battle_inferred_target_resolution_support import (
     project_resolved_target_evidence,
     resolve_available_target_instances,
 )
-from src.services.battle_target_catalog_service import BattleTargetCatalogService
 from src.services.battle_outer_realm_buff_service import BattleOuterRealmBuffService
+from src.services.battle_target_condition_history_mixin import (
+    BattleTargetConditionHistoryMixin,
+)
 from src.services.battle_environment_condition_service import (
     resolve_battle_target_condition,
 )
@@ -117,6 +116,7 @@ class BattleReportHistoryService(
     BattleReportHistoryEvidenceProjectionMixin,
     BattleBuildEditHistoryMixin,
     BattleReportReplayHistoryMixin,
+    BattleTargetConditionHistoryMixin,
     BattleReportHistoryDaoMixin,
 ):
     def __init__(
@@ -177,12 +177,16 @@ class BattleReportHistoryService(
             import_equipment_locks = user_dao.load_battle_import_equipment_locks(
                 battle_record_id
             )
-            target_condition = resolve_battle_target_condition(
-                user_dao.load_battle_target_condition(battle_record_id)
+            saved_target_condition = user_dao.load_battle_target_condition(
+                battle_record_id
             )
             inferred_snapshot = user_dao.load_battle_inferred_target_snapshot(
                 battle_record_id
             )
+        saved_target_condition = self._complete_target_condition(
+            saved_target_condition, evidence
+        )
+        target_condition = resolve_battle_target_condition(saved_target_condition)
         build = normalize_inferred_battle_build(build)
         apply_import_equipment_locks(build, import_equipment_locks)
         recognition_build = None
@@ -220,6 +224,7 @@ class BattleReportHistoryService(
                 combat_context_kind=str(record.get("combat_context_kind") or ""),
                 floor=None if record_floor is None else int(record_floor),
                 evidence=evidence,
+                battle_occurred_at_utc=record.get("captured_at_utc"),
                 dependencies=self._dependencies,
                 context_is_current=self._context_is_current,
             )
@@ -314,6 +319,7 @@ class BattleReportHistoryService(
             requested_start_us=start_us,
             requested_end_us=end_us,
             animation_candidates=animation_candidates,
+            character_elements=self._load_character_elements(build),
             buff_rules=buff_rules,
             target_condition=analysis_target_condition,
             zankou_form_config=zankou_form_config,
@@ -339,6 +345,7 @@ class BattleReportHistoryService(
                     evidence,
                     recognition_build,
                 ),
+                character_elements=self._load_character_elements(recognition_build),
                 buff_rules=self._load_buff_rules(recognition_build),
                 target_condition=analysis_target_condition,
                 zankou_form_config=self._load_zankou_form_config(
@@ -526,31 +533,6 @@ class BattleReportHistoryService(
                 prepared_projections.beneficiary_by_event
             ),
         )
-
-    def load_target_catalog(self) -> dict[str, Any]:
-        if self._target_catalog_cache is not None:
-            return self._target_catalog_cache
-        static_path = self._dependencies.static_database_path
-        if static_path is None:
-            raise UserDataError("当前应用没有可用的官方静态数据库")
-        with StaticGameDataDao(static_path) as static_dao:
-            catalog = BattleTargetCatalogService.load(static_dao)
-        self._target_catalog_cache = catalog
-        return catalog
-
-    def save_target_condition(
-        self,
-        battle_record_id: int,
-        condition: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Save one user-confirmed target input without changing hit evidence."""
-
-        self._assert_counterfactual_editable(battle_record_id)
-        with self._open_current_dao() as user_dao:
-            return user_dao.save_battle_target_condition(
-                battle_record_id,
-                condition,
-            )
 
     def _load_animation_candidates(
         self,

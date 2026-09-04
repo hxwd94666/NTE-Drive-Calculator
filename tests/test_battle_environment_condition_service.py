@@ -44,3 +44,9 @@ def test_environment_name_reads_legacy_clone_and_outer_realm_refs() -> None:
             environment_ref="season|6|FirstHalf",
         )
     ) == "轨外之境第6层上半"
+    assert display_battle_environment_name(
+        _condition(
+            environment_kind="outer_realm",
+            environment_ref="season|6|mixed",
+        )
+    ) == "轨外之境第6层上下半"

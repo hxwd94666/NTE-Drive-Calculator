@@ -140,7 +140,10 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
         footer = page.analysis_progress
         self.assertFalse(footer.isHidden())
         self.assertIs(page, footer.parentWidget())
-        self.assertEqual(1, page.layout().indexOf(footer))
+        self.assertEqual(
+            page.layout().indexOf(page._stack) + 1,
+            page.layout().indexOf(footer),
+        )
         self.assertEqual(0, footer.progress.minimum())
         self.assertEqual(0, footer.progress.maximum())
         self.assertIn("Buff", footer.message_label.text())
