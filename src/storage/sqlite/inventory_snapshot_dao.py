@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from .inventory_save_error import InventorySnapshotSaveError
 from .user_data_support import (
     SNAPSHOT_SOURCES,
     UserDataError,
@@ -163,8 +164,10 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
 
         connection = self._db()
         now = _utc_now()
+        save_stage = "begin_transaction"
         try:
             connection.execute("BEGIN IMMEDIATE")
+            save_stage = "insert_snapshot"
             cursor = connection.execute(
                 """
                 INSERT INTO inventory_snapshot(
@@ -184,6 +187,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                 raise UserDataError("创建背包快照后未返回 snapshot_id")
             snapshot_id = int(cursor.lastrowid)
             for item, serial, slot, stats in normalized_items:
+                save_stage = "insert_item"
                 connection.execute(
                     """
                     INSERT INTO inventory_item(
@@ -205,6 +209,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                     ),
                 )
                 for stat_group, ordinal, stat in stats:
+                    save_stage = "insert_stat"
                     connection.execute(
                         """
                         INSERT INTO inventory_item_stat(
@@ -231,6 +236,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                     except UserDataValidationError:
                         # 背包条目仍完整保存；不把不合法的角色实例写入可执行映射。
                         continue
+                    save_stage = "upsert_equipped_character"
                     connection.execute(
                         """
                         INSERT INTO character_instance_mapping(
@@ -250,6 +256,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                         ),
                     )
             for character_id, character_slot, character_serial in normalized_characters:
+                save_stage = "upsert_character"
                 connection.execute(
                     """
                     INSERT INTO character_instance_mapping(
@@ -267,16 +274,24 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                         snapshot_id, snapshot_id, now, now,
                     ),
                 )
+            save_stage = "update_current_pointer"
             connection.execute("UPDATE inventory_snapshot SET is_current = 0 WHERE is_current = 1")
             connection.execute(
                 "UPDATE inventory_snapshot SET is_current = 1 WHERE snapshot_id = ?",
                 (snapshot_id,),
             )
+            save_stage = "commit"
             connection.commit()
             return snapshot_id
         except sqlite3.Error as exc:
-            connection.rollback()
-            raise UserDataError("无法导入背包快照") from exc
+            rollback_error = None
+            try:
+                connection.rollback()
+            except sqlite3.Error as rollback_exc:
+                rollback_error = rollback_exc
+            raise InventorySnapshotSaveError(
+                exc, stage=save_stage, rollback_error=rollback_error,
+            ) from exc
 
     def list_inventory_snapshots(self) -> list[dict[str, Any]]:
         rows = self._rows(

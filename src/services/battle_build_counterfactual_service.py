@@ -52,8 +52,8 @@ from src.services.battle_analysis_progress import (
     report_battle_analysis_progress,
 )
 from src.services.battle_build_awakening_gap_service import (
-    linko_awakening_change_gaps as awakening_change_gaps,
-    mark_linko_role_partial,
+    awakening_change_gaps,
+    mark_awakening_roles_partial,
     with_awakening_gaps,
 )
 from src.services.battle_build_role_counterfactual_support import build_role_counterfactuals
@@ -62,7 +62,7 @@ from src.services.battle_build_vital_support import (
     linked_lacrimosa_vital_hits,
     safe_ratio,
 )
-BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v8"
+BUILD_COUNTERFACTUAL_MODEL_VERSION = "battle-build-counterfactual-v10"
 _STRUCTURED_METHODS = {"structured_expected", "structured_selected", DAFFODILL_EFFECT_FIVE_METHOD}
 _STRUCTURED_VITAL_METHODS = {
     "linked_source_hit_ratio", "linked_source_hit_ratio_observed_anchor",
@@ -315,10 +315,10 @@ class BattleBuildCounterfactualService:
             structured_methods=_STRUCTURED_METHODS,
             structured_vital_methods=_STRUCTURED_VITAL_METHODS,
         )
-        role_rows = mark_linko_role_partial(role_rows, awakening_gaps)
+        role_rows = mark_awakening_roles_partial(role_rows, awakening_gaps)
         assumptions = (
             "固定原战报动作、逐击、目标与时段，只替换角色配置后重放。",
-            "原击已识别暴击分支时，候选沿用同一分支；分支不唯一但暴击策略已知时才使用期望公式。",
+            "每击按正式暴击策略比较候选与原始理论期望，以原始实测伤害加权；不冻结本场暴击结果。",
             "每击按半场和目标实例消费冻结画像；身份未知但画像等价仍可完整量化，未变化的未知共同乘区允许相消。",
             "目标敏感 peer 不跨半场或目标；peer 只形成独立 heuristic，不进入已量化收益。",
             "未量化逐击只以原始值保留固定轴，不冒充候选值或精确零收益。",

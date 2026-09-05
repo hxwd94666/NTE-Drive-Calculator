@@ -477,7 +477,7 @@ class BattleSkillDamageEvidenceServiceTests(unittest.TestCase):
         self.assertEqual(80, evidence.effective_skill_level)
         self.assertEqual(8.0, evidence.scaling_multiplier)
         self.assertEqual("disabled", evidence.critical_policy)
-        self.assertIn("不读取 Q", evidence.evidence_basis)
+        self.assertIn("不读取 A 或其他技能等级", evidence.evidence_basis)
 
     def test_true_damage_critical_policy_stays_unknown(self) -> None:
         class Dao:

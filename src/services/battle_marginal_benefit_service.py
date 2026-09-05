@@ -28,14 +28,20 @@ from src.services.battle_analysis_progress import (
 from src.services.battle_build_counterfactual_service import (
     BattleBuildCounterfactualService,
 )
-from src.services.battle_build_awakening_gap_service import with_awakening_gaps
+from src.services.battle_build_awakening_gap_service import (
+    awakening_gaps_for_character,
+    with_awakening_gaps,
+)
 from src.services.battle_build_quantification_service import (
     BattleBuildQuantificationService,
 )
 from src.services.battle_build_timeline_projection_service import (
     BattleBuildTimelineProjectionService,
 )
-from src.services.battle_marginal_candidate_service import BattleMarginalCandidate
+from src.services.battle_marginal_candidate_service import (
+    BattleMarginalCandidate,
+    BattleMarginalCandidateService,
+)
 from src.services.battle_marginal_benefit_scope import (
     BattleMarginalBenefitRoleScope,
     marginal_benefit_role_rows,
@@ -160,9 +166,8 @@ class BattleMarginalBenefitService:
         if not core_catalog:
             return (), "官方金色空幕主属性曲线不可用。"
 
-        no_main_profile = cls._replace_core_main(profile, None)
-        no_main_candidate = cls._replace_profile(
-            candidate, character_id, no_main_profile,
+        no_main_candidate = BattleMarginalCandidateService.with_core_main_stat(
+            candidate, character_id, None,
         )
         report_battle_analysis_progress(
             progress_callback,
@@ -205,8 +210,9 @@ class BattleMarginalBenefitService:
                 )
                 contribution_comparison = current_from_no_main
             else:
-                variant_profile = cls._replace_core_main(
-                    profile,
+                variant_candidate = BattleMarginalCandidateService.with_core_main_stat(
+                    candidate,
+                    character_id,
                     {
                         "stat_group": "main",
                         "ordinal": 0,
@@ -215,9 +221,6 @@ class BattleMarginalBenefitService:
                         "is_percent": is_percent,
                         "names": {"zh": label},
                     },
-                )
-                variant_candidate = cls._replace_profile(
-                    candidate, character_id, variant_profile,
                 )
                 report_battle_analysis_progress(
                     progress_callback,
@@ -493,31 +496,6 @@ class BattleMarginalBenefitService:
         return cores[0] if len(cores) == 1 else None
 
     @staticmethod
-    def _replace_core_main(
-        profile: Mapping[str, Any],
-        main_stat: Mapping[str, Any] | None,
-    ) -> dict[str, Any]:
-        result = deepcopy(dict(profile))
-        equipment = []
-        replaced = False
-        for raw_item in result.get("equipment_override") or ():
-            item = deepcopy(dict(raw_item))
-            if str(item.get("kind") or "").casefold() == "core" and not replaced:
-                stats = [
-                    deepcopy(dict(row))
-                    for row in item.get("stats") or ()
-                    if isinstance(row, Mapping)
-                    and str(row.get("stat_group") or "") != "main"
-                ]
-                if main_stat is not None:
-                    stats.insert(0, deepcopy(dict(main_stat)))
-                item["stats"] = stats
-                replaced = True
-            equipment.append(item)
-        result["equipment_override"] = equipment
-        return result
-
-    @staticmethod
     def _replace_profile(
         candidate: BattleMarginalCandidate,
         character_id: int,
@@ -589,10 +567,8 @@ class BattleMarginalBenefitService:
         )
         role_quantification = with_awakening_gaps(
             role_quantification,
-            tuple(
-                gap
-                for gap in comparison.quantification.gaps
-                if gap.dimension_id.startswith("linko_awaken_")
+            awakening_gaps_for_character(
+                comparison.quantification.gaps, role_scope.character_id,
             ),
         )
         role_baseline = sum(row.baseline_damage for row in role_rows)

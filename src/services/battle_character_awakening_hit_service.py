@@ -12,6 +12,22 @@ ZERO_FIRST_GAZE_REQUIREMENT = "battle-awakening:zero-first-gaze-extra-hit"
 FADIA_GODSLAYER_REQUIREMENT = "battle-awakening:fadia-godslayer"
 MITSUKI_ULTRA_REQUIREMENT = "battle-awakening:mitsuki-ultra"
 LINKO_COATTACK_REQUIREMENT = "battle-awakening:linko-coattack"
+SHINKU_RAGE_REQUIREMENT = "battle-character:shinku-rage-hit"
+
+# 正式 Rage GE 证明本击来自升腾技能；不从普通 Q 名称或邻近命中推断状态。
+SHINKU_RAGE_DAMAGE_IDS = frozenset(
+    f"ge_player_shinku_{name}_rage_damage"
+    for name in (
+        "airattack", "branch1", "branch2", "branch3", "branch4", "branch5",
+        "melee1_1", "melee1", "melee2", "melee3_1", "melee3", "melee4_1",
+        "melee4", "melee5", "perfectevadeattack", "skill1", "skill2",
+        "ultraskill2", "ultraskillpre", "ultraskill",
+    )
+)
+_SHINKU_RAGE_SKILL_COEF_IDS = frozenset(
+    f"ge_player_shinku_{name}_rage_damage"
+    for name in ("skill1", "skill2", "ultraskillpre", "ultraskill", "ultraskill2")
+)
 
 _ZERO_FIRST_GAZE_DAMAGE_IDS = frozenset({
     "ge_player_female046_skill_kill_damage_lv1",
@@ -50,9 +66,21 @@ def character_awakening_damage_multiplier(
     character: Mapping[str, Any],
     *,
     damage_id: str,
-) -> tuple[float, str]:
+    shinku_rage_skill_coefficient: float | None = None,
+) -> tuple[float | None, str]:
     """Return explicit per-hit awakening multipliers backed by formal effects."""
 
+    if (
+        int(character.get("character_id") or 0) == 1076
+        and damage_id.casefold() in _SHINKU_RAGE_SKILL_COEF_IDS
+        and _awakening_enabled(character, "Effect6")
+    ):
+        if shinku_rage_skill_coefficient is None:
+            return None, "觉醒六强化 E/Q 缺少正式 Shinku_RageSkillDmgCoefL6 曲线"
+        return 1.0 + shinku_rage_skill_coefficient, (
+            "觉醒六「赤龙的藏宝地」：正式强化 E/Q CoefModify "
+            f"+{shinku_rage_skill_coefficient:.0%}"
+        )
     if (
         int(character.get("character_id") or 0) == 1055
         and damage_id.casefold() == _KUHARA_ATTACHMENT_DAMAGE_ID
@@ -91,6 +119,13 @@ def character_awakening_requirement_applies(
     """Return whether one confirmed awakening modifier belongs to this hit."""
 
     normalized = str(requirement or "").casefold()
+    if normalized == SHINKU_RAGE_REQUIREMENT:
+        applies = (
+            hit.character_id == 1076
+            and hit.direction == "outgoing"
+            and hit.gameplay_effect_id.casefold() in SHINKU_RAGE_DAMAGE_IDS
+        )
+        return applies, "" if applies else "升腾伤害增益仅采用本击正式 Rage 技能证据"
     identity = "|".join((
         hit.attack_type,
         hit.ability_id,

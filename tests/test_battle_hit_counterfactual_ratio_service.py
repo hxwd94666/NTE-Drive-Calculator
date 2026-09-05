@@ -127,6 +127,7 @@ def _selected_replay(non_critical_damage: float) -> BattleHitReplayResult:
         critical_state="non_critical",
         confidence="高",
         factors=(),
+        expected_damage=non_critical_damage * 1.5,
         critical_policy="character",
     )
 
@@ -378,7 +379,7 @@ class BattleHitCounterfactualRatioServiceTests(unittest.TestCase):
 
         self.assertEqual("complete", result.status)
         self.assertAlmostEqual(1.2, result.quantified_ratio)
-        self.assertEqual("structured_selected", result.method)
+        self.assertEqual("structured_expected", result.method)
 
     def test_standard_reaction_ring_strength_uses_shared_scaling_zone(self) -> None:
         hit = replace(

@@ -1,7 +1,8 @@
-# 验证固定轴反事实沿用原击隐状态，不让候选公式重新选择暴击分支。
+# 验证固定轴反事实统一比较理论期望，不受已识别暴击结果影响。
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from src.domain.battle_report import BattleHitReplayResult
 from src.services.battle_replay_formula_ratio_service import (
@@ -35,7 +36,7 @@ def _replay(
 
 
 class BattleReplayFormulaRatioServiceTests(unittest.TestCase):
-    def test_resolved_critical_hit_keeps_original_critical_branch(self) -> None:
+    def test_resolved_critical_hit_uses_expected_ratio(self) -> None:
         original = _replay(
             noncritical=100.0,
             critical=200.0,
@@ -53,9 +54,9 @@ class BattleReplayFormulaRatioServiceTests(unittest.TestCase):
 
         self.assertIsNotNone(pair)
         assert pair is not None
-        self.assertEqual("structured_selected", pair.method)
-        self.assertEqual(200.0, pair.baseline_damage)
-        self.assertEqual(400.0, pair.candidate_damage)
+        self.assertEqual("structured_expected", pair.method)
+        self.assertEqual(150.0, pair.baseline_damage)
+        self.assertEqual(260.0, pair.candidate_damage)
 
     def test_ambiguous_hit_uses_expected_formula_without_nearest_branch(self) -> None:
         original = _replay(
@@ -96,6 +97,39 @@ class BattleReplayFormulaRatioServiceTests(unittest.TestCase):
         )
 
         self.assertIsNone(paired_replay_formula(original, candidate))
+
+    def test_rate_gain_ignores_both_branch_labels_and_corrected_values(self) -> None:
+        original = _replay(noncritical=100.0, critical=300.0, expected=200.0, state="critical")
+        candidate = replace(original, critical_rate=0.6, expected_damage=220.0)
+        for state in ("critical", "non_critical", "ambiguous"):
+            with self.subTest(state=state):
+                pair = paired_replay_formula(
+                    replace(original, critical_state=state, corrected_expected_damage=9999.0),
+                    replace(candidate, critical_state="non_critical", corrected_expected_damage=1.0),
+                )
+                assert pair is not None
+                self.assertAlmostEqual(1.1, pair.candidate_damage / pair.baseline_damage)
+
+    def test_resolved_label_does_not_replace_missing_policy_or_formula(self) -> None:
+        original = _replay(noncritical=100.0, critical=200.0, expected=150.0, state="critical")
+        for incomplete in (
+            replace(original, critical_policy="unknown"),
+            replace(original, critical_policy="fixed", critical_rate=None),
+            replace(original, expected_damage=None),
+            replace(original, critical_state="unreplayable"),
+        ):
+            self.assertIsNone(paired_replay_formula(original, incomplete))
+            self.assertIsNone(paired_replay_formula(incomplete, original))
+
+    def test_disabled_policy_uses_noncritical_formula(self) -> None:
+        original = _replay(
+            noncritical=100.0, critical=200.0, expected=150.0,
+            state="not_applicable", policy="disabled",
+        )
+        pair = paired_replay_formula(original, replace(original, non_critical_damage=120.0))
+        assert pair is not None
+        self.assertEqual("structured_selected", pair.method)
+        self.assertAlmostEqual(1.2, pair.candidate_damage / pair.baseline_damage)
 
 
 if __name__ == "__main__":

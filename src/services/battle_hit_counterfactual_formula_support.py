@@ -114,35 +114,29 @@ def critical_ratio(
     *,
     channel_id: str = "",
 ) -> float | None:
+    """Compare hit-time expectations; observed critical labels are audit only."""
+
     if channel_id in FIXED_HALF_CRIT_CHANNEL_IDS:
         return fixed_half_critical_ratio(original, candidate, replay)
-    if replay is None or replay.critical_policy == "unknown":
+    if replay is None:
         return None
-    state = replay.critical_state
-    if state == "critical":
-        original_factor = 1.0 + max(0.0, original.get("CritDamageBase", 0.5))
-        candidate_factor = 1.0 + max(0.0, candidate.get("CritDamageBase", 0.5))
-    elif state == "non_critical":
+    if replay.critical_policy == "disabled":
         return 1.0
-    elif state in {"ambiguous", "unreplayable", "not_applicable"}:
-        if replay.critical_policy == "disabled":
-            return 1.0
-        if replay.critical_policy == "fixed":
-            rate = min(1.0, max(0.0, float(replay.critical_rate or 0.5)))
-            original_rate = candidate_rate = rate
-        else:
-            original_rate = min(1.0, max(0.0, original.get("CritBase", 0.05)))
-            candidate_rate = min(1.0, max(0.0, candidate.get("CritBase", 0.05)))
-        original_factor = calculate_critical_multiplier(
-            original_rate,
-            max(0.0, original.get("CritDamageBase", 0.5)),
-        )
-        candidate_factor = calculate_critical_multiplier(
-            candidate_rate,
-            max(0.0, candidate.get("CritDamageBase", 0.5)),
-        )
+    if replay.critical_policy == "fixed":
+        if replay.critical_rate is None:
+            return None
+        original_rate = candidate_rate = min(1.0, max(0.0, replay.critical_rate))
+    elif replay.critical_policy == "character":
+        original_rate = min(1.0, max(0.0, original.get("CritBase", 0.05)))
+        candidate_rate = min(1.0, max(0.0, candidate.get("CritBase", 0.05)))
     else:
         return None
+    original_factor = calculate_critical_multiplier(
+        original_rate, max(0.0, original.get("CritDamageBase", 0.5)),
+    )
+    candidate_factor = calculate_critical_multiplier(
+        candidate_rate, max(0.0, candidate.get("CritDamageBase", 0.5)),
+    )
     return _safe_ratio(candidate_factor, original_factor)
 
 

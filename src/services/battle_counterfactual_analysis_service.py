@@ -56,6 +56,10 @@ from src.services.battle_zankou_form_buff_service import (
     BattleZankouFormBuffService,
     BattleZankouFormConfig,
 )
+from src.services.battle_shinku_rage_buff_service import (
+    BattleShinkuRageBuffService,
+    BattleShinkuRageConfig,
+)
 from src.services.battle_timeline_projection_service import (
     TIMELINE_PROJECTION_MODEL_VERSION,
     BattleTimelineProjectionService,
@@ -99,7 +103,7 @@ from src.services.battle_linko_coattack_buff_service import (
 )
 
 
-FORMULA_MODEL_VERSION = "battle-counterfactual-v24"
+FORMULA_MODEL_VERSION = "battle-counterfactual-v26"
 
 def _text(value: Any, fallback: str = "") -> str:
     normalized = str(value or "").strip()
@@ -208,6 +212,7 @@ class BattleCounterfactualAnalysisService:
         buff_rules: Sequence[BattleStaticBuffRule] = (),
         target_condition: Mapping[str, Any] | BattleTargetCondition | None = None,
         zankou_form_config: BattleZankouFormConfig | None = None,
+        shinku_rage_config: BattleShinkuRageConfig | None = None,
         outer_realm_buff_config: BattleOuterRealmBuffConfig | None = None,
         infer_buffs: bool = True,
         critical_events: Sequence[ForkCriticalEvent] = (),
@@ -392,6 +397,9 @@ class BattleCounterfactualAnalysisService:
                     max_hp_events=all_max_hp_events,
                 ),
                 *zankou_form_intervals,
+                *BattleShinkuRageBuffService.infer(
+                    build=build, hits=all_hits, config=shinku_rage_config,
+                ),
                 *BattleDaffodillAwakeningService.infer(
                     build=build,
                     actions=inferred_actions,

@@ -50,19 +50,12 @@ def fixed_half_critical_ratio(
     candidate: Mapping[str, float],
     replay: BattleHitReplayResult | None,
 ) -> float | None:
-    """Use the observed branch when known, otherwise the formal 50% expectation."""
+    """Use the formal 50% expectation regardless of the observed critical state."""
 
-    state = "unreplayable" if replay is None else replay.critical_state
     original_damage = max(0.0, original.get("CritDamageBase", 0.5))
     candidate_damage = max(0.0, candidate.get("CritDamageBase", 0.5))
-    if state == "critical":
-        original_factor = 1.0 + original_damage
-        candidate_factor = 1.0 + candidate_damage
-    elif state == "non_critical":
-        return 1.0
-    else:
-        original_factor = calculate_critical_multiplier(0.5, original_damage)
-        candidate_factor = calculate_critical_multiplier(0.5, candidate_damage)
+    original_factor = calculate_critical_multiplier(0.5, original_damage)
+    candidate_factor = calculate_critical_multiplier(0.5, candidate_damage)
     if original_factor <= 0.0 or candidate_factor < 0.0:
         return None
     ratio = candidate_factor / original_factor
@@ -101,6 +94,6 @@ def fixed_half_critical_counterfactual(
         cancelled_dimension_ids=("critical_rate",),
         explanation=(
             "按正式固定 50% 暴击策略，仅替换暴击伤害乘区；"
-            "无法判定本击分支时使用固定期望比值。"
+            "每击统一使用固定期望比值。"
         ),
     )

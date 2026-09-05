@@ -277,7 +277,7 @@ class BattleReportHistoryService(
                 apply_battle_build_edit(
                     build,
                     BattleMarginalCandidateService.as_build_edit(
-                        marginal_candidate
+                        marginal_candidate, frozen_build=build,
                     ),
                 )
             elif use_build_edit:
@@ -326,6 +326,9 @@ class BattleReportHistoryService(
             buff_rules=buff_rules,
             target_condition=analysis_target_condition,
             zankou_form_config=zankou_form_config,
+            shinku_rage_config=(
+                self._load_shinku_rage_config(build) if include_buff_inference else None
+            ),
             outer_realm_buff_config=outer_realm_buff_config,
             infer_buffs=include_buff_inference,
             target_control_policy=target_control_policy,
@@ -355,6 +358,7 @@ class BattleReportHistoryService(
                     recognition_build
                 ),
                 outer_realm_buff_config=outer_realm_buff_config,
+                shinku_rage_config=self._load_shinku_rage_config(recognition_build),
                 infer_buffs=True,
             )
             inferred_encounter = self._fit_inferred_encounter(

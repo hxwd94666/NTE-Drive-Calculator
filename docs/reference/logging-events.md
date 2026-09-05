@@ -50,6 +50,14 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 `battle_record_id`、`persistence_status`、`retention_kind`、`inserted`、`changed`、
 `pruned_record_count`、`character_count`、`skill_count` 和 `total_hits`；不记录原始摘要或伤害明细。
 
+`inventory_sync.snapshot_commit_retry` 的 SQLite 保存失败诊断包括 `save_error_code`、`save_stage`、
+`sqlite_exception_type`、`sqlite_errorcode`、`sqlite_errorname`、`sqlite_message` 和 `rollback_status`；
+底层未提供的错误码或错误名不写入。`save_stage` 区分开启事务、写快照、写装备、写词条、更新装备角色映射、
+更新独立角色映射、切换当前指针和提交。回滚失败时另记 `rollback_error` 的同类 SQLite 安全字段，保留首次
+错误。分类使用 SQLite 主错误码，诊断保留完整扩展错误码。消息只允许固定 SQLite 文案与限定格式的表、列或
+约束名；其他原始消息不公开，避免触发器或绑定错误夹带业务数据、路径。该诊断不读取或记录 SQL 参数、UID、
+完整快照和账号显示名。
+
 鼠标扫描报告相关事件只记录 profile、分辨率、预计/捕获数、页数、队列高水位、耗时和安全终止类型。
 扫描后状态管理只记录计划/完成数量与状态迁移聚合，不记录目标索引。
 

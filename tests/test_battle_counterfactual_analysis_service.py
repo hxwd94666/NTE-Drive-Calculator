@@ -122,7 +122,7 @@ class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(1, len(result.inferred_actions))
         self.assertEqual("battle-action-window-v15", result.action_inference_version)
         self.assertEqual("battle-unified-timeline-v5", result.timeline_projection_version)
-        self.assertEqual("battle-counterfactual-v24", result.formula_model_version)
+        self.assertEqual("battle-counterfactual-v26", result.formula_model_version)
 
     def test_linko_formula_inference_is_derived_before_range_projection(self) -> None:
         inference = BattleLinkoCoattackInference(

@@ -3,16 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from src.domain.battle_report import (
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
+    BattleAnalysisSnapshot, BattleCharacterBaseline,
+    BattleHitBuffProjection, BattleHitReplayResult, BattleSkillDamageEvidence,
 )
 from src.services.battle_buff_attribute_projection_service import BattleBuffAttributeProjectionService
 from src.services.battle_buff_interval_index import (
-    BattleBuffIntervalIndex,
-    BattleBuffIntervalQuery,
+    BattleBuffIntervalIndex, BattleBuffIntervalQuery,
 )
 from src.services.damage_calculation_service import (
     DamageScene,
@@ -49,8 +45,7 @@ from src.services.battle_hit_replay_formula_catalog import (
 )
 from src.services.battle_inferred_target_condition_service import INFERRED_ENCOUNTER_SOURCE_KIND
 from src.services.battle_selected_hit_replay_context import (
-    PreparedReplayAuditContext,
-    PreparedReplayAuditInputs,
+    PreparedReplayAuditContext, PreparedReplayAuditInputs,
 )
 from src.services.battle_target_instance_mapping_service import BattleTargetInstanceMappingService
 from src.services.battle_analysis_progress import (
@@ -63,7 +58,7 @@ from src.services.battle_hit_buff_projection_cache import (
 )
 from src.services.battle_weave_source_service import find_paired_weave_source_hit
 from src.services.battle_formula_hit_projection_service import project_formula_hit, project_replay_formula_context
-HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v36"
+HIT_REPLAY_MODEL_VERSION = "battle-hit-replay-v37"
 class BattleHitReplayService:
     @classmethod
     def replay(
@@ -755,8 +750,13 @@ class BattleHitReplayService:
         if evidence.state_multiplier_label:
             missing.append(
                 f"当前结算层数由逐击正向重放（置信度{evidence.state_confidence}），"
-                "待运行时目标 Buff 层数覆盖"
+                "待运行时层数证据覆盖"
             )
+            if evidence.state_confidence == "低":
+                confidence = "低"
+                if not critical_disabled:
+                    state = "ambiguous"
+                missing.append(evidence.state_multiplier_basis)
         if critical_unknown:
             missing.append("该伤害是否允许暴击尚未确认；期望伤害暂不计算")
         return BattleHitReplayResult(

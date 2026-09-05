@@ -348,7 +348,7 @@ def marginal_assumption(
         return "已证明该属性单位变化不作用于当前相关逐击，收益精确为零。"
     if property_id in {"CritBase", "CritDamageBase"}:
         policies = "/".join(sorted(set(critical_policies))) or "character"
-        basis = f"按逐击 {policies} 暴击策略消费已知分支或正式期望，不拟合暴击结果。"
+        basis = f"按逐击 {policies} 暴击策略比较理论期望，以逐击伤害加权，不冻结本场暴击结果。"
     elif property_id == "MagBase":
         basis = (
             "仅重放已保存结构化环合公式的覆纹、创生、浊燃与黯星逐击；"

@@ -70,6 +70,7 @@ def _replay(event_id: str, expected_damage: float) -> BattleHitReplayResult:
         confidence="中",
         factors=(),
         expected_damage=expected_damage,
+        critical_policy="disabled",
     )
 
 

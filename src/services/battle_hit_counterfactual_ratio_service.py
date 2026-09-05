@@ -390,7 +390,7 @@ class BattleHitCounterfactualRatioService:
                     "critical",
                     "character_only",
                     critical_changes,
-                    "暴击乘区发生变化，但原击暴击分支或正式策略未知。",
+                    "暴击乘区发生变化，但正式暴击策略或固定概率未知。",
                 ))
             else:
                 component_ratio *= ratio

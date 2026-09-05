@@ -42,6 +42,10 @@ from src.services.battle_zankou_form_buff_service import (
     BattleZankouFormBuffService,
     BattleZankouFormConfig,
 )
+from src.services.battle_shinku_rage_buff_service import (
+    BattleShinkuRageBuffService,
+    BattleShinkuRageConfig,
+)
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
@@ -145,6 +149,22 @@ class BattleReportReplayHistoryMixin:
         try:
             with StaticGameDataDao(static_path) as static_dao:
                 return BattleZankouFormBuffService.load_config(static_dao)
+        except (OSError, RuntimeError, ValueError):
+            return None
+
+    def _load_shinku_rage_config(
+        self,
+        build: dict[str, Any] | None,
+    ) -> BattleShinkuRageConfig | None:
+        static_path = self._dependencies.static_database_path
+        if static_path is None or not any(
+            int(row.get("character_id") or 0) == 1076
+            for row in (build or {}).get("characters") or ()
+        ):
+            return None
+        try:
+            with StaticGameDataDao(static_path) as static_dao:
+                return BattleShinkuRageBuffService.load_config(static_dao)
         except (OSError, RuntimeError, ValueError):
             return None
 

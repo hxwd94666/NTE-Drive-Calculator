@@ -11,6 +11,7 @@ from typing import Any
 from src.observability import log_event
 from src.services.account_settings_service import AccountSettingsService
 from src.services.raw_capture_retention import prune_raw_capture_files
+from src.storage.sqlite.inventory_save_error import InventorySnapshotSaveError
 from src.utils.logger import logger
 
 from .inventory_sync_contracts import InventoryCoreClient
@@ -237,6 +238,9 @@ def run_inventory_sync(service: Any) -> None:
                         protocol_version=service._protocol_version(client),
                     )
                 except Exception as exc:
+                    save_diagnostics = (
+                        exc.diagnostics if isinstance(exc, InventorySnapshotSaveError) else {}
+                    )
                     log_event(
                         "WARNING",
                         "inventory_sync.snapshot_commit_retry",
@@ -244,6 +248,7 @@ def run_inventory_sync(service: Any) -> None:
                         service._operation_context,
                         error=exc,
                         retry_delay_seconds=2,
+                        **save_diagnostics,
                     )
                     retry_save_at = time.monotonic() + 2.0
                     service._publish(
@@ -252,7 +257,11 @@ def run_inventory_sync(service: Any) -> None:
                         running=True,
                         capturing=True,
                         error=f"{type(exc).__name__}: {exc}",
-                        error_code="SNAPSHOT_SAVE_FAILED",
+                        error_code=(
+                            exc.error_code
+                            if isinstance(exc, InventorySnapshotSaveError)
+                            else "SNAPSHOT_SAVE_FAILED"
+                        ),
                     )
                     continue
                 stabilizer.mark_committed(stable.fingerprint)

@@ -21,6 +21,9 @@ from src.services.battle_dot_stack_state_service import (
 from src.services.battle_zankou_awakening_state_service import (
     reconstruct_zankou_q_final_damage,
 )
+from src.services.battle_shinku_watch_state_service import (
+    apply_shinku_watch_state_boundary,
+)
 from src.services.battle_character_passive_service import (
     BattleCharacterPassiveService,
 )
@@ -279,6 +282,14 @@ class BattleSkillDamageEvidenceService:
         build: Mapping[str, Any] | None,
     ) -> tuple[BattleSkillDamageEvidence, ...]:
         builds = _character_builds(build)
+        shinku_rage_skill_coefficient = (
+            _single_point_curve_value(
+                static_dao,
+                "/Game/DataTable/Skill/GlobalCharacterData/DT_ShinkuEffectFigure",
+                "Shinku_RageSkillDmgCoefL6",
+            )
+            if 1076 in builds else None
+        )
         awakenings_by_character = {
             character_id: tuple(static_dao.list_character_awaken_effects(character_id))
             if hasattr(static_dao, "list_character_awaken_effects")
@@ -508,9 +519,12 @@ class BattleSkillDamageEvidenceService:
                 character_awakening_damage_multiplier(
                     character,
                     damage_id=damage_id,
+                    shinku_rage_skill_coefficient=shinku_rage_skill_coefficient,
                 )
             )
-            coefficient *= awakening_coefficient
+            unresolved_awakening = awakening_coefficient is None
+            if awakening_coefficient is not None:
+                coefficient *= awakening_coefficient
             if awakening_basis:
                 basis += f"；{awakening_basis}"
             passive_coefficient, passive_basis = (
@@ -560,18 +574,22 @@ class BattleSkillDamageEvidenceService:
                 ),
                 level_multiplier=reaction_level_multiplier,
                 state_multiplier=float(
+                    0.0 if unresolved_awakening else
                     dot_states.get(hit.event_id).coefficient
                     if hit.event_id in dot_states else 1.0
                 ),
                 state_multiplier_label=(
+                    "觉醒技能倍率（未解析）" if unresolved_awakening else
                     dot_states[hit.event_id].label
                     if hit.event_id in dot_states else ""
                 ),
                 state_multiplier_basis=(
+                    awakening_basis if unresolved_awakening else
                     dot_states[hit.event_id].evidence_basis
                     if hit.event_id in dot_states else ""
                 ),
                 state_confidence=(
+                    "未解析" if unresolved_awakening else
                     dot_states[hit.event_id].confidence
                     if hit.event_id in dot_states else ""
                 ),
@@ -606,4 +624,6 @@ class BattleSkillDamageEvidenceService:
                 is_formal_follow_up=_is_formal_follow_up(static_dao, damage_id),
                 target_has_weave=(hit.sequence, hit.target_id) in targets_with_weave,
             ))
-        return tuple(evidence)
+        return apply_shinku_watch_state_boundary(
+            evidence, analysis=analysis, character=builds.get(1076),
+        )

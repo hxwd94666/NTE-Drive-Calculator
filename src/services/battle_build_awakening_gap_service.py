@@ -1,4 +1,4 @@
-# 将会改变固定轴事件集合的灵可觉醒差异标记为机制级未量化缺口。
+# 将会改变固定轴事件或不可恢复状态的觉醒差异标记为未量化缺口。
 """Awakening boundaries that fixed-axis build replay cannot synthesize."""
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from src.domain.battle_counterfactual_quantification import (
 from src.domain.battle_report import BattleCharacterBaseline
 
 
-LINKO_CHARACTER_ID = 1072
 _LINKO_UNGENERATED_BOUNDARIES = {
     "Effect1": (
         "linko_effect1_attack_interval_unquantified",
@@ -42,21 +41,30 @@ _LINKO_UNGENERATED_BOUNDARIES = {
         "灵可六觉的暴击和共鸣增伤仍按已有公式量化，但资源回复可能改变后续动作与命中集合。",
     ),
 }
+_SHINKU_UNRESOLVED_BOUNDARIES = {
+    "Effect3": (
+        "shinku_effect3_watch_growth_unquantified",
+        "shinku_awaken_effect3_watch_growth",
+        "真红第3项觉醒改变离场凝视保留与后台增长；固定轴缺少逐击凝视层数，不能量化因此改变的触发时点和伤害。",
+    ),
+    "Effect4": (
+        "shinku_effect4_watch_cap_unquantified",
+        "shinku_awaken_effect4_watch_cap",
+        "真红第4项觉醒改变凝视层数上限与追加伤害触发；固定轴不能生成或删除相应命中，也不能假定原击层数不变。",
+    ),
+}
+_CHARACTER_BOUNDARIES = {
+    1072: _LINKO_UNGENERATED_BOUNDARIES,
+    1076: _SHINKU_UNRESOLVED_BOUNDARIES,
+}
 
 
-def linko_awakening_change_gaps(
+def awakening_change_gaps(
     original: Mapping[int, BattleCharacterBaseline],
     candidate: Mapping[int, BattleCharacterBaseline],
 ) -> tuple[BattleQuantificationGap, ...]:
-    """Return only changed Linko awakenings with ungenerated-axis semantics."""
+    """Retain changed mechanics whose event or state axis cannot be rebuilt."""
 
-    original_baseline = original.get(LINKO_CHARACTER_ID)
-    candidate_baseline = candidate.get(LINKO_CHARACTER_ID)
-    if original_baseline is None or candidate_baseline is None:
-        return ()
-    changed = set(original_baseline.selected_awaken_effect_ids) ^ set(
-        candidate_baseline.selected_awaken_effect_ids
-    )
     return tuple(
         BattleQuantificationGap(
             code=code,
@@ -65,12 +73,30 @@ def linko_awakening_change_gaps(
             property_ids=(),
             explanation=explanation,
         )
-        for effect_id in sorted(changed)
-        if effect_id in _LINKO_UNGENERATED_BOUNDARIES
+        for character_id, boundaries in _CHARACTER_BOUNDARIES.items()
+        if character_id in original and character_id in candidate
+        for effect_id in sorted(
+            set(original[character_id].selected_awaken_effect_ids)
+            ^ set(candidate[character_id].selected_awaken_effect_ids)
+        )
+        if effect_id in boundaries
         for code, dimension_id, explanation in (
-            _LINKO_UNGENERATED_BOUNDARIES[effect_id],
+            boundaries[effect_id],
         )
     )
+
+
+def awakening_gaps_for_character(
+    gaps: Sequence[BattleQuantificationGap],
+    character_id: int,
+) -> tuple[BattleQuantificationGap, ...]:
+    """Scope team-level awakening gaps to their actual character owner."""
+
+    dimensions = {
+        boundary[1]
+        for boundary in _CHARACTER_BOUNDARIES.get(character_id, {}).values()
+    }
+    return tuple(gap for gap in gaps if gap.dimension_id in dimensions)
 
 
 def with_awakening_gaps(
@@ -102,29 +128,31 @@ def with_awakening_gaps(
     return replace(quantification, status="partial", gaps=unique_gaps)
 
 
-def mark_linko_role_partial(
+def mark_awakening_roles_partial(
     rows: Sequence[BattleBuildRoleCounterfactual],
     gaps: Sequence[BattleQuantificationGap],
 ) -> tuple[BattleBuildRoleCounterfactual, ...]:
-    """Apply the same missing-event boundary to Linko's role projection."""
+    """Keep unrelated roles outside each missing-mechanic boundary."""
 
     if not gaps:
         return tuple(rows)
     return tuple(
         replace(
             row,
-            quantification=with_awakening_gaps(row.quantification, gaps),
+            quantification=with_awakening_gaps(row.quantification, role_gaps),
             candidate_damage=None,
             gain_percent=None,
             team_gain_percent=None,
         )
-        if row.character_id == LINKO_CHARACTER_ID else row
+        if role_gaps else row
         for row in rows
+        for role_gaps in (awakening_gaps_for_character(gaps, row.character_id),)
     )
 
 
 __all__ = [
-    "linko_awakening_change_gaps",
-    "mark_linko_role_partial",
+    "awakening_change_gaps",
+    "awakening_gaps_for_character",
+    "mark_awakening_roles_partial",
     "with_awakening_gaps",
 ]

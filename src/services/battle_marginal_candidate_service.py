@@ -4,12 +4,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
 from src.services.battle_inferred_character_fact_service import (
     BattleInferredCharacterFactService,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BattleCoreMainStatCounterfactual:
+    """One calculation-only main-stat change, never an equipment permission."""
+
+    character_id: int
+    main_stat: dict[str, Any] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +28,7 @@ class BattleMarginalCandidate:
     profiles: tuple[dict[str, Any], ...]
     equipment_editable: bool
     disabled_inferred_fact_ids: frozenset[str] = frozenset()
+    core_main_stat_counterfactual: BattleCoreMainStatCounterfactual | None = None
 
 
 class BattleMarginalCandidateService:
@@ -184,7 +193,38 @@ class BattleMarginalCandidateService:
             raise ValueError("目标装备不属于当前边际候选")
 
     @staticmethod
-    def as_build_edit(candidate: BattleMarginalCandidate) -> dict[str, Any]:
+    def with_core_main_stat(
+        candidate: BattleMarginalCandidate,
+        character_id: int,
+        main_stat: Mapping[str, Any] | None,
+    ) -> BattleMarginalCandidate:
+        if not any(
+            int(profile.get("character_id") or 0) == character_id
+            for profile in candidate.profiles
+        ):
+            raise ValueError("空幕主属性反事实角色不属于当前候选")
+        return replace(
+            candidate,
+            core_main_stat_counterfactual=BattleCoreMainStatCounterfactual(
+                character_id=character_id,
+                main_stat=None if main_stat is None else {
+                    **{
+                        key: deepcopy(main_stat[key])
+                        for key in ("property_id", "value", "is_percent", "names")
+                        if key in main_stat
+                    },
+                    "stat_group": "main",
+                    "ordinal": 0,
+                },
+            ),
+        )
+
+    @staticmethod
+    def as_build_edit(
+        candidate: BattleMarginalCandidate,
+        *,
+        frozen_build: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         profiles = []
         for source in candidate.profiles:
             profile = dict(source)
@@ -196,6 +236,38 @@ class BattleMarginalCandidateService:
                     "equipment_override",
                 ):
                     profile.pop(key, None)
+            main_change = candidate.core_main_stat_counterfactual
+            if (
+                main_change is not None
+                and int(profile.get("character_id") or 0) == main_change.character_id
+            ):
+                if candidate.equipment_editable:
+                    equipment = profile.get("equipment_override") or ()
+                else:
+                    # 导入战报只从本次读取的原始冻结装备构造反事实，
+                    # 不信任候选携带的装备覆盖或来源元数据。
+                    character = next((
+                        row for row in (frozen_build or {}).get("characters") or ()
+                        if int(row.get("character_id") or 0) == main_change.character_id
+                    ), None)
+                    if character is None:
+                        raise ValueError("导入战报主属性反事实缺少原始冻结配装")
+                    equipment = character.get("equipment") or ()
+                items = deepcopy(list(equipment))
+                cores = [
+                    row for row in items
+                    if str(row.get("kind") or "").casefold() == "core"
+                ]
+                if len(cores) != 1:
+                    raise ValueError("空幕主属性反事实需要唯一的冻结空幕")
+                core = cores[0]
+                core["stats"] = [
+                    row for row in core.get("stats") or ()
+                    if str(row.get("stat_group") or "") != "main"
+                ]
+                if main_change.main_stat is not None:
+                    core["stats"].insert(0, deepcopy(main_change.main_stat))
+                profile["equipment_override"] = items
             profiles.append(profile)
         return {
             "is_active": True,

@@ -386,6 +386,12 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
     def test_purple_current_core_builds_gold_max_same_property_candidate(
         self,
     ) -> None:
+        self._assert_gold_main_counterfactual(equipment_editable=True)
+
+    def test_imported_core_main_variants_reach_build_projection(self) -> None:
+        self._assert_gold_main_counterfactual(equipment_editable=False)
+
+    def _assert_gold_main_counterfactual(self, *, equipment_editable: bool) -> None:
         profile = {
             "character_id": CHARACTER_ID,
             "equipment_override": [{
@@ -412,12 +418,21 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
         candidate = BattleMarginalCandidateService.freeze(
             7,
             [profile],
-            equipment_editable=True,
+            equipment_editable=equipment_editable,
         )
         loaded_candidates = []
 
         def load_variant(variant):
-            loaded_candidates.append(variant)
+            self.assertEqual(equipment_editable, variant.equipment_editable)
+            loaded_candidates.append(
+                BattleMarginalCandidateService.as_build_edit(
+                    variant,
+                    frozen_build={"characters": [{
+                        "character_id": CHARACTER_ID,
+                        "equipment": profile["equipment_override"],
+                    }]},
+                ),
+            )
             return _snapshot()
 
         with (
@@ -461,8 +476,12 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
         self.assertTrue(rows[0].is_current)
         self.assertEqual(0.30, rows[0].value)
         self.assertEqual(2, len(loaded_candidates))
-        no_main_core = loaded_candidates[0].profiles[0]["equipment_override"][0]
-        gold_main_core = loaded_candidates[1].profiles[0]["equipment_override"][0]
+        no_main_core = loaded_candidates[0]["characters"][0]["profile"][
+            "equipment_override"
+        ][0]
+        gold_main_core = loaded_candidates[1]["characters"][0]["profile"][
+            "equipment_override"
+        ][0]
         self.assertEqual("purple", gold_main_core["quality"])
         self.assertEqual(10, gold_main_core["level"])
         self.assertEqual("Suit_Test", gold_main_core["suit_id"])
@@ -478,6 +497,10 @@ class BattleMarginalBenefitServiceTests(unittest.TestCase):
         self.assertTrue(any(
             row["stat_group"] == "sub" for row in gold_main_core["stats"]
         ))
+        self.assertIsNone(candidate.core_main_stat_counterfactual)
+        self.assertEqual(
+            0.20, profile["equipment_override"][0]["stats"][0]["value"],
+        )
 
 
 if __name__ == "__main__":

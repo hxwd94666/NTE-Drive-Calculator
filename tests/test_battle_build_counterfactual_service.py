@@ -69,6 +69,7 @@ def _replay(event_id: str, expected_damage: float) -> BattleHitReplayResult:
         confidence="高",
         factors=(),
         expected_damage=expected_damage,
+        critical_policy="disabled",
     )
 
 
@@ -291,7 +292,7 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
         ))
         self.assertEqual(0.0, result.composition.other_total_damage)
 
-    def test_comparison_preserves_original_resolved_critical_branch(self) -> None:
+    def test_comparison_weights_observed_hit_by_expected_formula_ratio(self) -> None:
         hit = _hit(
             "hit1",
             character_id=1,
@@ -306,6 +307,7 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             critical_damage=200.0,
             selected_damage=200.0,
             critical_state="critical",
+            critical_policy="character",
         )
         candidate_replay = replace(
             _replay("hit1", 260.0),
@@ -314,6 +316,7 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
             critical_damage=400.0,
             selected_damage=120.0,
             critical_state="non_critical",
+            critical_policy="character",
         )
 
         comparison = BattleBuildCounterfactualService.compare(
@@ -322,10 +325,10 @@ class BattleBuildCounterfactualServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            "structured_selected",
+            "structured_expected",
             comparison.hits[0].quantification.method,
         )
-        self.assertEqual(400.0, comparison.hits[0].candidate_damage)
+        self.assertAlmostEqual(200.0 * 260.0 / 150.0, comparison.hits[0].candidate_damage)
 
     def test_unknown_rows_do_not_become_numeric_candidates(self) -> None:
         hits = (

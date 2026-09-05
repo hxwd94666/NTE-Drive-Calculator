@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from copy import deepcopy
 
 from src.domain.battle_report import BattleInferredCharacterFact
 from src.services.battle_marginal_candidate_service import (
@@ -173,6 +174,73 @@ class BattleMarginalCandidateServiceTests(unittest.TestCase):
             [30, 20],
             [row["uid_serial"] for row in context["calculation_items"]],
         )
+
+    def test_imported_main_counterfactual_uses_frozen_equipment_only(self) -> None:
+        frozen_equipment = [
+            {
+                "kind": "core", "uid_slot": 1, "uid_serial": 10,
+                "suit_id": "frozen_suit", "quality": "purple", "level": 12,
+                "stats": [
+                    {"stat_group": "main", "property_id": "HPMaxUp", "value": 0.20},
+                    {"stat_group": "sub", "property_id": "CritBase", "value": 0.04},
+                ],
+            },
+            {"kind": "module", "uid_slot": 1, "uid_serial": 11, "stats": []},
+        ]
+        frozen_build = {"characters": [
+            {"character_id": 1004, "equipment": frozen_equipment},
+            {"character_id": 1003, "equipment": []},
+        ]}
+        original_build = deepcopy(frozen_build)
+        profiles = [
+            {
+                "character_id": character_id,
+                "equipment_override": [{"kind": "core", "suit_id": "injected"}],
+                "equipment_source_kind": "injected",
+            }
+            for character_id in (1004, 1003)
+        ]
+        candidate = BattleMarginalCandidateService.freeze(
+            7, profiles, equipment_editable=False,
+        )
+        main = {"property_id": "AtkUp", "value": 0.375, "is_percent": True}
+        for new_main in (None, main):
+            with self.subTest(main=new_main):
+                variant = BattleMarginalCandidateService.with_core_main_stat(
+                    candidate, 1004, new_main,
+                )
+                projection = BattleMarginalCandidateService.as_build_edit(
+                    variant, frozen_build=frozen_build,
+                )
+                result = projection["characters"][0]["profile"]
+                equipment = result["equipment_override"]
+                self.assertFalse(variant.equipment_editable)
+                self.assertNotIn("equipment_source_kind", result)
+                self.assertNotIn(
+                    "equipment_override", projection["characters"][1]["profile"],
+                )
+                expected_core = deepcopy(frozen_equipment[0])
+                expected_core["stats"] = expected_core["stats"][1:]
+                if new_main is not None:
+                    expected_core["stats"].insert(
+                        0, {**new_main, "stat_group": "main", "ordinal": 0},
+                    )
+                self.assertEqual(expected_core, equipment[0])
+                self.assertEqual(frozen_equipment[1], equipment[1])
+                equipment[0]["stats"].clear()
+                self.assertEqual(original_build, frozen_build)
+                self.assertEqual(tuple(profiles), candidate.profiles)
+        self.assertIsNone(candidate.core_main_stat_counterfactual)
+
+    def test_imported_main_counterfactual_requires_frozen_build(self) -> None:
+        candidate = BattleMarginalCandidateService.freeze(
+            7, [{"character_id": 1004}], equipment_editable=False,
+        )
+        variant = BattleMarginalCandidateService.with_core_main_stat(
+            candidate, 1004, None,
+        )
+        with self.assertRaisesRegex(ValueError, "原始冻结配装"):
+            BattleMarginalCandidateService.as_build_edit(variant)
 
     def test_worker_candidate_carries_only_explicit_disabled_fact_ids(self) -> None:
         candidate = BattleMarginalCandidateService.freeze(
