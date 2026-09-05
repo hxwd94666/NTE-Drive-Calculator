@@ -50,7 +50,25 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 `battle_record_id`、`persistence_status`、`retention_kind`、`inserted`、`changed`、
 `pruned_record_count`、`character_count`、`skill_count` 和 `total_hits`；不记录原始摘要或伤害明细。
 
-`inventory_sync.snapshot_commit_retry` 的 SQLite 保存失败诊断包括 `save_error_code`、`save_stage`、
+背包同步的常驻 INFO 日志记录以下判定链，不要求预先开启详细日志：
+
+| 事件 | 诊断内容 |
+| --- | --- |
+| `inventory_sync.baseline_selected` | 本次去重基线是否有效、来源、件数和稳定等待时长；视觉来源不作为原生基线。 |
+| `inventory_sync.baseline_invalid` | 已保存快照无法初始化去重基线；仍可接收新的完整快照，不记录原始校验异常。 |
+| `inventory_sync.core_connected` | Core/数据版本（握手提供且格式有效时）、协议与能力；不记录可执行文件绝对路径。 |
+| `inventory_sync.event_evaluated` | 已取出事件的稳定化判定、固定原因码、完整标记、字段类型、声明/实际数量、代次/序号及装配守卫件数。 |
+| `inventory_sync.session_summary` | 累计处理数、各判定/拒绝原因计数、提交/保存失败数、待稳定件数、距上次处理事件的时长；停止与异常均输出最终摘要。 |
+| `inventory_sync.snapshot_committed` | 新快照摘要、上一份库存来源和件数、内容稳定时长；数量缩减只记录事实，不凭历史数量认定残缺。 |
+| `inventory_sync.failed` | 保留域错误码，并用 `failure_stage` 区分设置加载、Core 启动、抓包启动、事件处理、保存及提交后处理阶段。 |
+
+`event_evaluated` 按“判定结果＋固定原因码”限频：首次立即记录，随后同类最多每 30 秒一次；汇总计数不丢弃。
+会话摘要每 30 秒及退出时记录。处理计数是工作线程从最新事件槽取出并判定的次数，不等于网络包数、Core
+总发出事件数或合并前回调次数；零次只表示本会话尚未处理库存事件，不能单独证明网卡没有流量。
+拒绝原因码区分不完整快照、声明数量不符、重复装备/角色实例、其他结构无效、装配库存守卫不匹配、
+过期/重复序号，以及角色列表升级期间忽略旧格式事件。日志不记录可含 UID 的原始校验异常文本。
+
+`inventory_sync.snapshot_commit_retry` 还记录本会话保存尝试次数与候选件数。SQLite 保存失败诊断包括 `save_error_code`、`save_stage`、
 `sqlite_exception_type`、`sqlite_errorcode`、`sqlite_errorname`、`sqlite_message` 和 `rollback_status`；
 底层未提供的错误码或错误名不写入。`save_stage` 区分开启事务、写快照、写装备、写词条、更新装备角色映射、
 更新独立角色映射、切换当前指针和提交。回滚失败时另记 `rollback_error` 的同类 SQLite 安全字段，保留首次

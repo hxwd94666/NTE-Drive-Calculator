@@ -50,6 +50,7 @@ class SnapshotOfferResult:
     added_count: int = 0
     removed_count: int = 0
     reason: str | None = None
+    reason_code: str | None = None
 
     @property
     def accepted(self) -> bool:
@@ -174,7 +175,12 @@ def _validated_content(
         )
     )
     content = json.dumps(
-        {"items": canonical_items, "characters": _canonical_characters(payload)},
+        {
+            "items": canonical_items,
+            "characters": _canonical_characters(payload),
+            # 字段缺失表示来源未提供角色列表，不能与明确返回空列表去重。
+            "characters_present": "characters" in payload,
+        },
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -246,7 +252,18 @@ class InventorySnapshotStabilizer:
         try:
             message, payload, item_count, uids, fingerprint = _validated_content(snapshot)
         except (TypeError, ValueError) as exc:
-            return SnapshotOfferResult("ignored", reason=str(exc))
+            reason = str(exc)
+            reason_code = "invalid_snapshot"
+            for prefix, code in (
+                ("只接收 complete=true", "incomplete_snapshot"),
+                ("背包快照声明", "declared_count_mismatch"),
+                ("背包快照包含重复 UID", "duplicate_item_uid"),
+                ("背包快照包含重复角色实例", "duplicate_character_instance"),
+            ):
+                if reason.startswith(prefix):
+                    reason_code = code
+                    break
+            return SnapshotOfferResult("ignored", reason=reason, reason_code=reason_code)
 
         # A bulk equipment-apply session is allowed to change item state, but it
         # must never replace the full inventory with a per-character response.
@@ -257,6 +274,7 @@ class InventorySnapshotStabilizer:
                 "ignored",
                 item_count=item_count,
                 reason="当前装配会话收到的快照未包含冻结库存的全部装备",
+                reason_code="inventory_guard_mismatch",
             )
 
         generation = _integer_or_none(payload.get("generation"))
@@ -266,6 +284,7 @@ class InventorySnapshotStabilizer:
                 "ignored",
                 item_count=item_count,
                 reason="忽略重复或乱序的 generation/sequence",
+                reason_code="sequence_not_new",
             )
         if generation is not None and sequence is not None:
             self._last_generation = generation

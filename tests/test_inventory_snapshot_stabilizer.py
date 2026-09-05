@@ -189,6 +189,20 @@ class InventorySnapshotStabilizerTests(unittest.TestCase):
         ))
         self.assertEqual("collecting", changed.status)
 
+    def test_missing_character_field_upgrades_to_explicit_empty_list(self) -> None:
+        legacy = snapshot(item(1))
+        del legacy["params"]["characters"]
+        del legacy["params"]["character_count"]
+        self.stabilizer.seed_committed(legacy)
+
+        offered = self.stabilizer.offer(snapshot(item(1), characters=[]))
+        self.assertEqual("collecting", offered.status)
+        self.clock.advance(3.0)
+        self.assertEqual(1, self._commit_ready())
+        self.assertNotIn("characters", legacy["params"])
+        duplicate = self.stabilizer.offer(snapshot(item(1), sequence=2, characters=[]))
+        self.assertEqual("unchanged", duplicate.status)
+
 
 if __name__ == "__main__":
     unittest.main()

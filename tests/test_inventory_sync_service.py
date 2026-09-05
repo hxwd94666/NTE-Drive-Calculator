@@ -447,7 +447,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.assertEqual(3, loaded["generation"])
         self.assertEqual(4, loaded["sequence"])
 
-    def test_legacy_snapshot_is_not_presented_as_fast_assembly_ready(self) -> None:
+    def test_legacy_snapshot_describes_missing_field_without_claiming_core_version(self) -> None:
         """A pre-v0.3.5 snapshot has items but no independent character UIDs."""
 
         self._start()
@@ -461,7 +461,70 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.service.stop()
         self.service.start()
         state = self.service.wait_for_phase("listening", timeout=2.0)
-        self.assertIn("旧版背包快照", state.message)
+        self.assertIn("未附带独立角色列表", state.message)
+        self.assertNotIn("旧版", state.message)
+        self.assertNotIn("极速装配仍不可用", state.message)
+
+    def test_visual_snapshot_can_be_replaced_by_identical_native_content(self) -> None:
+        for source in ("vision", "gamepad"):
+            with self.subTest(source=source):
+                self.service.stop()
+                visual = snapshot(item(1))
+                with UserDataDao(self.database_path, account_id="tester", account_name="测试账号") as dao:
+                    visual_id = dao.import_inventory_snapshot(visual, source=source)
+
+                self.service.start()
+                state = self.service.wait_for_phase("listening", timeout=2.0)
+                self.assertIn("视觉扫描库存", state.message)
+                self.assertNotIn("旧版", state.message)
+                self.assertIsNone(state.error)
+                self.core.emit(snapshot(item(1)))
+                native = self.service.wait_for_snapshot(after_snapshot_id=visual_id, timeout=2.0)
+
+                with UserDataDao(self.database_path) as dao:
+                    summary = dao.inventory_snapshot_summary(native.last_snapshot_id)
+                    self.assertEqual("nte_core", summary["source"])
+                    self.assertEqual(visual, dao.raw_snapshot(visual_id))
+
+    def test_empty_character_list_upgrade_is_saved_without_recreating_account(self) -> None:
+        self._start()
+        legacy = snapshot(item(1))
+        self.core.emit(legacy)
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+        self.service.start()
+        self.service.wait_for_phase("listening", timeout=2.0)
+
+        self.core.emit(snapshot(item(1), characters=[]))
+        upgraded = self.service.wait_for_snapshot(after_snapshot_id=first.last_snapshot_id, timeout=2.0)
+        self.assertIn("尚未观测到角色实例", upgraded.message)
+        with UserDataDao(self.database_path) as dao:
+            self.assertTrue(dao.snapshot_has_independent_character_instances(upgraded.last_snapshot_id))
+            self.assertEqual(legacy, dao.raw_snapshot(first.last_snapshot_id))
+
+        self.core.emit(snapshot(
+            item(1), sequence=2,
+            characters=[{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}],
+        ))
+        ready = self.service.wait_for_snapshot(after_snapshot_id=upgraded.last_snapshot_id, timeout=2.0)
+        self.assertNotIn("尚未观测到角色实例", ready.message)
+
+    def test_unchanged_native_event_reports_receipt_without_creating_snapshot(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1)))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+        self.service.start()
+        self.service.wait_for_phase("listening", timeout=2.0)
+        received = threading.Event()
+        self.service.add_state_handler(
+            lambda state: received.set() if "已收到原生背包" in state.message else None
+        )
+
+        self.core.emit(snapshot(item(1), sequence=2))
+        self.assertTrue(received.wait(2.0))
+        self.assertEqual(first.last_snapshot_id, self.service.state.last_snapshot_id)
+        self.assertIn("未附带独立角色列表", self.service.state.message)
 
     def test_keeps_new_character_instance_candidate_when_legacy_event_follows(self) -> None:
         """A trailing old-format event must not cancel the v0.3.5 upgrade."""
@@ -571,6 +634,32 @@ class InventorySyncServiceTests(unittest.TestCase):
 
         self.assertEqual("NPCAP_NOT_FOUND", state.error_code)
         self.assertFalse(state.running)
+
+    def test_failed_capture_writes_final_diagnostic_summary(self) -> None:
+        events: list[tuple[str, dict]] = []
+        failing_core = FailingCaptureCoreClient()
+        self.service = InventorySyncService(
+            self.database_path, account_id="tester", account_name="测试账号",
+            client_factory=lambda: failing_core,
+        )
+
+        def capture(_level, event, _message, _context, **fields):
+            events.append((event, fields))
+
+        with patch("src.services.inventory_sync_runtime.log_event", side_effect=capture), patch(
+            "src.services.inventory_sync_logging.log_event", side_effect=capture,
+        ):
+            self.service.start()
+            self.service.wait_for_phase("error", timeout=2.0)
+            self.service.stop()
+
+        failure = next(fields for event, fields in events if event == "inventory_sync.failed")
+        summary = next(fields for event, fields in events if event == "inventory_sync.session_summary")
+        self.assertEqual("starting_capture", failure["failure_stage"])
+        self.assertEqual(0, summary["processed_event_count"])
+        self.assertEqual("failed", summary["phase"])
+        self.assertTrue(summary["final"])
+        self.assertTrue(failing_core.closed)
 
 
 if __name__ == "__main__":
