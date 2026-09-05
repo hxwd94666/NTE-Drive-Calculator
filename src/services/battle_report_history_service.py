@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from src.domain.battle_report import BattleAnalysisSnapshot, BattleRetentionMutation
+from src.domain.battle_build_assumption import (
+    GRADUATION_ASSUMPTION_TITLE, has_graduation_assumption,
+)
 from src.services.battle_counterfactual_analysis_service import (
     BattleCounterfactualAnalysisService,
 )
@@ -656,14 +659,15 @@ class BattleReportHistoryService(
             import_equipment_locks = user_dao.load_battle_import_equipment_locks(
                 battle_record_id
             )
+            assumed_equipment = has_graduation_assumption(build)
+            equipment_editable = import_origin is None and not assumed_equipment
             battle_replacement_items = current_inventory_replacement_items(
                 user_dao,
-                equipment_editable=import_origin is None,
+                equipment_editable=equipment_editable,
             )
         if build is None:
             raise UserDataError("当前战报没有可编辑的角色配置快照")
         apply_import_equipment_locks(build, import_equipment_locks)
-        equipment_editable = import_origin is None
         static_path = self._dependencies.static_database_path
         if static_path is None:
             raise UserDataError("当前应用没有可用的官方静态数据库")
@@ -728,22 +732,17 @@ class BattleReportHistoryService(
                 elif key == "saved" or key.startswith("saved:"):
                     context["source_kind"] = "role_page_saved"
                 context["source_title"] = str(context.get("title") or key)
+            source_title = (
+                GRADUATION_ASSUMPTION_TITLE if assumed_equipment else
+                ("本场原始冻结配装" if equipment_editable else "导入包固化配装")
+            )
             equipment_contexts = {
                 "battle": {
-                    "title": (
-                        "本场原始冻结配装"
-                        if equipment_editable
-                        else "导入包固化配装"
-                    ),
-                    "source_title": (
-                        "本场原始冻结配装"
-                        if equipment_editable
-                        else "导入包固化配装"
-                    ),
+                    "title": source_title,
+                    "source_title": source_title,
                     "source_kind": (
-                        "battle_frozen"
-                        if equipment_editable
-                        else "imported_locked"
+                        "graduation_assumed" if assumed_equipment else
+                        ("battle_frozen" if equipment_editable else "imported_locked")
                     ),
                     "items": frozen_items,
                     "calculation_items": frozen_items,
@@ -788,6 +787,7 @@ class BattleReportHistoryService(
                 BattleInferredCharacterFactService.infer(evidence)
             ),
             "equipment_editable": equipment_editable,
-            "report_origin": "local_capture" if equipment_editable else "imported_v2",
+            "report_origin": "local_capture" if import_origin is None else "imported_v2",
+            "equipment_assumed": assumed_equipment,
             "details": details,
         }

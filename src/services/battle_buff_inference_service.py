@@ -306,9 +306,13 @@ def _selected_effects(
                 for shape_id in (suit or {}).get("required_shape_ids") or ()
             }
             active_count = len({
-                _geometry_id(item.get("geometry"))
+                _geometry_id(shape_id)
                 for item in equipment
                 if str(item.get("kind") or "") == "module"
+                for shape_id in (
+                    item.get("graduation_assumed_shape_ids")
+                    or (item.get("geometry"),)
+                )
             }.intersection(required_shapes))
             definitions = static_dao.list_combat_effect_definitions(
                 owner_kind="equipment_suit",

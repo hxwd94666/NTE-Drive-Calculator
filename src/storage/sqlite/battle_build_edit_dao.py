@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from src.domain.battle_report_transfer import battle_equipment_sha256
+from src.domain.battle_build_assumption import has_graduation_assumption
 
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
@@ -125,7 +126,10 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
         return result
 
     def battle_report_equipment_editable(self, battle_record_id: int) -> bool:
-        return self.load_battle_report_import_origin(battle_record_id) is None
+        return (
+            self.load_battle_report_import_origin(battle_record_id) is None
+            and not has_graduation_assumption(self.load_battle_build_snapshot(battle_record_id))
+        )
 
     def battle_report_counterfactual_editable(self, battle_record_id: int) -> bool:
         record_id = _integer(battle_record_id, "battle_record_id", minimum=1)
@@ -209,6 +213,9 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
             raise UserDataValidationError("战报角色修改副本不能为空")
         if len({row["character_id"] for row in normalized}) != len(normalized):
             raise UserDataValidationError("战报角色修改副本包含重复角色")
+        if has_graduation_assumption(self.load_battle_build_snapshot(record_id)):
+            if any("equipment_override" in row for row in normalized):
+                raise UserDataValidationError("毕业模板假定装备只供计算，不可保存装备覆盖")
         connection = self._db()
         import_origin = connection.execute(
             "SELECT 1 FROM battle_report_import_origin WHERE battle_record_id = ?",

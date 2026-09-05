@@ -434,6 +434,8 @@ class BattleCaptureService:
                     "战报采集已结束，但未取得最终摘要，未保存记录。"
                 ),
             }.get(persistence_status, "战报采集已结束。")
+            if persistence_outcome is not None and persistence_outcome.warning_message:
+                message += persistence_outcome.warning_message
             self._publish(
                 "stopped",
                 message,

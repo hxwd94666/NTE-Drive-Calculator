@@ -15,6 +15,13 @@ from src.domain.battle_report import (
     BattleSummary,
     BattleSummaryPersistenceOutcome,
 )
+from src.domain.battle_build_assumption import (
+    GRADUATION_ASSUMPTION_WARNING,
+    assumed_graduation_equipment,
+    has_graduation_assumption,
+)
+from src.services.battle_build_equipment_service import battle_equipment_items
+from src.services.battle_graduation_assumption_service import freeze_graduation_assumptions
 from src.integrations.bundled_resources import bundled_config_dir
 from src.observability import OperationContext
 from src.observability.operation import log_event
@@ -174,13 +181,13 @@ class BattleReportPersistenceService:
         *,
         dependencies: BattleReportPersistenceDependencies,
         user_dao: UserDataDao,
-        snapshot_id: int,
+        snapshot_id: int | None,
         character_ids: tuple[int, ...],
         profiles: Mapping[int, Mapping[str, Any]],
     ) -> dict[int, list[dict[str, Any]]]:
         """Freeze formula-ready role stats beside the historical build."""
 
-        all_items = user_dao.list_inventory_items(snapshot_id)
+        all_items = user_dao.list_inventory_items(snapshot_id) if snapshot_id is not None else []
         snapshots: dict[int, list[dict[str, Any]]] = {}
         for character_id in character_ids:
             profile = profiles.get(character_id)
@@ -192,6 +199,10 @@ class BattleReportPersistenceService:
                 if bool(item.get("equipped"))
                 and int(item.get("equipped_character_id") or 0) == character_id
             ]
+            if snapshot_id is None:
+                items = battle_equipment_items({
+                    "equipment": assumed_graduation_equipment(profile) or [],
+                })
             detail = load_official_role_detail(
                 dependencies.user_database_path,
                 character_id,
@@ -335,12 +346,18 @@ class BattleReportPersistenceService:
                 return BattleSummaryPersistenceOutcome(status="discarded_stale")
             capture_state = user_dao.battle_axis_capture_state(capture_operation_id)
             post_battle_build: dict[str, Any] | None = None
-            if capture_state is not None:
+            warning_message = None
+            if capture_state is not None and capture_state["capture_state"] == "finalized":
+                existing_build = user_dao.load_battle_build_snapshot(capture_state["battle_record_id"])
+                if has_graduation_assumption(existing_build):
+                    warning_message = GRADUATION_ASSUMPTION_WARNING
+            elif capture_state is not None:
                 if dependencies.static_database_path is None:
                     raise UserDataError("战报采集缺少静态数据库路径")
                 snapshot_id = user_dao.latest_native_inventory_snapshot_id()
-                if snapshot_id is None:
-                    raise UserDataError("战后没有可保存的完整游戏原生背包快照")
+                build_character_ids = tuple(sorted(set(character_ids) | set(
+                    user_dao.list_battle_capture_character_ids(capture_operation_id)
+                )))
                 with StaticGameDataDao(dependencies.static_database_path) as static_dao:
                     static_summary = static_dao.summary()
                     dataset = dict(static_summary.get("dataset") or {})
@@ -353,12 +370,17 @@ class BattleReportPersistenceService:
                             user_dao=user_dao,
                         ),
                     }
+                    if snapshot_id is None:
+                        freeze_graduation_assumptions(
+                            static_dao, post_battle_build["profiles"], build_character_ids,
+                        )
+                        warning_message = GRADUATION_ASSUMPTION_WARNING
                     post_battle_build["stat_snapshots"] = (
                         self._resolve_character_stat_snapshots(
                             dependencies=dependencies,
                             user_dao=user_dao,
                             snapshot_id=snapshot_id,
-                            character_ids=character_ids,
+                            character_ids=build_character_ids,
                             profiles=cast(
                                 Mapping[int, Mapping[str, Any]],
                                 post_battle_build["profiles"],
@@ -408,7 +430,7 @@ class BattleReportPersistenceService:
                     battle_record_id=int(result["record"]["battle_record_id"]),
                     record=raw_record_payload,
                     observed_characters=self._observed_characters(summary),
-                    source_inventory_snapshot_id=int(post_battle_build["snapshot_id"]),
+                    source_inventory_snapshot_id=post_battle_build["snapshot_id"],
                     static_dataset_id=cast(
                         str | None,
                         post_battle_build["dataset_id"],
@@ -450,12 +472,14 @@ class BattleReportPersistenceService:
             total_hits=summary.total_hits,
             character_count=len(character_ids),
             skill_count=len(summary.skills),
+            equipment_assumed=warning_message is not None,
         )
         return BattleSummaryPersistenceOutcome(
             status="saved",
             battle_record_id=record_id,
             pruned_battle_record_ids=pruned_ids,
             retention_kind=cast(Literal["auto", "manual"], retention_kind),
+            warning_message=warning_message,
         )
 
     @staticmethod

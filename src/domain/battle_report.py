@@ -113,7 +113,7 @@ class BattleSummaryPersistenceOutcome:
     battle_record_id: int | None = None
     pruned_battle_record_ids: tuple[int, ...] = ()
     retention_kind: Literal["auto", "manual"] | None = None
-
+    warning_message: str | None = None
 
 @dataclass(frozen=True, slots=True)
 class StoredBattleSummary:

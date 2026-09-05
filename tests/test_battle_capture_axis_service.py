@@ -248,6 +248,33 @@ def _wait_until(predicate, *, timeout: float = 2.0) -> bool:
 
 
 class BattleCaptureAxisServiceTests(unittest.TestCase):
+    def test_assumed_equipment_warning_is_saved_status_not_capture_error(self) -> None:
+        class AssumedWriter(_Writer):
+            def finalize_summary(self, **kwargs):
+                outcome = super().finalize_summary(**kwargs)
+                return BattleSummaryPersistenceOutcome(
+                    status=outcome.status, battle_record_id=outcome.battle_record_id,
+                    warning_message="本场使用毕业模板假定配装。",
+                )
+
+        core = _Core()
+        service = BattleCaptureService(
+            client_factory=lambda: core,
+            operation_context=OperationContext.create("battle_report"),
+            summary_writer=AssumedWriter(),
+        )
+        states = []
+        service.add_state_handler(states.append)
+        service.start()
+        self.assertTrue(core.capture_started.wait(1.0))
+        self.assertTrue(_wait_until(lambda: bool(core.axis_requests)))
+        service.request_stop()
+        service.close(timeout=2.0)
+        final = states[-1]
+        self.assertEqual("saved", final.persistence_status)
+        self.assertIsNone(final.error)
+        self.assertIn("毕业模板", final.message)
+
     def test_capture_polls_axis_and_finalizes_with_record(self) -> None:
         core = _Core()
         writer = _Writer()

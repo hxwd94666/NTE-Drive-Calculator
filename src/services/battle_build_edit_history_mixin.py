@@ -34,7 +34,7 @@ class BattleBuildEditHistoryMixin:
             with self._open_current_dao() as user_dao:
                 if not user_dao.battle_report_equipment_editable(battle_record_id):
                     raise UserDataValidationError(
-                        "导入战报不能从角色页同步空幕/驱动"
+                        "当前战报的固化或假定配装只读，不能从角色页同步空幕/驱动"
                     )
         editor_data = self.load_build_editor_data(
             battle_record_id,

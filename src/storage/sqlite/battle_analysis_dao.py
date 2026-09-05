@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.domain.battle_build_assumption import assumed_graduation_equipment
+
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
     UserDataValidationError,
@@ -109,6 +111,17 @@ def _selected_target_profiles(value: object) -> list[dict[str, Any]]:
 
 
 class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
+    def list_battle_capture_character_ids(self, capture_operation_id: str) -> list[int]:
+        return [int(row["character_id"]) for row in self._rows(
+            """
+            SELECT DISTINCT h.character_id FROM battle_hit_evidence h
+            JOIN battle_axis_capture c ON c.capture_id = h.capture_id
+            WHERE c.capture_operation_id = ? AND h.character_id > 0
+                  AND h.character_known = 1
+            """,
+            (capture_operation_id,),
+        )]
+
     def load_battle_target_condition(
         self,
         battle_record_id: int,
@@ -493,6 +506,10 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
                 int(character["character_id"]),
                 [],
             )
+            assumed_items = assumed_graduation_equipment(profile)
+            if assumed_items is not None and not character["equipment"]:
+                character["equipment"] = assumed_items
+                character["equipment_source_kind"] = "graduation_assumed"
         header["characters"] = characters
         return header
 

@@ -48,6 +48,7 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         self.setWindowTitle("编辑本场角色配置副本")
         self._action = ""
         self._equipment_editable = bool(editor_data.get("equipment_editable", True))
+        self._equipment_assumed = bool(editor_data.get("equipment_assumed", False))
         self._details = deepcopy(list(editor_data.get("details") or ()))
         self._editors: list[OfficialRoleProfileEditor] = []
         layout = QVBoxLayout(self)
@@ -145,6 +146,11 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         return profiles
 
     def _note_text(self) -> str:
+        if self._equipment_assumed:
+            return (
+                "本场未取得完整原生背包，空幕/驱动使用毕业模板假定。"
+                "可修改养成，并计算逐击和属性收益；模板聚合装备只读。"
+            )
         if not self._equipment_editable:
             return (
                 "这是导入战报：包内固化空幕/驱动只读。可修改等级、觉醒、"
