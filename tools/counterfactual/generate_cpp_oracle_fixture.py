@@ -53,7 +53,7 @@ def request_fixture() -> dict[str, Any]:
 
     return {
         "schema_version": "counterfactual-request-v1",
-        "model_version": "counterfactual-core-v1",
+        "model_version": "counterfactual-core-v2",
         "dataset_version": "public-fixture-v1",
         "axis": {
             "complete": True,

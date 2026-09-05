@@ -41,13 +41,13 @@ void test_fixture_statuses_and_values() {
     check(response.results[1].status == "partial", "mixed supported and target-sensitive Buff is partial");
     check(response.results[2].status == "unavailable", "target-sensitive Buff without profile is unavailable");
     check(response.results[3].status == "not_applicable", "out-of-range Buff is not applicable");
-    check(response.results[4].status == "complete", "frozen critical branch Buff is complete");
+    check(response.results[4].status == "complete", "critical expectation Buff is complete");
     check(response.results[5].status == "complete", "Cosmos target resistance is quantified");
     check(response.results[6].status == "unavailable", "psychically DefIgnore is not consumed");
     check(response.results[7].status == "complete", "ordinary DefIgnore is quantified");
     close(*response.results[0].hits[0].quantified_ratio, 0.8846153846153845, "damage-up ratio");
-    close(*response.results[4].hits[0].quantified_ratio, 1.0, "non-critical branch ignores crit damage");
-    close(*response.results[4].hits[1].quantified_ratio, 5.0 / 6.0, "critical branch remains critical");
+    close(*response.results[4].hits[0].quantified_ratio, 0.9375, "non-critical hit uses expected crit damage");
+    close(*response.results[4].hits[1].quantified_ratio, 0.9375, "critical hit uses the same expectation");
     check(response.results[2].hits[2].status == "not_applicable", "same wire target in another half is isolated");
     check(response.results[2].hits[3].status == "not_applicable", "different target in the same half is isolated");
     check(!response.results[2].hits[0].quantified_ratio, "unavailable never exposes ratio=1");
@@ -58,6 +58,23 @@ void test_fixture_statuses_and_values() {
           "psychically DefIgnore matches the Python projection gate");
     close(*response.results[7].hits[6].quantified_ratio, 0.9741935483870968,
           "DefBase uses the production divide-by-six normalization");
+}
+
+void test_critical_rate_expectation_and_fixed_policy() {
+    auto request = fixture();
+    auto& modifier = request.buffs[4].intervals[0].modifiers[0];
+    modifier.property_id = "CritBase";
+    modifier.value = 0.2;
+    auto response = counterfactual::calculate(request);
+    close(*response.results[4].hits[0].quantified_ratio, 1.125 / 1.225, "rate helps observed noncritical hit");
+    close(*response.results[4].hits[1].quantified_ratio, 1.125 / 1.225, "rate helps observed critical hit");
+    request.hits[0].critical_policy = "fixed";
+    request.hits[0].critical_rate = 0.0;
+    response = counterfactual::calculate(request);
+    close(*response.results[4].hits[0].quantified_ratio, 1.0, "fixed zero rate is preserved");
+    request.hits[0].critical_rate.reset();
+    response = counterfactual::calculate(request);
+    check(response.results[4].hits[0].status == "unavailable", "missing fixed rate stays unknown");
 }
 
 void test_half_open_interval_boundary() {
@@ -259,6 +276,7 @@ void test_target_profile_attribute_must_match_hit() {
 int main() {
     try {
         test_fixture_statuses_and_values();
+        test_critical_rate_expectation_and_fixed_policy();
         test_half_open_interval_boundary();
         test_incomplete_axis_adds_gap();
         test_duplicate_event_rejected();

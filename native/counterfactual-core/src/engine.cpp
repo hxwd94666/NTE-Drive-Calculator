@@ -225,15 +225,13 @@ HitResult compare_hit(const Request& request, const BuffGroup& group, const Hit&
     if (changed(original.character, candidate.character, "CritBase") ||
         changed(original.character, candidate.character, "CritDamageBase")) {
         std::optional<double> critical_ratio;
-        if (hit.critical_state == "critical") {
-            critical_ratio = safe_ratio(1.0 + std::max(0.0, get(candidate.character, "CritDamageBase", 0.5)),
-                                        1.0 + std::max(0.0, get(original.character, "CritDamageBase", 0.5)));
-        } else if (hit.critical_state == "non_critical" || hit.critical_policy == "disabled") {
+        if (hit.critical_policy == "disabled") {
             critical_ratio = 1.0;
-        } else if (hit.critical_policy != "unknown") {
-            const double fixed_rate = hit.critical_policy == "fixed" ? hit.critical_rate.value_or(0.5) : -1.0;
-            const double original_rate = fixed_rate >= 0.0 ? fixed_rate : get(original.character, "CritBase", 0.05);
-            const double candidate_rate = fixed_rate >= 0.0 ? fixed_rate : get(candidate.character, "CritBase", 0.05);
+        } else if (hit.critical_policy == "character" ||
+                   (hit.critical_policy == "fixed" && hit.critical_rate.has_value())) {
+            const bool fixed = hit.critical_policy == "fixed";
+            const double original_rate = fixed ? *hit.critical_rate : get(original.character, "CritBase", 0.05);
+            const double candidate_rate = fixed ? *hit.critical_rate : get(candidate.character, "CritBase", 0.05);
             const double before = 1.0 + std::clamp(original_rate, 0.0, 1.0) * std::max(0.0, get(original.character, "CritDamageBase", 0.5));
             const double after = 1.0 + std::clamp(candidate_rate, 0.0, 1.0) * std::max(0.0, get(candidate.character, "CritDamageBase", 0.5));
             critical_ratio = safe_ratio(after, before);

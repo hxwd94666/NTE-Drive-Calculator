@@ -10,7 +10,7 @@ The first slice owns:
 - half-open `[start_us, end_us)` interval and recipient filtering;
 - additive attack/HP/defense, damage-up, critical, defense-ignore,
   penetration, and target-resistance projection for stateless direct hits;
-- frozen critical branches and observed-damage ratio anchoring;
+- per-hit theoretical critical expectations and observed-damage ratio anchoring;
 - deterministic per-hit and aggregate `complete`, `partial`, `unavailable`,
   and `not_applicable` results with stable gap codes.
 

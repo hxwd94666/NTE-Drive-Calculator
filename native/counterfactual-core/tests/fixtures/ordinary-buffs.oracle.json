@@ -1,6 +1,6 @@
 {
   "schema_version": "counterfactual-response-v1",
-  "model_version": "counterfactual-core-v1",
+  "model_version": "counterfactual-core-v2",
   "dataset_version": "public-fixture-v1",
   "results": [
     {
@@ -271,21 +271,21 @@
       "partially_quantified_damage": 0,
       "unavailable_damage": 0,
       "proven_unchanged_damage": 5500.0,
-      "quantified_increment": 360.0000000000002,
+      "quantified_increment": 221.25,
       "gap_codes": [],
       "hits": [
         {
           "event_id": "upper-non-critical",
           "status": "complete",
-          "quantified_ratio": 1.0,
-          "candidate_damage": 1380.0,
+          "quantified_ratio": 0.9375,
+          "candidate_damage": 1293.75,
           "gap_codes": []
         },
         {
           "event_id": "upper-critical",
           "status": "complete",
-          "quantified_ratio": 0.8333333333333333,
-          "candidate_damage": 1799.9999999999998,
+          "quantified_ratio": 0.9375,
+          "candidate_damage": 2025.0,
           "gap_codes": []
         },
         {
