@@ -72,3 +72,17 @@ nte_capture*.json
 # Local battle-damage audit ledgers (may contain account-specific evidence)
 /docs/local-audits/
 /output/
+
+# Private component source trees and sensitive development artifacts
+/analysis-core/
+/nte-analysis-core/
+/nte-analysis-core-windows-x64.zip
+.pnpm-store/
+*.pdb
+*.dmp
+*.pcap
+*.pcapng
+*.usmap
+*.key
+*.pfx
+*.p12
