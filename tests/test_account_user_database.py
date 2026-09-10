@@ -269,6 +269,28 @@ class AccountUserDatabaseTests(unittest.TestCase):
                 import_account_data(manager, archive)
             self.assertFalse((root / "escape.txt").exists())
 
+    def test_account_import_releases_existing_target_before_directory_replace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_manager = self.make_manager(root / "source")
+            source_manager.initialize()
+            source_id = source_manager.create_account("Replace Me")
+            archive = export_account_data(
+                source_manager, source_id, root / "replace.zip",
+            )
+
+            target_manager = self.make_manager(root / "target")
+            target_manager.initialize()
+            target_id = target_manager.create_account("Replace Me")
+            released: list[str] = []
+
+            imported_id = import_account_data(
+                target_manager, archive, before_replace=released.append,
+            )
+
+            self.assertEqual(imported_id, target_id)
+            self.assertEqual(released, [target_id])
+
     def test_invalid_import_keeps_the_existing_matching_account_unchanged(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -10,6 +10,7 @@ import sqlite3
 import tempfile
 import time
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -306,7 +307,11 @@ def export_account_data(manager: AccountManager, account_id: str, target_zip: Pa
     return target_zip
 
 
-def import_account_data(manager: AccountManager, source_zip: Path) -> str:
+def import_account_data(
+    manager: AccountManager,
+    source_zip: Path,
+    before_replace: Callable[[str], None] | None = None,
+) -> str:
     """Import one account export. Existing accounts with the same name are replaced."""
 
     source_zip = Path(source_zip)
@@ -383,6 +388,8 @@ def import_account_data(manager: AccountManager, source_zip: Path) -> str:
             replacement_index["active_account_id"] = target_id
             target_existed = target_root.exists()
             if target_existed:
+                if before_replace is not None:
+                    before_replace(target_id)
                 target_root.replace(backup_root)
             try:
                 staged_root.replace(target_root)
@@ -524,13 +531,38 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         path, _ = QFileDialog.getOpenFileName(dialog, "导入账号数据", "", "NTE Account Export (*.zip)")
         if not path:
             return
+        temporary_account_id: str | None = None
+        original_active_id = runtime["active_id"]
+
+        def release_replaced_account(target_id: str) -> None:
+            """Move runtime ownership away before Windows renames its folder."""
+
+            nonlocal temporary_account_id
+            if target_id != runtime["active_id"]:
+                return
+            temporary_account_id = manager.create_account("导入临时账号")
+            if not switch_account_callback(temporary_account_id):
+                manager.delete_account(temporary_account_id)
+                temporary_account_id = None
+                raise RuntimeError("无法停止当前账号任务，导入未开始")
+            runtime["active_id"] = temporary_account_id
+
         try:
-            imported_id = import_account_data(manager, Path(path))
+            imported_id = import_account_data(
+                manager, Path(path), before_replace=release_replaced_account,
+            )
         except Exception as exc:
+            if temporary_account_id is not None:
+                switch_account_callback(original_active_id)
+                if manager.account_dir(temporary_account_id).exists():
+                    shutil.rmtree(manager.account_dir(temporary_account_id), ignore_errors=True)
+                runtime["active_id"] = original_active_id
             QMessageBox.critical(dialog, "导入账号数据", f"导入失败：{exc}")
             return
         runtime["active_id"] = imported_id
         switch_account_callback(imported_id)
+        if temporary_account_id is not None and manager.account_dir(temporary_account_id).exists():
+            shutil.rmtree(manager.account_dir(temporary_account_id), ignore_errors=True)
         refresh(imported_id)
         refresh_account_combo_callback()
         QMessageBox.information(dialog, "导入账号数据", "账号数据已导入。")

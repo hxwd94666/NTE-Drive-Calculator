@@ -7,6 +7,7 @@ from src.optimizer.deferred_drive_reservations import (
     DeferredDriveReservationState,
     DeferredDriveSlot,
 )
+from src.optimizer.reservation_recovery_support import ProtectedDriveScreenCache
 from src.optimizer.role_priority_execution import _choose_group_allocation
 from src.optimizer.role_priority_strategy import RolePriorityStrategy
 
@@ -63,6 +64,46 @@ def test_overlapping_pools_require_one_to_one_completion_not_individual_counts()
     assert {key: drive.uid for key, drive in state.finalize().items()} == {
         "first": "b", "second": "a",
     }
+
+
+def test_effective_blocker_uses_matching_cardinality_not_membership_only():
+    """Only a release that improves the complete matching is protected."""
+
+    state = DeferredDriveReservationState()
+    a, b, c = (_drive(uid) for uid in ("a", "b", "c"))
+    state.register([
+        (_slot("first", "a", ("a", "b")), [a, b]),
+        (_slot("second", "b", ("b", "c")), [b, c]),
+    ])
+
+    assert state.matching_size_after_consuming({"a", "b"}) == 1
+    assert state.effective_blocker_uids({"a", "b"}) == ("a", "b")
+
+
+def test_effective_blocker_ignores_used_reservation_that_cannot_improve_matching():
+    state = DeferredDriveReservationState()
+    a, b, c = (_drive(uid) for uid in ("a", "b", "c"))
+    state.register([
+        (_slot("first", "a", ("a", "b")), [a, b]),
+        (_slot("second", "b", ("a", "b")), [a, b]),
+    ])
+
+    assert state.matching_size_after_consuming({"a", "c"}) == 1
+    assert state.effective_blocker_uids({"a", "c"}) == ("a",)
+
+
+def test_protected_top_k_refills_from_cached_role_type_ranking():
+    drives = [
+        _scored_drive("a", {"Later": 30.0}),
+        _scored_drive("b", {"Later": 20.0}),
+        _scored_drive("c", {"Later": 10.0}),
+    ]
+    strategy = RolePriorityStrategy({}, {}, {})
+    cache = ProtectedDriveScreenCache(strategy, drives, {})
+
+    selected = cache.select(["Later"], {"X"}, 2, {"a"})
+
+    assert [drive.uid for drive in selected] == ["b", "c"]
 
 
 def test_fixed_peer_removes_its_uid_from_other_reservation_candidates():
@@ -206,8 +247,8 @@ def test_later_reservation_does_not_reexpose_an_earlier_fixed_uid():
     assert not result["Later"]["valid"]
 
 
-def test_group_search_keeps_the_highest_feasible_reservation_branch():
-    """Do not return the first refillable branch after a tied early plan."""
+def test_group_progressively_protects_only_drives_used_by_the_failed_plan():
+    """The quick path protects one actual blocker before trying the next plan."""
 
     drives = [_drive(uid) for uid in ("a", "b", "c")]
     reservations = DeferredDriveReservationState()
@@ -232,8 +273,8 @@ def test_group_search_keeps_the_highest_feasible_reservation_branch():
         1,
     )
 
-    assert result["Later"]["score"] == 100.0
-    assert [drive.uid for drive in result["Later"]["assigned_extra_drives"]] == ["b"]
+    assert result["Later"]["score"] == 10.0
+    assert [drive.uid for drive in result["Later"]["assigned_extra_drives"]] == ["c"]
 
 
 def test_role_priority_combo_limit_is_request_scoped_and_cancellable():

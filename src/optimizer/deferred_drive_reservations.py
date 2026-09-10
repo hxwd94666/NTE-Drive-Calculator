@@ -26,6 +26,7 @@ class DeferredDriveSlot:
     slot_index: int
     baseline_uid: str
     candidate_uids: tuple[str, ...]
+    shape_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -60,12 +61,95 @@ class DeferredDriveReservationState:
         return frozenset(self._consumed_uids)
 
     @property
+    def active_slot_count(self) -> int:
+        """Return the number of delayed slots that still need a completion."""
+
+        return len(self._slots)
+
+    @property
     def remaining_candidate_uids(self) -> tuple[tuple[str, ...], ...]:
         """Freeze the remaining candidate relation in deterministic slot order."""
 
         return tuple(
             tuple(uid for uid in slot.candidate_uids if uid not in self._consumed_uids)
             for slot in sorted(self._slots, key=lambda slot: (slot.group_index, slot.key))
+        )
+
+    @property
+    def remaining_slots(self) -> tuple[DeferredDriveSlot, ...]:
+        """Expose the active relation without leaking mutable reservation state."""
+
+        return tuple(
+            DeferredDriveSlot(
+                key=slot.key,
+                group_index=slot.group_index,
+                role_name=slot.role_name,
+                slot_type=slot.slot_type,
+                slot_index=slot.slot_index,
+                baseline_uid=slot.baseline_uid,
+                candidate_uids=tuple(
+                    uid for uid in slot.candidate_uids
+                    if uid not in self._consumed_uids
+                ),
+                shape_id=slot.shape_id,
+            )
+            for slot in sorted(self._slots, key=lambda slot: (slot.group_index, slot.key))
+        )
+
+    def protection_key(self, uid: str) -> tuple[float, str]:
+        """Order a conflicting UID by its frozen owner-side base score only."""
+
+        owner_scores = [
+            float(self._drives_by_uid[uid].role_scores.get(slot.role_name, 0.0))
+            for slot in self._slots
+            if uid in slot.candidate_uids and uid in self._drives_by_uid
+        ]
+        return (min(owner_scores, default=0.0), uid)
+
+    def shape_for_uid(self, uid: str) -> str | None:
+        drive = self._drives_by_uid.get(uid)
+        return str(drive.shape_id) if drive is not None else None
+
+    def drive_for_uid(self, uid: str) -> Drive | None:
+        """Expose a frozen candidate drive for bounded recovery work."""
+
+        return self._drives_by_uid.get(uid)
+
+    def matching_size_after_consuming(self, uids: Iterable[str]) -> int:
+        """Measure the best remaining reservation matching after a tentative use.
+
+        Unlike :meth:`can_consume`, this deliberately returns a partial matching
+        size.  It is only a diagnostic for choosing the next progressive
+        protection target; committing still requires every slot to be filled.
+        """
+
+        proposed = set(uids)
+        if proposed & self._consumed_uids:
+            return -1
+        available = {
+            uid
+            for slot in self._slots
+            for uid in slot.candidate_uids
+            if uid not in self._consumed_uids and uid not in proposed
+        }
+        return len(self._maximum_matching(available))
+
+    def effective_blocker_uids(self, used_uids: Iterable[str]) -> tuple[str, ...]:
+        """Return used reservation UIDs whose release improves match cardinality.
+
+        The test is intentionally local to the failed current plan: a UID is an
+        effective blocker exactly when making that one UID available raises the
+        maximum cardinality of the prior-slot bipartite matching.  Recomputing
+        after every protection round naturally handles multiple blockers without
+        exploring exponential protection subsets.
+        """
+
+        used = set(used_uids) - self._consumed_uids
+        candidates = sorted(used & self.reservation_uids)
+        baseline = self.matching_size_after_consuming(used)
+        return tuple(
+            uid for uid in candidates
+            if self.matching_size_after_consuming(used - {uid}) > baseline
         )
 
     def slot(self, key: str) -> DeferredDriveSlot:
@@ -119,6 +203,7 @@ class DeferredDriveReservationState:
                         slot_index=slot.slot_index,
                         baseline_uid=slot.baseline_uid,
                         candidate_uids=candidates,
+                        shape_id=slot.shape_id,
                     )
                 )
             if not newly_fixed - fixed_uids:
@@ -158,7 +243,7 @@ class DeferredDriveReservationState:
             for uid in slot.candidate_uids
             if uid not in self._consumed_uids and uid not in proposed
         }
-        return self._matching(available) is not None
+        return len(self._maximum_matching(available)) == len(self._slots)
 
     def commit(self, uids: Iterable[str]) -> None:
         """Commit a later group's drive use after its whole plan is valid."""
@@ -177,16 +262,16 @@ class DeferredDriveReservationState:
             for uid in slot.candidate_uids
             if uid not in self._consumed_uids
         }
-        matched = self._matching(available)
-        if matched is None:
+        matched = self._maximum_matching(available)
+        if len(matched) != len(self._slots):
             raise ValueError("预留驱动缺少可回填的一对一匹配")
         return {
             slot_key: self._drives_by_uid[uid]
             for slot_key, uid in matched.items()
         }
 
-    def _matching(self, available: set[str]) -> dict[str, str] | None:
-        """Use deterministic DFS matching; reservation sets are intentionally small."""
+    def _maximum_matching(self, available: set[str]) -> dict[str, str]:
+        """Use deterministic DFS and return the largest attainable matching."""
 
         assigned_uid_to_slot: dict[str, str] = {}
         slots = sorted(self._slots, key=lambda slot: (slot.group_index, slot.key))
@@ -204,8 +289,7 @@ class DeferredDriveReservationState:
 
         by_key = {slot.key: slot for slot in slots}
         for slot in slots:
-            if not assign(slot, set()):
-                return None
+            assign(slot, set())
         return {slot_key: uid for uid, slot_key in assigned_uid_to_slot.items()}
 
 
@@ -254,6 +338,7 @@ class DeferredDriveReservationMixin:
                         slot_index=slot_index,
                         baseline_uid=baseline.uid,
                         candidate_uids=tuple(drive.uid for drive in candidates),
+                        shape_id=baseline.shape_id,
                     )
                     descriptors.append((slot, candidates))
         return state.register(descriptors)

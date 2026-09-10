@@ -522,6 +522,7 @@ class RolePriorityStrategy(
         crit_rate_caps: Dict[str, float] | None = None,
         *,
         reservation_candidates: tuple[tuple[str, ...], ...] | None = None,
+        reservation_shapes: tuple[str, ...] | None = None,
     ) -> AllocationResult:
         valid_group = []
         role_blueprints = []
@@ -607,6 +608,11 @@ class RolePriorityStrategy(
                 matching = match_reserved_group_slots(
                     ranking_matrix, profit_matrix,
                     tuple(drive.uid for drive in drives_pool), reservation_candidates,
+                    current_shapes=tuple(str(slot["shape"]) for slot in slots)
+                    if reservation_shapes is not None else None,
+                    drive_shapes=tuple(str(drive.shape_id) for drive in drives_pool)
+                    if reservation_shapes is not None else None,
+                    reservation_shapes=reservation_shapes,
                 )
                 if matching is None:
                     continue
