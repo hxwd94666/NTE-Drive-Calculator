@@ -76,6 +76,50 @@ def nte_core_error_has_domain_code(
     return any(f"[{code}]" in message for code in codes)
 
 
+def is_native_capture_not_ready(error: object) -> bool:
+    """Identify an explicit start rejection; its reason determines retryability."""
+    return (
+        isinstance(error, NteCoreRpcError)
+        and error.code == -32001
+        and error.message == "not_ready"
+    )
+
+
+NATIVE_CAPTURE_TRANSIENT_REASONS = frozenset({
+    "sdk_initializing", "hook_initializing", "game_thread_pending", "world_unavailable",
+    "controller_unavailable", "pawn_unavailable", "scene_transition",
+})
+
+
+def native_capture_readiness_message(error: NteCoreRpcError) -> str:
+    """Describe only declared readiness facts, without exposing arbitrary provider text."""
+    messages = {
+        "sdk_initializing": "采集 DLL 正在初始化游戏数据接口",
+        "hook_initializing": "采集 DLL 正在安装逐击 Hook",
+        "game_thread_pending": "采集 DLL 尚未识别到游戏主线程回调",
+        "world_unavailable": "采集 DLL 尚未读取到有效游戏世界",
+        "controller_unavailable": "采集 DLL 尚未读取到本地角色控制器",
+        "pawn_unavailable": "采集 DLL 尚未读取到可操作角色",
+        "scene_transition": "采集 DLL 正在等待新场景就绪",
+        "sdk_unavailable": "采集 DLL 无法初始化游戏数据接口，需要核对当前游戏版本与 SDK",
+        "hook_unavailable": "采集 DLL 无法安装逐击 Hook，需要检查采集组件",
+        "provider_stopping": "采集 DLL 正在停止，无法开始采集",
+    }
+    reason = error.data.get("reason")
+    return messages.get(reason if isinstance(reason, str) else "",
+                        "采集 DLL 未就绪且未提供可识别原因，请核对组件版本并重启游戏")
+
+
+def translate_native_start_error(error: BaseException, stderr_lines: Sequence[str]) -> BaseException:
+    """Translate one fixed capability rejection after the process streams have drained."""
+    if any(line.strip() == 'error: native capture native_context_capability_required_restart_game'
+           for line in stderr_lines):
+        return NteCoreProcessError('游戏内的采集 DLL 版本过旧，请更新采集组件并重启游戏。')
+    if any(line.strip() == 'error: native capture peer_identity_mismatch' for line in stderr_lines):
+        return NteCoreProcessError('Core 与游戏的 Windows 登录身份或权限不一致，请以与游戏相同的用户和权限启动 Calc。')
+    return error
+
+
 def is_mods_plugin_unavailable_error(error: object) -> bool:
     return nte_core_error_has_domain_code(
         error, MODS_PLUGIN_UNAVAILABLE_CODES
@@ -95,6 +139,10 @@ def equipment_request_failure_kind(error: object) -> str:
         return "plugin_unavailable"
     if isinstance(error, NteCoreTimeoutError):
         return "core_request_timeout"
+    if (getattr(error, "domain_code", None) == "EQUIPMENT_OUTCOME_UNKNOWN"
+            or (isinstance(error, NteCoreRpcError) and error.code == -32001
+                and error.message == "control_timeout")):
+        return "outcome_unknown"
     if getattr(error, "domain_code", None) == "EQUIPMENT_REQUEST_REJECTED":
         return "request_rejected"
     return "apply_error"

@@ -11,6 +11,7 @@ import mss
 import mss.tools
 import cv2
 import numpy as np
+from src.integrations.operation_guard import OperationGuard, bind_stop_guard, require_operation
 
 from src.utils.logger import logger
 from src.utils.image_io import imread_unicode
@@ -67,7 +68,8 @@ class DroneScanner:
     BASE_WIDTH = 2560
     BASE_HEIGHT = 1440
 
-    def __init__(self, output_dir="scanned_images", template_path="config/templates/new_tag.png"):
+    def __init__(self, output_dir="scanned_images", template_path="config/templates/new_tag.png", *, operation_guard: OperationGuard | None = None):
+        self.operation_guard = bind_stop_guard(operation_guard, lambda: self._stopped)
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self._stopped = False
@@ -157,6 +159,7 @@ class DroneScanner:
 
     def _move_to(self, x, y):
         """移动鼠标到绝对像素坐标"""
+        require_operation(self.operation_guard, "interface_input")
         ax, ay = self._abs_coord(x, y)
         _send_input(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, ax, ay)
 
@@ -165,9 +168,12 @@ class DroneScanner:
         rect = self._window_rect
         self._move_to(rect.left + x, rect.top + y)
         time.sleep(0.05)
+        require_operation(self.operation_guard, "interface_input")
         _send_input(MOUSEEVENTF_LEFTDOWN)
-        time.sleep(0.02)
-        _send_input(MOUSEEVENTF_LEFTUP)
+        try:
+            time.sleep(0.02)
+        finally:
+            _send_input(MOUSEEVENTF_LEFTUP)
 
     def _swipe_up(self):
         """通过 SendInput 模拟长按拖拽翻页（兼容全屏游戏）"""
@@ -181,19 +187,20 @@ class DroneScanner:
         self._move_to(start_x, start_y)
         time.sleep(0.15)
 
+        require_operation(self.operation_guard, "interface_input")
         _send_input(MOUSEEVENTF_LEFTDOWN)
-        time.sleep(0.3)
-
-        total_dy = int(-1000 * self._scale_y)
-        steps = 50
-        step_dy = int(total_dy / steps)
-
-        for _ in range(steps):
-            _send_input(MOUSEEVENTF_MOVE, 0, step_dy)
-            time.sleep(0.012)
-
-        time.sleep(0.3)
-        _send_input(MOUSEEVENTF_LEFTUP)
+        try:
+            time.sleep(0.3)
+            step_dy = int(int(-1000 * self._scale_y) / 50)
+            for _ in range(50):
+                require_operation(self.operation_guard, "interface_input")
+                if self._stopped:
+                    break
+                _send_input(MOUSEEVENTF_MOVE, 0, step_dy)
+                time.sleep(0.012)
+            time.sleep(0.3)
+        finally:
+            _send_input(MOUSEEVENTF_LEFTUP)
         time.sleep(0.3)
 
     def start_scan(self):

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from typing import Any
 
 from src.domain.battle_build_assumption import assumed_graduation_equipment
@@ -420,6 +422,11 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
         )
         if header is None:
             return None
+        capture = self._one("SELECT raw_record_json FROM battle_axis_capture WHERE battle_record_id = ?", (record_id,))
+        capture_record = _decoded((capture or {}).get("raw_record_json"), {})
+        validation = capture_record.get("calc_build_validation")
+        if isinstance(validation, Mapping):
+            header["calculation_status"] = dict(validation)
         characters = self._rows(
             """
             SELECT * FROM battle_character_build_snapshot

@@ -1,5 +1,5 @@
-# 展示逐击日志中单击“推算 Buff”后的结构化加成详情。
-"""Reusable modeless dialog for one hit's inferred Buff projection."""
+# 分开展示逐击原生 Buff 采样与规则推断的结构化加成详情。
+"""Reusable modeless dialog for observed effects and inferred Buff projection."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.services.battle_native_evidence_rendering import render_field_evidence, render_native_evidence
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.domain.battle_report import (
@@ -40,7 +41,7 @@ class BattleHitBuffDialog(QDialog):
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(10)
 
-        self.title_label = QLabel("逐击推算 Buff")
+        self.title_label = QLabel("逐击 Buff 证据与分析")
         self.title_label.setStyleSheet(
             themed_style("color:#58a6ff;font-size:16px;font-weight:700")
         )
@@ -96,7 +97,9 @@ class BattleHitBuffDialog(QDialog):
                 + (f"\n缺失证据：\n{gaps}" if gaps else "")
             )
         self.detail.setPlainText(
-            raw_lines + "\n" + replay_lines + "\n\n"
+            raw_lines + "\n" + render_field_evidence(hit.field_evidence)
+            + "\n" + render_native_evidence(hit.native_evidence)
+            + "\n\n规则推断与公式重放（与原生采样分开）\n" + replay_lines + "\n\n"
             + BattleHitBuffExplanationService.build(hit, intervals, projection=projection,
                                                    allow_projection_fallback=False)
         )

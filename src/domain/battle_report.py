@@ -6,15 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from src.domain.battle_native_evidence import BattleHitFieldEvidence, BattleNativeHitEvidence
 from src.domain.battle_time_stop import BattleObservedTimeStopInterval
 
 import src.domain.battle_counterfactual as battle_counterfactual
 from src.domain.battle_buff_counterfactual import BattleBuffCounterfactualResult
-from src.domain.battle_target import (
-    BattleSelectedTargetProfile,
-    BattleTargetInstanceResolution,
-)
-
+from src.domain.battle_target import BattleSelectedTargetProfile, BattleTargetInstanceResolution
 
 @dataclass(frozen=True, slots=True)
 class BattleCharacterSummary:
@@ -26,7 +23,6 @@ class BattleCharacterSummary:
     damage_share_percent: float
     hits_taken: int = 0
     damage_taken: float = 0.0
-
 
 @dataclass(frozen=True, slots=True)
 class BattleSkillSummary:
@@ -41,7 +37,6 @@ class BattleSkillSummary:
     gameplay_effect_name: str | None = None
     is_follow_up: bool = False
 
-
 @dataclass(frozen=True, slots=True)
 class BattleAbyssHalfSummary:
     half: str
@@ -50,7 +45,6 @@ class BattleAbyssHalfSummary:
     total_dps: float
     characters: tuple[BattleCharacterSummary, ...]
     skills: tuple[BattleSkillSummary, ...]
-
 
 @dataclass(frozen=True, slots=True)
 class BattleAbyssSummary:
@@ -105,6 +99,7 @@ class BattleCaptureState:
     persistence_status: str = "not_requested"
     battle_record_id: int | None = None
     retention_kind: Literal["auto", "manual"] | None = None
+    end_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +145,7 @@ class BattleReportHistoryEntry:
     environment_name: str = ""
     environment_source: Literal["", "user_confirmed", "inferred"] = ""
     environment_confidence: str = ""
+    native_capture: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +223,8 @@ class BattleAnalysisHit:
     formula_context_kind: str = ""
     formula_context_confidence: str = ""
     formula_context_basis: str = ""
+    native_evidence: BattleNativeHitEvidence | None = None
+    field_evidence: BattleHitFieldEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,6 +490,7 @@ class BattleInferredBuffInterval:
     stacking_type: str = ""
     stack_limit_count: int = 1
     target_id: str = ""
+    native_window_end_us: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,6 +514,8 @@ class BattleBuffProjectionDecision:
     status: Literal["applied", "not_applied", "unresolved"]
     applied_property_ids: tuple[str, ...]
     reasons: tuple[str, ...]
+    observed_stacks: int | None = None
+    state_confidence: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -655,9 +656,7 @@ class BattleHitReplayResult:
     expected_damage: float | None = None
     corrected_expected_damage: float | None = None
     signed_error_percent: float | None = None
-    critical_policy: Literal[
-        "character", "fixed", "disabled", "unknown"
-    ] = "unknown"
+    critical_policy: Literal["character", "fixed", "disabled", "unknown"] = "unknown"
     reported_damage: float | None = None
     observed_damage_source: Literal[
         "reported_hit",

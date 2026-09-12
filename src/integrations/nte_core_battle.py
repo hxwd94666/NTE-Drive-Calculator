@@ -312,6 +312,8 @@ def parse_battle_record(value: Any) -> dict[str, Any]:
     return {
         "contract_version": contract_version,
         "battle_record_id": _text(item.get("battle_record_id"), "battle_record_id"),
+        **({"native_capture": dict(_object(item["native_capture"], "native_capture"))}
+           if "native_capture" in item else {}),
         "capture_operation_id": _optional_text(
             item.get("capture_operation_id"),
             "capture_operation_id",
@@ -358,6 +360,14 @@ def parse_battle_record(value: Any) -> dict[str, Any]:
 
 def _axis_hit(value: Any, field: str, *, contract_version: int) -> dict[str, Any]:
     item = _object(value, field)
+    native_capture = item.get("native_capture")
+    if native_capture is not None:
+        native_capture = _object(native_capture, f"{field}.native_capture")
+        for key in ("providerId", "captureId", "hitId"):
+            _text(native_capture.get(key), f"{field}.native_capture.{key}")
+        raw_hit = _object(native_capture.get("rawHit"), f"{field}.native_capture.rawHit")
+        if native_capture["hitId"] != item.get("sequence") or raw_hit.get("hitId") != native_capture["hitId"]:
+            raise NteCoreProtocolError(f"{field} native hit identity does not match sequence")
     raw_character_id = _optional_integer(
         item.get("character_id", item.get("char_id")),
         f"{field}.character_id",
@@ -380,7 +390,7 @@ def _axis_hit(value: Any, field: str, *, contract_version: int) -> dict[str, Any
     damage = _number(item.get("damage"), f"{field}.damage", default=0.0)
     overkill_damage = (
         _number(item.get("overkill_damage"), f"{field}.overkill_damage")
-        if contract_version >= 3
+        if contract_version >= 3 and native_capture is None
         else _optional_number(
             item.get("overkill_damage"),
             f"{field}.overkill_damage",
@@ -395,7 +405,7 @@ def _axis_hit(value: Any, field: str, *, contract_version: int) -> dict[str, Any
             item.get("max_hp_reduction"),
             f"{field}.max_hp_reduction",
         )
-        if contract_version >= 4
+        if contract_version >= 4 and native_capture is None
         else _optional_number(
             item.get("max_hp_reduction"),
             f"{field}.max_hp_reduction",
@@ -435,6 +445,7 @@ def _axis_hit(value: Any, field: str, *, contract_version: int) -> dict[str, Any
             )
         ]
     return {
+        **({"native_capture": dict(native_capture)} if native_capture is not None else {}),
         "battle_record_id": _text(
             item.get("battle_record_id"),
             f"{field}.battle_record_id",

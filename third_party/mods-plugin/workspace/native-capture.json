@@ -1,0 +1,29 @@
+{
+  "component": "nte-capture",
+  "experimental": true,
+  "protocol_version": 1,
+  "capabilities": [
+    "combat.hit_buff.v1",
+    "combat.context.v1",
+    "combat.raw_evidence.v1"
+  ],
+  "execution_evidence_schema_version": 1,
+  "source_base_commit": "9d8431426624358e23f1873a273010f65a81007d",
+  "upstream_base_commit": "1beefcc09c57cbd3872decc666c3c5d5960e9028",
+  "source_worktree_modified": true,
+  "input_manifest_sha256": "0189c6e5df5c402341ab78ee88f1165deabc920152b7d17a3b42c8967249b5d1",
+  "file": "NTE_Capture.dll",
+  "sha256": "de919128eb6d982ce7e53bdde485bb46773df8e0577f3fda9aa6c891a6e32c74",
+  "size": 1632768,
+  "journal_enabled": true,
+  "journal_mode": "opt_in_raw_capture_directory",
+  "architecture": "windows-x64",
+  "source_coverage": "unknown",
+  "runtime_validation": "pending",
+  "usage": "local-private-trial",
+  "licenses": [
+    "GPL-3.0",
+    "MIT (Detours)"
+  ],
+  "built_at_utc": "2026-09-10T02:50:57.721550+00:00"
+}

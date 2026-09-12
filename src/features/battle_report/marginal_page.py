@@ -415,6 +415,10 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         hit_details=None,
     ) -> None:
         self._analysis = analysis
+        partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
+        self.timeline_time_mode_combo.setEnabled(not partial_clock)
+        if partial_clock:
+            self.timeline_time_mode_combo.setCurrentIndex(self.timeline_time_mode_combo.findData(ELAPSED_TIME_MODE))
         self._hit_details = hit_details
         comparison = analysis.build_counterfactual
         self.derived_settlements.render(comparison)

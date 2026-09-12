@@ -424,6 +424,11 @@ class BattleLongAnalysisView(
         self._analysis_record_id = analysis.battle_record_id
         self._selected_character_id = selected_character_id
         self._analysis = analysis
+        partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
+        self.time_mode_combo.setEnabled(not partial_clock)
+        self.time_mode_combo.setToolTip("时停证据不完整，当前使用包含时停的真实时间" if partial_clock else "")
+        if partial_clock:
+            self.time_mode_combo.setCurrentIndex(self.time_mode_combo.findData(ELAPSED_TIME_MODE))
         self._hit_details = hit_details
         self._hide_hit_formula_dialog()
         self._hide_hit_buff_dialog()
@@ -451,7 +456,8 @@ class BattleLongAnalysisView(
         )
         if (
             condition is not None
-            and condition.source_kind == "inferred_encounter_hp_injective_default"
+            and condition.source_kind in {"inferred_encounter_hp_injective_default",
+                "native_environment_with_static_candidates", "native_monster_with_inferred_environment"}
         ):
             self.current_scope_label.setText(
                 display_battle_environment_name(condition)

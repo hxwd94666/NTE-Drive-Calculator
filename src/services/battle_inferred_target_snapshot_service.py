@@ -418,7 +418,8 @@ class BattleInferredTargetSnapshotService:
                         inferred_monster_id=str(
                             item.get("inferred_monster_id") or ""
                         ),
-                        initial_max_hp=float(item.get("initial_max_hp") or 0.0),
+                        initial_max_hp=(None if item.get("initial_max_hp") is None
+                                        else float(item["initial_max_hp"])),
                     )
                     for item in value.get("identities") or ()
                     if isinstance(item, Mapping)

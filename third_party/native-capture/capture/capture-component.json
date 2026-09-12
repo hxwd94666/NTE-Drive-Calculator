@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "component": "nte-capture",
+  "layout": "headless-capture-v1",
+  "protocol_version": 1,
+  "source_base_commit": "1beefcc09c57cbd3872decc666c3c5d5960e9028",
+  "source_modified": true,
+  "input_digest": "4a44bb9bf0b9bd8b1e29219b821fb4ab7a4122176c35804173e6ac0110cf82b3",
+  "roles": {
+    "proxy": "d3d12.dll",
+    "capture_runtime": "NTE_Capture.dll",
+    "license": "LICENSE.txt",
+    "notices": "Detours-LICENSE.md",
+    "source": "SOURCE.md"
+  },
+  "files": {
+    "d3d12.dll": "30d79dca9e944d21c7170f327d326fce3ea4e26762948bcfd7dd37321cc58cf6",
+    "NTE_Capture.dll": "85d857ee5001f7c8d28f56b24ef458a27a756268feeb25a92f77c1932a026b22",
+    "LICENSE.txt": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
+    "Detours-LICENSE.md": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef",
+    "SOURCE.md": "6d60b6aa0b7398af0c321cacf61d69fdc5b74f99c43245dd948d6789cda2d467"
+  },
+  "file_sizes": {
+    "d3d12.dll": 15360,
+    "NTE_Capture.dll": 2098688,
+    "LICENSE.txt": 35823,
+    "Detours-LICENSE.md": 1122,
+    "SOURCE.md": 3659
+  },
+  "capabilities": [
+    "combat.hit_buff.v1",
+    "combat.context.v1",
+    "combat.raw_evidence.v1",
+    "character.snapshot.v1",
+    "inventory.snapshot.v1",
+    "team.snapshot.v1",
+    "environment.snapshot.v1",
+    "equipment.execute.v1",
+    "combat.clock.v1",
+    "snapshot.changes.v1"
+  ],
+  "startup": "automatic_background",
+  "ui": false,
+  "mcp": false,
+  "hot_unload": false,
+  "loading": {
+    "loader": "standard_loadlibrary_of_capture_runtime",
+    "d3d": "same_directory_proxy_and_runtime"
+  },
+  "validation": {
+    "non_game_protocol": "passed",
+    "game_runtime": "not_run"
+  }
+}

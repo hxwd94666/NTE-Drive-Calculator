@@ -517,6 +517,7 @@ class DriveAssemblyActionExecutorTests(unittest.TestCase):
                 calls.append("update")
 
         driver = _VirtualGamepadDriver.__new__(_VirtualGamepadDriver)
+        driver.operation_guard = lambda _: None
         driver._gamepad = Gamepad()
         driver._buttons = object()
 
@@ -547,6 +548,7 @@ class DriveAssemblyActionExecutorTests(unittest.TestCase):
             XUSB_GAMEPAD_RIGHT_THUMB = object()
 
         driver = _VirtualGamepadDriver.__new__(_VirtualGamepadDriver)
+        driver.operation_guard = lambda _: None
         driver._gamepad = Gamepad()
         driver._buttons = Buttons()
         driver._hold_seconds = 0.08

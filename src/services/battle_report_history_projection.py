@@ -161,6 +161,7 @@ def history_entry(
         total_hits=int(record["total_hits"]),
         capability_level=str(record["capability_level"]),
         source_kind=str(record["source_kind"]),
+        native_capture=bool(record.get("native_capture", False)),
         environment_name=str(environment_name or "").strip(),
         environment_source=cast(
             Literal["", "user_confirmed", "inferred"],

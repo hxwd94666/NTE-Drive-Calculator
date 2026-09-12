@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
+from src.integrations.operation_guard import bind_stop_guard
 
 import cv2
 import numpy as np
@@ -290,6 +291,7 @@ class MouseInventoryScanner:
         input_driver: MouseScanInput | None = None,
         input_speed_profile: str = INPUT_SPEED_PROFILE,
         sleep_fn: Callable[[float], None] = time.sleep,
+        operation_guard: Callable[[str], None] | None = None,
     ) -> None:
         self.output_dir = str(output_dir)
         self.capture_dir = self.output_dir
@@ -312,12 +314,13 @@ class MouseInventoryScanner:
             disable_pyautogui_pause = False
         else:
             raise ValueError(f"不支持的鼠标扫描输入 profile：{input_speed_profile}")
+        self._stopped = False
         self._input = input_driver or PyAutoGuiMouseScanInput(
             randomization=randomization,
             sleep_fn=sleep_fn,
             disable_pyautogui_pause=disable_pyautogui_pause,
+            operation_guard=bind_stop_guard(operation_guard, lambda: self._stopped),
         )
-        self._stopped = False
         self._closed = False
         self._target_hwnd: int | None = None
         self._target_rect: WindowRect | None = None

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import tempfile
+import hashlib
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -62,6 +64,9 @@ class _FailingRuntime(_FakeRuntime):
 
 class ModPluginLoadingServiceTests(unittest.TestCase):
     def setUp(self) -> None:
+        process = patch("src.services.mod_plugin_loading_service.game_process_running", return_value=False)
+        process.start()
+        self.addCleanup(process.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.plugin = (
@@ -74,6 +79,11 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             target = workspace / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("test\n", encoding="utf-8")
+        (workspace / "native-capture.json").write_text(json.dumps({
+            "protocol_version": 1,
+            "capabilities": ["combat.hit_buff.v1", "combat.context.v1"],
+            "sha256": hashlib.sha256((workspace / "NTE_Capture.dll").read_bytes()).hexdigest(),
+        }), encoding="utf-8")
         self.install_root = self.root / "games" / "Neverness To Everness"
         self.launcher = self.install_root / "NTELauncher.exe"
         self.launcher.parent.mkdir(parents=True)
@@ -124,13 +134,13 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ModLoaderRuntimeError, "官方 Client 目录结构"):
             game_launcher_executable(unrelated_game)
 
-    def test_loader_backs_up_and_removes_an_unknown_proxy_before_start(self) -> None:
+    def test_loader_rejects_an_unknown_proxy_without_changing_it(self) -> None:
         proxy = self.game.parent / "dwmapi.dll"
         old_proxy = MOD_PLUGIN_SIGNATURE + b":old-release"
         proxy.write_bytes(old_proxy)
         runtime = _FakeRuntime()
         service = ModPluginLoadingService(
-            application_root=self.root,
+            application_root=self.root, operation_guard=lambda capability: None,
             runtime=runtime,
         )
         backup_root = self.root / "account" / "equipment_plugin_backups"
@@ -145,22 +155,22 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             "src.services.mod_plugin_loading_service.probe_mod_plugin_msvc_runtime",
             return_value={"supported": True, "ready": True, "files": {}},
         ):
-            result = service.start_loader(
-                game_executable_path=self.game,
-                writable_workspace_path=self.root / "writable-mods",
-                proxy_backup_directory=backup_root,
-            )
+            with self.assertRaisesRegex(ModPluginLoadingError, "归属未知"):
+                service.start_loader(
+                    game_executable_path=self.game,
+                    writable_workspace_path=self.root / "writable-mods",
+                    proxy_backup_directory=backup_root,
+                )
 
-        self.assertFalse(proxy.exists())
-        self.assertIsNotNone(result.removed_proxy)
-        self.assertFalse(result.removed_proxy.known)
-        self.assertEqual(result.removed_proxy.backup_path.read_bytes(), old_proxy)
+        self.assertEqual(proxy.read_bytes(), old_proxy)
+        self.assertFalse(backup_root.exists())
+        self.assertIsNone(runtime.started_payload)
 
     def test_loader_directly_removes_the_current_packaged_proxy(self) -> None:
         proxy = self.game.parent / "dwmapi.dll"
         proxy.write_bytes(self.plugin.read_bytes())
         service = ModPluginLoadingService(
-            application_root=self.root,
+            application_root=self.root, operation_guard=lambda capability: None,
             runtime=_FakeRuntime(),
         )
         backup_root = self.root / "account" / "equipment_plugin_backups"
@@ -189,7 +199,7 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
     def test_loader_prepares_workspace_and_starts_audited_payload(self) -> None:
         runtime = _FakeRuntime()
         service = ModPluginLoadingService(
-            application_root=self.root,
+            application_root=self.root, operation_guard=lambda capability: None,
             runtime=runtime,
         )
         writable = self.root / "writable-mods"
@@ -204,7 +214,7 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             "src.services.mod_plugin_loading_service.probe_mod_plugin_msvc_runtime",
             return_value={"supported": True, "ready": True, "files": {}},
         ), patch(
-            "src.services.mod_plugin_loading_service.restore_mod_workspace",
+            "src.services.mod_plugin_loading_service.cleanup_mod_workspace",
             return_value=True,
         ) as restore_workspace:
             result = service.start_loader(
@@ -223,18 +233,16 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
         self.assertTrue((writable / "nte-mods.enabled").is_file())
         restore_workspace.assert_called_once_with(
             workspace_path=writable.resolve(),
-            previous_value="C:\\previous-mods",
-            previous_value_existed=True,
         )
 
     def test_loader_start_failure_restores_previous_workspace_registration(self) -> None:
         service = ModPluginLoadingService(
-            application_root=self.root,
+            application_root=self.root, operation_guard=lambda capability: None,
             runtime=_FailingRuntime(),
         )
         writable = self.root / "writable-mods"
         proxy = self.game.parent / "dwmapi.dll"
-        proxy.write_bytes(b"unknown legacy proxy")
+        proxy.write_bytes(self.plugin.read_bytes())
         backup_root = self.root / "account" / "equipment_plugin_backups"
 
         with patch(
@@ -247,7 +255,7 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             "src.services.mod_plugin_loading_service.probe_mod_plugin_msvc_runtime",
             return_value={"supported": True, "ready": True, "files": {}},
         ), patch(
-            "src.services.mod_plugin_loading_service.restore_mod_workspace",
+            "src.services.mod_plugin_loading_service.rollback_mod_workspace",
             return_value=True,
         ) as restore_workspace:
             with self.assertRaisesRegex(ModPluginLoadingError, "launch failed"):
@@ -257,8 +265,8 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
                     proxy_backup_directory=backup_root,
                 )
 
-        self.assertEqual(proxy.read_bytes(), b"unknown legacy proxy")
-        self.assertEqual(len(list(backup_root.glob("*.bak"))), 1)
+        self.assertEqual(proxy.read_bytes(), self.plugin.read_bytes())
+        self.assertFalse(backup_root.exists())
         restore_workspace.assert_called_once_with(
             workspace_path=writable.resolve(),
             previous_value="C:\\previous-mods",
@@ -268,7 +276,7 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
     def test_proxy_deployment_is_blocked_while_loader_runs(self) -> None:
         runtime = _FakeRuntime(phase="running")
         service = ModPluginLoadingService(
-            application_root=self.root,
+            application_root=self.root, operation_guard=lambda capability: None,
             runtime=runtime,
         )
 
@@ -277,6 +285,90 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
 
         service.stop_loader()
         self.assertEqual(runtime.stop_calls, [MOD_LOADER_STOP_TIMEOUT_MS])
+
+    def test_missing_operation_guard_blocks_start_before_workspace_mutation(self) -> None:
+        runtime = _FakeRuntime()
+        service = ModPluginLoadingService(application_root=self.root, runtime=runtime)
+        workspace = self.root / "blocked-workspace"
+        with self.assertRaises(PermissionError):
+            service.start_loader(
+                game_executable_path=self.game, writable_workspace_path=workspace,
+                proxy_backup_directory=self.root / "backups",
+            )
+        self.assertIsNone(runtime.started_payload)
+        self.assertFalse(workspace.exists())
+
+    def test_scoped_guard_denies_automatic_start_before_any_workspace_change(self) -> None:
+        runtime = _FakeRuntime()
+        service = ModPluginLoadingService(
+            application_root=self.root, operation_guard=lambda capability: None, runtime=runtime,
+        )
+        workspace = self.root / "scoped-workspace"
+        guard = unittest.mock.Mock(side_effect=PermissionError("automatic disabled"))
+        with self.assertRaisesRegex(PermissionError, "automatic disabled"):
+            service.start_loader(
+                game_executable_path=self.game, writable_workspace_path=workspace,
+                proxy_backup_directory=self.root / "backups", scoped_guard=guard,
+            )
+        self.assertIsNone(runtime.started_payload)
+        self.assertFalse(workspace.exists())
+
+    def test_scoped_revocation_after_registration_prevents_load_and_registry_rollback(self) -> None:
+        runtime = _FakeRuntime()
+        service = ModPluginLoadingService(
+            application_root=self.root, operation_guard=lambda capability: None, runtime=runtime,
+        )
+        allowed = True
+        workspace = self.root / "scoped-workspace"
+
+        def guard(capability):
+            if not allowed:
+                raise PermissionError("automatic disabled")
+
+        def register(path):
+            nonlocal allowed
+            allowed = False
+            return False, None
+
+        with patch("src.services.equipment_plugin_deployment._register_mod_workspace", side_effect=register), patch(
+            "src.services.mod_plugin_loading_service.mod_workspace_registry_snapshot", return_value=(False, None),
+        ), patch("src.services.mod_plugin_loading_service.probe_mod_plugin_msvc_runtime", return_value={"ready": True}), patch(
+            "src.services.mod_plugin_loading_service.rollback_mod_workspace",
+        ) as rollback:
+            with self.assertRaises(ModPluginLoadingError):
+                service.start_loader(
+                    game_executable_path=self.game, writable_workspace_path=workspace,
+                    proxy_backup_directory=self.root / "backups", scoped_guard=guard,
+                )
+        self.assertIsNone(runtime.started_payload)
+        self.assertEqual(service.pending_workspace_cleanup_path, workspace.resolve())
+        rollback.assert_not_called()
+
+    def test_stop_loader_retains_cleanup_record_until_game_exits(self) -> None:
+        running = False
+        runtime = _FakeRuntime()
+        service = ModPluginLoadingService(
+            application_root=self.root, operation_guard=lambda capability: None,
+            game_running=lambda: running, runtime=runtime,
+        )
+        workspace = self.root / "writable-mods"
+        with patch("src.services.equipment_plugin_deployment._register_mod_workspace", return_value=(False, None)), patch(
+            "src.services.mod_plugin_loading_service.mod_workspace_registry_snapshot", return_value=(False, None),
+        ), patch("src.services.mod_plugin_loading_service.probe_mod_plugin_msvc_runtime", return_value={"ready": True}), patch(
+            "src.services.mod_plugin_loading_service.cleanup_mod_workspace", return_value=True,
+        ) as cleanup:
+            service.start_loader(
+                game_executable_path=self.game, writable_workspace_path=workspace,
+                proxy_backup_directory=self.root / "backups",
+            )
+            running = True
+            service.stop_loader()
+            self.assertEqual(service.pending_workspace_cleanup_path, workspace.resolve())
+            cleanup.assert_not_called()
+            running = False
+            self.assertTrue(service.cleanup_workspace_registration())
+            self.assertIsNone(service.pending_workspace_cleanup_path)
+            cleanup.assert_called_once_with(workspace_path=workspace.resolve())
 
 
 if __name__ == "__main__":

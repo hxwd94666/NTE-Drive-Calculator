@@ -13,3 +13,10 @@
 *.exe binary
 *.msi binary
 
+# Component manifests verify exact bytes, including line endings of notices.
+/third_party/analysis-core/** -text
+/third_party/native-capture/** -text
+/third_party/mod-loader/** -text
+/third_party/mods-plugin/** -text
+/third_party/nte-core/** -text
+

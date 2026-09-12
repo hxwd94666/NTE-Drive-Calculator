@@ -29,6 +29,10 @@ from tools.game_data.promote_static_release import (
 )
 from src.app.version import __version__
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.integrations.native_capture_release import validate_native_capture_release
+from src.integrations.game_component_bundle import inspect_game_component_bundle
+from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
+from tools.release.native_component_bundle_build import native_component_build_inputs
 
 build_cli.configure_utf8_console()
 
@@ -321,7 +325,15 @@ def _recorded_hash(record: Path, label: str) -> str:
 
 def validate_components() -> None:
     """校验随包组件、脚本、来源说明和许可证。"""
-
+    bundle = inspect_game_component_bundle(ROOT)
+    if not bundle.ready:
+        raise RuntimeError("源码组件整包清单未通过校验：" + "；".join(bundle.issues))
+    if bundle.layout == "native-capture-v1":
+        if not (ROOT / "NOTICE").is_file():
+            raise RuntimeError("缺少应用第三方声明 NOTICE。")
+        native_component_build_inputs(ROOT)
+        return
+    validate_native_capture_release(ROOT / "third_party" / "mods-plugin" / "workspace")
     missing = [path for path in REQUIRED_COMPONENT_FILES if not path.is_file()]
     if missing:
         formatted = "\n".join(f"- {path.relative_to(ROOT)}" for path in missing)
@@ -416,6 +428,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             static_summary,
             args.local_config,
         )
+        validate_components()
         if not args.skip_tests:
             run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"])
         run(
@@ -431,7 +444,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "tools",
             ]
         )
-        validate_components()
         if not args.skip_build:
             build_command = [
                 sys.executable,
@@ -442,6 +454,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             run(build_command)
         if not INSTALLER_PATH.is_file():
             raise RuntimeError(f"找不到安装包：{INSTALLER_PATH}")
+        validate_packaged_component_bundle(
+            APP_INTERNAL, source_manifest_path=source_component_manifest(ROOT),
+        )
         validate_packaged_release_artifacts(
             allow_size_warning=args.allow_size_warning,
         )
@@ -450,7 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[通过] SHA-256：{checksum_path}")
         print_manual_commands(args.tag, INSTALLER_PATH, args.notes_file)
         return 0
-    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"[失败] {exc}", file=sys.stderr)
         return 1
 

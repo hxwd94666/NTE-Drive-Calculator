@@ -745,9 +745,11 @@ if __name__ == "__main__":
 
 def test_mouse_compatibility_profile_is_slower_than_formal_low_load() -> None:
     from src.integrations.vision.mouse_inventory_scan import MouseInventoryScanner
+    from unittest.mock import Mock
 
     scanner = MouseInventoryScanner(
         input_speed_profile=MouseInventoryScanner.COMPATIBILITY_INPUT_SPEED_PROFILE,
+        input_driver=Mock(),
     )
     try:
         assert scanner.input_speed_profile == "compatibility-low-load-v1"

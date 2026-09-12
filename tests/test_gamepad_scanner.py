@@ -116,6 +116,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         calls = []
         scanner._closed = False
         scanner.gamepad = SimpleNamespace(
@@ -161,6 +162,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         updates = []
         sleeps = []
         scanner.gamepad = SimpleNamespace(
@@ -189,6 +191,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         updates = []
         sleeps = []
         scanner.gamepad = SimpleNamespace(
@@ -212,6 +215,7 @@ class GamepadScannerTests(unittest.TestCase):
             rgb = b"\x00" * 4 * 4 * 3
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         scanner.capture_dir = "unused"
 
         original_capture = gamepad_controller.capture_foreground_window
@@ -262,6 +266,7 @@ class GamepadScannerTests(unittest.TestCase):
                 return False
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         scanner.output_dir = "unused"
         scanner.capture_dir = "unused"
         scanner._stopped = False
@@ -316,6 +321,7 @@ class GamepadScannerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+            scanner.operation_guard = lambda _: None
             scanner.output_dir = tmp
             scanner.capture_dir = tmp
             scanner._stopped = False
@@ -360,6 +366,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner.window_capture import WindowRect
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         scanner._stopped = False
         drags = []
         scanner._inventory_reset_input = SimpleNamespace(
@@ -381,6 +388,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         scanner.cols = 7
         scanner._stopped = False
         moves = []
@@ -418,6 +426,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         presses = []
         scanner._press_dpad_left = lambda: presses.append("dpad_left")
         scanner._press_dpad_right = lambda: presses.append("dpad_right")
@@ -450,6 +459,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         scanner.cols = 7
         scanner._stopped = False
         moves = []
@@ -500,6 +510,7 @@ class GamepadScannerTests(unittest.TestCase):
             for total_drives, expected_scan_end, expected_origin, expected_moves in cases:
                 with self.subTest(total_drives=total_drives):
                     scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+                    scanner.operation_guard = lambda _: None
                     scanner.cols = 7
                     scanner._stopped = False
                     moves = []
@@ -542,6 +553,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         image = np.zeros((10, 10, 3), dtype=np.uint8)
         rules = (
             gamepad_controller.GamepadVisionRule("全黑区域白色占比", (0.0, 0.0, 1.0, 1.0), "white", "gt", 0.5),
@@ -556,6 +568,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         image = np.zeros((1600, 2560, 3), dtype=np.uint8)
 
         roi = scanner._relative_roi(image, 0.68, 0.20, 0.98, 0.40)
@@ -566,6 +579,7 @@ class GamepadScannerTests(unittest.TestCase):
         from src.scanner import gamepad_controller
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
+        scanner.operation_guard = lambda _: None
         scanner.action_profile = gamepad_controller.GamepadActionProfile.state_management("cn")
         image = np.zeros((100, 100, 3), dtype=np.uint8)
         image[20:55, 68:98] = 80

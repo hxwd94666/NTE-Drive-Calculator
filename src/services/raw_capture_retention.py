@@ -6,6 +6,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.observability import OperationContext
+from src.observability.operation import log_event
+from src.observability.redaction import safe_exception
+
 
 RAW_CAPTURE_SUFFIX = ".pcapng"
 DEFAULT_RAW_CAPTURE_RETAIN_COUNT = 5
@@ -18,6 +22,27 @@ class RawCapturePruneResult:
     deleted_bytes: int
     retained_count: int
     retained_bytes: int
+
+
+def prune_battle_raw_captures(directory: Path | None, operation: OperationContext) -> None:
+    """Best-effort battle cleanup without exposing the account log path."""
+    if directory is None:
+        return
+    try:
+        result = prune_raw_capture_files(directory)
+    except Exception as error:
+        log_event(
+            "WARNING", "battle_report.raw_capture_prune_failed",
+            "清理战报原始抓包失败，将在下次采集时重试", operation,
+            error=safe_exception(error),
+        )
+        return
+    if result.deleted_count:
+        log_event(
+            "INFO", "battle_report.raw_capture_pruned", "已清理旧战报原始抓包", operation,
+            deleted_count=result.deleted_count, deleted_bytes=result.deleted_bytes,
+            retained_count=result.retained_count,
+        )
 
 
 def prune_raw_capture_files(

@@ -10,7 +10,7 @@ import traceback
 import unittest
 from unittest.mock import Mock, patch
 
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report import BattleAnalysisSnapshot, BattleInferredBuffInterval
 from src.integrations.native_battle_page_wire import decode
 from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_native_page_service import BattleNativePageService
@@ -99,6 +99,30 @@ class NativeBattlePageTests(unittest.TestCase):
         raw['made_up_damage'] = 123
         with self.assertRaises(NativeAnalysisError):
             decode(raw, BattleAnalysisSnapshot)
+
+    def test_native_buff_window_survives_full_page_analysis_decode(self):
+        interval = dict(
+            interval_id='fixture', buff_asset_path='fixture', buff_name='fixture',
+            source_effect_definition_id='', source_kind='native', source_character_id=1004,
+            source_character_name='fixture', target_scope='self', start_us=0, end_us=200,
+            stacks=1, duration_policy='duration', state_confidence='medium',
+            value_confidence='unknown', inference_basis='fixture', trigger_event_type='',
+            evidence_action_ids=[], evidence_event_ids=[], modifiers=[], native_window_end_us=100,
+        )
+        raw = json.loads(json.dumps(asdict(_snapshot())))
+        raw['buff_intervals'] = [interval]
+        raw['timeline_buff_intervals'] = [interval]
+        decoded = decode(raw, BattleAnalysisSnapshot | None)
+        self.assertEqual(decoded.buff_intervals[0].native_window_end_us, 100)
+        self.assertEqual(decoded.timeline_buff_intervals[0].native_window_end_us, 100)
+        for invalid in (True, '100', 100.5):
+            with self.subTest(invalid_type=type(invalid).__name__):
+                with self.assertRaises(NativeAnalysisError):
+                    decode(dict(interval, native_window_end_us=invalid), BattleInferredBuffInterval)
+        interval.pop('native_window_end_us')
+        self.assertIsNone(decode(interval, BattleInferredBuffInterval).native_window_end_us)
+        interval['native_window_end_us'] = None
+        self.assertIsNone(decode(interval, BattleInferredBuffInterval).native_window_end_us)
 
     def test_request_never_serializes_cached_report_or_reads_database_in_python(self):
         client = Mock(load_battle_page=Mock(return_value={}))

@@ -15,6 +15,7 @@ from src.features.battle_report.analysis_components import (
     restore_vertical_scroll_positions,
 )
 from src.features.battle_report.hit_buff_dialog import BattleHitBuffDialog
+from src.services.battle_native_evidence_rendering import field_critical_label, render_field_evidence
 from src.services.skill_name_rendering_service import (
     preferred_battle_damage_name,
     render_battle_event_type,
@@ -123,7 +124,7 @@ class BattleAnalysisLogMixin:
                         "—" if signed_error is None else f"{signed_error:+.2f}%"
                     )
                     replay_text = f"{_number(replay.selected_damage)} / {error_text}"
-                crit_text = crit_labels[replay.critical_state]
+                crit_text = f"{crit_labels[replay.critical_state]}（推断，{replay.confidence}）"
                 details = "\n".join(
                     f"{factor.label}: {factor.value:g}（{factor.evidence_basis}）"
                     for factor in replay.factors
@@ -148,6 +149,10 @@ class BattleAnalysisLogMixin:
                     )
                     if value
                 )
+            field_tooltip = render_field_evidence(hit.field_evidence)
+            if hit.field_evidence is not None and hit.field_evidence.critical_state != "unknown":
+                crit_text = field_critical_label(hit.field_evidence)
+            replay_tooltip = field_tooltip + "\n\n" + replay_tooltip
             values = (
                 _time(self._display_time_us(hit.relative_time_us)),
                 str(hit.sequence),
@@ -168,10 +173,12 @@ class BattleAnalysisLogMixin:
                 item = QTableWidgetItem(value)
                 if column in {7, 8}:
                     item.setToolTip(replay_tooltip)
+                if column == 4:
+                    item.setToolTip(field_tooltip)
                 if column == 9:
                     item.setData(Qt.ItemDataRole.UserRole, hit.event_id)
                     item.setToolTip(
-                        "点击查看本击原始字段、HP、公式因子、置信度和推算 Buff。"
+                        "点击查看本击原始字段、HP、字段证据、公式因子和 Buff 分析。"
                     )
                     font = item.font()
                     font.setUnderline(True)

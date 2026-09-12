@@ -1,4 +1,4 @@
-# 持久化 nte-core 逐击证据，并在战后物化游戏当前角色配装。
+# 持久化 nte-core 逐击证据，并按采集开始时冻结的输入物化配装。
 from __future__ import annotations
 
 import hashlib
@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .battle_build_stage_support import normalize_frozen_advancement
+from .battle_build_materialization import materialize_character_builds
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
     UserDataError,
@@ -61,6 +61,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         capture_operation_id: str,
         captured_at_utc: str,
         account_generation: int,
+        frozen_build: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         operation_id = _required_text(capture_operation_id, "capture_operation_id")
         generation = _integer(account_generation, "account_generation", minimum=0)
@@ -100,6 +101,12 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     now,
                 ),
             )
+            if frozen_build is not None:
+                connection.execute(
+                    "UPDATE battle_axis_capture SET raw_record_json = ?, source_inventory_snapshot_id = ? WHERE capture_id = ?",
+                    (_json_object({"calc_capture_context": frozen_build}, "capture build"),
+                     frozen_build.get("snapshot_id"), cursor.lastrowid),
+                )
             connection.commit()
             return {
                 "capture_id": int(cursor.lastrowid or 0),
@@ -107,6 +114,41 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                 "source_inventory_snapshot_id": None,
             }
         except (sqlite3.Error, UserDataError, UserDataValidationError):
+            connection.rollback()
+            raise
+
+    def load_battle_capture_build(self, capture_operation_id: str) -> dict[str, Any] | None:
+        row = self._one("SELECT raw_record_json FROM battle_axis_capture WHERE capture_operation_id = ?",
+                        (_required_text(capture_operation_id, "capture_operation_id"),))
+        raw = _decoded((row or {}).get("raw_record_json"), {})
+        build = raw.get("calc_capture_context") if isinstance(raw, Mapping) else None
+        return dict(build) if isinstance(build, Mapping) else None
+
+    def bind_battle_runtime_snapshot(self, capture_operation_id: str, snapshot: Mapping[str, Any],
+                                    *, frozen_build: Mapping[str, Any] | None = None) -> None:
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT capture_id, raw_record_json FROM battle_axis_capture WHERE capture_operation_id = ? AND capture_state = 'capturing'",
+                (_required_text(capture_operation_id, "capture_operation_id"),),
+            ).fetchone()
+            if row is None:
+                raise UserDataValidationError("绑定原生快照的采集不存在或已结束")
+            raw = _decoded(row["raw_record_json"], {})
+            build = raw.get("calc_capture_context")
+            if not isinstance(build, dict):
+                raise UserDataValidationError("采集缺少开始时冻结的配装输入")
+            if snapshot.get("state") != "scoped" and "native_runtime_snapshot" in build and build["native_runtime_snapshot"] != dict(snapshot):
+                raise UserDataValidationError("原生入场快照已经绑定，不能覆盖")
+            if frozen_build is not None and (snapshot.get("state") == "scoped" or "native_runtime_snapshot" not in build):
+                build = dict(frozen_build)
+                raw["calc_capture_context"] = build
+            build["native_runtime_snapshot"] = dict(snapshot)
+            connection.execute("UPDATE battle_axis_capture SET raw_record_json = ?, source_inventory_snapshot_id = ? WHERE capture_id = ?",
+                               (_json_object(raw, "capture build"), build.get("snapshot_id"), row["capture_id"]))
+            connection.commit()
+        except BaseException:
             connection.rollback()
             raise
 
@@ -314,6 +356,9 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         static_schema_version: int,
         character_profiles: Mapping[int, Mapping[str, Any]],
         character_stat_snapshots: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+        frozen_equipment: Sequence[Mapping[str, Any]] | None = None,
+        frozen_capture_context: Mapping[str, Any] | None = None,
+        calculation_unavailable_reason: str | None = None,
         formula_model_version: str = "battle-counterfactual-v3",
         name_mapping_version: str = "gameplay-effect-semantics-v1",
         finalized_at_utc: str,
@@ -349,6 +394,12 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     ),
                 }
             capture_id = int(capture["capture_id"])
+            staged_record = _decoded(capture["raw_record_json"], {})
+            frozen_context = frozen_capture_context if frozen_capture_context is not None else staged_record.get("calc_capture_context")
+            if isinstance(frozen_context, Mapping):
+                record_payload["calc_capture_context"] = frozen_context
+            if calculation_unavailable_reason:
+                record_payload["calc_build_validation"] = {"state": "unknown", "reason": calculation_unavailable_reason}
             snapshot_id = (
                 None
                 if source_inventory_snapshot_id is None
@@ -367,7 +418,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     (snapshot_id,),
                 ).fetchone()
                 if snapshot is None:
-                    raise UserDataValidationError("战后游戏当前背包快照不存在")
+                    raise UserDataValidationError("采集开始时冻结的背包快照不存在")
                 if str(snapshot["source"]) != "nte_core" or not bool(snapshot["complete"]):
                     raise UserDataValidationError("战报只能保存完整的游戏原生背包快照")
             observed = {
@@ -423,11 +474,12 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
                     _required_text(name_mapping_version, "name_mapping_version"),
                 ),
             )
-            self._materialize_character_builds(
+            materialize_character_builds(
                 connection,
                 record_id=record_id,
                 snapshot_id=snapshot_id,
                 profiles=selected_profiles,
+                frozen_equipment=frozen_equipment,
             )
             self._materialize_character_stats(
                 connection,
@@ -537,158 +589,6 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         except (sqlite3.Error, UserDataError, UserDataValidationError):
             connection.rollback()
             raise
-
-    @staticmethod
-    def _materialize_character_builds(
-        connection: sqlite3.Connection,
-        *,
-        record_id: int,
-        snapshot_id: int | None,
-        profiles: Sequence[tuple[int, str, dict[str, Any]]],
-    ) -> None:
-        for character_id, observed_name, profile in profiles:
-            skills = profile.get("skill_levels") or {}
-            if not isinstance(skills, Mapping):
-                raise UserDataError(f"角色 {character_id} 的冻结技能配置损坏")
-            (
-                character_level,
-                breakthrough_stage,
-                fork_id,
-                fork_level,
-                fork_breakthrough_stage,
-                frozen_profile,
-            ) = normalize_frozen_advancement(profile, character_id)
-            connection.execute(
-                """
-                INSERT INTO battle_character_build_snapshot(
-                    battle_record_id, character_id, observed_name,
-                    profile_source, character_level, breakthrough_stage,
-                    awakening_level, fork_id, fork_level,
-                    fork_breakthrough_stage,
-                    fork_refinement_level, selected_skill_id, ordinal,
-                    raw_profile_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    record_id,
-                    character_id,
-                    observed_name or None,
-                    str(profile.get("profile_source") or "unknown"),
-                    character_level,
-                    breakthrough_stage,
-                    int(
-                        6
-                        if profile.get("awakening_level") is None
-                        else profile["awakening_level"]
-                    ),
-                    fork_id,
-                    fork_level,
-                    fork_breakthrough_stage,
-                    profile.get("fork_refinement_level"),
-                    _optional_text(profile.get("selected_skill_id")),
-                    int(profile.get("ordinal") or 0),
-                    _json(frozen_profile),
-                ),
-            )
-            connection.executemany(
-                """
-                INSERT INTO battle_character_skill_snapshot(
-                    battle_record_id, character_id, skill_id, skill_level
-                ) VALUES (?, ?, ?, ?)
-                """,
-                [
-                    (record_id, character_id, str(skill_id), int(skill_level))
-                    for skill_id, skill_level in sorted(skills.items())
-                ],
-            )
-        if not profiles or snapshot_id is None:
-            return
-        character_ids = [row[0] for row in profiles]
-        placeholders = ",".join("?" for _ in character_ids)
-        items = connection.execute(
-            f"""
-            SELECT * FROM inventory_item
-            WHERE snapshot_id = ? AND equipped = 1
-              AND equipped_character_id IN ({placeholders})
-            ORDER BY equipped_character_id, kind, uid_slot, uid_serial
-            """,
-            (snapshot_id, *character_ids),
-        ).fetchall()
-        selected_uids: list[tuple[int, int]] = []
-        for item in items:
-            raw_item = _decoded(str(item["raw_item_json"]), {})
-            placement = (
-                raw_item.get("equipped_placement")
-                if isinstance(raw_item, Mapping)
-                else None
-            )
-            placement = placement if isinstance(placement, Mapping) else {}
-            connection.execute(
-                """
-                INSERT INTO battle_equipment_snapshot(
-                    battle_record_id, character_id, uid_serial, uid_slot,
-                    kind, item_id, suit_id, geometry, grid_count, quality,
-                    level, max_level, locked, target_row, target_column,
-                    names_json, suit_names_json, raw_item_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    record_id,
-                    int(item["equipped_character_id"]),
-                    int(item["uid_serial"]),
-                    int(item["uid_slot"]),
-                    item["kind"],
-                    item["item_id"],
-                    item["suit_id"],
-                    item["geometry"],
-                    int(item["grid_count"] or 0),
-                    item["quality"],
-                    item["level"],
-                    item["max_level"],
-                    int(item["locked"]),
-                    placement.get("row"),
-                    placement.get("column"),
-                    item["names_json"],
-                    item["suit_names_json"],
-                    item["raw_item_json"],
-                ),
-            )
-            selected_uids.append((int(item["uid_serial"]), int(item["uid_slot"])))
-        for uid_serial, uid_slot in selected_uids:
-            stats = connection.execute(
-                """
-                SELECT stat_group, ordinal, property_id, value, is_percent,
-                       names_json, raw_stat_json
-                FROM inventory_item_stat
-                WHERE snapshot_id = ? AND uid_serial = ? AND uid_slot = ?
-                ORDER BY stat_group, ordinal
-                """,
-                (snapshot_id, uid_serial, uid_slot),
-            ).fetchall()
-            connection.executemany(
-                """
-                INSERT INTO battle_equipment_stat_snapshot(
-                    battle_record_id, uid_serial, uid_slot, stat_group,
-                    ordinal, property_id, value, is_percent, names_json,
-                    raw_stat_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                [
-                    (
-                        record_id,
-                        uid_serial,
-                        uid_slot,
-                        stat["stat_group"],
-                        int(stat["ordinal"]),
-                        stat["property_id"],
-                        float(stat["value"]),
-                        int(stat["is_percent"]),
-                        stat["names_json"],
-                        stat["raw_stat_json"],
-                    )
-                    for stat in stats
-                ],
-            )
 
     @staticmethod
     def _materialize_character_stats(

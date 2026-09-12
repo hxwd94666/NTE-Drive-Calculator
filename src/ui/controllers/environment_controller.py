@@ -21,17 +21,19 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.workers import WorkerThread
+from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.ui.controllers.native_plugin_deployment_ui import refresh_native_plugin_status, deploy_native_plugin_from_settings
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError,
+    PluginDeploymentPendingCleanup,
     deploy_plugin,
     find_game_executables,
     game_process_running,
     npcap_installation_present,
     packaged_mod_workspace,
     packaged_plugin_dll,
-    restore_plugin,
 )
 from src.services.dwmapi_diagnostics import (
     collect_dwmapi_diagnostics,
@@ -47,7 +49,6 @@ from src.ui.controllers.mod_loader_controller import (
     activate_equipment_plugin_loading_method,
     deactivate_equipment_plugin_loading_method,
     equipment_plugin_loading_method_changed,
-    equipment_plugin_risk_acknowledgement_changed,
     selected_plugin_loading_method,
     start_equipment_mod_loader,
     stop_equipment_mod_loader,
@@ -72,7 +73,41 @@ def _new_environment_operation(
     )
 
 
+
+def _environment_result_acceptor(self, operation: OperationContext, capability: str):
+    revision = self.work_mode_service.operation_revision
+    delivered = False
+
+    def accept() -> bool:
+        nonlocal delivered
+        if delivered:
+            return False
+        delivered = True
+        context = self.app_context
+        return (
+            context.account.active_account_id == operation.account_id
+            and context.generation == operation.context_generation
+            and self.work_mode_service.operation_revision == revision
+            and self.work_mode_service.allowed(capability)
+        )
+
+    return accept
+
+
 def _refresh_equipment_plugin_status(self):
+    for name, worker_name in (
+        ("_equipment_plugin_primary_button", None),
+        ("_nte_core_diagnostic_button", "_nte_core_diagnostic_worker"),
+        ("_dwmapi_diagnostic_button", "_dwmapi_diagnostic_worker"),
+    ):
+        button = getattr(self, name, None)
+        worker = getattr(self, worker_name, None) if worker_name else None
+        if button is not None:
+            button.setEnabled(worker is None or not worker.isRunning())
+    stop_button = getattr(self, "_equipment_plugin_stop_button", None)
+    if stop_button is not None:
+        stop_button.setEnabled(True)
+        stop_button.setText("清理游戏目录")
     label = getattr(self, "_npcap_status_label", None)
     if label is not None:
         label.setText(
@@ -85,6 +120,8 @@ def _refresh_equipment_plugin_status(self):
     executable = getattr(self, "_equipment_plugin_game_executable_edit", None)
     bundle_label = getattr(self, "_equipment_plugin_bundle_label", None)
     if executable is None:
+        return
+    if refresh_native_plugin_status(self):
         return
     bundled_plugin = None
     loader_snapshot = None
@@ -131,13 +168,10 @@ def _refresh_equipment_plugin_status(self):
             "启动 Mod Loader" if method == "loader" else "部署代理 DLL"
         )
     if stop is not None:
-        stop.setText(
-            "停止 Mod Loader" if method == "loader" else "还原游戏目录"
-        )
+        stop.setText("清理游戏目录")
     if loader_snapshot is not None and loader_snapshot.phase == "running":
         plugin_label.setText(
-            "Mod Loader 监控进程正在运行；只有诊断确认装备 IPC 管道存在，"
-            "才表示游戏插件已经加载。"
+            "Mod Loader 正在等待游戏；请重新检测管道、握手与业务快照，监控运行不代表组件已就绪。"
         )
     elif not executable.text().strip():
         plugin_label.setText("尚未选择 HTGame.exe")
@@ -172,8 +206,7 @@ def _select_equipment_plugin_game_executable(self):
     )
     if selected:
         self._equipment_plugin_game_executable_edit.setText(selected)
-        self._ui_preferences["equipment_plugin_game_executable"] = selected
-        self._save_ui_preferences()
+        self.work_mode_service.set_game_executable(selected)
         self._refresh_equipment_plugin_status()
 
 
@@ -244,8 +277,7 @@ def _detect_equipment_plugin_game_executable(self):
             if not accepted:
                 return
         self._equipment_plugin_game_executable_edit.setText(selected)
-        self._ui_preferences["equipment_plugin_game_executable"] = selected
-        self._save_ui_preferences()
+        self.work_mode_service.set_game_executable(selected)
         self._refresh_equipment_plugin_status()
         self._equipment_plugin_status_label.setText(
             f"已自动找到并保存游戏主程序：{selected}"
@@ -285,23 +317,39 @@ def _detect_equipment_plugin_game_executable(self):
     worker.start()
 
 def _open_npcap_download(self):
+    if not _require_environment_diagnostics(self, packet=True, label="下载 Npcap"):
+        return
     self._open_url("https://npcap.com/dist/npcap-1.88.exe")
 
 def _show_npcap_status(self):
+    if not _require_environment_diagnostics(self, packet=True, label="检测 Npcap"):
+        return
     if npcap_installation_present():
         QMessageBox.information(
             self, "Npcap 状态", "已检测到 Npcap，背包同步环境已满足该项依赖。"
         )
         return
-    QMessageBox.warning(
-        self,
-        "Npcap 状态",
-        "未检测到 Npcap。背包同步无法通过本地核心组件读取游戏数据；"
-        "请点击“下载 Npcap 1.88”完成安装后再检测。",
+    self.operation_unavailable(
+        "检测 Npcap", "未检测到 Npcap，抓包同步缺少此项依赖；DLL 同步独立检测。"
+        "请在设置中下载官方 Npcap 安装程序，安装后再检测。", target="detection",
     )
 
 
+def _require_environment_diagnostics(self, *, packet: bool, label: str) -> bool:
+    capability = "diagnostics" if not packet or self.work_mode_service.allowed("diagnostics") else "packet_capture"
+    if not self.operation_entry(capability, label):
+        return False
+    try:
+        self.work_mode_service.require(capability)
+    except PermissionError as error:
+        QMessageBox.warning(self, "环境检测", str(error))
+        return False
+    return True
+
+
 def _diagnose_nte_core(self):
+    if not _require_environment_diagnostics(self, packet=True, label="诊断 nte-core"):
+        return
     current_worker = getattr(self, "_nte_core_diagnostic_worker", None)
     if current_worker is not None and current_worker.isRunning():
         QMessageBox.information(self, "nte-core 诊断", "诊断正在进行，请稍候。")
@@ -310,14 +358,16 @@ def _diagnose_nte_core(self):
     if button is not None:
         button.setEnabled(False)
         button.setText("诊断中…")
-    worker = WorkerThread(
-        target=lambda: collect_nte_core_diagnostics(
-            cwd=self.app_context.paths.app_dir
-        ),
-        parent=self,
-    )
+    capability = "diagnostics" if self.work_mode_service.allowed("diagnostics") else "packet_capture"
+
+    def collect():
+        self.work_mode_service.require(capability)
+        return collect_nte_core_diagnostics(cwd=self.app_context.paths.app_dir)
+
+    worker = WorkerThread(target=collect, parent=self)
     self._nte_core_diagnostic_worker = worker
     operation = _new_environment_operation(self, "nte_core_diagnostics")
+    accept_result = _environment_result_acceptor(self, operation, capability)
     log_event(
         "INFO",
         "environment.nte_core_diagnostics_started",
@@ -326,9 +376,16 @@ def _diagnose_nte_core(self):
     )
 
     def finish(result):
+        if self._nte_core_diagnostic_worker is not worker:
+            return
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 nte-core")
+        if not accept_result():
+            return
+        if result.get("error"):
+            self.operation_unavailable("诊断 nte-core", str(result["error"]), target="detection")
+            return
         detected = result.get("capture_detect")
         devices = capture_device_names(detected) if isinstance(detected, dict) else []
         log_event(
@@ -339,6 +396,8 @@ def _diagnose_nte_core(self):
             capture_device_count=len(devices),
             diagnostic_section_count=len(result),
         )
+        if not (self.work_mode_service.allowed("packet_capture") or self.work_mode_service.allowed("diagnostics")):
+            return
         self._show_nte_core_diagnostic_report(
             format_nte_core_diagnostics(result),
             devices,
@@ -350,9 +409,13 @@ def _diagnose_nte_core(self):
         )
 
     def failed(error):
+        if self._nte_core_diagnostic_worker is not worker:
+            return
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 nte-core")
+        if not accept_result():
+            return
         log_event(
             "ERROR",
             "environment.nte_core_diagnostics_failed",
@@ -360,7 +423,7 @@ def _diagnose_nte_core(self):
             operation,
             error=error,
         )
-        QMessageBox.warning(self, "nte-core 诊断", f"诊断程序执行失败：{error}")
+        self.operation_unavailable("诊断 nte-core", str(error), target="detection")
 
     worker.result_ready.connect(finish)
     worker.error.connect(failed)
@@ -396,6 +459,8 @@ def _show_nte_core_diagnostic_report(
         )
 
         def select_capture_device() -> None:
+            if not _require_environment_diagnostics(self, packet=True, label="手动指定抓取网卡"):
+                return
             proceed = QMessageBox.question(
                 dialog,
                 "高级排障",
@@ -443,17 +508,18 @@ def _show_nte_core_diagnostic_report(
 
 
 def _diagnose_dwmapi(self):
+    if not _require_environment_diagnostics(self, packet=False, label="诊断 dwmapi"):
+        return
     current_worker = getattr(self, "_dwmapi_diagnostic_worker", None)
     if current_worker is not None and current_worker.isRunning():
         QMessageBox.information(self, "dwmapi 诊断", "诊断正在进行，请稍候。")
         return
-    executable_edit = getattr(self, "_equipment_plugin_game_executable_edit", None)
-    executable = executable_edit.text().strip() if executable_edit is not None else ""
+    executable = self.work_mode_service.settings.game_executable
     button = getattr(self, "_dwmapi_diagnostic_button", None)
     if button is not None:
         button.setEnabled(False)
         button.setText("诊断中…")
-    preferences = getattr(self, "_ui_preferences", {}) or {}
+    record = self.work_mode_service.deployment_record
     try:
         runtime_snapshot = asdict(self._mod_plugin_loading_service.snapshot())
         runtime_snapshot["loader_path"] = str(runtime_snapshot["loader_path"])
@@ -463,23 +529,25 @@ def _diagnose_dwmapi(self):
             "phase": "probe_error",
             "detail": str(exc),
         }
-    worker = WorkerThread(
-        target=lambda: collect_dwmapi_diagnostics(
+    def collect():
+        self.work_mode_service.require("diagnostics")
+        return collect_dwmapi_diagnostics(
             game_executable_path=executable,
             application_root=self.app_context.paths.root,
             recorded_deployed_sha256=str(
-                preferences.get("equipment_plugin_deployed_sha256") or ""
+                record.get("deployed_sha256") or ""
             ),
             recorded_workspace_path=str(
-                preferences.get("equipment_plugin_workspace") or ""
+                record.get("workspace_path") or ""
             ),
             loading_method=selected_plugin_loading_method(self),
             loader_snapshot=runtime_snapshot,
-        ),
-        parent=self,
-    )
+        )
+
+    worker = WorkerThread(target=collect, parent=self)
     self._dwmapi_diagnostic_worker = worker
     operation = _new_environment_operation(self, "dwmapi_diagnostics")
+    accept_result = _environment_result_acceptor(self, operation, "diagnostics")
     log_event(
         "INFO",
         "environment.dwmapi_diagnostics_started",
@@ -489,9 +557,16 @@ def _diagnose_dwmapi(self):
     )
 
     def finish(result):
+        if self._dwmapi_diagnostic_worker is not worker:
+            return
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 dwmapi")
+        if not accept_result():
+            return
+        if result.get("error"):
+            self.operation_unavailable("诊断 dwmapi", str(result["error"]), target="detection")
+            return
         log_event(
             "INFO",
             "environment.dwmapi_diagnostics_succeeded",
@@ -499,12 +574,25 @@ def _diagnose_dwmapi(self):
             operation,
             diagnostic_section_count=len(result),
         )
-        self._show_dwmapi_diagnostic_report(format_dwmapi_diagnostics(result))
+        pipe = result.get("pipe") or {}
+        loader = result.get("loader") or {}
+        if pipe.get("state") in {"access_denied", "probe_error", "error"}:
+            self.operation_unavailable("诊断 dwmapi", str(pipe.get("message") or "命名管道检测失败。"), target="detection")
+            return
+        if pipe.get("state") == "missing" and loader.get("phase") != "running":
+            self.operation_unavailable("诊断 dwmapi", str(pipe.get("message") or "尚未发现游戏组件管道。"), target="detection")
+            return
+        if self.work_mode_service.allowed("diagnostics"):
+            self._show_dwmapi_diagnostic_report(format_dwmapi_diagnostics(result))
 
     def failed(error):
+        if self._dwmapi_diagnostic_worker is not worker:
+            return
         if button is not None:
             button.setEnabled(True)
             button.setText("诊断 dwmapi")
+        if not accept_result():
+            return
         log_event(
             "ERROR",
             "environment.dwmapi_diagnostics_failed",
@@ -512,7 +600,7 @@ def _diagnose_dwmapi(self):
             operation,
             error=error,
         )
-        QMessageBox.warning(self, "dwmapi 诊断", f"诊断程序执行失败：{error}")
+        self.operation_unavailable("诊断 dwmapi", str(error), target="detection")
 
     worker.result_ready.connect(finish)
     worker.error.connect(failed)
@@ -544,27 +632,38 @@ def _show_dwmapi_diagnostic_report(self: Any, report: str) -> None:
     dialog.exec()
 
 def _deploy_equipment_plugin(self):
-    consent = getattr(self, "_equipment_plugin_consent", None)
-    if consent is None or not consent.isChecked():
-        QMessageBox.warning(
-            self,
-            "部署装备插件",
-            "请先阅读风险提示，并勾选确认自愿使用装备插件、承担相应风险。",
-        )
+    if not self.operation_entry("native_load", "部署游戏内组件"):
         return
-    executable = self._equipment_plugin_game_executable_edit.text().strip()
-    if game_process_running():
+    try:
+        self.work_mode_service.require("native_load")
+    except PermissionError as error:
+        QMessageBox.warning(self, "部署游戏内组件", str(error))
+        return
+    executable = self.work_mode_service.settings.game_executable
+    if not executable.strip():
+        self.operation_unavailable("部署游戏内组件", "尚未选择游戏主程序 HTGame.exe。", target="deployment")
+        return
+    try:
+        running = game_process_running()
+    except EquipmentPluginDeploymentError as error:
+        QMessageBox.warning(self, "部署装备插件", str(error))
+        return
+    if running:
         QMessageBox.warning(
             self,
             "部署装备插件",
             "检测到游戏正在运行。\n请完全退出游戏后再部署插件。",
         )
         return
+    if getattr(inspect_game_component_bundle(self.app_context.paths.root), "layout", "") == "native-capture-v1":
+        deploy_native_plugin_from_settings(self)
+        return
     try:
         self._mod_plugin_loading_service.ensure_proxy_deployment_allowed()
         source = packaged_plugin_dll(self.app_context.paths.root)
-    except (EquipmentPluginDeploymentError, ModPluginLoadingError) as exc:
-        QMessageBox.warning(self, "部署装备插件", str(exc))
+    except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as exc:
+        if self.work_mode_service.allowed("native_load"):
+            self.operation_unavailable("部署游戏内组件", str(exc), target="deployment")
         return
     if QMessageBox.question(
         self,
@@ -586,6 +685,7 @@ def _deploy_equipment_plugin(self):
     )
     try:
         deployed = deploy_plugin(
+            operation_guard=self.work_mode_service.require,
             game_executable_path=executable,
             plugin_dll_path=source,
             application_root=self.app_context.paths.root,
@@ -593,55 +693,31 @@ def _deploy_equipment_plugin(self):
                 self.app_context.paths.config_dir / "mods-plugin"
             ),
             backup_directory=(
-                self.app_context.account.account_data_root
-                / "equipment_plugin_backups"
+                self.app_context.paths.config_dir / "component-backups"
             ),
         )
-        prior_workspace = str(
-            self._ui_preferences.get("equipment_plugin_workspace") or ""
-        )
-        prior_hash = str(
-            self._ui_preferences.get("equipment_plugin_deployed_sha256") or ""
-        )
-        registry_value_before = deployed.workspace_registry_value_before
-        registry_value_existed = deployed.workspace_registry_value_existed
-        if prior_hash and prior_workspace == str(deployed.workspace_path):
-            registry_value_before = (
-                self._ui_preferences.get(
-                    "equipment_plugin_workspace_registry_value_before"
-                )
-                or None
-            )
-            registry_value_existed = bool(
-                self._ui_preferences.get(
-                    "equipment_plugin_workspace_registry_value_existed"
-                )
-            )
-        self._ui_preferences.update({
-            "equipment_plugin_game_executable": str(deployed.game_executable),
-            "equipment_plugin_dll_source": str(source),
-            "equipment_plugin_backup_path": str(deployed.backup_path or ""),
-            "equipment_plugin_deployed_sha256": deployed.deployed_sha256,
-            "equipment_plugin_workspace": str(deployed.workspace_path),
-            "equipment_plugin_workspace_registry_value_before": registry_value_before or "",
-            "equipment_plugin_workspace_registry_value_existed": registry_value_existed,
-        })
-        self._save_ui_preferences()
+        self.work_mode_runtime.save_deployment(deployed)
+        record = self.work_mode_service.deployment_record
+        record["loading_method"] = "proxy"
+        self.work_mode_service.update_deployment(record)
         log_event(
             "INFO",
             "environment.plugin_deploy_succeeded",
             "装备插件部署完成",
             operation,
             backup_created=bool(deployed.backup_path),
-            registry_value_existed=bool(registry_value_existed),
+            registry_value_existed=deployed.workspace_registry_value_existed,
         )
-        self._equipment_plugin_status_label.setText("最新版 Mod 插件与装备脚本已部署；退出游戏前可在此还原。")
+        self._equipment_plugin_status_label.setText("当前 Calc 配套组件已部署；游戏退出后可清理加载入口。")
         QMessageBox.information(
             self,
             "部署装备插件",
             f"已部署 dwmapi.dll，并注册 Mod 工作区：\n{deployed.workspace_path}",
         )
-    except EquipmentPluginDeploymentError as exc:
+    except PluginDeploymentPendingCleanup as exc:
+        self.work_mode_runtime.save_pending_deployment(exc)
+        QMessageBox.warning(self, "组件部署待清理", str(exc))
+    except (EquipmentPluginDeploymentError, PermissionError) as exc:
         log_event(
             "ERROR",
             "environment.plugin_deploy_failed",
@@ -649,79 +725,12 @@ def _deploy_equipment_plugin(self):
             operation,
             error=exc,
         )
-        QMessageBox.warning(self, "部署装备插件", str(exc))
+        if self.work_mode_service.allowed("native_load"):
+            self.operation_unavailable("部署游戏内组件", str(exc), target="deployment")
 
 
-def _restore_equipment_plugin(self):
-    preferences = self._ui_preferences or {}
-    executable = self._equipment_plugin_game_executable_edit.text().strip()
-    deployed_sha256 = str(preferences.get("equipment_plugin_deployed_sha256") or "")
-    if not executable or not deployed_sha256:
-        QMessageBox.information(self, "还原装备插件", "当前账号没有可还原的部署记录。")
-        return
-    if QMessageBox.question(
-        self, "还原装备插件",
-        "将还原部署前备份的 dwmapi.dll；若没有备份，则只删除本程序部署的文件。\n"
-        "若 Mod 工作区仍由本程序持有，也会恢复部署前的注册表值。",
-        QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-    ) != QMessageBox.Yes:
-        return
-    operation = _new_environment_operation(self, "equipment_plugin")
-    log_event(
-        "INFO",
-        "environment.plugin_restore_started",
-        "开始还原装备插件",
-        operation,
-        backup_configured=bool(preferences.get("equipment_plugin_backup_path")),
-    )
-    try:
-        workspace_restored = restore_plugin(
-            game_executable_path=executable,
-            deployed_sha256=deployed_sha256,
-            backup_path=preferences.get("equipment_plugin_backup_path"),
-            mod_workspace_path=preferences.get("equipment_plugin_workspace") or None,
-            workspace_registry_value_before=preferences.get(
-                "equipment_plugin_workspace_registry_value_before"
-            ) or None,
-            workspace_registry_value_existed=bool(
-                preferences.get("equipment_plugin_workspace_registry_value_existed")
-            ),
-        )
-        self._ui_preferences.update({
-            "equipment_plugin_backup_path": "",
-            "equipment_plugin_deployed_sha256": "",
-            "equipment_plugin_workspace": "",
-            "equipment_plugin_workspace_registry_value_before": "",
-            "equipment_plugin_workspace_registry_value_existed": False,
-        })
-        self._save_ui_preferences()
-        log_event(
-            "INFO",
-            "environment.plugin_restore_succeeded",
-            "装备插件还原完成",
-            operation,
-            workspace_restored=bool(workspace_restored),
-        )
-        self._equipment_plugin_status_label.setText("已还原游戏目录中的 dwmapi.dll。")
-        QMessageBox.information(
-            self,
-            "还原装备插件",
-            "已完成还原。"
-            + (
-                "并已恢复此前的 Mod 工作区。"
-                if workspace_restored
-                else "Mod 工作区已被其他程序接管或不存在，未修改其注册表值。"
-            ),
-        )
-    except EquipmentPluginDeploymentError as exc:
-        log_event(
-            "ERROR",
-            "environment.plugin_restore_failed",
-            "装备插件还原失败",
-            operation,
-            error=exc,
-        )
-        QMessageBox.warning(self, "还原装备插件", str(exc))
+def _cleanup_equipment_plugin(self):
+    self.work_mode_controller.cleanup()
 
 
 def _focus_environment_configuration(self):
@@ -736,9 +745,6 @@ class EnvironmentControllerMixin:
     _refresh_equipment_plugin_status = _refresh_equipment_plugin_status
     _equipment_plugin_loading_method_changed = (
         equipment_plugin_loading_method_changed
-    )
-    _equipment_plugin_risk_acknowledgement_changed = (
-        equipment_plugin_risk_acknowledgement_changed
     )
     _activate_equipment_plugin_loading_method = (
         activate_equipment_plugin_loading_method
@@ -757,5 +763,5 @@ class EnvironmentControllerMixin:
     _diagnose_dwmapi = _diagnose_dwmapi
     _show_dwmapi_diagnostic_report = _show_dwmapi_diagnostic_report
     _deploy_equipment_plugin = _deploy_equipment_plugin
-    _restore_equipment_plugin = _restore_equipment_plugin
+    _cleanup_equipment_plugin = _cleanup_equipment_plugin
     _focus_environment_configuration = _focus_environment_configuration

@@ -32,7 +32,9 @@ class BattleReportDaoTests(unittest.TestCase):
         self.dao.close()
         self.temporary.cleanup()
 
-    def _insert(self, index: int, *, abyss: bool = True) -> dict:
+    def _insert(
+        self, index: int, *, abyss: bool = True, native_capture: dict | None = None,
+    ) -> dict:
         payload = {
             "abyss": {
                 "detected": abyss,
@@ -43,6 +45,8 @@ class BattleReportDaoTests(unittest.TestCase):
             "total_damage": float(index + 1),
             "total_hits": index + 1,
         }
+        if native_capture is not None:
+            payload["native_capture"] = native_capture
         raw_json = json.dumps(
             payload,
             ensure_ascii=False,
@@ -72,6 +76,17 @@ class BattleReportDaoTests(unittest.TestCase):
             raw_summary_json=raw_json,
             raw_summary_sha256=hashlib.sha256(raw_json.encode("utf-8")).hexdigest(),
         )
+
+    def test_history_type_uses_saved_origin_without_changing_raw_completeness(self) -> None:
+        from src.services.battle_report_history_projection import history_entry
+
+        packet = self._insert(1)
+        native = self._insert(2, native_capture={"captureId": "test-native", "complete": False})
+        rows = {row["battle_record_id"]: row for row in self.dao.list_battle_records()}
+        self.assertFalse(history_entry(rows[packet["record"]["battle_record_id"]]).native_capture)
+        self.assertTrue(history_entry(rows[native["record"]["battle_record_id"]]).native_capture)
+        stored = self.dao.load_battle_record(native["record"]["battle_record_id"])
+        self.assertIs(stored["raw_summary_payload"]["native_capture"]["complete"], False)
 
     def test_v13_schema_persists_raw_summary_and_restores_last_record(self) -> None:
         result = self._insert(1, abyss=False)

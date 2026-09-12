@@ -65,6 +65,13 @@ class GlobalHotkeyManager:
         with self._lock:
             return self._active_owner
 
+    def request_stop(self) -> None:
+        """Ask the current input owner to cancel without synthesizing a key event."""
+        with self._lock:
+            callback = self._callbacks.get("stop")
+        if callback is not None:
+            callback()
+
     def update_configuration(
         self,
         *,

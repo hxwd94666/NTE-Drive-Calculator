@@ -9,6 +9,7 @@ running nte-core inventory session.  It never relies on screenshot ordering.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 import time
@@ -301,29 +302,30 @@ class WarehouseStateManagementService:
             applied_changes: list[dict[str, Any]] = []
             total_changes = len(plan.changes)
             try:
-                for index, change in enumerate(plan.changes, 1):
-                    equipment = dict(change["equipment"])
-                    row = current_rows.get((equipment["slot"], equipment["serial"]))
-                    if row is None:
-                        raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
-                    self._report_progress(
-                        progress_callback,
-                        f"正在向游戏提交第 {index}/{total_changes} 件装备状态…",
-                    )
-                    try:
-                        self.state_writer.apply_one(
-                            row,
-                            str(change["target_state"]),
-                            equipment,
+                with self.state_writer.batch() if plan.changes else nullcontext():
+                    for index, change in enumerate(plan.changes, 1):
+                        equipment = dict(change["equipment"])
+                        row = current_rows.get((equipment["slot"], equipment["serial"]))
+                        if row is None:
+                            raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
+                        self._report_progress(
+                            progress_callback,
+                            f"正在向游戏提交第 {index}/{total_changes} 件装备状态…",
                         )
-                    except WarehouseStateWriteError as exc:
-                        raise WarehouseStateManagementError(str(exc)) from exc
-                    # Rule-generated changes already have the presentation UID,
-                    # while manually-created plans do not.  Return one consistent
-                    # form so the warehouse can update the affected card at once.
-                    applied_change = dict(change)
-                    applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
-                    applied_changes.append(applied_change)
+                        try:
+                            self.state_writer.apply_one(
+                                row,
+                                str(change["target_state"]),
+                                equipment,
+                            )
+                        except WarehouseStateWriteError as exc:
+                            raise WarehouseStateManagementError(str(exc)) from exc
+                        # Rule-generated changes already have the presentation UID,
+                        # while manually-created plans do not.  Return one consistent
+                        # form so the warehouse can update the affected card at once.
+                        applied_change = dict(change)
+                        applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
+                        applied_changes.append(applied_change)
                 if plan.command_projection_allowed and applied_changes:
                     projector = getattr(
                         user_dao, "apply_inventory_command_state_projection", None,

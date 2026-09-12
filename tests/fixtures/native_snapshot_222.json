@@ -1,0 +1,382 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "nativeHandshake": {
+    "jsonrpc": "2.0",
+    "id": "__native_hello",
+    "result": {
+      "protocolVersion": 1,
+      "providerId": "synthetic-provider",
+      "gamePid": 1234,
+      "ready": false,
+      "readyReason": "game_thread_pending",
+      "sceneKind": "unknown",
+      "capabilities": [
+        "combat.hit_buff.v1",
+        "combat.context.v1",
+        "combat.raw_evidence.v1",
+        "character.snapshot.v1",
+        "inventory.snapshot.v1",
+        "team.snapshot.v1",
+        "environment.snapshot.v1"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "native.snapshot.status",
+        "params": {}
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "providerId": "synthetic-provider",
+          "domains": [
+            {
+              "providerId": "synthetic-provider",
+              "domain": "character",
+              "enabled": false,
+              "ready": false,
+              "state": "disabled",
+              "snapshotId": null,
+              "generation": null,
+              "domainKey": null,
+              "observedUnixUs": null,
+              "observedMonotonicMs": null,
+              "recordCount": 0,
+              "sourceRecordCount": 0,
+              "enumerationComplete": false,
+              "complete": false,
+              "sourceCoverage": "unknown",
+              "changeCoverage": "unknown",
+              "failed": false,
+              "truncated": false,
+              "missing": []
+            },
+            {
+              "providerId": "synthetic-provider",
+              "domain": "inventory",
+              "enabled": false,
+              "ready": false,
+              "state": "disabled",
+              "snapshotId": null,
+              "generation": null,
+              "domainKey": null,
+              "observedUnixUs": null,
+              "observedMonotonicMs": null,
+              "recordCount": 0,
+              "sourceRecordCount": 0,
+              "enumerationComplete": false,
+              "complete": false,
+              "sourceCoverage": "unknown",
+              "changeCoverage": "unknown",
+              "failed": false,
+              "truncated": false,
+              "missing": []
+            },
+            {
+              "providerId": "synthetic-provider",
+              "domain": "team",
+              "enabled": false,
+              "ready": false,
+              "state": "disabled",
+              "snapshotId": null,
+              "generation": null,
+              "domainKey": null,
+              "observedUnixUs": null,
+              "observedMonotonicMs": null,
+              "recordCount": 0,
+              "sourceRecordCount": 0,
+              "enumerationComplete": false,
+              "complete": false,
+              "sourceCoverage": "unknown",
+              "changeCoverage": "unknown",
+              "failed": false,
+              "truncated": false,
+              "missing": []
+            },
+            {
+              "providerId": "synthetic-provider",
+              "domain": "environment",
+              "enabled": false,
+              "ready": false,
+              "state": "disabled",
+              "snapshotId": null,
+              "generation": null,
+              "domainKey": null,
+              "observedUnixUs": null,
+              "observedMonotonicMs": null,
+              "recordCount": 0,
+              "sourceRecordCount": 0,
+              "enumerationComplete": false,
+              "complete": false,
+              "sourceCoverage": "unknown",
+              "changeCoverage": "unknown",
+              "failed": false,
+              "truncated": false,
+              "missing": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "native.snapshot.refresh",
+        "params": {
+          "domain": "character"
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "providerId": "synthetic-provider",
+          "domain": "character",
+          "enabled": true,
+          "ready": true,
+          "state": "ready",
+          "snapshotId": "1",
+          "generation": "1",
+          "domainKey": "world-10:2/ps-20:3/inventory-30:4/clone-None:0:0",
+          "observedUnixUs": "1700000000000000",
+          "observedMonotonicMs": "1000",
+          "recordCount": 1,
+          "sourceRecordCount": 1,
+          "enumerationComplete": true,
+          "complete": false,
+          "sourceCoverage": "unknown",
+          "changeCoverage": "unknown",
+          "missing": [
+            "collection_coverage_unverified",
+            "skill_level_stage",
+            "awaken_selection",
+            "runtime_attributes"
+          ],
+          "failed": false,
+          "truncated": false
+        }
+      }
+    },
+    {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "native.snapshot.page",
+        "params": {
+          "domain": "character",
+          "snapshotId": "1",
+          "offset": 0,
+          "limit": 64
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "providerId": "synthetic-provider",
+          "domain": "character",
+          "enabled": true,
+          "ready": true,
+          "state": "ready",
+          "snapshotId": "1",
+          "generation": "1",
+          "domainKey": "world-10:2/ps-20:3/inventory-30:4/clone-None:0:0",
+          "observedUnixUs": "1700000000000000",
+          "observedMonotonicMs": "1000",
+          "recordCount": 1,
+          "sourceRecordCount": 1,
+          "enumerationComplete": true,
+          "complete": false,
+          "sourceCoverage": "unknown",
+          "changeCoverage": "unknown",
+          "missing": [
+            "collection_coverage_unverified",
+            "skill_level_stage",
+            "awaken_selection",
+            "runtime_attributes"
+          ],
+          "failed": false,
+          "truncated": false,
+          "records": [
+            {
+              "kind": "HTCharacterItem",
+              "ItemID": "synthetic_role",
+              "UniqueID": {
+                "solt": 1,
+                "serial": 2,
+                "key": "1:2"
+              },
+              "CharacterLevel": 20,
+              "SkillLevelData": [],
+              "AwakenEffectDataLists": [],
+              "runtimeAttributes": null
+            }
+          ],
+          "nextOffset": null
+        }
+      }
+    },
+    {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "native.snapshot.disable",
+        "params": {
+          "domain": "character"
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": {
+          "providerId": "synthetic-provider",
+          "domain": "character",
+          "enabled": false,
+          "ready": false,
+          "state": "disabled",
+          "snapshotId": null,
+          "generation": null,
+          "domainKey": null,
+          "observedUnixUs": null,
+          "observedMonotonicMs": null,
+          "recordCount": 0,
+          "sourceRecordCount": 0,
+          "enumerationComplete": false,
+          "complete": false,
+          "sourceCoverage": "unknown",
+          "changeCoverage": "unknown",
+          "failed": false,
+          "truncated": false,
+          "missing": []
+        }
+      }
+    }
+  ],
+  "lowRiskWaitingStatus": {
+    "handshaken": true,
+    "capture_running": false,
+    "capture_profile": "inventory",
+    "core_state": "preparing",
+    "capture_status": "waiting_network",
+    "capture_operation_id": "synthetic-op-1",
+    "capture_error_code": null,
+    "latest_inventory_generation": null,
+    "has_battle_data": false,
+    "raw_capture_path": null
+  },
+  "sourceChangedError": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "error": {
+      "code": -32001,
+      "message": "source_changed"
+    }
+  },
+  "observedReference": {
+    "providerId": "synthetic-provider",
+    "domain": "character",
+    "snapshotId": "1",
+    "generation": "1",
+    "domainKey": "world-10:2/ps-20:3/inventory-30:4/clone-None:0:0",
+    "observedUnixUs": "1700000000000000",
+    "observedMonotonicMs": "1000",
+    "binding": "last_observed_only",
+    "changeCoverage": "unknown",
+    "complete": false,
+    "sourceCoverage": "unknown"
+  },
+  "producerSteps": [
+    {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "native.snapshot.refresh",
+        "params": {
+          "domain": "character"
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "providerId": "synthetic-provider",
+          "domain": "character",
+          "enabled": true,
+          "ready": true,
+          "state": "ready",
+          "snapshotId": "1",
+          "generation": "1",
+          "domainKey": "world-1:1/controller-2:1/ps-3:1",
+          "observedUnixUs": "100",
+          "observedMonotonicMs": "10",
+          "recordCount": 1,
+          "sourceRecordCount": 1,
+          "enumerationComplete": true,
+          "complete": false,
+          "sourceCoverage": "unknown",
+          "changeCoverage": "unknown",
+          "failed": false,
+          "truncated": false,
+          "missing": []
+        }
+      }
+    },
+    {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "native.snapshot.page",
+        "params": {
+          "domain": "character",
+          "snapshotId": "1",
+          "offset": 0,
+          "limit": 64
+        }
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "providerId": "synthetic-provider",
+          "domain": "character",
+          "enabled": true,
+          "ready": true,
+          "state": "ready",
+          "snapshotId": "1",
+          "generation": "1",
+          "domainKey": "world-1:1/controller-2:1/ps-3:1",
+          "observedUnixUs": "100",
+          "observedMonotonicMs": "10",
+          "recordCount": 1,
+          "sourceRecordCount": 1,
+          "enumerationComplete": true,
+          "complete": false,
+          "sourceCoverage": "unknown",
+          "changeCoverage": "unknown",
+          "failed": false,
+          "truncated": false,
+          "missing": [],
+          "records": [
+            {
+              "synthetic": true
+            }
+          ],
+          "nextOffset": null
+        }
+      }
+    }
+  ],
+  "producerEvidence": {
+    "source": "compiled_private_integration_snapshot_control_test",
+    "roots": "synthetic",
+    "gameConnected": false,
+    "candidateSha256": "0828dedd7ddee676c7cf0e5c0c938d9a53844b27da41948218aef53caba1cdec"
+  }
+}

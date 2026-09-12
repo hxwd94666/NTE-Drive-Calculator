@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextlib import nullcontext
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -12,12 +13,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.integrations.nte_core import NteCoreClient
+from src.integrations.operation_guard import OperationGuard, require_operation
 from src.observability import OperationContext, log_event
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
 from .inventory_sync_contracts import InventoryCoreClient
 from .inventory_sync_runtime import prune_raw_captures, run_inventory_sync
+from .inventory_capture_wait import CaptureWaitMonitor, InventorySyncCancelled, receive_capture_status, require_inventory_operation
 
 
 SyncPhase = Literal[
@@ -47,8 +50,12 @@ class InventorySyncState:
     last_snapshot_id: int | None = None
     last_item_count: int | None = None
     last_synced_at_utc: str | None = None
+    source_snapshot_ready: bool = False
+    capture_source: Literal["packet", "native"] = "packet"
     error: str | None = None
     error_code: str | None = None
+    character_sync_revision: int = 0
+    character_sync_error: str | None = None
     updated_at_utc: str = ""
 
 
@@ -76,7 +83,6 @@ class InventorySyncService:
     nte-core 回调只替换内存中的最新事件并唤醒工作线程，不执行 SQLite 写入；因此
     大背包和连续事件不会堵塞核心组件的事件分发线程。
     """
-
     def __init__(
         self,
         database_path: str | Path,
@@ -84,6 +90,7 @@ class InventorySyncService:
         account_id: str | None = None,
         account_name: str | None = None,
         client_factory: Callable[[], InventoryCoreClient] = _default_core_client,
+        capture_source: Literal["packet", "native"] = "packet",
         dao_factory: Callable[..., UserDataDao] = UserDataDao,
         settle_seconds: float | None = None,
         capture_device_id: str | None = None,
@@ -92,6 +99,9 @@ class InventorySyncService:
         poll_seconds: float = 0.05,
         template_refresh: Callable[[], Any] | None = None,
         operation_context: OperationContext | None = None,
+        operation_guard: OperationGuard | None = None,
+        context_is_current: Callable[[], bool] | None = None,
+        native_profiles_apply: Callable[..., int] | None = None,
     ) -> None:
         if settle_seconds is not None and settle_seconds <= 0:
             raise ValueError("settle_seconds 必须大于 0")
@@ -100,7 +110,16 @@ class InventorySyncService:
         self.database_path = Path(database_path).expanduser().resolve()
         self.account_id = account_id
         self.account_name = account_name
+        if capture_source not in {"packet", "native"}:
+            raise ValueError("不支持的背包采集来源")
+        if capture_source == "native" and client_factory is _default_core_client:
+            raise ValueError("DLL 同步必须使用共享原生会话租约")
+        self.capture_source = capture_source
         self._client_factory = client_factory
+        self._operation_guard = operation_guard
+        self._context_is_current = context_is_current
+        self._native_profiles_apply = native_profiles_apply
+        self._capture_monitor = CaptureWaitMonitor()
         self._dao_factory = dao_factory
         self._settle_seconds = settle_seconds
         self._capture_device_id = capture_device_id
@@ -117,7 +136,7 @@ class InventorySyncService:
             account_id=account_id,
         )
 
-        self._state = InventorySyncState(updated_at_utc=_utc_now())
+        self._state = InventorySyncState(capture_source=capture_source, updated_at_utc=_utc_now())
         self._state_condition = threading.Condition()
         self._handlers: list[StateHandler] = []
         self._handlers_lock = threading.Lock()
@@ -161,7 +180,6 @@ class InventorySyncService:
         if client is None or client.hello_result is None:
             return None
         return dict(client.hello_result)
-
     def begin_full_inventory_guard(
         self,
         item_uids: frozenset[tuple[int, int]],
@@ -203,7 +221,6 @@ class InventorySyncService:
             self._pending_runtime_state_deltas.clear()
             self._state_condition.notify_all()
         return token
-
     def end_full_inventory_guard(self, token: object) -> None:
         """Release a previously installed fast-apply full-inventory guard."""
 
@@ -222,7 +239,6 @@ class InventorySyncService:
             self._scoped_equipment_snapshots.clear()
             self._pending_runtime_state_deltas.clear()
             self._state_condition.notify_all()
-
     def finish_full_inventory_guard(self, token: object, *, grace_seconds: float) -> bool:
         """Keep the membership filter through delayed apply responses.
 
@@ -239,7 +255,6 @@ class InventorySyncService:
                 return False
             self._snapshot_guard_expires_at = float("inf")
         return True
-
     def guard_observed_inventory_reduction(self, token: object) -> bool:
         """Return whether this guarded action received a smaller declared count."""
 
@@ -248,7 +263,6 @@ class InventorySyncService:
                 token is self._snapshot_guard_token
                 and self._snapshot_guard_saw_declared_reduction
             )
-
     def _full_inventory_guard(self) -> tuple[int, frozenset[tuple[int, int]] | None]:
         with self._snapshot_guard_lock:
             expires_at = self._snapshot_guard_expires_at
@@ -259,11 +273,9 @@ class InventorySyncService:
                 self._snapshot_guard_expires_at = None
                 self._snapshot_guard_generation += 1
             return self._snapshot_guard_generation, self._snapshot_guard_uids
-
     def _full_inventory_guard_source_snapshot_id(self) -> int | None:
         with self._snapshot_guard_lock:
             return self._snapshot_guard_source_snapshot_id
-
     def _release_finished_guard_for_full_snapshot(
         self,
         expected_uids: frozenset[tuple[int, int]],
@@ -284,7 +296,6 @@ class InventorySyncService:
             self._snapshot_guard_expires_at = None
             self._snapshot_guard_generation += 1
         self._log_guard_diagnostic(diagnostic)
-
     def _snapshot_guard_diagnostic_locked(self) -> tuple[int, int, int, bool]:
         return (
             self._snapshot_guard_packet_count,
@@ -301,7 +312,10 @@ class InventorySyncService:
             "快照守卫测试结果：收到背包事件={}，事件内有效装备={}，命中冻结库存={}，完整UID集合={}",
             *diagnostic,
         )
-
+    def equipment_batch(self):
+        """原生装配批次暂缓读取；旧抓包链维持原有接收行为。"""
+        client = self._equipment_client()
+        return client.equipment_batch() if self.capture_source == "native" else nullcontext()
     def equip_one_key(
         self,
         *,
@@ -312,16 +326,13 @@ class InventorySyncService:
     ) -> Any:
         """复用正在持续抓取的核心进程执行一键装配。"""
 
-        client = self._client
-        if client is None or not self.is_running:
-            raise RuntimeError("背包同步服务未运行，不能调用一键装配")
+        client = self._equipment_client()
         return client.equip_one_key(
             character=character,
             placements=placements,
             core=core,
             timeout=timeout,
         )
-
     def equip_module(
         self,
         *,
@@ -336,7 +347,6 @@ class InventorySyncService:
         return client.equip_module(
             character=character, equipment=equipment, row=row, column=column,
         )
-
     def unequip_module(
         self,
         *,
@@ -347,7 +357,6 @@ class InventorySyncService:
 
         client = self._equipment_client()
         return client.unequip_module(character=character, equipment=equipment)
-
     def unequip_core(
         self,
         *,
@@ -358,13 +367,11 @@ class InventorySyncService:
 
         client = self._equipment_client()
         return client.unequip_core(character=character, equipment=equipment)
-
     def unequip_all(self, *, character: Mapping[str, Any]) -> Any:
         """卸下角色当前全部驱动和卡带。"""
 
         client = self._equipment_client()
         return client.unequip_all(character=character)
-
     def move_module_to_character(
         self,
         *,
@@ -379,18 +386,20 @@ class InventorySyncService:
         return client.move_module_to_character(
             character=character, equipment=equipment, row=row, column=column,
         )
-
     def set_item_discarded(self, *, equipment: Mapping[str, Any], discarded: bool) -> Any:
         """复用持续运行的核心进程更新单件装备的弃置状态。"""
         client = self._equipment_client()
         return client.set_item_discarded(equipment=equipment, discarded=discarded)
-
     def set_item_locked(self, *, equipment: Mapping[str, Any], locked: bool) -> Any:
         """复用持续运行的核心进程更新单件装备的锁定状态。"""
         client = self._equipment_client()
         return client.set_item_locked(equipment=equipment, locked=locked)
-
     def _equipment_client(self) -> InventoryCoreClient:
+        require_operation(self._operation_guard, "native_equipment")
+        if self._stop_requested.is_set() or (
+            self._context_is_current is not None and not self._context_is_current()
+        ):
+            raise InventorySyncCancelled("背包同步已停止或账号已变更，不能继续修改装备。")
         client = self._client
         if client is None or not self.is_running:
             raise RuntimeError("背包同步服务未运行，不能修改装备状态")
@@ -399,12 +408,10 @@ class InventorySyncService:
         if not isinstance(capabilities, list) or "equipment" not in capabilities:
             raise RuntimeError("当前 nte-core 不支持 equipment 状态管理能力")
         return client
-
     def add_state_handler(self, handler: StateHandler) -> None:
         with self._handlers_lock:
             if handler not in self._handlers:
                 self._handlers.append(handler)
-
     def remove_state_handler(self, handler: StateHandler) -> None:
         with self._handlers_lock:
             if handler in self._handlers:
@@ -431,6 +438,7 @@ class InventorySyncService:
                 continue
 
     def start(self) -> None:
+        require_operation(self._operation_guard, "native_sync" if self.capture_source == "native" else "packet_capture")
         if self.is_running:
             return
         log_event(
@@ -442,6 +450,8 @@ class InventorySyncService:
         self._stop_requested.clear()
         self._event_ready.clear()
         self._capture_ready.clear()
+        self._state = replace(self._state, source_snapshot_ready=False)
+        self._capture_monitor = CaptureWaitMonitor()
         with self._event_lock:
             self._latest_inventory_event = None
         self._publish(
@@ -460,6 +470,10 @@ class InventorySyncService:
         self._thread.start()
 
     def _on_inventory_event(self, event: dict[str, Any]) -> None:
+        try:
+            require_inventory_operation(self)
+        except (PermissionError, InventorySyncCancelled):
+            return
         # 单槽合并：完整快照描述的是某一时刻的全部背包，积压时只需处理最新版本。
         self._capture_scoped_equipment_snapshot(event)
         with self._event_lock:
@@ -467,13 +481,7 @@ class InventorySyncService:
         self._event_ready.set()
 
     def _on_capture_status_event(self, event: dict[str, Any]) -> None:
-        """只在库存抓包链路实际就绪后放行登录提示。"""
-
-        payload = event.get("params") if event.get("method") == "event.capture.status" else event
-        if not isinstance(payload, Mapping) or payload.get("profile") != "inventory":
-            return
-        if payload.get("status") == "running":
-            self._capture_ready.set()
+        receive_capture_status(self, event)
 
     def scoped_equipment_snapshot_cursor(self) -> int:
         """Return the in-memory cursor used to fence one equipment dispatch."""
@@ -728,14 +736,21 @@ class InventorySyncService:
     def _prune_raw_captures(self) -> None:
         prune_raw_captures(self)
 
+    def request_stop(self) -> None:
+        self._stop_requested.set()
+        if self.capture_source == "native" and self._client is not None:
+            request = getattr(self._client, "request_stop", None)
+            if request is not None:
+                request()
+        self._event_ready.set()
+
     def stop(self, timeout: float = 10.0) -> None:
         if timeout <= 0:
             raise ValueError("timeout 必须大于 0")
         thread = self._thread
         if thread is None:
             return
-        self._stop_requested.set()
-        self._event_ready.set()
+        self.request_stop()
         thread.join(timeout)
         if thread.is_alive():
             raise TimeoutError("背包同步服务未能在限定时间内停止")

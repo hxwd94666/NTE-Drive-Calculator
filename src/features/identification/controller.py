@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.features.input_operation_entry import request_input_entry
+
 import json
 import os
 import re
@@ -87,9 +89,13 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         minimize_window: Callable[[], None],
         restore_window: Callable[[], None],
         activate_window: Callable[[], None],
+        operation_entry: Callable[[str, str], bool] | None = None,
+        operation_unavailable: Callable[[str, str, str], None] | None = None,
     ) -> None:
         super().__init__(dialog_parent)
         self.app_context = app_context
+        self.operation_entry = operation_entry
+        self.operation_unavailable = operation_unavailable
         self._dialog_parent = dialog_parent
         self._card_factory = card_factory
         self._equipment_presentation = equipment_presentation
@@ -351,6 +357,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             self._identify_from_manual()
 
     def _start_identify_capture_mode(self):
+        if not request_input_entry(self, "interface_input", "截图鉴定"):
+            return
         dependencies = _current_identification_dependencies(self)
         hotkeys = self._hotkey_manager.configuration
         self._identify_dependencies = dependencies

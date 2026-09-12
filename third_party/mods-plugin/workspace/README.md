@@ -1,7 +1,18 @@
 # NTE Mods Plugin workspace
 
-`nte-dps-tool.exe` reads the optional in-game NTE Mods Plugin and its restricted
-script templates from this directory:
+The application reads the optional in-game NTE Mods Plugin and its restricted
+script templates from this directory. This local trial also includes NTE_Capture.dll,
+native-capture.json and its license notices. The existing plugin loads the capture
+DLL normally from the registered workspace; replacing it requires a game restart.
+The capture DLL stays idle until the battle capture request. Calc automatically
+selects it when its endpoint exists and shows per-hit raw execution evidence in hit
+details, with Buff snapshots as supplementary observations. The current execution
+probe covers the verified Xiaozhen path; captured Spec fields and outputs do not
+prove complete attribute evaluation or Buff participation. See the manifest for
+the component digest and pending runtime validation status.
+Generated SDK caches are not release inputs.
+
+The original script layout is:
 
 ```text
 plugins/
@@ -19,7 +30,7 @@ plugins/
 
 Building `native/nte-mods-plugin/nte-mods-plugin.sln` stages the
 compiled DLL here automatically. Windows GUI release archives include this
-directory beside `nte-dps-tool.exe`. Only `dwmapi.dll` is a Windows module;
+directory beside the application. `dwmapi.dll` and `NTE_Capture.dll` are Windows modules;
 the `.nte` files are validated data programs interpreted by that DLL.
 Keep the complete `plugins` directory beside the executable when replacing a
 local build. The desktop program rejects an older DLL that lacks any host API

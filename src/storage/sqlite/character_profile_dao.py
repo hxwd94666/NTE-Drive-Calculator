@@ -516,23 +516,31 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 "DELETE FROM character_profile WHERE character_id = ?",
                 (raw_character_id,),
             )
+            observed = connection.execute(
+                "DELETE FROM character_profile_observation WHERE character_id = ?", (raw_character_id,),
+            )
             connection.commit()
         except sqlite3.Error as exc:
             connection.rollback()
             raise UserDataError("无法重置角色养成指针") from exc
-        return bool(cursor.rowcount)
+        return bool(cursor.rowcount or observed.rowcount)
 
     def reset_all_character_profiles(self) -> int:
         """删除当前账号全部角色养成指针，保留额外形状与基础权重。"""
 
         connection = self._db()
         try:
-            cursor = connection.execute("DELETE FROM character_profile")
+            count = int(connection.execute(
+                "SELECT COUNT(*) FROM (SELECT character_id FROM character_profile UNION "
+                "SELECT character_id FROM character_profile_observation)"
+            ).fetchone()[0])
+            connection.execute("DELETE FROM character_profile_observation")
+            connection.execute("DELETE FROM character_profile")
             connection.commit()
         except sqlite3.Error as exc:
             connection.rollback()
             raise UserDataError("无法重置全部角色养成指针") from exc
-        return int(cursor.rowcount)
+        return count
 
     def save_character_profile(
         self,
@@ -654,6 +662,9 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                     int(bool(likeability_level_10_enabled)),
                     int(selection_initialized), now, now,
                 ),
+            )
+            connection.execute(
+                "DELETE FROM character_profile_observation WHERE character_id = ?", (raw_character_id,),
             )
             connection.execute(
                 "DELETE FROM character_profile_skill WHERE character_id = ?",

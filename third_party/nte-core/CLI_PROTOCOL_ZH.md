@@ -18,6 +18,11 @@ nte-core devices --json
 
 `--data-dir` 指定 Core PCAP 文件根目录，默认是 `logs`。显式目录会直接使用，并在原始抓包启动时创建。
 
+私有原生采集构建还提供 `serve-native --stdio --game-pid <pid> [--data-dir <path>]`。该模式的
+`capture.start.raw_capture` 默认 enabled，保存紧凑 DLL 原始证据，显式 disabled 不写原始记录，文件不是 PCAP。
+账号目录、实际原始文件位置和写入完整性经现有战报扩展保留；能力、路径与完整性规则见
+[原生通信规范](NATIVE_CAPTURE_PROTOCOL.md)。
+
 ### 一次性命令示例
 
 ```powershell
@@ -125,6 +130,7 @@ Core 领域错误使用 code `-32000`、message `Core error`，并提供稳定�
 | `capture.start` | 抓包选项 | 是 | 进程内 `operation_id` |
 | `capture.stop` | `{}` 或省略 | 是 | 已停止的 `operation_id` |
 | `inventory.get_latest` | `{}` 或省略 | 是 | 最新完整背包快照 |
+| `buff.get_snapshot` | `{}`、null 或省略 | 是 | 私有空闲诊断用队伍效果快照，见 [Buff 观察接口](BUFF_OBSERVER.md) |
 | `equipment.equip_module` | 角色、装备、行、列 | 是 | 插件派发状态 |
 | `equipment.equip_core` | 角色、装备 | 是 | 插件派发状态 |
 | `equipment.unequip_module` | 角色、装备 | 是 | 插件派发状态 |
@@ -345,7 +351,9 @@ stdout 永远不会输出 `PacketDebug`、payload preview、payload hex、decode
 
 返回一页有序逐击数据。`limit` 必填，范围为 1～500。`cursor` 可省略/为 null（从首条保留记录开始），也可传入 `next_cursor` 返回的正十进制字符串。sequence、cursor、total 均使用字符串，页面同时携带同一战斗 `generation`。每行包含 Core 已持有的有界、脱敏战斗事实，包括记录 ID、角色来源、归因状态/未知原因、方向、伤害/追击、目标投影、技能标识和深渊半场。`overkill_damage` 表示 primary `damage` 中超过有效 `target_hp_before` 的部分，不包含追击伤害；Core 缺少有效目标 HP 快照时为零。`max_hp_reduction` 表示归属于该次命中的额外最大生命值损失，并与 `total_damage` 分开返回。逐击行不包含网络包字节、端点或 PCAP 数据。稳定队伍快照尚不存在时，`team_snapshot_id` 明确返回 null，不根据当前 UI 状态推测。
 
-覆纹追加伤害的结算容器含有经过结构验证的角色声明时，Core 先把前置击候选限制为该角色，再沿用伤害匹配、血量连续性和唯一近时命中的规则，追加到匹配的逐击行。角色声明本身不产生已知角色的独立逐击；若仍找不到前置击，保留原有未归因伤害表示。同帧同伤害但解码位置或目标不同的命中分别归并。当前包与重组包中的同一次结算只补全来源，不重复计入伤害。
+覆纹追加伤害的结算容器含有经过结构验证的角色声明时，Core 先把前置击候选限制为该角色，再沿用伤害匹配、血量连续性和唯一近时命中的规则，追加到匹配的逐击行。若找不到前置击，独立结算主伤害及追加伤害仍保留该容器的角色声明：角色目录存在时 character_known=true、character_source=packet；缺失、非法或目录未知时仍为未知角色。角色已知不代表技能已知，缺少绑定的 GE、GA、技能和元素字段保持未知，不借用其他角色或邻近命中的技能。同帧同伤害但解码位置或目标不同的命中分别归并。当前包与重组包中的同一次结算只补全来源，不重复计入伤害。
+
+结构完整的服务端主伤害即使没有前置技能命中，也按精确金额保存，角色归属按上述容器声明处理；普通显示类型 0 不再仅进入诊断。仍有尚未解决的客户端目标候选时，保留诊断表示以避免重复计数，不按金额或血量猜测归属。死亡残差在已观察主伤害和追加伤害之后处理；已计入逐击的金额不再次进入未归属伤害诊断，也不作为新的客户端来源重复进入校准。
 
 Core 只保留有界命中窗口。更早记录被裁剪后，`complete` 变为 false，`first_available_cursor` 指出首条仍可读取记录。过旧 cursor 返回 `BATTLE_AXIS_CURSOR_EXPIRED`；超过 `total_hits + 1` 的 cursor 返回 `BATTLE_AXIS_CURSOR_INVALID`。
 

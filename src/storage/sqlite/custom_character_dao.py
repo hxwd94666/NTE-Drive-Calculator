@@ -246,6 +246,9 @@ class CustomCharacterDaoMixin:
                 (raw_character_id,),
             )
             connection.execute(
+                "DELETE FROM character_profile_observation WHERE character_id = ?", (raw_character_id,),
+            )
+            connection.execute(
                 "DELETE FROM character_profile WHERE character_id = ?",
                 (raw_character_id,),
             )

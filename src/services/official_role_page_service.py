@@ -30,6 +30,7 @@ from src.services.damage_calculation_service import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.native_role_profile_projection import project_native_role_profile
 from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
 
 __all__ = [
@@ -422,6 +423,9 @@ def load_official_role_detail(
         )
         if saved_profile is None:
             profile["likeability_level_10_enabled"] = likeability_bonus is not None
+        profile = project_native_role_profile(
+            profile, user_dao.get_native_character_profile_observation(character_id), persisted=saved_profile is not None,
+        )
         profile = resolve_awakening_profile(profile, awakenings)
         profile["persisted"] = saved_profile is not None
         current_items: list[dict[str, Any]] = []

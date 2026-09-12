@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import AbstractContextManager, ExitStack, contextmanager
+import time
 from typing import Any, Protocol
+
+from src.integrations.nte_core_protocol import is_mods_plugin_busy_error
 
 
 class WarehouseStateWriteError(RuntimeError):
@@ -12,6 +16,8 @@ class WarehouseStateWriteError(RuntimeError):
 
 
 class LiveInventorySync(Protocol):
+    def equipment_batch(self) -> AbstractContextManager: ...
+
     @property
     def state(self) -> Any: ...
 
@@ -65,6 +71,22 @@ class WarehouseStateWriter:
     def __init__(self, sync_service: LiveInventorySync) -> None:
         self.sync_service = sync_service
 
+    @staticmethod
+    def _dispatch(dispatch, **kwargs):
+        for attempt in range(6):
+            try:
+                return dispatch(**kwargs)
+            except Exception as error:
+                if not is_mods_plugin_busy_error(error) or attempt == 5:
+                    raise
+                time.sleep(0.6)
+
+    @contextmanager
+    def batch(self):
+        with ExitStack() as scope:
+            self._dispatch(lambda: scope.enter_context(self.sync_service.equipment_batch()))
+            yield
+
     def ensure_ready(self) -> None:
         state = self.sync_service.state
         if (
@@ -95,34 +117,34 @@ class WarehouseStateWriter:
         locked = bool(row.get("locked"))
         if target_state == "normal":
             if discarded:
-                self.sync_service.set_item_discarded(
+                self._dispatch(self.sync_service.set_item_discarded,
                     equipment=equipment,
                     discarded=False,
                 )
             if locked:
-                self.sync_service.set_item_locked(
+                self._dispatch(self.sync_service.set_item_locked,
                     equipment=equipment,
                     locked=False,
                 )
         elif target_state == "locked":
             if discarded:
-                self.sync_service.set_item_discarded(
+                self._dispatch(self.sync_service.set_item_discarded,
                     equipment=equipment,
                     discarded=False,
                 )
             if not locked:
-                self.sync_service.set_item_locked(
+                self._dispatch(self.sync_service.set_item_locked,
                     equipment=equipment,
                     locked=True,
                 )
         else:
             if locked:
-                self.sync_service.set_item_locked(
+                self._dispatch(self.sync_service.set_item_locked,
                     equipment=equipment,
                     locked=False,
                 )
             if not discarded:
-                self.sync_service.set_item_discarded(
+                self._dispatch(self.sync_service.set_item_discarded,
                     equipment=equipment,
                     discarded=True,
                 )

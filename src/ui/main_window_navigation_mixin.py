@@ -73,6 +73,9 @@ class MainWindowNavigationMixin:
             self._nav_buttons[item.key] = button
             if item.sidebar:
                 sl.addWidget(button)
+        self.work_mode_button = QPushButton("模式：离线")
+        self.work_mode_button.clicked.connect(lambda: self._go("settings"))
+        sl.addWidget(self.work_mode_button)
         sl.addStretch()
         body.addWidget(sidebar)
 

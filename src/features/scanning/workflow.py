@@ -2,6 +2,8 @@
 """Scanning workflow implementation used by ScanningController."""
 
 from __future__ import annotations
+
+from src.features.input_operation_entry import request_input_entry, show_input_unavailable
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
 from src.app.constants import DRONE_HELP, OFFLINE_HELP, SCAN_HELP
@@ -21,7 +23,7 @@ from src.features.scanning.operation_logging import (
     begin_scan_operation as _begin_scan_operation,
     scan_event as _scan_event,
 )
-from src.features.scanning.post_action_dialog import load_scan_post_action_config, show_scan_post_action_dialog
+from src.features.scanning.post_action_dialog import load_scan_post_action_config
 from src.features.scanning.scan_contracts import (
     offline_scope_replaces_inventory,
     vision_cancel_message,
@@ -64,17 +66,11 @@ def _on_priority_changed(self):
     pass
 
 
-def _open_scan_post_action_manager(self):
-    dependencies = _current_scanning_dependencies(self)
-    show_scan_post_action_dialog(
-        self.dialog_parent,
-        dependencies.user_config_dir,
-        dependencies.config_dir,
-        user_database_path=dependencies.user_database_path,
-    )
 
 
 def _do_exec(self):
+    if str(self.scan_group.checkedId()) in {"1", "2"} and not request_input_entry(self, "interface_input", "游戏界面扫描"):
+        return
     dependencies = _current_scanning_dependencies(self)
     sel = self.role_selector.get_selected()
     sm = str(self.scan_group.checkedId())
@@ -530,6 +526,8 @@ def _on_vision_canceled(self, count):
 
 
 def _start_scan(self, drone_mode):
+    if not request_input_entry(self, "interface_input", "增量截图扫描"):
+        return
     dependencies = _current_scanning_dependencies(self)
     self._scan_dependencies = dependencies
     _begin_scan_operation(self, dependencies, route=str(drone_mode))
@@ -539,6 +537,7 @@ def _start_scan(self, drone_mode):
         output_dir=dependencies.screenshot_dir,
         template_path=dependencies.template_dir / "new_tag.png",
         mode=drone_mode,
+        operation_guard=dependencies.operation_guard,
         parent=self,
     )
     self._scan_worker.scan_done.connect(self._on_scan_done)
@@ -552,6 +551,8 @@ def _start_gamepad_scan(
     self, total_drives, post_actions_config=None, selected_roles=None, parse_during_scan=True,
     amd_compatibility=False, capture_driver="mouse",
 ):
+    if not request_input_entry(self, "interface_input", "手柄全量扫描" if capture_driver == "gamepad" else "鼠标全量扫描"):
+        return
     dependencies = _current_scanning_dependencies(self)
     self._scan_dependencies = dependencies
     self._replace_inventory_on_next_parse = True
@@ -612,6 +613,7 @@ def _start_gamepad_scan(
         parse_during_scan=parse_during_scan,
         amd_compatibility=amd_compatibility,
         capture_driver=capture_driver,
+        operation_guard=dependencies.operation_guard,
         result_is_current=lambda: (
             self.app_context.generation == dependencies.generation
             and self.app_context.account.active_account_id == dependencies.account_id
@@ -712,11 +714,7 @@ def _on_gamepad_error(self, err):
     self.btn_run.setEnabled(True)
     self.btn_run.setText("⚡  开始计算")
     self._pending_parse_only = False
-    QMessageBox.critical(
-        self.dialog_parent,
-        "全量视觉扫描失败",
-        f"全量扫描出错:\n{err}",
-    )
+    show_input_unavailable(self, "全量视觉扫描", str(err))
 
 
 def _on_gamepad_pipeline_done(self, stats):
@@ -787,10 +785,5 @@ def _on_scan_error(self, err):
     self.btn_run.setEnabled(True)
     self.btn_run.setText("⚡  开始计算")
     self._pending_parse_only = False
-    QMessageBox.critical(
-        self.dialog_parent,
-        "扫描失败",
-        f"扫描出错:\n{err}",
-    )
-
+    show_input_unavailable(self, "截图扫描", str(err))
 

@@ -71,6 +71,7 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
         self.assertTrue(report["target_plugin_is_mods"])
         self.assertTrue(report["registered_workspace_ready"])
         self.assertTrue(report["registered_workspace_matches_record"])
+        self.assertTrue(report["native_capture_matches_bundled"])
         self.assertTrue(report["registered_workspace_sdk_cache"]["NTE_SDK.bin"]["exists"])
         self.assertTrue(report["registered_workspace_sdk_cache"]["NTE_SDK.checksum"]["exists"])
         self.assertIn("state", report["pipe"])
@@ -78,6 +79,18 @@ class DwmapiDiagnosticsTests(unittest.TestCase):
         formatted = format_dwmapi_diagnostics(report)
         self.assertIn("Mod Loader（备用）", formatted)
         self.assertIn("Microsoft Visual C++ 运行库", formatted)
+
+    def test_old_native_runtime_is_reported_even_when_proxy_matches(self) -> None:
+        (self.game_dir / "dwmapi.dll").write_bytes(self.plugin_bytes)
+        runtime = self.root / 'config/mods-plugin'
+        runtime.mkdir(parents=True)
+        (runtime / 'NTE_Capture.dll').write_bytes(b'old-capture')
+        with patch('src.services.dwmapi_diagnostics.registered_mod_workspace', return_value=runtime):
+            report = collect_dwmapi_diagnostics(game_executable_path=self.game, application_root=self.root)
+        self.assertTrue(report['target_matches_bundled'])
+        self.assertFalse(report['native_capture_matches_bundled'])
+        self.assertIn('不一致或无法读取，请重新部署配套组件', format_dwmapi_diagnostics(report))
+        self.assertEqual(b'old-capture', (runtime / 'NTE_Capture.dll').read_bytes())
 
     def test_reports_invalid_game_path_without_mutating_files(self) -> None:
         report = collect_dwmapi_diagnostics(

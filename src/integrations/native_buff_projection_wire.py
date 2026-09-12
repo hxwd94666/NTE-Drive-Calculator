@@ -6,6 +6,10 @@ from typing import Any
 
 def expand_projection_tables(response: dict[str, Any]) -> list[dict[str, Any]]:
     """Return shared immutable-by-convention row dictionaries; no rule evaluation."""
+    encoding = response.get("result_encoding")
+    if encoding not in {"interned_v1", "interned_v2"}:
+        raise ValueError("invalid projection encoding")
+    evidence_fields = encoding == "interned_v2"
     def table(name: str) -> list:
         result = response.get(name)
         if not isinstance(result, list):
@@ -40,7 +44,9 @@ def expand_projection_tables(response: dict[str, Any]) -> list[dict[str, Any]]:
         "interval_id": ref(strings, row[0]), "buff_name": ref(strings, row[1]),
         "status": ref(strings, row[2]), "applied_property_ids": refs(strings, row[3]),
         "reasons": refs(strings, row[4]),
-    } for row in rows("decisions", 5)]
+        **({"observed_stacks": row[5], "state_confidence": ref(strings, row[6])}
+           if evidence_fields else {}),
+    } for row in rows("decisions", 7 if evidence_fields else 5)]
     projections = [{
         "event_id": ref(strings, row[0]), "modifiers": refs(modifiers, row[1]),
         "applied_interval_ids": refs(strings, row[2]), "excluded_interval_ids": refs(strings, row[3]),

@@ -27,6 +27,7 @@ class _Owner(BattleCaptureControlsMixin):
 def _owner() -> _Owner:
     owner = _Owner()
     owner._service = _Service()
+    owner._work_mode_service = SimpleNamespace(allowed=lambda _cap: True)
     owner._page = SimpleNamespace(
         show_rerecord_hotkey_confirmation=lambda _hotkey, _seconds: None,
     )

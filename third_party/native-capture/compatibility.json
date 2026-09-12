@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "core_rebuilt": true,
+  "core_sha256": "fadaf5eb2fa8da4b1208d25f1a500f88de98de1a6f978dcdd92f29c1b7c08afa",
+  "capture_sha256": "85d857ee5001f7c8d28f56b24ef458a27a756268feeb25a92f77c1932a026b22",
+  "proxy_sha256": "30d79dca9e944d21c7170f327d326fce3ea4e26762948bcfd7dd37321cc58cf6",
+  "protocol_version": 1,
+  "provider_capabilities": [
+    "combat.hit_buff.v1",
+    "combat.context.v1",
+    "combat.raw_evidence.v1",
+    "character.snapshot.v1",
+    "inventory.snapshot.v1",
+    "team.snapshot.v1",
+    "environment.snapshot.v1",
+    "equipment.execute.v1",
+    "combat.clock.v1",
+    "snapshot.changes.v1"
+  ],
+  "core_capabilities": [
+    "capture",
+    "battle_summary",
+    "battle_record_v1",
+    "battle_axis_v1",
+    "native_hit_buff_v1",
+    "native_context_observation_v1",
+    "native_snapshot_archive_v1",
+    "native_battle_scope_snapshot_v1",
+    "native_snapshot_inline_raw_v1",
+    "character.snapshot.v1",
+    "inventory.snapshot.v1",
+    "team.snapshot.v1",
+    "environment.snapshot.v1",
+    "snapshot.changes.v1",
+    "equipment",
+    "native_equipment_v1",
+    "native_combat_clock_v1",
+    "native_character_profile_v1",
+    "native_inventory_dto_v1"
+  ],
+  "validation": {
+    "native_snapshot_tests": "14 passed; shared-cursor regression reproduced before fix",
+    "game": "not_run_for_exact_core_binary",
+    "capture": "rebuilt_for_bounded_array_and_float_serialization",
+    "context_lifetime_tests": "passed",
+    "native_clock_tests": "10 passed",
+    "snapshot_changes_tests": "7 focused checks passed; 1167 rows across two streams use 4 game-thread fences for 38 pages; invalidation, unnotified scene change, disable and stop rejected",
+    "effect_modifier_binding_tests": "passed: wire, archive, identity changes, custom groups, immutable snapshots",
+    "equipment_tests": "6 focused Rust bridge/lifecycle tests passed",
+    "inline_snapshot": "4 Rust business and 1 capability tests; 16 Calc inline evidence tests passed",
+    "snapshot_reader": "100000 float bit-patterns plus numeric extremes match; array bounds, unreadable rows, fresh values and cancellation passed",
+    "exact_binary_smoke": "direct and proxy handshake, not-ready, diagnostics and shutdown passed",
+    "clone_spawn": "8 Rust lifecycle checks and 1 first-hit clock regression passed; Calc 26 tests and 9 subtests passed",
+    "abyss_stage": "4 focused Rust stage tests and local evidence replay passed; native battle regressions passed; Calc waiting, clock, scope and persistence tests passed"
+  },
+  "limits": [
+    "Game acceptance pending.",
+    "Unknown restart callbacks do not delete battle data.",
+    "Witch raw evidence is saved; activation remains unverified.",
+    "Conflicting configurations across halves cannot yet be replayed as multiple versions."
+  ]
+}

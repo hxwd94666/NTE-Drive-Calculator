@@ -25,6 +25,12 @@ from PyInstaller.utils.hooks import (
 )
 
 from tools import build_cli
+from src.integrations.native_capture_release import validate_native_capture_release
+from src.integrations.game_component_bundle import inspect_game_component_bundle
+from tools.release.native_component_bundle_build import native_component_build_inputs
+from tools.release.game_component_bundle_build import (
+    component_build_inputs, prepare_component_bundle, validate_packaged_component_bundle,
+)
 
 ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
@@ -170,11 +176,6 @@ def _remove_package_artifact(path: Path) -> None:
         path.unlink()
 
 
-for path in (PACKAGE_BUILD_DIR, PACKAGE_ONEDIR_DIR, PACKAGE_ONEFILE_EXE):
-    _remove_package_artifact(path)
-if SPEC.exists():
-    SPEC.unlink()
-
 onefile = "--onefile" in sys.argv
 
 args = [
@@ -260,14 +261,15 @@ _append_add_data(SQLITE_SCHEMA_DIR, "src/storage/sqlite/schema")
 
 # nte-core 是随应用运行的本地组件。正式构建使用仓库内已审计的组件；
 # NTE_CORE_EXE 和项目根目录候选仅用于兼容现有开发环境。
-nte_core_path = _required_build_file(
-    "nte-core.exe",
-    os.environ.get(NTE_CORE_ENV),
-    THIRD_PARTY_DIR / "nte-core" / "bin" / "nte-core.exe",
-    ROOT / "nte-core.exe",
-    ROOT / "build_resources" / "nte-core" / "nte-core.exe",
-)
-_append_add_binary(nte_core_path, ".")
+native_component_layout = inspect_game_component_bundle(ROOT).layout == "native-capture-v1"
+if not native_component_layout:
+    nte_core_path = _required_build_file(
+        "nte-core.exe",
+        os.environ.get(NTE_CORE_ENV),
+        THIRD_PARTY_DIR / "nte-core" / "bin" / "nte-core.exe",
+        ROOT / "nte-core.exe",
+        ROOT / "build_resources" / "nte-core" / "nte-core.exe",
+    )
 
 # Independent analysis component; never substitute the capture executable.
 analysis_core_path = _required_build_file("nte-analysis-core.exe", ANALYSIS_CORE_PATH)
@@ -287,17 +289,20 @@ for analysis_notice in ANALYSIS_CORE_RELEASE_FILES:
         "licenses/analysis-core",
     )
 
-# Release 目录若提供许可证和协议说明，则一并放入安装包，便于审计和再分发。
-nte_core_metadata_dirs = _nte_core_metadata_directories(nte_core_path)
-for release_name in NTE_CORE_RELEASE_FILES:
-    release_file = next(
-        (directory / release_name for directory in nte_core_metadata_dirs if (directory / release_name).is_file()),
-        None,
-    )
-    if release_file is not None:
-        _append_add_data(release_file, "licenses/nte-core")
-if not any((directory / "LICENSE").is_file() for directory in nte_core_metadata_dirs):
-    build_cli.warn("nte-core 目录没有 LICENSE；本地测试可继续，正式发布必须使用完整 Release 目录")
+if not native_component_layout:
+    # Release 目录若提供许可证和协议说明，则一并放入安装包，便于审计和再分发。
+    nte_core_metadata_dirs = _nte_core_metadata_directories(nte_core_path)
+    component_metadata: dict[str, Path] = {}
+    for release_name in NTE_CORE_RELEASE_FILES:
+        release_file = next(
+            (directory / release_name for directory in nte_core_metadata_dirs if (directory / release_name).is_file()),
+            None,
+        )
+        if release_file is not None:
+            component_metadata[f"third_party/nte-core/{release_name}"] = release_file
+    if not any((directory / "LICENSE").is_file() for directory in nte_core_metadata_dirs):
+        raise FileNotFoundError("nte-core 缺少 LICENSE，拒绝构建来源不完整的组件包。")
+
 
 # 发行版静态数据库直接随源码仓库维护，确保本地构建和 GitHub Release 使用同一数据集。
 static_database_path = _required_build_file("发行版静态数据库", STATIC_DATABASE_PATH)
@@ -315,24 +320,24 @@ _append_add_data(shared_database_seed_path, "data")
 build_cli.info(f"[DATA] 已加入静态数据库：{static_database_path}")
 build_cli.info(f"[DATA] 已加入公共额外形状默认库：{shared_database_seed_path}")
 
-# 环境配置页会显式部署该 DLL 至用户选择的游戏目录；安装器本身不会修改游戏目录。
-mods_plugin_path = _required_build_file(
-    "nte-mods-plugin dwmapi.dll",
-    os.environ.get(MODS_PLUGIN_ENV),
-    os.environ.get(LEGACY_EQUIPMENT_PLUGIN_ENV),
-    THIRD_PARTY_DIR / "mods-plugin" / "bin" / "dwmapi.dll",
-    ROOT / "dwmapi.dll",
-)
-_append_add_data(mods_plugin_path, ".")
-mod_loader_path = _required_build_file(
-    "nte-mod-loader.exe",
-    os.environ.get(MOD_LOADER_ENV),
-    MOD_LOADER_PATH,
-)
-_append_add_binary(mod_loader_path, ".")
-if not MODS_PLUGIN_WORKSPACE_DIR.is_dir():
-    raise FileNotFoundError(f"打包缺少 nte-mods 工作区：{MODS_PLUGIN_WORKSPACE_DIR}")
-_append_add_data(MODS_PLUGIN_WORKSPACE_DIR, "plugins")
+if not native_component_layout:
+    # 环境配置页会显式部署该 DLL 至用户选择的游戏目录；安装器本身不会修改游戏目录。
+    mods_plugin_path = _required_build_file(
+        "nte-mods-plugin dwmapi.dll",
+        os.environ.get(MODS_PLUGIN_ENV),
+        os.environ.get(LEGACY_EQUIPMENT_PLUGIN_ENV),
+        THIRD_PARTY_DIR / "mods-plugin" / "bin" / "dwmapi.dll",
+        ROOT / "dwmapi.dll",
+    )
+    mod_loader_path = _required_build_file(
+        "nte-mod-loader.exe",
+        os.environ.get(MOD_LOADER_ENV),
+        MOD_LOADER_PATH,
+    )
+    if not MODS_PLUGIN_WORKSPACE_DIR.is_dir():
+        raise FileNotFoundError(f"打包缺少 nte-mods 工作区：{MODS_PLUGIN_WORKSPACE_DIR}")
+    validate_native_capture_release(MODS_PLUGIN_WORKSPACE_DIR)
+
 
 # 随包携带第三方声明，二进制实际位置可变但许可信息必须可审计。
 for notice_path in (
@@ -343,27 +348,47 @@ for notice_path in (
 ):
     if notice_path.is_file():
         _append_add_data(notice_path, "licenses")
-for notice_path in (
-    THIRD_PARTY_DIR / "mods-plugin" / "LICENSE",
-    THIRD_PARTY_DIR / "mods-plugin" / "SOURCE.md",
-    THIRD_PARTY_DIR / "mods-plugin" / "COMPONENT.md",
-):
-    if notice_path.is_file():
-        _append_add_data(notice_path, "licenses/mods-plugin")
-for notice_path in (
-    THIRD_PARTY_DIR / "mod-loader" / "LICENSE",
-    THIRD_PARTY_DIR / "mod-loader" / "SOURCE.md",
-    THIRD_PARTY_DIR / "mod-loader" / "COMPONENT.md",
-    THIRD_PARTY_DIR / "mod-loader" / "THIRD_PARTY_LICENSES.md",
-):
-    if notice_path.is_file():
-        _append_add_data(notice_path, "licenses/mod-loader")
-mod_loader_dependency_licenses = THIRD_PARTY_DIR / "mod-loader" / "licenses"
-if mod_loader_dependency_licenses.is_dir():
-    _append_add_data(
-        mod_loader_dependency_licenses,
-        "licenses/mod-loader/dependencies",
+if native_component_layout:
+    component_bundle = prepare_component_bundle(
+        application_root=ROOT, inputs=native_component_build_inputs(ROOT),
+        output_parent=BUILD / "component-bundles",
     )
+else:
+    for notice_path in (
+        THIRD_PARTY_DIR / "mods-plugin" / "LICENSE",
+        THIRD_PARTY_DIR / "mods-plugin" / "SOURCE.md",
+        THIRD_PARTY_DIR / "mods-plugin" / "COMPONENT.md",
+    ):
+        if notice_path.is_file():
+            component_metadata[notice_path.relative_to(ROOT).as_posix()] = notice_path
+    for notice_path in (
+        THIRD_PARTY_DIR / "mod-loader" / "LICENSE",
+        THIRD_PARTY_DIR / "mod-loader" / "SOURCE.md",
+        THIRD_PARTY_DIR / "mod-loader" / "COMPONENT.md",
+        THIRD_PARTY_DIR / "mod-loader" / "THIRD_PARTY_LICENSES.md",
+    ):
+        if notice_path.is_file():
+            component_metadata[notice_path.relative_to(ROOT).as_posix()] = notice_path
+    mod_loader_dependency_licenses = THIRD_PARTY_DIR / "mod-loader" / "licenses"
+    if mod_loader_dependency_licenses.is_dir():
+        for notice_path in mod_loader_dependency_licenses.rglob("*"):
+            if notice_path.is_file():
+                component_metadata[notice_path.relative_to(ROOT).as_posix()] = notice_path
+
+    component_bundle = prepare_component_bundle(
+        application_root=ROOT,
+        inputs=component_build_inputs(
+            core=nte_core_path, proxy=mods_plugin_path, loader=mod_loader_path,
+            workspace=MODS_PLUGIN_WORKSPACE_DIR, metadata=component_metadata,
+        ),
+        output_parent=BUILD / "component-bundles",
+    )
+
+for item in component_bundle.inputs:
+    destination = Path(item.destination)
+    append = _append_add_binary if destination.name in {"nte-core.exe", "nte-mod-loader.exe"} else _append_add_data
+    append(item.source, destination.parent.as_posix())
+_append_add_data(component_bundle.manifest_path, ".")
 
 
 def _find_package_dir(package_name: str) -> Path | None:
@@ -480,8 +505,14 @@ if vg_path is not None:
 
 # UPX 压缩（如果可用）
 args.append("--upx-dir=.")
+args.extend(["--upx-exclude=nte-core.exe", "--upx-exclude=nte-mod-loader.exe",
+             "--upx-exclude=NTE_Capture.dll", "--upx-exclude=d3d12.dll"])
 
 build_cli.info(f"[BUILD] Mode: {'Single File' if onefile else 'Single Dir'}")
+for path in (PACKAGE_BUILD_DIR, PACKAGE_ONEDIR_DIR, PACKAGE_ONEFILE_EXE):
+    _remove_package_artifact(path)
+if SPEC.exists():
+    SPEC.unlink()
 with _without_ambient_system_icu_on_path():
     PyInstaller.__main__.run(args)
 
@@ -490,6 +521,8 @@ if onefile:
     output = PACKAGE_ONEFILE_EXE
 
 if output.exists():
+    if not onefile:
+        validate_packaged_component_bundle(output / "_internal")
     _validate_no_ambient_icu_dlls(output)
     _validate_no_runtime_caches(output)
     size_mb = sum(

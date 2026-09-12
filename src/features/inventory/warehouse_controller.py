@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.features.input_operation_entry import request_input_entry, show_input_unavailable
+
 from typing import Any
 
 from PySide6.QtCore import QModelIndex, Qt
@@ -408,6 +410,8 @@ def _set_warehouse_selected_state(
     target_state: str,
 ) -> None:
     """Stage the requested state for all selected virtual cards locally."""
+    if not request_input_entry(self, "native_equipment", "仓库锁定与弃置"):
+        return
     if target_state not in {"normal", "locked", "discarded"}:
         return
     indexes = self.warehouse_view.selectionModel().selectedIndexes()
@@ -455,6 +459,8 @@ def _toggle_warehouse_item_state(
     target_state: str,
 ) -> None:
     """Stage a single card's lock/discard icon action without changing game state yet."""
+    if not request_input_entry(self, "native_equipment", "仓库锁定与弃置"):
+        return
     item = (
         index.data(Qt.ItemDataRole.UserRole)
         if index is not None
@@ -485,6 +491,8 @@ def _toggle_warehouse_item_state(
 
 
 def _save_warehouse_state_changes(self):
+    if not request_input_entry(self, "native_equipment", "保存仓库状态"):
+        return
     """Validate manual card edits against the fixed snapshot, then write via nte-core."""
     pending = dict(getattr(self, "_warehouse_pending_state_changes", {}))
     snapshot_id = getattr(self, "_warehouse_snapshot_id", None)
@@ -503,7 +511,7 @@ def _save_warehouse_state_changes(self):
         return
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None or not sync_service.is_running:
-        QMessageBox.warning(self, "无法保存仓库状态", "请先在工作台启动背包同步，并等待状态显示为稳定监听。")
+        show_input_unavailable(self, "保存仓库状态", "尚未建立可用的游戏装备连接，请检测组件并等待游戏登录。")
         return
     service = WarehouseStateManagementService(
         self.app_context.account.user_database_path,
@@ -570,6 +578,8 @@ def _on_warehouse_manual_plan_ready(self, plan):
 
 def _open_warehouse_state_manager(self):
     """Open the existing rule editor, then apply its result through nte-core."""
+    if not request_input_entry(self, "native_equipment", "仓库状态管理"):
+        return
     active_worker = getattr(self, "_warehouse_state_worker", None)
     if active_worker is not None and active_worker.isRunning():
         return
@@ -597,7 +607,7 @@ def _open_warehouse_state_manager(self):
         return
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None or not sync_service.is_running:
-        QMessageBox.warning(self, "无法管理仓库", "请先在工作台启动背包同步，并等待状态显示为稳定监听。")
+        show_input_unavailable(self, "仓库状态管理", "尚未建立可用的游戏装备连接，请检测组件并等待游戏登录。")
         return
     service = WarehouseStateManagementService(
         account.user_database_path,

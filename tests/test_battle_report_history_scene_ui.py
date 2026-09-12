@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from PySide6.QtWidgets import QApplication, QPushButton
 
 from src.domain.battle_report import BattleReportHistoryEntry
-from src.features.battle_report.history_dialog import _scene_label
+from src.features.battle_report.history_dialog import BattleReportHistoryDialog, _scene_label
 
 
 def _entry(**changes) -> BattleReportHistoryEntry:
@@ -29,6 +33,34 @@ def _entry(**changes) -> BattleReportHistoryEntry:
 
 
 class BattleReportHistorySceneUiTests(unittest.TestCase):
+    def test_history_shows_record_id_and_type_and_keeps_actions_bound_to_record(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as root:
+            dialog = BattleReportHistoryDialog(game_ui_asset_root=Path(root))
+            viewed = []
+            deleted = []
+            retained = []
+            dialog.view_requested.connect(viewed.append)
+            dialog.delete_requested.connect(deleted.append)
+            dialog.retention_toggle_requested.connect(lambda rid, kind: retained.append((rid, kind)))
+            dialog.set_entries((
+                _entry(battle_record_id=82, native_capture=True),
+                _entry(battle_record_id=81),
+            ))
+            self.assertEqual("ID", dialog.table.horizontalHeaderItem(0).text())
+            self.assertEqual("82", dialog.table.item(0, 0).text())
+            self.assertEqual("完整", dialog.table.item(0, 1).text())
+            self.assertEqual("部分", dialog.table.item(1, 1).text())
+            for row in (0, 1):
+                for button in dialog.table.cellWidget(row, 7).findChildren(QPushButton):
+                    button.click()
+            self.assertEqual([82, 81], viewed)
+            self.assertEqual([82, 81], deleted)
+            self.assertEqual([(82, "auto"), (81, "auto")], retained)
+            dialog.close()
+            dialog.deleteLater()
+            app.processEvents()
+
     def test_inferred_environment_is_labeled_without_changing_raw_context(self) -> None:
         entry = _entry(
             environment_name="异象追猎 · 黑之书 · Lv.80",

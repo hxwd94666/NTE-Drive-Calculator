@@ -41,6 +41,8 @@ def projection_from_wire(
                 interval_id=value["interval_id"], buff_name=value["buff_name"],
                 status=value["status"], applied_property_ids=tuple(value["applied_property_ids"]),
                 reasons=tuple(value["reasons"]),
+                observed_stacks=value.get("observed_stacks"),
+                state_confidence=value.get("state_confidence", ""),
             )
     return BattleHitBuffProjection(
         event_id=row["event_id"],

@@ -24,6 +24,9 @@ import sys
 from pathlib import Path
 
 from tools import build_cli
+from src.integrations.native_capture_release import validate_native_capture_release
+from src.integrations.game_component_bundle import inspect_game_component_bundle
+from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 
 
 ROOT = Path(__file__).parent.resolve()
@@ -182,20 +185,28 @@ def _validate_app_bundle() -> None:
         "nte-core 本地组件": APP_NTE_CORE,
         "战报分析本地组件": APP_ANALYSIS_CORE,
         "战报分析组件清单": APP_ANALYSIS_CORE_MANIFEST,
-        "nte-mods-plugin 本地组件": APP_MODS_PLUGIN,
-        "nte-mod-loader 备用加载组件": APP_MOD_LOADER,
-        "nte-mods 启用集合": APP_MOD_SET,
-        "nte-mods 装备脚本": APP_EQUIPMENT_MOD,
-        "nte-mods 战斗时钟脚本": APP_COMBAT_CLOCK_MOD,
+        "游戏组件整包清单": APP_INTERNAL / "component-bundle.json",
         "用户数据库结构": APP_USER_SCHEMA,
         "发行版静态数据库": APP_STATIC_DATABASE,
         "发行版静态数据库清单": APP_STATIC_MANIFEST,
         "公共额外形状默认库": APP_SHARED_DATABASE_SEED,
         "旧版额外形状迁移基线": APP_SHAPE_BONUS_BASELINE,
     }
+    native = inspect_game_component_bundle(APP_INTERNAL).layout == "native-capture-v1"
+    if not native:
+        required.update({"nte-mods-plugin 本地组件": APP_MODS_PLUGIN,
+                         "nte-mod-loader 备用加载组件": APP_MOD_LOADER,
+                         "nte-mods 启用集合": APP_MOD_SET,
+                         "nte-mods 装备脚本": APP_EQUIPMENT_MOD,
+                         "nte-mods 战斗时钟脚本": APP_COMBAT_CLOCK_MOD})
     missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]
     if missing:
         raise RuntimeError("PyInstaller 产物不完整，缺少：\n" + "\n".join(missing))
+    if not native:
+        validate_native_capture_release(APP_INTERNAL / "plugins")
+    validate_packaged_component_bundle(
+        APP_INTERNAL, source_manifest_path=source_component_manifest(ROOT),
+    )
 
 
 def _ensure_app_bundle(skip_app_build: bool) -> None:

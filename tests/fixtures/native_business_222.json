@@ -1,0 +1,323 @@
+{
+  "character": {
+    "refresh": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "changeCoverage": "unknown",
+        "complete": false,
+        "domain": "character",
+        "domainKey": "synthetic-world/controller/inventory",
+        "enabled": true,
+        "enumerationComplete": true,
+        "failed": false,
+        "generation": "1",
+        "missing": [
+          "skill_level_stage",
+          "awaken_selection"
+        ],
+        "observedMonotonicMs": "1010",
+        "observedUnixUs": "1700000000000010",
+        "providerId": "synthetic-provider",
+        "ready": true,
+        "recordCount": 2,
+        "snapshotId": "2",
+        "sourceCoverage": "unknown",
+        "sourceRecordCount": 2,
+        "state": "ready",
+        "truncated": false
+      }
+    },
+    "request": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "method": "native.character.page",
+      "params": {
+        "limit": 64,
+        "offset": 0,
+        "snapshotId": "2"
+      }
+    },
+    "response": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "result": {
+        "changeCoverage": "unknown",
+        "complete": false,
+        "domain": "character",
+        "domainKey": "synthetic-world/controller/inventory",
+        "enabled": true,
+        "enumerationComplete": true,
+        "failed": false,
+        "generation": "1",
+        "missing": [
+          "skill_level_stage",
+          "awaken_selection"
+        ],
+        "nextOffset": null,
+        "observedMonotonicMs": "1010",
+        "observedUnixUs": "1700000000000010",
+        "profiles": [
+          {
+            "character_id": 1020,
+            "character_level": 20
+          }
+        ],
+        "projectionComplete": false,
+        "projectionMissing": [
+          "breakthrough_stage_unknown",
+          "non_owned_character_skipped"
+        ],
+        "providerId": "synthetic-provider",
+        "ready": true,
+        "recordCount": 2,
+        "snapshotId": "2",
+        "sourceCoverage": "unknown",
+        "sourceRecordCount": 2,
+        "state": "ready",
+        "truncated": false
+      }
+    }
+  },
+  "inventory": {
+    "refresh": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "changeCoverage": "unknown",
+        "characterRefs": [
+          {
+            "EquipCoreSlots": [
+              {
+                "Column": 0,
+                "EquipNetID": {
+                  "serial": 401,
+                  "solt": 301
+                },
+                "EquipmentID": "Attack_blue",
+                "Row": 0,
+                "State": 1,
+                "bFirstStep": true,
+                "slotIndex": 0
+              }
+            ],
+            "EquipmentSlots": [],
+            "ItemID": "1020",
+            "UniqueID": {
+              "serial": 201,
+              "solt": 101
+            },
+            "bIsTemporary": false,
+            "bUnSaved": false,
+            "kind": "HTCharacterItem",
+            "source": "InventoryItemsMap.CARD"
+          }
+        ],
+        "characterRefsComplete": true,
+        "collectionComplete": true,
+        "collectionScope": "EQUIP",
+        "complete": false,
+        "domain": "inventory",
+        "domainKey": "synthetic-world/controller/inventory",
+        "enabled": true,
+        "enumerationComplete": true,
+        "failed": false,
+        "generation": "1",
+        "missing": [
+          "collection_membership_only_values_not_atomic"
+        ],
+        "observedMonotonicMs": "1000",
+        "observedUnixUs": "1700000000000000",
+        "providerId": "synthetic-provider",
+        "ready": true,
+        "recordCount": 1,
+        "snapshotId": "1",
+        "sourceCoverage": "unknown",
+        "sourceRecordCount": 1,
+        "state": "ready",
+        "truncated": false
+      }
+    },
+    "request": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "method": "native.inventory.page",
+      "params": {
+        "limit": 64,
+        "offset": 0,
+        "snapshotId": "1"
+      }
+    },
+    "response": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "result": {
+        "changeCoverage": "unknown",
+        "characterRefs": [
+          {
+            "EquipCoreSlots": [
+              {
+                "Column": 0,
+                "EquipNetID": {
+                  "serial": 401,
+                  "solt": 301
+                },
+                "EquipmentID": "Attack_blue",
+                "Row": 0,
+                "State": 1,
+                "bFirstStep": true,
+                "slotIndex": 0
+              }
+            ],
+            "EquipmentSlots": [],
+            "ItemID": "1020",
+            "UniqueID": {
+              "serial": 201,
+              "solt": 101
+            },
+            "bIsTemporary": false,
+            "bUnSaved": false,
+            "kind": "HTCharacterItem",
+            "source": "InventoryItemsMap.CARD"
+          }
+        ],
+        "characterRefsComplete": true,
+        "characters": [
+          {
+            "character_id": 1020,
+            "uid": {
+              "serial": 201,
+              "slot": 101
+            }
+          }
+        ],
+        "collectionComplete": true,
+        "collectionScope": "EQUIP",
+        "complete": false,
+        "domain": "inventory",
+        "domainKey": "synthetic-world/controller/inventory",
+        "enabled": true,
+        "enumerationComplete": true,
+        "failed": false,
+        "generation": "1",
+        "items": [
+          {
+            "discarded": false,
+            "equipped": true,
+            "equipped_character_id": 1020,
+            "equipped_character_uid": {
+              "serial": 201,
+              "slot": 101
+            },
+            "equipped_placement": null,
+            "geometry": "Core",
+            "grid": null,
+            "item_id": "Attack_blue",
+            "kind": "core",
+            "level": 20,
+            "locked": true,
+            "main_stats": [
+              {
+                "names": {
+                  "en": "ATK Bonus",
+                  "ja": "攻撃力％",
+                  "zh_cn": "攻击力百分比"
+                },
+                "percent": true,
+                "property_id": "AtkUp",
+                "value": 0.22499999403953552
+              }
+            ],
+            "max_level": 20,
+            "names": {
+              "en": "Shadow Creed",
+              "ja": "「影の信条」",
+              "zh_cn": "「影之信条」"
+            },
+            "quality": "blue",
+            "sub_stats": [
+              {
+                "names": {
+                  "en": "ATK",
+                  "ja": "攻撃力",
+                  "zh_cn": "攻击力"
+                },
+                "percent": false,
+                "property_id": "AtkAdd",
+                "value": 10.0
+              },
+              {
+                "names": {
+                  "en": "ATK Bonus",
+                  "ja": "攻撃力％",
+                  "zh_cn": "攻击力百分比"
+                },
+                "percent": true,
+                "property_id": "AtkUp",
+                "value": 0.009999999776482582
+              },
+              {
+                "names": {
+                  "en": "CRIT Rate",
+                  "ja": "クリティカル率",
+                  "zh_cn": "暴击率"
+                },
+                "percent": true,
+                "property_id": "CritAdd",
+                "value": 0.019999999552965164
+              },
+              {
+                "names": {
+                  "en": "CRIT DMG",
+                  "ja": "クリティカルダメージ",
+                  "zh_cn": "暴击伤害"
+                },
+                "percent": true,
+                "property_id": "CritDamageAdd",
+                "value": 0.029999999329447746
+              }
+            ],
+            "suit_id": "Suit8",
+            "suit_names": {
+              "en": "Shadow Creed",
+              "ja": "「影の信条」",
+              "zh_cn": "「影之信条」"
+            },
+            "uid": {
+              "serial": 401,
+              "slot": 301
+            }
+          }
+        ],
+        "missing": [
+          "collection_membership_only_values_not_atomic"
+        ],
+        "nextOffset": null,
+        "observedMonotonicMs": "1000",
+        "observedUnixUs": "1700000000000000",
+        "projectionComplete": true,
+        "projectionMissing": [],
+        "providerId": "synthetic-provider",
+        "ready": true,
+        "recordCount": 1,
+        "referencedItemUids": [
+          {
+            "serial": 401,
+            "slot": 301
+          }
+        ],
+        "snapshotId": "1",
+        "sourceCoverage": "unknown",
+        "sourceRecordCount": 1,
+        "statProvenance": {
+          "main": "static_catalog_curve",
+          "percent": "static_catalog",
+          "sub": "raw_save_struct_float"
+        },
+        "state": "ready",
+        "truncated": false
+      }
+    }
+  },
+  "synthetic": true
+}

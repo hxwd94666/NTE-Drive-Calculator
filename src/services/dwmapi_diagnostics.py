@@ -205,6 +205,13 @@ def collect_dwmapi_diagnostics(
     result["target_matches_recorded_deployment"] = bool(
         target_hash and configured_hash and target_hash == configured_hash
     )
+    native_bundled = _file_details(bundled_workspace / "NTE_Capture.dll")
+    native_runtime = _file_details(registered_workspace / "NTE_Capture.dll") if registered_workspace else {}
+    result["native_capture_bundled"] = native_bundled
+    result["native_capture_runtime"] = native_runtime
+    result["native_capture_matches_bundled"] = bool(
+        native_bundled.get("sha256") and native_bundled.get("sha256") == native_runtime.get("sha256")
+    )
     return result
 
 
@@ -234,6 +241,14 @@ def format_dwmapi_diagnostics(result: Mapping[str, Any]) -> str:
             f"打包 Mod 工作区：{result.get('bundled_workspace', '无')}",
             f"已注册 Mod 工作区：{result.get('registered_workspace') or '无'}",
             f"已注册工作区完整性：{'就绪' if result.get('registered_workspace_ready') else '文件不完整或未注册'}",
+        ])
+        native_runtime = result.get("native_capture_runtime") or {}
+        native_bundled = result.get("native_capture_bundled") or {}
+        lines.extend([
+            f"已注册工作区采集 DLL SHA-256：{native_runtime.get('sha256') or '缺失或无法读取'}",
+            f"配套采集 DLL SHA-256：{native_bundled.get('sha256') or '缺失或无法读取'}",
+            "采集 DLL 文件版本核对：" + ("一致" if result.get("native_capture_matches_bundled") else "不一致或无法读取，请重新部署配套组件"),
+            "以上为磁盘文件核对；游戏已加载的采集 DLL 需重启后更新。",
         ])
         if result.get("recorded_workspace"):
             lines.append(

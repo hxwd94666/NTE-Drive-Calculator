@@ -9,6 +9,44 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def portable_battle_evidence(value: Any, *, field: str = "") -> Any:
+    """Copy portable evidence, dropping only external capture-file locations.
+
+    Native hit fields and unknown future evidence remain intact. Raw JSON strings
+    retain their exact representation unless a private file location is removed.
+    """
+    if isinstance(value, list):
+        return [portable_battle_evidence(item) for item in value]
+    if isinstance(value, Mapping):
+        result = {}
+        for key, item in value.items():
+            if key in {"rawCapturePath", "raw_capture_path"} or (
+                field == "rawCapture" and key == "path"
+            ):
+                result[key] = None
+            else:
+                result[key] = portable_battle_evidence(item, field=key)
+        for raw_key, hash_key in (
+            ("raw_summary_json", "raw_summary_sha256"),
+            ("raw_record_json", "raw_record_sha256"),
+        ):
+            if hash_key in result and result.get(raw_key) != value.get(raw_key):
+                result[hash_key] = hashlib.sha256(result[raw_key].encode("utf-8")).hexdigest()
+        return result
+    if isinstance(value, str) and field in {
+        "raw_summary_json", "raw_record_json", "raw_hit_json", "payload_json",
+    }:
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return value  # DAO validation owns malformed original evidence.
+        portable = portable_battle_evidence(decoded)
+        if portable != decoded:
+            return json.dumps(portable, ensure_ascii=False, separators=(",", ":"),
+                              sort_keys=True, allow_nan=False)
+    return value
+
+
 def canonical_battle_equipment_json(
     equipment: Sequence[Mapping[str, Any]],
 ) -> str:

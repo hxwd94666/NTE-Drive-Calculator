@@ -1,0 +1,616 @@
+# 收集模式所需真实状态并执行已授权的组件生命周期，不接触账号业务数据。
+from __future__ import annotations
+
+from dataclasses import replace, asdict
+import hashlib
+from importlib.util import find_spec
+from pathlib import Path
+from threading import RLock
+from time import monotonic
+from typing import Callable
+
+from src.domain.work_mode import CheckState, NativeFeatureProbe, WorkModeProbe
+from src.integrations.analysis_core_release import create_bundled_analysis_client
+from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.integrations.game_path_discovery import running_game_executables
+from src.integrations.mod_loader import packaged_mod_loader
+from src.integrations.native_capture_process import native_capture_game_pid
+from src.integrations.nte_core import resolve_nte_core_executable
+from src.services.deployed_plugin_inspection import inspect_deployed_plugin, inspect_deployed_native_plugin
+from src.services.native_plugin_deployment import deploy_native_plugin, cleanup_native_plugin, NativePluginCleanupResult
+from src.services.dwmapi_diagnostics import probe_equipment_pipe
+from src.services.equipment_plugin_deployment import (
+    deploy_plugin, find_game_executables, game_process_running,
+    npcap_installation_present, packaged_plugin_dll, PluginDeploymentPendingCleanup,
+    mod_workspace_registry_snapshot,
+    EquipmentPluginDeploymentError,
+)
+from src.services.managed_plugin_cleanup import cleanup_managed_plugin
+from src.services.mod_plugin_loading_service import ModPluginLoadingError
+
+
+class WorkModeRuntime:
+    def __init__(self, *, policy, native_session, loader, application_root: Path,
+                 config_dir: Path, game_running: Callable[[], bool] | None = None) -> None:
+        self.policy, self.native_session, self.loader = policy, native_session, loader
+        self.root, self.config_dir = application_root, config_dir
+        self._lock = RLock()
+        self._last_files = float("-inf")
+        self._file_key = None
+        self._last_auto_attempt = float("-inf")
+        self._game_running = game_running or game_process_running
+        self._loader_files = False
+        self._deployed = None
+        self._native_deployed = None
+        self._bundle = None
+        self._discovered = False
+        self.path_candidates: tuple[str, ...] = ()
+        self.cleanup_detail = ""
+        self._refresh_at = 0.0
+        self._closed = False
+        self._analysis_available = False
+        self._last_analysis = float("-inf")
+        self._auto_error = ""
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._last_files = float("-inf")
+            self._last_auto_attempt = float("-inf")
+            self._last_analysis = float("-inf")
+            self._auto_error = ""
+
+    def discover(self) -> tuple[str, ...]:
+        with self._lock:
+            configured = self.policy.settings.game_executable
+            if configured and Path(configured).is_file():
+                self.path_candidates = (configured,)
+                return self.path_candidates
+            discovered = (*running_game_executables(), *find_game_executables())
+            paths = tuple(dict.fromkeys(str(path) for path in discovered))
+            self.path_candidates = paths
+            if len(paths) == 1:
+                self.policy.set_game_executable(paths[0])
+            self._discovered = True
+            return paths
+
+    def save_deployment(self, deployed) -> None:
+        record = {key: str(value) if isinstance(value, Path) else value
+                  for key, value in asdict(deployed).items()}
+        previous = self.policy.deployment_record
+        if (record.get("deployment_layout") == "native-capture-v1"
+                and previous.get("game_executable") == record.get("game_executable")):
+            record["managed_files"] = {**previous.get("managed_files", {}), **record.get("managed_files", {})}
+        for key in ("native_workspace_root", "native_workspace_files", "native_workspace_backup_path"):
+            if key in previous:
+                record[key] = previous[key]
+        selected = previous.get("loading_method", record.get("loading_method", "proxy"))
+        self.policy.update_deployment({**record, "loading_method": selected})
+        self.policy.set_game_executable(str(deployed.game_executable))
+        if not self.policy.allowed("native_load"):
+            self.policy.set_cleanup_pending(True)
+        self.invalidate()
+
+    def save_pending_deployment(self, error: PluginDeploymentPendingCleanup) -> None:
+        self.save_deployment(error.deployment)
+        self.policy.set_cleanup_pending(True)
+        self.cleanup_detail = str(error)
+
+    def prepare_manual_native_deployment(self, *, expected_revision: int) -> int:
+        """Finish old cleanup before replacing its ownership with a new deployment."""
+        with self._lock:
+            frozen = self.policy.settings
+            self.policy.require("native_load")
+            if self._closed or frozen.revision != expected_revision or self.native_session.battle_active:
+                raise PermissionError("原生组件部署上下文已改变，已停止操作。")
+            if frozen.pending_cleanup:
+                self.cleanup()
+                if self.policy.settings.pending_cleanup:
+                    raise EquipmentPluginDeploymentError(self.cleanup_detail)
+                current = self.policy.settings
+                if (replace(current, revision=0, deployment_json="{}", pending_cleanup=False)
+                        != replace(frozen, revision=0, deployment_json="{}", pending_cleanup=False)):
+                    raise PermissionError("清理期间原生组件部署上下文已改变，已停止操作。")
+            self.policy.require("native_load")
+            return self.policy.settings.revision
+
+    def cleanup(self, *, running: bool | None = None) -> None:
+        if self.native_session.battle_active:
+            self.cleanup_detail = "正在收尾本场原生战报，随后清理。"
+            return
+        if running is None:
+            running = self._game_running()
+        record = self.policy.deployment_record
+        path = str(record.get("game_executable") or self.policy.settings.game_executable)
+        if record.get("deployment_layout") == "native-capture-v1":
+            self._restore_native_workspace(record)
+            self.loader.stop_loader()
+            result = cleanup_native_plugin(
+                game_executable_path=path, managed_files=record.get("managed_files", {}),
+                game_running=self._game_running,
+            ) if record.get("managed_files") else NativePluginCleanupResult("cleaned", "没有待清理的游戏目录组件。")
+            self.cleanup_detail = result.detail
+            if result.status == "cleaned" and record.get("native_workspace_root"):
+                result = self.loader.cleanup_native_workspace()
+                self.cleanup_detail = result.detail
+            if result.status == "cleaned":
+                self.policy.update_deployment({"loading_method": self.policy.deployment_record.get("loading_method", "native-capture")})
+                self.policy.set_cleanup_pending(False)
+                self.invalidate()
+            return
+        workspace = record.get("workspace_path") or self.loader.pending_workspace_cleanup_path
+        if workspace and not record.get("workspace_path"):
+            record = {**record, "workspace_path": str(workspace)}
+            self.policy.update_deployment(record)
+        self.loader.stop_loader()
+        if running:
+            self.cleanup_detail = "已停止后续加载；等待游戏退出后清理，当前 DLL 尚未卸载。"
+            return
+        if not path:
+            registered, _value = mod_workspace_registry_snapshot()
+            self.cleanup_detail = (
+                "缺少游戏路径且存在加载登记，无法确认清理范围，请重新检测路径。" if registered else
+                "缺少游戏路径，尚未核对游戏目录中的组件，请重新检测路径。"
+            )
+            return
+        if path:
+            result = cleanup_managed_plugin(
+                game_executable_path=path,
+                deployed_sha256=str(record.get("deployed_sha256") or ""),
+                mod_workspace_path=workspace,
+                game_running=self._game_running,
+            )
+            self.cleanup_detail = result.detail
+            if result.status != "cleaned":
+                return
+        method = self.policy.deployment_record.get("loading_method", "proxy")
+        self.policy.update_deployment({"loading_method": method})
+        self.policy.set_cleanup_pending(False)
+        self.cleanup_detail = "本程序管理的加载入口已清理；未恢复历史 DLL 或加载配置。"
+        self.invalidate()
+
+    def _automatic_deploy(self, running: bool) -> None:
+        if self._closed or self.native_session.battle_active or self.policy.settings.pending_cleanup:
+            return
+        if not self.policy.allowed("native_load", automatic=True):
+            return
+        if self._bundle is None or not self._bundle.ready:
+            self.cleanup_detail = "随附整套组件未通过核对，自动部署等待修复安装包。"
+            return
+        if getattr(self._bundle, "layout", "") == "native-capture-v1":
+            self._automatic_native_deploy(running)
+            return
+        record = self.policy.deployment_record
+        method = "loader" if record.get("loading_method") == "loader" else "proxy"
+        already_loaded = self._loader_files if method == "loader" else bool(self._deployed and self._deployed.compatible)
+        if self._deployed is not None and self._deployed.workspace_matches_package and already_loaded:
+            return
+        if running:
+            self.cleanup_detail = "游戏运行中，组件更新等待游戏退出。"
+            return
+        if self._deployed is not None and self._deployed.proxy_present and not (
+            self._deployed.proxy_matches_record or self._deployed.proxy_matches_package
+        ):
+            self.cleanup_detail = "游戏目录组件归属未知或已修改，自动管理等待手动核对。"
+            return
+        if not self.policy.settings.game_executable:
+            self.cleanup_detail = "未找到游戏路径，自动部署等待路径确认。"
+            return
+        if self.loader.active_payload_sha256 and self.loader.snapshot().phase == "running":
+            self.cleanup_detail = "Loader 仍在等待加载，组件更新需先停止当前 Loader。"
+            return
+        if monotonic() - self._last_auto_attempt < 15:
+            return
+        self._last_auto_attempt = monotonic()
+        self._bundle = inspect_game_component_bundle(self.root)
+        if not self._bundle.ready:
+            self.cleanup_detail = "组件包在部署前发生变化，自动管理等待重新核对。"
+            return
+        executable = self.policy.settings.game_executable
+        # The same guard is checked again immediately before each write.
+        def guard(capability):
+            if self._closed:
+                raise PermissionError("应用正在退出，禁止新的组件部署。")
+            self.policy.require(capability, automatic=True)
+            latest_method = "loader" if self.policy.deployment_record.get("loading_method") == "loader" else "proxy"
+            if (self.policy.settings.pending_cleanup or self.native_session.battle_active
+                    or latest_method != method or self.policy.settings.game_executable != executable):
+                raise PermissionError("组件操作上下文已改变，已停止本次自动管理。")
+
+        def save_loader_registration(*, pending: bool, result=None) -> None:
+            workspace = result.workspace_path if result is not None else self.loader.pending_workspace_cleanup_path
+            if workspace is None:
+                return
+            updated = self.policy.deployment_record
+            updated.update({"game_executable": executable, "workspace_path": str(workspace),
+                            "loader_payload_sha256": self.loader.active_payload_sha256})
+            if result is not None and result.removed_proxy is not None:
+                updated["deployed_sha256"] = result.removed_proxy.sha256
+            self.policy.update_deployment(updated)
+            if pending:
+                self.policy.set_cleanup_pending(True)
+            self.invalidate()
+
+        try:
+            guard("native_load")
+            if method == "loader":
+                # The Loader resolves its package inputs itself. Ensure those
+                # exact files, rather than other manifest paths, were verified.
+                if (packaged_plugin_dll(self.root) != (self.root / self._bundle.roles["proxy"]).resolve()
+                        or packaged_mod_loader(self.root) != (self.root / self._bundle.roles["loader"]).resolve()):
+                    raise EquipmentPluginDeploymentError("Loader 实际输入与已核对整包清单不一致。")
+                result = self.loader.start_loader(
+                    game_executable_path=executable,
+                    writable_workspace_path=self.config_dir / "mods-plugin",
+                    proxy_backup_directory=self.config_dir / "component-backups",
+                    recorded_proxy_sha256=str(record.get("deployed_sha256") or ""),
+                    recorded_proxy_workspace_path=record.get("workspace_path") or None,
+                    scoped_guard=guard,
+                )
+                revoked = False
+                try:
+                    guard("native_load")
+                except PermissionError:
+                    revoked = True
+                save_loader_registration(pending=revoked, result=result)
+                self.cleanup_detail = "自动 Loader 已开始等待游戏；管道与业务能力仍需独立检测。" if not revoked else "自动加载授权已撤销，已保留组件清理待办。"
+                return
+            deployed = deploy_plugin(
+                game_executable_path=executable,
+                plugin_dll_path=self.root / self._bundle.roles["proxy"],
+                application_root=self.root,
+                writable_workspace_path=self.config_dir / "mods-plugin",
+                backup_directory=self.config_dir / "component-backups",
+                operation_guard=guard, game_running=self._game_running,
+            )
+        except PluginDeploymentPendingCleanup as error:
+            self.save_pending_deployment(error)
+            return
+        except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError, OSError) as error:
+            if method == "loader":
+                save_loader_registration(pending=True)
+            self.cleanup_detail = "自动组件管理失败：" + str(error)
+            self._auto_error = self.cleanup_detail
+            raise
+        self.save_deployment(deployed)
+
+    def _automatic_native_deploy(self, running: bool) -> None:
+        if self.policy.deployment_record.get("loading_method") == "loader":
+            self._automatic_native_loader(running)
+            return
+        if self.loader.snapshot().phase == "running":
+            self.cleanup_detail = "Loader 正在运行；停止当前 Loader 后才能部署 D3D 入口。"
+            return
+        if self._native_deployed is not None and self._native_deployed.files_compatible:
+            return
+        if running:
+            self.cleanup_detail = "游戏运行中，原生组件更新等待游戏退出。"
+            return
+        if self._native_deployed is not None and any(
+            item.present and not (item.matches_bundle or item.matches_record or item.matches_predecessor)
+            for item in self._native_deployed.files.values()
+        ):
+            self.cleanup_detail = "目标组件未匹配部署记录或已核实旧版本，自动更新等待手动核对。"
+            return
+        executable = self.policy.settings.game_executable
+        if not executable or monotonic() - self._last_auto_attempt < 15:
+            return
+        self._last_auto_attempt = monotonic()
+        frozen = replace(self.policy.settings, revision=0, auto_sync_enabled=False)
+        operation_revision = self.policy.operation_revision
+
+        def guard(capability):
+            current = replace(self.policy.settings, revision=0, auto_sync_enabled=False)
+            if (self._closed or self.policy.operation_revision != operation_revision or current != frozen
+                    or self.policy.settings.game_executable != executable
+                    or self.policy.settings.pending_cleanup or self.native_session.battle_active):
+                raise PermissionError("原生组件部署上下文已改变，已停止本次操作。")
+            self.policy.require(capability, automatic=True)
+
+        try:
+            guard("native_load")
+            self.native_session.close()
+            deployed = deploy_native_plugin(
+                application_root=self.root, game_executable_path=executable,
+                backup_directory=self.config_dir / "component-backups",
+                operation_guard=guard, game_running=self._game_running,
+                expected_existing_files={name: item.sha256 if item.present else None
+                                         for name, item in self._native_deployed.files.items()}
+                if self._native_deployed is not None else None,
+            )
+            self.save_deployment(deployed)
+            self.cleanup_detail = "原生组件已部署；启动游戏后重新核对连接和各项能力。"
+        except PluginDeploymentPendingCleanup as error:
+            self.save_pending_deployment(error)
+        except (EquipmentPluginDeploymentError, PermissionError) as error:
+            self.cleanup_detail = "自动原生组件部署失败：" + str(error)
+            self._auto_error = self.cleanup_detail
+
+    def _restore_native_workspace(self, record) -> None:
+        path = record.get("native_workspace_root")
+        if path:
+            self.loader.restore_native_workspace_record(
+                workspace_path=path, managed_files=record.get("native_workspace_files", {}),
+                backup_path=record.get("native_workspace_backup_path"),
+            )
+
+    def _save_native_loader_record(self, *, executable: str, pending: bool) -> None:
+        workspace = self.loader.native_workspace_record
+        if workspace is None:
+            return
+        record = self.policy.deployment_record
+        previous_files = (record.get("native_workspace_files", {})
+                          if record.get("native_workspace_root") == str(workspace.directory) else {})
+        record.update({"game_executable": executable, "deployment_layout": "native-capture-v1",
+                       "native_workspace_root": str(workspace.directory),
+                       "native_workspace_files": {**previous_files, **workspace.managed_files},
+                       "native_workspace_backup_path": str(workspace.backup_path) if workspace.backup_path else None,
+                       "loader_payload_sha256": self.loader.active_payload_sha256})
+        self.policy.update_deployment(record)
+        if pending:
+            self.policy.set_cleanup_pending(True)
+        self.invalidate()
+
+    def start_native_loader(self, *, automatic: bool = False):
+        """Use the same Loader path for manual and automatic starts, preserving selection."""
+        with self._lock:
+            self.policy.require("native_load", automatic=automatic)
+            if self._closed or self.native_session.battle_active:
+                raise ModPluginLoadingError("请先结束当前采集任务，再启动 Loader。")
+            if self.policy.deployment_record.get("loading_method") != "loader":
+                raise ModPluginLoadingError("当前未选择 Loader 加载方式。")
+            if self._game_running():
+                raise ModPluginLoadingError("请先完全退出游戏，再启动 Loader。")
+            frozen = self.policy.settings
+            executable = frozen.game_executable
+            operation_revision = self.policy.operation_revision
+
+            def guard(capability):
+                self.policy.require(capability, automatic=automatic)
+                current = replace(self.policy.settings, revision=0, auto_sync_enabled=False)
+                expected = replace(frozen, revision=0, auto_sync_enabled=False)
+                if (self._closed or self.policy.operation_revision != operation_revision or current != expected
+                        or self.policy.settings.game_executable != executable
+                        or self.policy.deployment_record.get("loading_method") != "loader"
+                        or self.native_session.battle_active):
+                    raise PermissionError("Loader 启动上下文已改变，已停止操作。")
+
+            self.loader.require_native_loader_supported()
+            guard("native_load")
+            record = self.policy.deployment_record
+            self._restore_native_workspace(record)
+            if self.loader.snapshot().phase == "running" and not frozen.pending_cleanup:
+                return None
+            self.native_session.close()
+            guard("native_load")
+            if frozen.pending_cleanup or (record.get("deployment_layout") == "native-capture-v1" and record.get("managed_files")):
+                self.policy.set_cleanup_pending(True)
+                self.cleanup(running=False)
+                if self.policy.settings.pending_cleanup:
+                    raise ModPluginLoadingError(self.cleanup_detail)
+                current = self.policy.settings
+                # Only cleanup-owned settings may change while handing off the entry.
+                if (replace(current, revision=0, deployment_json="{}", pending_cleanup=False, auto_sync_enabled=False)
+                        != replace(frozen, revision=0, deployment_json="{}", pending_cleanup=False, auto_sync_enabled=False)):
+                    raise PermissionError("清理期间 Loader 启动上下文已改变，已停止操作。")
+                frozen = current
+                guard("native_load")
+
+            try:
+                guard("native_load")
+                result = self.loader.start_loader(
+                    game_executable_path=executable,
+                    writable_workspace_path=self.config_dir / "native-loader",
+                    proxy_backup_directory=self.config_dir / "component-backups",
+                    scoped_guard=guard,
+                )
+                guard("native_load")
+            except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as error:
+                stop_error = None
+                try:
+                    self.loader.stop_loader()
+                except (ModPluginLoadingError, OSError) as failure:
+                    stop_error = failure
+                finally:
+                    self._save_native_loader_record(executable=executable, pending=self.loader.pending_native_workspace_path is not None)
+                if stop_error is not None:
+                    raise ModPluginLoadingError("Loader 启动已失效且停止失败；保留待清理状态：" + str(stop_error)) from error
+                raise
+            self._save_native_loader_record(executable=executable, pending=False)
+            self.cleanup_detail = "Loader 已开始等待游戏；宿主、插件和采集连接仍需逐项检测。"
+            return result
+
+    def _automatic_native_loader(self, running: bool) -> None:
+        if running:
+            return
+        if monotonic() - self._last_auto_attempt < 15:
+            return
+        self._last_auto_attempt = monotonic()
+        try:
+            self.start_native_loader(automatic=True)
+        except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as error:
+            self.cleanup_detail = "自动 Loader 启动失败：" + str(error)
+            self._auto_error = self.cleanup_detail
+
+    def _inspect_component_files(self, *, path_valid: bool, running: bool) -> None:
+        settings = self.policy.settings
+        record = self.policy.deployment_record
+        loader_hash = self.loader.active_payload_sha256
+        key = (settings.game_executable, settings.deployment_json, loader_hash, running)
+        if key == self._file_key and monotonic() - self._last_files <= 15:
+            return
+        self._bundle = inspect_game_component_bundle(self.root)
+        if getattr(self._bundle, "layout", "") == "native-capture-v1":
+            self._native_deployed = inspect_deployed_native_plugin(
+                application_root=self.root, game_executable_path=settings.game_executable,
+                recorded_files=record.get("managed_files", {}), bundle_inspection=self._bundle,
+            ) if path_valid else None
+            self._deployed = None
+            self._loader_files = False
+            if record.get("loading_method") == "loader" and record.get("native_workspace_root"):
+                self._restore_native_workspace(record)
+                workspace = self.loader.inspect_native_workspace()
+                state = self.loader.snapshot()
+                self._loader_files = workspace.files_compatible and (state.phase == "running" or running)
+            self._last_files, self._file_key = monotonic(), key
+            return
+        self._native_deployed = None
+        self._deployed = inspect_deployed_plugin(
+            application_root=self.root, game_executable_path=settings.game_executable,
+            deployed_sha256=str(record.get("deployed_sha256") or ""),
+            mod_workspace_path=record.get("workspace_path"),
+        ) if path_valid else None
+        self._loader_files = False
+        if loader_hash and self._deployed is not None and self._deployed.workspace_registered:
+            snapshot = self.loader.snapshot()
+            if snapshot.phase == "running" or running:
+                packaged = packaged_plugin_dll(self.root)
+                with packaged.open("rb") as stream:
+                    expected = hashlib.file_digest(stream, "sha256").hexdigest()
+                self._loader_files = loader_hash == expected
+        self._last_files, self._file_key = monotonic(), key
+
+    def tick(self, *, allow_connect: bool = False) -> WorkModeProbe:
+        with self._lock:
+            if self._closed:
+                return WorkModeProbe()
+            if not self._discovered:
+                self.discover()
+                self._discovered = True
+            running = self._game_running()
+            settings = self.policy.settings
+            if settings.pending_cleanup:
+                if self.native_session.battle_active:
+                    self.cleanup_detail = "正在收尾本场原生战报，随后清理。"
+                else:
+                    self.native_session.close()
+                    self.cleanup(running=running)
+            settings = self.policy.settings
+            path_valid = bool(settings.game_executable and Path(settings.game_executable).is_file())
+            try:
+                core_available = resolve_nte_core_executable().is_file()
+            except Exception:
+                core_available = False
+            self._inspect_component_files(path_valid=path_valid, running=running)
+            if monotonic() - self._last_analysis > 15:
+                try:
+                    analysis = create_bundled_analysis_client(static_database_path=self.root / "data" / "game_static.sqlite3")
+                    self._analysis_available = bool(analysis and analysis.supports_battle_page)
+                except Exception:
+                    self._analysis_available = False
+                self._last_analysis = monotonic()
+            if path_valid and not settings.pending_cleanup:
+                self._automatic_deploy(running)
+            files = self._loader_files or bool(self._deployed and self._deployed.compatible)
+            current_package = files and bool(self._deployed and self._deployed.workspace_matches_package)
+            loading = self._loader_files or bool(self._deployed and self._deployed.proxy_matches_package
+                                                 and self._deployed.workspace_registered)
+            capabilities = getattr(self._deployed, "native_capabilities", frozenset())
+            native_capture = getattr(self._bundle, "layout", "") == "native-capture-v1"
+            if native_capture:
+                files = (self._loader_files if self.policy.deployment_record.get("loading_method") == "loader"
+                         else bool(self._native_deployed and self._native_deployed.files_compatible))
+                current_package = loading = files
+                capabilities = self._bundle.native_capabilities
+                core_available = self._bundle.ready
+            native = NativeFeatureProbe(files=files)
+            domain_files = {"native_" + name: NativeFeatureProbe(files=loading and f"{name}.snapshot.v1" in capabilities)
+                            for name in ("character", "inventory", "team", "environment")}
+            battle_files = NativeFeatureProbe(files=loading and {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities))
+            equipment_files = NativeFeatureProbe(files=loading and getattr(self._deployed, "equipment_script_valid", False))
+            if native_capture and files:
+                if not {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities):
+                    battle_files = NativeFeatureProbe(files=True, supported=False, reason="packaged_capability_missing")
+                equipment_supported = "equipment.execute.v1" in capabilities
+                equipment_files = NativeFeatureProbe(files=True, supported=equipment_supported,
+                    reason="" if equipment_supported else "packaged_capability_missing")
+            probe = WorkModeProbe(
+                analysis_available=self._analysis_available,
+                component_update_state=(CheckState.FAULT if self._auto_error
+                                        else CheckState.MISSING if not self._bundle or not self._bundle.ready
+                                        else CheckState.CLEANUP_PENDING if settings.pending_cleanup
+                                        else CheckState.AVAILABLE if current_package else CheckState.WAITING),
+                component_update_detail=(self._auto_error or ("；".join(self._bundle.issues) if self._bundle and self._bundle.issues
+                                         else "当前配套组件已部署。" if current_package
+                                         else self.cleanup_detail or "等待部署或更新当前配套组件。")),
+                game_path_valid=path_valid, game_running=running,
+                core_available=core_available, npcap_available=npcap_installation_present(),
+                input_available=find_spec("pyautogui") is not None,
+                native_load=native, **domain_files, native_battle=battle_files,
+                native_equipment=equipment_files, cleanup_detail=self.cleanup_detail,
+            )
+            if not running:
+                self.native_session.close()
+                return probe
+            if (not self.policy.allowed("native_sync") or settings.pending_cleanup or settings.paused
+                    or not (allow_connect or self.policy.allowed("native_sync", automatic=True)
+                            or self.native_session.battle_active)):
+                return probe
+            pipe = native_capture_game_pid() is not None
+            native = replace(native, pipe=pipe)
+            values = {key: replace(value, pipe=pipe) for key, value in domain_files.items()}
+            values["native_battle"] = replace(battle_files, pipe=pipe)
+            if native_capture:
+                values["native_equipment"] = replace(equipment_files, pipe=pipe)
+            else:
+                equipment_pipe = probe_equipment_pipe()
+                values["native_equipment"] = replace(equipment_files, pipe=equipment_pipe.get("state") in {"available", "busy"})
+            if pipe:
+                try:
+                    refresh = (allow_connect or (self.policy.allowed("native_sync", automatic=True)
+                               and monotonic() - self._refresh_at > 15))
+                    response = self.native_session.inspect(refresh=refresh, check_equipment=allow_connect)
+                    if refresh:
+                        self._refresh_at = monotonic()
+                    caps = response["hello"].get("capabilities", [])
+                    if native_capture:
+                        equipment = response.get("equipment") or {}
+                        inventory_ready = response.get("inventory_snapshot_ready") is True
+                        values["native_equipment"] = replace(values["native_equipment"], handshake=True,
+                            supported=equipment_files.supported is True and {"equipment", "native_equipment_v1"}.issubset(caps),
+                            ready=equipment.get("ready"), snapshot=inventory_ready,
+                            projection_complete=inventory_ready,
+                            reason=equipment_files.reason or str(equipment.get("reason") or (
+                                "equipment_check_required" if response.get("equipment") is None else "")))
+                    battle = response["status"].get("native_status", {})
+                    values["native_battle"] = replace(
+                        values["native_battle"], handshake=True, supported=battle_files.reason != "packaged_capability_missing" and {"native_hit_buff_v1", "battle_axis_v1", "native_context_observation_v1"}.issubset(caps),
+                        ready=battle.get("ready"), reason=str(battle.get("readyReason") or ""),
+                    )
+                    domains = response["domains"].get("domains", [])
+                    domain_map = {item.get("domain"): item for item in domains if isinstance(item, dict)}
+                    domain_errors = response.get("domain_errors", {})
+                    for domain in ("character", "inventory", "team", "environment"):
+                        item = domain_map.get(domain, {})
+                        error = domain_errors.get(domain)
+                        values["native_" + domain] = replace(
+                            values["native_" + domain], handshake=True,
+                            supported=f"{domain}.snapshot.v1" in caps and (
+                                domain not in {"inventory", "character"} or
+                                ("native_inventory_dto_v1" if domain == "inventory" else "native_character_profile_v1") in caps
+                            ),
+                            profile_projection_supported=domain == "character" and "native_character_profile_v1" in caps,
+                            ready=False if error else item.get("ready"),
+                            reason=str(error.get("reason") or error["message"]) if error else str(item.get("readyReason") or ""),
+                            snapshot=bool(item.get("snapshotId")), complete=item.get("complete"),
+                            source_coverage=str(item.get("sourceCoverage") or "unknown"),
+                        )
+                    probe = replace(probe, logged_in=battle.get("ready") is True)
+                except Exception:
+                    if native_capture:
+                        values["native_equipment"] = replace(values["native_equipment"], handshake=False,
+                            fault="原生装备接口检测失败，请重新检测；未切换旧装备管道。")
+                    values = {key: replace(value, handshake=False,
+                              fault="原生连接或业务检测失败，请重新检测；未切换抓包。")
+                              for key, value in values.items() if key != "native_equipment"} | {
+                                  "native_equipment": values["native_equipment"],
+                              }
+            return replace(probe, **values)
+
+    def request_close(self) -> None:
+        self._closed = True
+        self.native_session.request_close(permanent=True)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            self.native_session.close()

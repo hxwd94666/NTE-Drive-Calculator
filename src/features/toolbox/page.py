@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.features.toolbox.rewind_preferences import preference_custom_percent as _preference_custom_percent
+
 from dataclasses import dataclass
 from typing import Callable
 
@@ -58,6 +60,10 @@ class ToolboxDependencies:
     rewind_service_factory: Callable[[], RewindShapeRecommendationService]
     cultivation_service_factory: Callable[[], CultivationPlannerService]
     navigate_static_catalog: Callable[[], None]
+    operation_guard: Callable[[str], None] | None = None
+    operation_generation: Callable[[], object] | None = None
+    operation_entry: Callable[[str, str], bool] | None = None
+    operation_unavailable: Callable[[str, str, str], None] | None = None
 
     def rewind_service(self) -> RewindShapeRecommendationService:
         return self.rewind_service_factory()
@@ -69,18 +75,6 @@ class _RewindUiCatalog:
     owned_shape_counts: tuple[tuple[str, int], ...]
 
 
-def _preference_custom_percent(value: object) -> float | None:
-    """Read a persisted optional custom rewind threshold without trusting old data."""
-
-    if isinstance(value, bool):
-        return None
-    if not isinstance(value, (str, int, float)):
-        return None
-    try:
-        percent = float(value)
-    except (TypeError, ValueError):
-        return None
-    return percent if 1.0 <= percent <= 100.0 else None
 
 
 class ToolboxPage:
@@ -160,11 +154,8 @@ class ToolboxPage:
         except Exception as exc:
             QMessageBox.warning(self._dialog_parent, "倒带推荐", f"读取倒带分析数据失败：{exc}")
             return
-        dialog = _RewindRecommendationDialog(service, self._dialog_parent)
+        dialog = _RewindRecommendationDialog(service, self._dialog_parent, operation_guard=self._dependencies.operation_guard, operation_generation=self._dependencies.operation_generation, operation_entry=self._dependencies.operation_entry, operation_unavailable=self._dependencies.operation_unavailable)
         dialog.exec()
-
-
-
 class _RoleSelectionDialog(QDialog):
     """Avatar-card picker shared by target-role and main-role selections."""
 
@@ -292,8 +283,12 @@ class _RewindRecommendationDialog(RewindExecutionUiMixin, RewindSlotUiMixin, QDi
         "focused": "少角冲分",
     }
 
-    def __init__(self, service: RewindShapeRecommendationService, parent: QWidget) -> None:
+    def __init__(self, service: RewindShapeRecommendationService, parent: QWidget, *, operation_guard: Callable[[str], None] | None = None, operation_generation: Callable[[], object] | None = None, operation_entry: Callable[[str, str], bool] | None = None, operation_unavailable: Callable[[str, str, str], None] | None = None) -> None:
         super().__init__(parent)
+        self.operation_guard = operation_guard
+        self.operation_generation = operation_generation
+        self.operation_entry = operation_entry
+        self.operation_unavailable = operation_unavailable
         self._service = service
         self._roles: tuple[RewindTargetRole, ...] = ()
         self._role_names: dict[int, str] = {}

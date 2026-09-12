@@ -1,18 +1,15 @@
 # nte-mod-loader 组件记录
 
-- 当前二进制：从上游 `v0.4.3-build-146-bff9f56` 源码本地构建的 Windows x64 Loader
-- `bin/nte-mod-loader.exe` SHA-256：`B73E0DEDA463418ABF55FAB53447A402F0084346AF068A584EBC7BA80EA2443D`
-- 架构：Windows x64 PE；内嵌 `requireAdministrator` manifest
-- 上游源码提交：`bff9f569ae19fc659b61a3a810407c01be5fc71a`
-- 本地构建包：`nte-native-components-windows-x64-0.4.3-bff9f56.zip`
-- 本地构建包 SHA-256：`513163EF44E8BE256C72366989A3BAEB52CCD278704443D39FBEFB7C819B9FBD`
-- 构建工具链：Visual Studio 2022 Community，MSBuild `17.14.51.32402`
-- 构建命令：`MSBuild.exe native\\nte-mod-loader\\nte-mod-loader.sln /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m:1`
-- 打包：UPX 5.2.0 `--best --lzma`，并通过 `upx -t`
-- 许可证：上游主体 AGPL-3.0；内嵌依赖见 `THIRD_PARTY_LICENSES.md`
-- MSVC 运行库：静态链接；正式二进制只导入 Windows 系统 DLL
+本机私用配套版本，Windows x64，Release；沿用现有代理的显式备用注入入口。
 
-Loader 只作为代理 DLL 无法被游戏加载时的显式备用方式。应用通过 `--dll` 传入已审计的
-`dwmapi.dll` 绝对路径，并使用唯一命名 stop event 与 owner PID 管理本次会话。应用不得静默启用、
-不得同时保留代理 DLL，也不得在停止超时后继续部署另一种加载方式。上述 SHA-256 用于记录随包发行
-基线，不是运行时门禁；用户可用可信来源的同名 Loader 覆盖发行文件。
+- 源码基底：`9d8431426624358e23f1873a273010f65a81007d`，使用本机集成工作区；源码基底与实际输入摘要分开记录。
+- 二进制：`bin/nte-mod-loader.exe`，402,432 字节，未压缩。
+- SHA-256：`9bf8b28b0fb55304d09bc61503062ebcb931d611b05c8006f1f78d624218e8e6`。
+- 构建输入摘要：`5695da93785d5aa518825910dffefc966184bbf3d1c96f119f3d7241099fe114`。
+- 构建：Visual Studio 2022 MSBuild，`native/nte-mod-loader/nte-mod-loader.sln`，Release/x64。
+- 验证：构建成功，二进制本机路径扫描通过；新组合的游戏内注入仍待实测。
+- 内嵌 requireAdministrator manifest；静态 MSVC 运行库。许可见 LICENSE 与 THIRD_PARTY_LICENSES.md。
+
+Loader 只作为代理 DLL 无法被游戏加载时的显式备用方式。应用通过 `--dll` 指定配套的 `dwmapi.dll`，
+由 stop event 与 owner PID 管理会话；不得静默启用或与代理方式同时加载。独立采集 DLL 仍由配套 Mod
+工作区正常加载，不交给 manual-map。以上哈希记录当前交付版本，不改变用户显式选择可信 Loader 的行为。

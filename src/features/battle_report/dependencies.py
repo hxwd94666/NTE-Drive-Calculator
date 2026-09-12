@@ -126,6 +126,10 @@ def build_battle_report_controller(
     stop_inventory_sync: Callable[[], None],
     start_inventory_sync: Callable[[], None],
     hotkey_manager: GlobalHotkeyManager,
+    work_mode_service,
+    native_session,
+    operation_entry: Callable[[str, str], bool] | None = None,
+    operation_unavailable: Callable[..., None] | None = None,
 ) -> BattleReportController:
     service_factory = BattleReportServiceFactory(app_context)
     return BattleReportController(
@@ -135,9 +139,17 @@ def build_battle_report_controller(
         stop_inventory_sync=stop_inventory_sync,
         start_inventory_sync=start_inventory_sync,
         hotkey_manager=hotkey_manager,
-        client_factory=lambda data_dir: NteCoreClient(
+        work_mode_service=work_mode_service,
+        operation_entry=operation_entry,
+        operation_unavailable=operation_unavailable,
+        client_factory=lambda data_dir, check: (
+            native_session.battle_client(check=check) if work_mode_service.allowed("native_battle")
+            else NteCoreClient(data_dir=data_dir, cwd=app_context.paths.app_dir, required_source="packet")
+        ),
+        comparison_client_factory=lambda data_dir: NteCoreClient(
             data_dir=data_dir,
             cwd=app_context.paths.app_dir,
+            required_source="packet",
         ),
         persistence_factory=service_factory.persistence_service,
         history_factory=service_factory.history_service,
