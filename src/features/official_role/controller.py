@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from time import perf_counter
 from typing import Any
 
 from src.features.official_role.dependencies import OfficialRoleDependencies
@@ -46,6 +47,7 @@ class OfficialRoleController:
         )
 
     def load_index(self) -> list[dict]:
+        started = perf_counter()
         with operation_scope(
             self._operation(),
             started_event="role.index_load_started",
@@ -53,10 +55,16 @@ class OfficialRoleController:
             failed_event="role.index_load_failed",
             message="加载角色索引",
         ) as span:
+            # 单独记录进入业务前的日志输出等待，不将控制台阻塞误判为查库慢。
+            start_log_ms = round((perf_counter() - started) * 1000, 3)
+            stages: dict[str, float] = {}
             roles = load_official_role_index(
-                self.dependencies.user_database_path
+                self.dependencies.user_database_path, stage_duration_ms=stages,
             )
-            span.annotate(role_count=len(roles))
+            span.annotate(
+                role_count=len(roles), start_log_ms=start_log_ms,
+                stage_duration_ms=stages,
+            )
             return roles
 
     def load_detail(self, character_id: int) -> dict:

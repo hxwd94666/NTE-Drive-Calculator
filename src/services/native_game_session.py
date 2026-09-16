@@ -31,6 +31,7 @@ class NativeGameSession:
         self._context_key = context_key
         self._diagnostics_enabled = diagnostics_enabled
         self._diagnostics_applied = None
+        self._hud_applied = None
         self._connected_context: object = None
         self._client: NteCoreClient | None = None
         self._lock = RLock()
@@ -428,10 +429,38 @@ class NativeGameSession:
                 except Exception:
                     self._failed = True
 
+    def configure_hud(self, options: dict[str, bool], *, connect: bool) -> dict:
+        """Share the capture owner; disabling never opens a new connection."""
+        with self._lock:
+            if connect:
+                self._guard("native_load")
+                client = self._connect()
+            else:
+                client = self._client
+            if client is None or not client.is_running:
+                return {}
+            capabilities = (client.hello_result or {}).get("capabilities", ())
+            if "native_hud_v1" not in capabilities:
+                if connect:
+                    raise RuntimeError("当前组件不支持插件开关，请更新配套 Core 和 DLL 后重启游戏。")
+                return {}
+            cached = self._hud_applied
+            if cached is not None and cached[0] is client and cached[1] == options:
+                result = cached[2]
+                if result.get("installed") or result.get("rejected") or not (options["cooldown"] or options["enemy_bars"]):
+                    return result
+            result = client.call("native.hud.configure", options, timeout=2.0)
+            self._hud_applied = (client, dict(options), result)
+            return result
+
     def close(self) -> None:
         self.request_close()
         with self._lock:
             self._closing = True
+            try:
+                self.configure_hud({key: False for key in ("cooldown", "enemy_bars", "ready_cue", "hp", "unbalance")}, connect=False)
+            except NteCoreError:
+                pass  # Provider also disables HUD when this connection closes.
             self._disable_snapshots()
             if self._lease is None:
                 self._finish_close()

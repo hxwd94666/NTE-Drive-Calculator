@@ -32,10 +32,11 @@ class _PathResult:
 class WorkModeController(QObject):
     observed = Signal(object)
 
-    def __init__(self, *, window, policy, runtime, navigate=None) -> None:
+    def __init__(self, *, window, policy, runtime, navigate=None, observe_plugins=None) -> None:
         super().__init__(window)
         self.window, self.policy, self.runtime = window, policy, runtime
         self._navigate = navigate
+        self._observe_plugins = observe_plugins
         self._settings_scroll = None
         self._settings_targets = {}
         self._highlighted_card = None
@@ -141,6 +142,8 @@ class WorkModeController(QObject):
             return None
         try:
             probe = self.runtime.tick(allow_connect=allow_connect and not self.policy.settings.paused)
+            if self._observe_plugins is not None:
+                self._observe_plugins(probe)
             return revision, generation, probe, request_id
         except Exception:
             return ObservationResult("fault", "检测失败，请重新检测。", revision, generation, request_id)
@@ -224,6 +227,10 @@ class WorkModeController(QObject):
         toggle.blockSignals(True)
         toggle.setChecked(False)
         toggle.blockSignals(False)
+
+    def refresh_plugins(self) -> None:
+        if not self._closed:
+            self._observer.submit(self._observe, key="plugins")
 
     def check(self, *, show: bool = False) -> None:
         if self._closed:

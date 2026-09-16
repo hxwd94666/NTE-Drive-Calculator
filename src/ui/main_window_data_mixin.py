@@ -224,6 +224,18 @@ class MainWindowDataMixin:
             NETDISK_DOWNLOAD_LINKS,
         )
 
+    def _page_plugins(self):
+        from src.features.plugins.page import PluginsPage
+        self.plugins_page = PluginsPage(
+            service=self.plugin_service, request_apply=self.work_mode_controller.refresh_plugins,
+            open_settings=lambda: self.work_mode_controller.open_settings("deployment"), parent=self,
+        )
+        self.work_mode_controller.observed.connect(self.plugins_page.refresh)
+        return self.plugins_page
+
+    def _refresh_plugins(self):
+        self.plugins_page.refresh()
+
     def _refresh_ss(self):
         account = self.app_context.account
         usage = managed_screenshot_usage(

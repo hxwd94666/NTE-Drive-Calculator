@@ -297,13 +297,27 @@ Service 负责 OCR、归一化和装备字段。Integration 返回截图、索�
 根目录 `nte-core.exe`、`dwmapi.dll`、`nte-mod-loader.exe` 和插件副本是本机文件。`third_party` 只保存明确晋升的发行组件；
 晋升前记录上游 commit、版本、许可和 SHA-256，并完成协议、打包和真实 Windows 验证。
 
-本期原生组件采用无界面采集 DLL 与最小 D3D 入口；可选 Loader 直接标准加载同一个采集 DLL。
+本期原生组件采用采集 DLL 与最小 D3D 入口；可选 Loader 直接标准加载同一个采集 DLL。
+采集默认不显示界面，可由 Calc 显式开启原生 Canvas 显示插件。
 Toolkit 负责与 Core 成套核对后交付，Calc 不引入开发工具 UI、MCP、SDK 或内部构建明细。
 旧脚本链只在明确的旧布局清单下使用 `mods-plugin` 工作区。当前整包、加载入口、授权和清理的唯一契约见
 [工作模式](reference/work-modes.md)与[组件包格式及生命周期](reference/game-component-bundle.md)。
 游戏已加载的 DLL 需退出游戏后才能由 Calc 更新；Calc 不增加文件监视或热重载编排。
 部署文件、加载管道、协议握手和业务快照分别检测，不以交付文件哈希证明游戏正在使用新版。
 原生同步和战报共享同一个 Core 所有者，战报释放租约不关闭同步连接，停止超时可中止坏 Core。
+
+### 原生显示插件
+
+显示插件复用 `NativeGameSession` 和既有 Core 管道，不建立第二个采集连接。DLL 声明 `hud.configure.v1`，
+配套 Core 才声明 `native_hud_v1`，将 `native.hud.configure` 转发为 `hud.configure`。
+请求完整携带五个布尔字段：`cooldown`、`enemy_bars`、`ready_cue`、`hp`、`unbalance`。
+响应 `options` 为完整位掩码，`installed` 表示 PostRender 入口已安装，`rejected` 表示入口校验不匹配。
+接受配置不代表当前场景已有可显示对象。缺少能力时提示更新，不发送未知接口或开启第二个提供方。
+
+生产 DLL 默认关闭插件；管道连接接管 HUD 后，断开时清除显示选项。现有工作模式观察线程负责应用偏好，
+不新增轮询线程。HUD 控制不修改战报录制状态，录制中可独立切换。完全关闭后保留原生网关的透明转发，
+不读游戏属性、不扫描 UI、不绘制；恢复时复用入口。实机验收分别检查两个开关、关闭后显示消失、Calc
+退出和重连，以及录制期间切换和保存逐击。
 
 正式背包同步要求 `inventory.snapshot.v1` 和 `native_inventory_dto_v1`；角色稀疏同步要求
 `character.snapshot.v1` 和 `native_character_profile_v1`。读取先请求 `native.snapshot.refresh(domain)`，

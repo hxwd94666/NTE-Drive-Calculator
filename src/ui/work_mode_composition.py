@@ -7,6 +7,8 @@ from src.services.work_mode_runtime import WorkModeRuntime
 from src.ui.controllers.work_mode_controller import WorkModeController
 from src.ui.controllers.auto_sync_controller import AutoSyncController
 from src.services.equipment_plugin_deployment import game_process_running
+from src.integrations.plugin_settings_store import PluginSettingsStore
+from src.services.plugin_service import PluginService
 
 
 def initialize_mode_policy(window):
@@ -42,8 +44,13 @@ def initialize_mode_runtime(window):
         config_dir=window.app_context.paths.config_dir,
         game_running=game_running,
     )
+    window.plugin_service = PluginService(
+        store=PluginSettingsStore(window.app_context.paths.config_dir / "plugins.json"),
+        policy=window.work_mode_service, session=window.native_game_session,
+    )
     window.work_mode_controller = WorkModeController(
         window=window, policy=window.work_mode_service, runtime=window.work_mode_runtime, navigate=window._go,
+        observe_plugins=window.plugin_service.observe,
     )
     window.auto_sync_controller = AutoSyncController(
         window=window, policy=window.work_mode_service,

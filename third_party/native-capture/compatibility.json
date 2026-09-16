@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
-  "core_rebuilt": false,
-  "core_sha256": "f3cfaa75fdd899acceb2501bbce2bcb8d5d94a99ecce93c25f14e66f866ab9b1",
-  "capture_sha256": "22c0ebcaa89ea2977aa67ee4b80361944de0168e95d01461060c3476f6273246",
-  "proxy_sha256": "8974a4a3490edadb64d383ceb568d9b7f055f6f32ede61e9ef001a50d2af87d0",
+  "core_rebuilt": true,
+  "core_sha256": "aab46c3a5927576e531062195171b57b21cb5e0173b7e73c54b441bc8cf8b7c2",
+  "capture_sha256": "5fa57cbaa1b1be281d51ab5d6281ed5a83a496f64fccebb4986632a42c2951b8",
+  "proxy_sha256": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
   "protocol_version": 1,
   "provider_capabilities": [
+    "hud.configure.v1",
     "combat.hit_buff.v1",
     "combat.effects.v1",
     "combat.context.v1",
@@ -30,6 +31,7 @@
     "native_buff_events_v1",
     "native_context_observation_v1",
     "native_snapshot_archive_v1",
+    "native_hud_v1",
     "native_battle_scope_snapshot_v1",
     "native_snapshot_inline_raw_v1",
     "character.snapshot.v1",
@@ -45,8 +47,8 @@
   ],
   "validation": {
     "calc_persistence": "known and unknown event payloads retained",
-    "game": "pending_exact_headless_binary",
-    "non_game": "Kernel-copy read proof, permission checks and memory invalidation passed; paired direct/proxy protocol smoke passed. Matching UETool code reduced callback costs in game; this headless binary awaits game acceptance.",
+    "game": "pending_glow_and_cooldown_mask",
+    "non_game": "Paired direct/proxy Core handshake, independent HUD controls and capture status passed; live switch and close behavior pending.",
     "build": "paired Release x64",
     "transport": "execution, dynamic panel and formula evidence preserved through protocol and axis paging",
     "attribute_replication": "compiled; gameplay callbacks pending; does not establish server per-hit inputs"

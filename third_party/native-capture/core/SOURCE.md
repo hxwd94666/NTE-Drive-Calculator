@@ -2,8 +2,8 @@
 
 Independent CLI derived from NTE DPS Toolkit. Included LICENSE, NOTICE.md, LICENSING.md, THIRD_PARTY_LICENSES.md and dependency licenses retain their terms.
 
-Source base: 3e3bcd05583c369cfecc477aaa0adc933591841b; modified working-tree input SHA-256: 38988445a95bdf1cffc0d49a04f1c22e29b857923cfb086b596743cbcd29b9be. Build: Release x64, cli with the seven core-manifest JSON resources embedded, no external_resources or desktop features, one job. Source paths are remapped. The base alone does not reproduce this build.
+Source base: 77a775ad7639d17ae63b2a6c15c7cb6f49c01917; modified working-tree input SHA-256: 673eb4ccec24eb4a18a01539a9c11fb6b59a334519653b57c1f7fcbc5cf16f42. Build: Release x64, cli with the seven core-manifest JSON resources embedded, no external_resources or desktop features, one job. Source paths are remapped. The base alone does not reproduce this build.
 
-Common event envelopes are checked for version, sequence, timestamp and size. Unknown payloads are preserved without interpreting calculation or Buff mechanisms. Event records cannot replace hit state references. Targeted protocol and axis-paging tests preserve execution evidence, dynamic attributes and formula observations, including hits without legacy effect-presence lists. Direct/proxy companion tests passed. Formula interpretation remains in the separate analysis component.
+Core forwards optional HUD control through the same native connection without changing capture state. It advertises the capability only when the provider supports it. Targeted request and paired direct/proxy tests passed; exact in-game acceptance is pending.
 
-Core delegates user/UAC/logon access policy to Windows pipe access control instead of duplicating token comparisons. Target PID, process creation time and actual pipe-server identity checks remain.
+Original event payloads, per-hit evidence, dynamic attributes and formula observations retain their existing transport. Formula interpretation remains in the separate analysis component. Core delegates user/UAC/logon access policy to Windows pipe access control, retaining target PID, process creation time and pipe-server identity checks.

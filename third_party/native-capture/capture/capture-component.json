@@ -3,9 +3,9 @@
   "component": "nte-capture",
   "layout": "headless-capture-v1",
   "protocol_version": 1,
-  "source_base_commit": "ef0a350c5253c25d93b6577e131b654e643921c5",
+  "source_base_commit": "22c9d03670aee7dba93c5fa05f57faacbe6ce7fb",
   "source_modified": true,
-  "input_digest": "666f1dcd0aa336bb58831b161eeef7e8e19aa3cbd4bb2b302e0e3b1f98d14f8a",
+  "input_digest": "619349c2a706a76365e6157431c2a0335a111e6b5f55c8fcd8653f42aaba92aa",
   "roles": {
     "proxy": "d3d12.dll",
     "capture_runtime": "NTE_Capture.dll",
@@ -14,20 +14,21 @@
     "source": "SOURCE.md"
   },
   "files": {
-    "d3d12.dll": "8974a4a3490edadb64d383ceb568d9b7f055f6f32ede61e9ef001a50d2af87d0",
-    "NTE_Capture.dll": "22c0ebcaa89ea2977aa67ee4b80361944de0168e95d01461060c3476f6273246",
+    "d3d12.dll": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
+    "NTE_Capture.dll": "5fa57cbaa1b1be281d51ab5d6281ed5a83a496f64fccebb4986632a42c2951b8",
     "LICENSE.txt": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
     "Detours-LICENSE.md": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef",
-    "SOURCE.md": "3bacb06028e0a85ecae419586c4022bf12fbb464a1ee7b90a8fa718d9398ca0c"
+    "SOURCE.md": "9498e890b53fed19cd046f1780a717bb9ecbd11bcf4840b66444e8e011fa2954"
   },
   "file_sizes": {
     "d3d12.dll": 15360,
-    "NTE_Capture.dll": 3187200,
+    "NTE_Capture.dll": 3380736,
     "LICENSE.txt": 35823,
     "Detours-LICENSE.md": 1122,
-    "SOURCE.md": 1417
+    "SOURCE.md": 1518
   },
   "capabilities": [
+    "hud.configure.v1",
     "combat.hit_buff.v1",
     "combat.effects.v1",
     "combat.context.v1",
@@ -44,7 +45,7 @@
     "snapshot.changes.v1"
   ],
   "startup": "automatic_background",
-  "ui": false,
+  "ui": true,
   "mcp": false,
   "hot_unload": false,
   "loading": {
@@ -52,10 +53,12 @@
     "d3d": "same_directory_proxy_and_runtime"
   },
   "validation": {
-    "game_runtime": "pending_exact_headless_binary",
+    "game_runtime": "pending_glow_and_cooldown_mask",
     "formula_evidence": "developer plugin gameplay verified; server formula inputs remain partial",
-    "non_game": "Read-proof equivalence, invalidation and local benchmark passed; direct and proxy protocol smoke passed. Gameplay performance pending.",
+    "non_game": "Paired direct/proxy Core handshake, independent HUD controls and capture status passed; live switch and close behavior pending.",
     "build": "Release x64 single-job raw evidence",
     "attribute_replication": "compiled; gameplay callbacks pending; does not establish server per-hit inputs"
-  }
+  },
+  "developer_ui": false,
+  "optional_canvas_hud": true
 }

@@ -76,6 +76,7 @@ nte_capture*.json
 /output/
 /config/component-backups/
 /config/work_mode.json
+/config/plugins.json
 
 # Private component source trees and sensitive development artifacts
 /analysis-core/
