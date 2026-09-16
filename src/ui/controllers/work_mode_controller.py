@@ -135,7 +135,10 @@ class WorkModeController(QObject):
         if not self._closed:
             self._observer.start()
 
-    def _observe(self, *, allow_connect=False, request_id=0, expected=None):
+    def _observe(
+        self, *, allow_connect=False, request_id=0, expected=None,
+        allow_unrecorded_legacy_cleanup=False,
+    ):
         revision, generation = expected or (
             self.policy.settings.revision, self.window.app_context.generation,
         )
@@ -144,7 +147,10 @@ class WorkModeController(QObject):
         ):
             return None
         try:
-            probe = self.runtime.tick(allow_connect=allow_connect and not self.policy.settings.paused)
+            tick_args = {"allow_connect": allow_connect and not self.policy.settings.paused}
+            if allow_unrecorded_legacy_cleanup:
+                tick_args["allow_unrecorded_legacy_cleanup"] = True
+            probe = self.runtime.tick(**tick_args)
             if self._observe_plugins is not None:
                 self._observe_plugins(probe)
             return revision, generation, probe, request_id
@@ -239,7 +245,12 @@ class WorkModeController(QObject):
         if not self._closed:
             self._observer.submit(self._observe, key="plugins")
 
-    def check(self, *, show: bool = False) -> None:
+    def component_state_changed(self) -> None:
+        """Refresh a visible report and the compact summary after manual component work."""
+        if not self._closed:
+            self.check(show=self._report_dialog is not None)
+
+    def check(self, *, show: bool = False, allow_unrecorded_legacy_cleanup: bool = False) -> None:
         if self._closed:
             return
         self._request_serial += 1
@@ -258,7 +269,12 @@ class WorkModeController(QObject):
             if self._closed:
                 return None
             self.runtime.invalidate()
-            result = self._observe(allow_connect=True, request_id=request_id, expected=expected)
+            result = self._observe(
+                allow_connect=True,
+                request_id=request_id,
+                expected=expected,
+                allow_unrecorded_legacy_cleanup=allow_unrecorded_legacy_cleanup,
+            )
             return result or ObservationResult("superseded", "检测上下文已改变，请重新检测。", *expected, request_id)
         self._observer.submit(perform, key="check")
 
@@ -299,7 +315,7 @@ class WorkModeController(QObject):
         if errors:
             QMessageBox.warning(self.window, "清理游戏目录", "清理设置或收尾未完成：" + "; ".join(errors))
         else:
-            self.check(show=True)
+            self.check(show=True, allow_unrecorded_legacy_cleanup=True)
 
     def refresh_controls(self, *, reset_selection: bool = False) -> None:
         settings = self.policy.settings

@@ -122,6 +122,7 @@ def test_manual_deployment_ui_ignores_config_saves_and_cleans_old_pending_record
         operation_generation=lambda: (policy.operation_revision, 1),
         _stop_inventory_sync=Mock(), character_profile_sync_controller=SimpleNamespace(request_stop=Mock()),
         _refresh_equipment_plugin_status=Mock(), operation_unavailable=Mock(),
+        work_mode_controller=SimpleNamespace(component_state_changed=Mock()),
     )
     def confirm(*_args):
         policy.update_deployment(policy.deployment_record)
@@ -134,6 +135,7 @@ def test_manual_deployment_ui_ignores_config_saves_and_cleans_old_pending_record
                         lambda **kwargs: module.deploy_native_plugin(**kwargs, game_running=lambda: False))
     ui.deploy_native_plugin_from_settings(window)
     information.assert_called_once()
+    window.work_mode_controller.component_state_changed.assert_called_once_with()
     window.operation_unavailable.assert_not_called()
     assert not policy.settings.pending_cleanup
     assert policy.operation_revision == original_revision

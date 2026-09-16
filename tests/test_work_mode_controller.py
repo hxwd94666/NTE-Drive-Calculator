@@ -229,6 +229,15 @@ def test_paused_manual_check_does_not_connect(controller):
     assert observed == [{"allow_connect": False}]
 
 
+def test_component_state_change_refreshes_compact_summary(controller):
+    c, _window, _policy, _events, _popups, probe = controller
+    observed = []
+    c.runtime.tick = lambda **kwargs: observed.append(kwargs) or probe
+    c.component_state_changed()
+    c._observer.run_jobs()
+    assert observed == [{"allow_connect": True}]
+
+
 def test_offline_revokes_capture_and_queues_teardown_before_next_observation(controller):
     c, window, policy, events, _popups, probe = controller
     c.select_mode("offline")
@@ -267,11 +276,18 @@ def test_plugin_preference_save_failure_still_requests_native_shutdown(controlle
 
 
 def test_explicit_cleanup_disables_auto_redeployment(controller):
-    c, _window, policy, _events, _popups, _probe = controller
+    c, _window, policy, _events, _popups, probe = controller
+    observed = []
+    c.runtime.tick = lambda **kwargs: observed.append(kwargs) or probe
     c.cleanup()
     assert policy.settings.paused
     assert not policy.allowed("native_load", automatic=True)
     assert policy.settings.pending_cleanup
+    c._observer.run_jobs()
+    assert observed == [{
+        "allow_connect": False,
+        "allow_unrecorded_legacy_cleanup": True,
+    }]
 
 
 def test_mode_change_does_not_take_runtime_lock_on_ui_thread(controller):

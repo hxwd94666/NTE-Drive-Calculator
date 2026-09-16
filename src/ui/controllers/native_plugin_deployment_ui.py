@@ -9,6 +9,12 @@ from src.services.native_plugin_deployment import deploy_native_plugin
 from src.services.mod_plugin_loading_service import ModPluginLoadingError
 
 
+def _refresh_work_mode_detection(window) -> None:
+    controller = getattr(window, "work_mode_controller", None)
+    if controller is not None:
+        controller.component_state_changed()
+
+
 def refresh_native_plugin_status(window) -> None:
     bundle = inspect_game_component_bundle(window.app_context.paths.root)
     combo = getattr(window, "_equipment_plugin_loading_method_combo", None)
@@ -76,7 +82,7 @@ def deploy_native_plugin_from_settings(window) -> None:
     if QMessageBox.question(
         window, "确认部署原生组件",
         "将部署无界面采集 DLL 与 D3D 采集入口。已有同名组件会直接替换，不保留备份，"
-        "游戏目录的旧 dwmapi.dll 会直接删除。\n"
+        "游戏目录的旧 dwmapi.dll 和本程序旧版 Mod 工作区加载登记会直接删除。\n"
         "请保持游戏关闭；完成后启动游戏并重新检测。\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
     ) != QMessageBox.Yes:
@@ -104,9 +110,11 @@ def deploy_native_plugin_from_settings(window) -> None:
         )
         window.work_mode_runtime.save_deployment(deployed)
         window._refresh_equipment_plugin_status()
+        _refresh_work_mode_detection(window)
         QMessageBox.information(window, "原生组件已部署", "请启动游戏，然后重新检测连接和各项业务能力。")
     except PluginDeploymentPendingCleanup as error:
         window.work_mode_runtime.save_pending_deployment(error)
+        _refresh_work_mode_detection(window)
         QMessageBox.warning(window, "组件部署待清理", str(error))
     except (EquipmentPluginDeploymentError, PermissionError) as error:
         if window.work_mode_service.allowed("native_load"):
@@ -119,6 +127,7 @@ def start_native_loader_from_settings(window) -> None:
         window.character_profile_sync_controller.request_stop()
         window.work_mode_runtime.start_native_loader()
         window._refresh_equipment_plugin_status()
+        _refresh_work_mode_detection(window)
         QMessageBox.information(window, "原生 Loader 已启动",
                                 "请正常启动游戏，随后重新检测连接和各项能力。")
     except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as error:

@@ -64,6 +64,30 @@ class ManagedPluginCleanupTests(unittest.TestCase):
         self.assertTrue(self.dll.exists())
         self.clear_registry.assert_not_called()
 
+    def test_background_cleanup_preserves_unrecorded_application_registry(self) -> None:
+        self.registry.return_value = (True, str(self.workspace))
+        result = cleanup_managed_plugin(
+            game_executable_path=self.game,
+            game_running=lambda: False,
+        )
+        self.assertEqual(result.status, "conflict")
+        self.assertTrue(self.dll.exists())
+        self.clear_registry.assert_not_called()
+
+    def test_explicit_cleanup_adopts_unrecorded_application_registry(self) -> None:
+        self.registry.return_value = (True, str(self.workspace))
+        self.clear_registry.side_effect = lambda **_kwargs: self.registry.configure_mock(
+            return_value=(False, None),
+        ) or True
+        result = cleanup_managed_plugin(
+            game_executable_path=self.game,
+            game_running=lambda: False,
+            allow_unrecorded_workspace_adoption=True,
+        )
+        self.assertEqual(result.status, "cleaned")
+        self.assertFalse(self.dll.exists())
+        self.clear_registry.assert_called_once_with(workspace_path=str(self.workspace))
+
     def test_directory_at_dll_location_is_not_deleted(self) -> None:
         self.dll.unlink()
         self.dll.mkdir()

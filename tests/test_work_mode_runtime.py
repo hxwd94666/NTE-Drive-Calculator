@@ -97,6 +97,21 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.clean.assert_called_once()
         self.assertFalse(self.policy.settings.pending_cleanup)
 
+    def test_manual_deployment_adopts_unrecorded_legacy_workspace(self):
+        self.policy.select_mode("medium", risk_confirmed=True)
+        self.policy.set_cleanup_pending(True)
+        revision = self.runtime.prepare_manual_native_deployment(
+            expected_operation_revision=self.policy.operation_revision,
+        )
+        self.assertEqual(revision, self.policy.operation_revision)
+        self.clean.assert_called_once_with(
+            game_executable_path=str(self.game),
+            mod_workspace_path=None,
+            game_running=self.process,
+            allow_unrecorded_workspace_adoption=True,
+        )
+        self.assertFalse(self.policy.settings.pending_cleanup)
+
     def test_default_pending_is_unverified_not_an_exit_warning(self):
         self.policy.set_cleanup_pending(True)
         self.assertEqual(self.runtime.cleanup_exit_detail, "")

@@ -166,7 +166,7 @@ class WorkModeRuntime:
                     or self.native_session.battle_active):
                 raise PermissionError("原生组件部署上下文已改变，已停止操作。")
             if frozen.pending_cleanup:
-                self.cleanup()
+                self.cleanup(allow_unrecorded_legacy_workspace=True)
                 if self.policy.settings.pending_cleanup:
                     raise EquipmentPluginDeploymentError(self.cleanup_detail)
                 if self.policy.operation_revision != expected_operation_revision:
@@ -199,15 +199,24 @@ class WorkModeRuntime:
             (settings.game_executable, settings.deployment_json), state, detail, notify,
         )
 
-    def cleanup(self, *, running: bool | None = None) -> None:
+    def cleanup(
+        self, *, running: bool | None = None,
+        allow_unrecorded_legacy_workspace: bool = False,
+    ) -> None:
         self._cleanup_observation = None
         try:
-            self._cleanup_components(running=running)
+            self._cleanup_components(
+                running=running,
+                allow_unrecorded_legacy_workspace=allow_unrecorded_legacy_workspace,
+            )
         except (EquipmentPluginDeploymentError, ModPluginLoadingError, OSError) as error:
             self._record_cleanup(CheckState.FAULT, _cleanup_error_detail(error), notify=True)
             raise
 
-    def _cleanup_components(self, *, running: bool | None = None) -> None:
+    def _cleanup_components(
+        self, *, running: bool | None = None,
+        allow_unrecorded_legacy_workspace: bool = False,
+    ) -> None:
         record = self.policy.deployment_record
         has_deployment = _has_cleanup_record(record)
         if self.native_session.battle_active:
@@ -265,6 +274,9 @@ class WorkModeRuntime:
             game_executable_path=path,
             mod_workspace_path=workspace,
             game_running=self._game_running,
+            allow_unrecorded_workspace_adoption=(
+                allow_unrecorded_legacy_workspace and not workspace
+            ),
         )
         self._record_cleanup(
             CheckState.FAULT if result.status == "conflict" else CheckState.CLEANUP_PENDING,
@@ -465,7 +477,10 @@ class WorkModeRuntime:
             self._loader_files = workspace.files_compatible and (state.phase == "running" or running)
         self._last_files, self._file_key = monotonic(), key
 
-    def tick(self, *, allow_connect: bool = False) -> WorkModeProbe:
+    def tick(
+        self, *, allow_connect: bool = False,
+        allow_unrecorded_legacy_cleanup: bool = False,
+    ) -> WorkModeProbe:
         with self._lock:
             if self._closed:
                 return WorkModeProbe()
@@ -502,11 +517,17 @@ class WorkModeRuntime:
             settings = self.policy.settings
             if settings.pending_cleanup:
                 if self.native_session.battle_active:
-                    self.cleanup(running=running)
+                    self.cleanup(
+                        running=running,
+                        allow_unrecorded_legacy_workspace=allow_unrecorded_legacy_cleanup,
+                    )
                 else:
                     self.native_session.close()
                     try:
-                        self.cleanup(running=running)
+                        self.cleanup(
+                            running=running,
+                            allow_unrecorded_legacy_workspace=allow_unrecorded_legacy_cleanup,
+                        )
                     except (EquipmentPluginDeploymentError, ModPluginLoadingError, OSError):
                         return replace(local_probe,
                             game_path_valid=True, game_running=running,

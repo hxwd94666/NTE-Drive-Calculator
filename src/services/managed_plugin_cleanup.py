@@ -21,6 +21,7 @@ class ManagedPluginInspection:
     target_path: Path
     dll_state: Literal["missing", "managed", "conflict"]
     registry_state: Literal["absent", "owned", "conflict"]
+    registered_workspace: str | None
     game_running: bool
 
 
@@ -64,7 +65,7 @@ def inspect_managed_plugin(
         registry_state = "owned"
     else:
         registry_state = "conflict"
-    return ManagedPluginInspection(target, dll_state, registry_state, process_running)
+    return ManagedPluginInspection(target, dll_state, registry_state, current, process_running)
 
 
 def cleanup_managed_plugin(
@@ -72,6 +73,7 @@ def cleanup_managed_plugin(
     game_executable_path: str | Path,
     mod_workspace_path: str | Path | None = None,
     game_running: Callable[[], bool] | None = None,
+    allow_unrecorded_workspace_adoption: bool = False,
 ) -> ManagedPluginCleanupResult:
     """Remove the game-local dwmapi.dll regardless of its version or recorded hash."""
     probe = game_running or game_process_running
@@ -87,10 +89,19 @@ def cleanup_managed_plugin(
         return ManagedPluginCleanupResult(
             "conflict", facts, "组件路径不是普通文件：dwmapi.dll。请检查游戏目录中的同名目录或链接。",
         )
+    cleanup_workspace = mod_workspace_path
     if facts.registry_state == "conflict":
-        return ManagedPluginCleanupResult(
-            "conflict", facts, "加载配置与部署记录不一致，未清理。请核对当前注册的 Mod 工作区。",
-        )
+        if (
+            not allow_unrecorded_workspace_adoption
+            or bool(mod_workspace_path)
+            or not facts.registered_workspace
+        ):
+            return ManagedPluginCleanupResult(
+                "conflict", facts, "加载配置与部署记录不一致，未清理。请核对当前注册的 Mod 工作区。",
+            )
+        # The explicit cleanup/deploy action adopts only this application's exact
+        # legacy registry value. cleanup_mod_workspace rechecks it before deletion.
+        cleanup_workspace = facts.registered_workspace
     if probe():
         return ManagedPluginCleanupResult("waiting_game_exit", facts, "游戏在清理前启动。请完全退出游戏后重新检测。")
     if facts.dll_state == "managed":
@@ -104,7 +115,7 @@ def cleanup_managed_plugin(
             raise EquipmentPluginDeploymentError("组件清理失败，请保持游戏关闭并重新检测。") from exc
     if probe():
         return ManagedPluginCleanupResult("waiting_game_exit", facts, "游戏在清理过程中启动，加载配置尚未清理。请退出游戏后重新检测。")
-    cleanup_mod_workspace(workspace_path=mod_workspace_path)
+    cleanup_mod_workspace(workspace_path=cleanup_workspace)
     final = inspect_managed_plugin(
         game_executable_path=game_executable_path,
         mod_workspace_path=mod_workspace_path, game_running=probe,
