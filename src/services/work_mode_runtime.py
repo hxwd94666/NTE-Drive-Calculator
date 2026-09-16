@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace, asdict
-import hashlib
 from importlib.util import find_spec
 from pathlib import Path
 from threading import RLock
@@ -14,15 +13,14 @@ from src.integrations.analysis_core_release import create_bundled_analysis_clien
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.legacy_game_proxy import legacy_game_proxy_present
 from src.integrations.game_path_discovery import running_game_executables
-from src.integrations.mod_loader import packaged_mod_loader
 from src.integrations.native_capture_process import native_capture_game_pid
 from src.integrations.nte_core import resolve_nte_core_executable
-from src.services.deployed_plugin_inspection import inspect_deployed_plugin, inspect_deployed_native_plugin
+from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
+from src.services.native_plugin_deployment import PluginDeploymentPendingCleanup
 from src.services.native_plugin_deployment import deploy_native_plugin, cleanup_native_plugin, NativePluginCleanupResult
-from src.services.dwmapi_diagnostics import probe_equipment_pipe
 from src.services.equipment_plugin_deployment import (
-    deploy_plugin, find_game_executables, game_process_running, game_executable,
-    npcap_installation_present, packaged_plugin_dll, PluginDeploymentPendingCleanup,
+    find_game_executables, game_process_running, game_executable,
+    npcap_installation_present,
     EquipmentPluginDeploymentError,
 )
 from src.services.managed_plugin_cleanup import cleanup_managed_plugin
@@ -70,7 +68,6 @@ class WorkModeRuntime:
         self._last_auto_attempt = float("-inf")
         self._game_running = game_running or game_process_running
         self._loader_files = False
-        self._deployed = None
         self._native_deployed = None
         self._bundle = None
         self._last_discovery = float("-inf")
@@ -148,7 +145,7 @@ class WorkModeRuntime:
         for key in ("native_workspace_root", "native_workspace_files", "native_workspace_backup_path"):
             if key in previous:
                 record[key] = previous[key]
-        selected = previous.get("loading_method", record.get("loading_method", "proxy"))
+        selected = "loader" if previous.get("loading_method") == "loader" else "native-capture"
         self.policy.update_deployment({**record, "loading_method": selected})
         self.policy.set_game_executable(str(deployed.game_executable))
         if not self.policy.allowed("native_load"):
@@ -249,7 +246,7 @@ class WorkModeRuntime:
                 self.policy.set_cleanup_pending(False)
                 self.invalidate()
             return
-        workspace = record.get("workspace_path") or self.loader.pending_workspace_cleanup_path
+        workspace = record.get("workspace_path")
         if workspace and not record.get("workspace_path"):
             record = {**record, "workspace_path": str(workspace)}
             self.policy.update_deployment(record)
@@ -275,7 +272,7 @@ class WorkModeRuntime:
         )
         if result.status != "cleaned":
             return
-        method = self.policy.deployment_record.get("loading_method", "proxy")
+        method = self.policy.deployment_record.get("loading_method", "native-capture")
         self.policy.update_deployment({"loading_method": method})
         self.policy.set_cleanup_pending(False)
         self.cleanup_detail = "本程序管理的加载入口已清理；未恢复历史 DLL 或加载配置。"
@@ -289,102 +286,7 @@ class WorkModeRuntime:
         if self._bundle is None or not self._bundle.ready:
             self.cleanup_detail = "随附整套组件未通过核对，自动部署等待修复安装包。"
             return
-        if getattr(self._bundle, "layout", "") == "native-capture-v1":
-            self._automatic_native_deploy(running)
-            return
-        record = self.policy.deployment_record
-        method = "loader" if record.get("loading_method") == "loader" else "proxy"
-        already_loaded = self._loader_files if method == "loader" else bool(self._deployed and self._deployed.compatible)
-        if self._deployed is not None and self._deployed.workspace_matches_package and already_loaded:
-            return
-        if running:
-            self.cleanup_detail = "游戏运行中，组件更新等待游戏退出。"
-            return
-        if self._deployed is not None and self._deployed.proxy_present and not (
-            self._deployed.proxy_matches_record or self._deployed.proxy_matches_package
-        ):
-            self.cleanup_detail = "游戏目录组件归属未知或已修改，自动管理等待手动核对。"
-            return
-        if not self.policy.settings.game_executable:
-            self.cleanup_detail = "未找到游戏路径，自动部署等待路径确认。"
-            return
-        if self.loader.active_payload_sha256 and self.loader.snapshot().phase == "running":
-            self.cleanup_detail = "Loader 仍在等待加载，组件更新需先停止当前 Loader。"
-            return
-        if monotonic() - self._last_auto_attempt < 15:
-            return
-        self._last_auto_attempt = monotonic()
-        self._bundle = inspect_game_component_bundle(self.root)
-        if not self._bundle.ready:
-            self.cleanup_detail = "组件包在部署前发生变化，自动管理等待重新核对。"
-            return
-        executable = self.policy.settings.game_executable
-        # The same guard is checked again immediately before each write.
-        def guard(capability):
-            if self._closed:
-                raise PermissionError("应用正在退出，禁止新的组件部署。")
-            self.policy.require(capability, automatic=True)
-            latest_method = "loader" if self.policy.deployment_record.get("loading_method") == "loader" else "proxy"
-            if (self.policy.settings.pending_cleanup or self.native_session.battle_active
-                    or latest_method != method or self.policy.settings.game_executable != executable):
-                raise PermissionError("组件操作上下文已改变，已停止本次自动管理。")
-
-        def save_loader_registration(*, pending: bool, result=None) -> None:
-            workspace = result.workspace_path if result is not None else self.loader.pending_workspace_cleanup_path
-            if workspace is None:
-                return
-            updated = self.policy.deployment_record
-            updated.update({"game_executable": executable, "workspace_path": str(workspace),
-                            "loader_payload_sha256": self.loader.active_payload_sha256})
-            if result is not None and result.removed_proxy is not None:
-                updated["deployed_sha256"] = result.removed_proxy.sha256
-            self.policy.update_deployment(updated)
-            if pending:
-                self.policy.set_cleanup_pending(True)
-            self.invalidate()
-
-        try:
-            guard("native_load")
-            if method == "loader":
-                # The Loader resolves its package inputs itself. Ensure those
-                # exact files, rather than other manifest paths, were verified.
-                if (packaged_plugin_dll(self.root) != (self.root / self._bundle.roles["proxy"]).resolve()
-                        or packaged_mod_loader(self.root) != (self.root / self._bundle.roles["loader"]).resolve()):
-                    raise EquipmentPluginDeploymentError("Loader 实际输入与已核对整包清单不一致。")
-                result = self.loader.start_loader(
-                    game_executable_path=executable,
-                    writable_workspace_path=self.config_dir / "mods-plugin",
-                    proxy_backup_directory=self.config_dir / "component-backups",
-                    recorded_proxy_sha256=str(record.get("deployed_sha256") or ""),
-                    recorded_proxy_workspace_path=record.get("workspace_path") or None,
-                    scoped_guard=guard,
-                )
-                revoked = False
-                try:
-                    guard("native_load")
-                except PermissionError:
-                    revoked = True
-                save_loader_registration(pending=revoked, result=result)
-                self.cleanup_detail = "自动 Loader 已开始等待游戏；管道与业务能力仍需独立检测。" if not revoked else "自动加载授权已撤销，已保留组件清理待办。"
-                return
-            deployed = deploy_plugin(
-                game_executable_path=executable,
-                plugin_dll_path=self.root / self._bundle.roles["proxy"],
-                application_root=self.root,
-                writable_workspace_path=self.config_dir / "mods-plugin",
-                backup_directory=self.config_dir / "component-backups",
-                operation_guard=guard, game_running=self._game_running,
-            )
-        except PluginDeploymentPendingCleanup as error:
-            self.save_pending_deployment(error)
-            return
-        except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError, OSError) as error:
-            if method == "loader":
-                save_loader_registration(pending=True)
-            self.cleanup_detail = "自动组件管理失败：" + str(error)
-            self._auto_error = self.cleanup_detail
-            raise
-        self.save_deployment(deployed)
+        self._automatic_native_deploy(running)
 
     def _automatic_native_deploy(self, running: bool) -> None:
         if self.policy.deployment_record.get("loading_method") == "loader":
@@ -433,7 +335,7 @@ class WorkModeRuntime:
             self.cleanup_detail = "原生组件已部署；启动游戏后重新核对连接和各项能力。"
         except PluginDeploymentPendingCleanup as error:
             self.save_pending_deployment(error)
-        except (EquipmentPluginDeploymentError, PermissionError) as error:
+        except (EquipmentPluginDeploymentError, PermissionError, OSError) as error:
             self.cleanup_detail = "自动原生组件部署失败：" + str(error)
             self._auto_error = self.cleanup_detail
 
@@ -513,7 +415,6 @@ class WorkModeRuntime:
                 result = self.loader.start_loader(
                     game_executable_path=executable,
                     writable_workspace_path=self.config_dir / "native-loader",
-                    proxy_backup_directory=self.config_dir / "component-backups",
                     scoped_guard=guard,
                 )
                 guard("native_load")
@@ -552,33 +453,16 @@ class WorkModeRuntime:
         if key == self._file_key and monotonic() - self._last_files <= 15:
             return
         self._bundle = inspect_game_component_bundle(self.root)
-        if getattr(self._bundle, "layout", "") == "native-capture-v1":
-            self._native_deployed = inspect_deployed_native_plugin(
-                application_root=self.root, game_executable_path=settings.game_executable,
-                recorded_files=record.get("managed_files", {}), bundle_inspection=self._bundle,
-            ) if path_valid else None
-            self._deployed = None
-            self._loader_files = False
-            if record.get("loading_method") == "loader" and record.get("native_workspace_root"):
-                self._restore_native_workspace(record)
-                workspace = self.loader.inspect_native_workspace()
-                state = self.loader.snapshot()
-                self._loader_files = workspace.files_compatible and (state.phase == "running" or running)
-            self._last_files, self._file_key = monotonic(), key
-            return
-        self._native_deployed = None
-        self._deployed = inspect_deployed_plugin(
+        self._native_deployed = inspect_deployed_native_plugin(
             application_root=self.root, game_executable_path=settings.game_executable,
-            mod_workspace_path=record.get("workspace_path"),
+            recorded_files=record.get("managed_files", {}), bundle_inspection=self._bundle,
         ) if path_valid else None
         self._loader_files = False
-        if loader_hash and self._deployed is not None and self._deployed.workspace_registered:
-            snapshot = self.loader.snapshot()
-            if snapshot.phase == "running" or running:
-                packaged = packaged_plugin_dll(self.root)
-                with packaged.open("rb") as stream:
-                    expected = hashlib.file_digest(stream, "sha256").hexdigest()
-                self._loader_files = loader_hash == expected
+        if record.get("loading_method") == "loader" and record.get("native_workspace_root"):
+            self._restore_native_workspace(record)
+            workspace = self.loader.inspect_native_workspace()
+            state = self.loader.snapshot()
+            self._loader_files = workspace.files_compatible and (state.phase == "running" or running)
         self._last_files, self._file_key = monotonic(), key
 
     def tick(self, *, allow_connect: bool = False) -> WorkModeProbe:
@@ -633,29 +517,20 @@ class WorkModeRuntime:
             self._inspect_component_files(path_valid=path_valid, running=running)
             if path_valid and not settings.pending_cleanup:
                 self._automatic_deploy(running)
-            files = self._loader_files or bool(self._deployed and self._deployed.compatible)
-            current_package = files and bool(self._deployed and self._deployed.workspace_matches_package)
-            loading = self._loader_files or bool(self._deployed and self._deployed.proxy_matches_package
-                                                 and self._deployed.workspace_registered)
-            capabilities = getattr(self._deployed, "native_capabilities", frozenset())
-            native_capture = getattr(self._bundle, "layout", "") == "native-capture-v1"
-            if native_capture:
-                files = (self._loader_files if self.policy.deployment_record.get("loading_method") == "loader"
-                         else bool(self._native_deployed and self._native_deployed.files_compatible))
-                current_package = loading = files
-                capabilities = self._bundle.native_capabilities
-                core_available = self._bundle.ready
+            files = (self._loader_files if self.policy.deployment_record.get("loading_method") == "loader"
+                     else bool(self._native_deployed and self._native_deployed.files_compatible))
+            current_package = loading = files
+            capabilities = self._bundle.native_capabilities
+            core_available = self._bundle.ready
             native = NativeFeatureProbe(files=files)
             domain_files = {"native_" + name: NativeFeatureProbe(files=loading and f"{name}.snapshot.v1" in capabilities)
                             for name in ("character", "inventory", "team", "environment")}
-            battle_files = NativeFeatureProbe(files=loading and {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities))
-            equipment_files = NativeFeatureProbe(files=loading and getattr(self._deployed, "equipment_script_valid", False))
-            if native_capture:
-                if not {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities):
-                    battle_files = NativeFeatureProbe(files=files, supported=False, reason="packaged_capability_missing")
-                equipment_supported = "equipment.execute.v1" in capabilities
-                equipment_files = NativeFeatureProbe(files=files, supported=equipment_supported,
-                    reason="" if equipment_supported else "packaged_capability_missing")
+            battle_supported = {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities)
+            battle_files = NativeFeatureProbe(files=files, supported=battle_supported,
+                reason="" if battle_supported else "packaged_capability_missing")
+            equipment_supported = "equipment.execute.v1" in capabilities
+            equipment_files = NativeFeatureProbe(files=files, supported=equipment_supported,
+                reason="" if equipment_supported else "packaged_capability_missing")
             probe = replace(local_probe,
                 component_update_state=(CheckState.FAULT if self._auto_error
                                         else CheckState.MISSING if not self._bundle or not self._bundle.ready
@@ -680,11 +555,7 @@ class WorkModeRuntime:
             native = replace(native, pipe=pipe)
             values = {key: replace(value, pipe=pipe) for key, value in domain_files.items()}
             values["native_battle"] = replace(battle_files, pipe=pipe)
-            if native_capture:
-                values["native_equipment"] = replace(equipment_files, pipe=pipe)
-            else:
-                equipment_pipe = probe_equipment_pipe()
-                values["native_equipment"] = replace(equipment_files, pipe=equipment_pipe.get("state") in {"available", "busy"})
+            values["native_equipment"] = replace(equipment_files, pipe=pipe)
             if pipe:
                 try:
                     refresh = (allow_connect or (self.policy.allowed("native_sync", automatic=True)
@@ -693,15 +564,14 @@ class WorkModeRuntime:
                     if refresh:
                         self._refresh_at = monotonic()
                     caps = response["hello"].get("capabilities", [])
-                    if native_capture:
-                        equipment = response.get("equipment") or {}
-                        inventory_ready = response.get("inventory_snapshot_ready") is True
-                        values["native_equipment"] = replace(values["native_equipment"], handshake=True,
-                            supported=equipment_files.supported is True and {"equipment", "native_equipment_v1"}.issubset(caps),
-                            ready=equipment.get("ready"), snapshot=inventory_ready,
-                            projection_complete=inventory_ready,
-                            reason=equipment_files.reason or str(equipment.get("reason") or (
-                                "equipment_check_required" if response.get("equipment") is None else "")))
+                    equipment = response.get("equipment") or {}
+                    inventory_ready = response.get("inventory_snapshot_ready") is True
+                    values["native_equipment"] = replace(values["native_equipment"], handshake=True,
+                        supported=equipment_files.supported is True and {"equipment", "native_equipment_v1"}.issubset(caps),
+                        ready=equipment.get("ready"), snapshot=inventory_ready,
+                        projection_complete=inventory_ready,
+                        reason=equipment_files.reason or str(equipment.get("reason") or (
+                            "equipment_check_required" if response.get("equipment") is None else "")))
                     battle = response["status"].get("native_status", {})
                     values["native_battle"] = replace(
                         values["native_battle"], handshake=True, supported=battle_files.reason != "packaged_capability_missing" and {"native_hit_buff_v1", "battle_axis_v1", "native_context_observation_v1"}.issubset(caps),
@@ -727,9 +597,8 @@ class WorkModeRuntime:
                         )
                     probe = replace(probe, logged_in=battle.get("ready") is True)
                 except Exception:
-                    if native_capture:
-                        values["native_equipment"] = replace(values["native_equipment"], handshake=False,
-                            fault="原生装备接口检测失败，请重新检测；未切换旧装备管道。")
+                    values["native_equipment"] = replace(values["native_equipment"], handshake=False,
+                        fault="原生装备接口检测失败，请重新检测。")
                     values = {key: replace(value, handshake=False,
                               fault="原生连接或业务检测失败，请重新检测；未切换抓包。")
                               for key, value in values.items() if key != "native_equipment"} | {

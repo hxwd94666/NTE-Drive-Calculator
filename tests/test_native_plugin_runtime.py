@@ -29,7 +29,7 @@ def setup_runtime(tmp_path, monkeypatch, *, deployed=True):
     monkeypatch.setattr(module, "npcap_installation_present", lambda: False)
     monkeypatch.setattr(module, "find_spec", lambda _name: None)
     old_deploy = Mock(side_effect=AssertionError("legacy deployment must not run"))
-    monkeypatch.setattr(module, "deploy_plugin", old_deploy)
+    assert not hasattr(module, "deploy_plugin")
     return runtime, policy, game, old_deploy
 
 

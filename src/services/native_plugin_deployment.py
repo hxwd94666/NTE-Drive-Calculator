@@ -16,7 +16,7 @@ from src.integrations.native_plugin_bundle import (
 from src.integrations.operation_guard import require_operation
 from src.integrations.legacy_game_proxy import remove_legacy_game_proxy
 from src.services.equipment_plugin_deployment import (
-    EquipmentPluginDeploymentError, PluginDeploymentPendingCleanup,
+    EquipmentPluginDeploymentError,
     GAME_EXECUTABLE_NAME, game_executable, game_process_running,
 )
 
@@ -31,6 +31,13 @@ class NativePluginDeployment:
     managed_files: dict[str, str]
     loading_method: str = 'native-capture'
     deployment_layout: str = 'native-capture-v1'
+
+
+class PluginDeploymentPendingCleanup(EquipmentPluginDeploymentError):
+    """Persist partially deployed native files for cleanup after the game exits."""
+    def __init__(self, message: str, *, deployment: NativePluginDeployment):
+        super().__init__(message)
+        self.deployment = deployment
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-# 用假进程结果验证 Loader 正式能力查询、同名替换与旧参数兼容，不执行组件。
+# 用假进程结果验证 Loader 正式能力查询、同名替换及原生加载参数，不执行组件。
 import json
 from pathlib import Path
 import subprocess
@@ -101,11 +101,6 @@ def test_declared_manualmap_only_does_not_allow_native_host(tmp_path, monkeypatc
         loader.ModLoaderRuntime(application_root=tmp_path).require_payload_load_mode('loadlibrary')
 
 
-def test_default_arguments_remain_exact_legacy_shape():
-    payload = Path('payload directory/dwmapi.dll')
-    assert loader.mod_loader_arguments(payload_path=payload, event_name='Local\\event', owner_pid=123) == (
-        f'--dll "{payload}" --monitor-timeout 0 --stop-event "Local\\event" --owner-pid 123')
-    assert '--payload-load-mode' not in loader.mod_loader_arguments(payload_path=payload, event_name='e', owner_pid=1)
 
 
 def test_native_arguments_include_only_explicit_standard_mode():
@@ -115,18 +110,6 @@ def test_native_arguments_include_only_explicit_standard_mode():
     assert '--capabilities-json' not in args and '--dry-run' not in args
 
 
-def test_legacy_start_does_not_query_capabilities(tmp_path, monkeypatch):
-    if loader.os.name != 'nt':
-        pytest.skip('Windows managed runtime boundary')
-    for filename in ('nte-mod-loader.exe', 'NTELauncher.exe', 'dwmapi.dll'):
-        (tmp_path / filename).write_bytes(b'synthetic')
-    monkeypatch.delenv(loader.MOD_LOADER_ENV, raising=False)
-    query = Mock(side_effect=AssertionError('legacy must not query'))
-    monkeypatch.setattr(loader, 'probe_mod_loader_capabilities', query)
-    runtime = loader.ModLoaderRuntime(application_root=tmp_path)
-    monkeypatch.setattr(runtime, '_refresh_running_locked', lambda: True)
-    assert runtime.start(payload_path=tmp_path / 'dwmapi.dll', launcher_path=tmp_path / 'NTELauncher.exe').phase == 'running'
-    query.assert_not_called()
 
 
 def test_native_start_queries_before_runtime_start(tmp_path, monkeypatch):
@@ -187,3 +170,15 @@ def test_final_launch_guard_failure_closes_event_and_restores_environment(tmp_pa
     shell.ShellExecuteExW.assert_not_called()
     assert loader.os.environ[loader.MOD_LOADER_LAUNCHER_ENV] == 'previous-launcher'
     assert runtime._process_handle is None and runtime._stop_event_handle is None
+
+
+def test_default_arguments_select_native_standard_loading():
+    args = loader.mod_loader_arguments(payload_path=Path('stage/NTE_Capture.dll'), event_name='e', owner_pid=1)
+    assert '--payload-load-mode loadlibrary' in args
+
+
+@pytest.mark.parametrize('mode', [None, 'manualmap'])
+def test_retired_loader_modes_are_rejected(mode):
+    with pytest.raises(loader.ModLoaderRuntimeError):
+        loader.mod_loader_arguments(payload_path=Path('stage/dwmapi.dll'), event_name='e', owner_pid=1,
+                                   payload_load_mode=mode)

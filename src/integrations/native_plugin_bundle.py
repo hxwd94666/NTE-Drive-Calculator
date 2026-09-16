@@ -149,14 +149,12 @@ def inspect_native_plugin_bundle(application_root: str | Path) -> NativePluginBu
     return _inspect_native_plugin_payload(root, manifest, payload)
 
 
-def resolve_bundled_native_core(application_root: str | Path) -> Path | None:
-    """Choose only the Core covered by a verified native bundle; legacy uses its own resolver."""
+def resolve_bundled_native_core(application_root: str | Path) -> Path:
+    """Choose only the Core covered by a verified native bundle."""
     from src.integrations.game_component_bundle import inspect_game_component_bundle
 
     root = Path(application_root).expanduser().resolve()
     inspection = inspect_game_component_bundle(root)
-    if inspection.layout != NATIVE_PLUGIN_LAYOUT:
-        return None
     if not inspection.ready:
         raise ValueError("原生配套 Core 不可用：" + "；".join(inspection.issues))
     return root / inspection.roles["core"]

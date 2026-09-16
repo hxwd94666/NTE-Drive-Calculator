@@ -11,36 +11,16 @@ import tempfile
 from typing import Mapping
 
 from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.services.equipment_plugin_deployment import MOD_WORKSPACE_FILES
 
 
-ROLE_DESTINATIONS = {
-    "proxy": "dwmapi.dll", "loader": "nte-mod-loader.exe", "core": "nte-core.exe",
-    "equipment_mod": "plugins/nte-mods/equipment.nte", "combat_clock_mod": "plugins/nte-mods/combat-clock.nte",
-    "workspace_version": "plugins/mods-plugin.version", "enabled": "plugins/nte-mods.enabled",
-    "native_capture": "plugins/NTE_Capture.dll", "native_manifest": "plugins/native-capture.json",
-    "native_license": "plugins/NTE_Capture.LICENSE.txt", "native_notices": "plugins/NTE_Capture.NOTICES.txt",
-}
-BINARY_SOURCE_PATHS = {
-    "core": "third_party/nte-core/bin/nte-core.exe",
-    "proxy": "third_party/mods-plugin/bin/dwmapi.dll",
-    "loader": "third_party/mod-loader/bin/nte-mod-loader.exe",
-}
-REQUIRED_PROVENANCE_FILES = frozenset(
-    f"third_party/{component}/{name}" for component in ("nte-core", "mods-plugin", "mod-loader")
-    for name in ("LICENSE", "SOURCE.md")
-)
-ALLOWED_METADATA = {
-    "nte-core": frozenset({"LICENSE", "SOURCE.md", "COMPONENT.md", "BUILD_VARIANT.md", "CLI_PROTOCOL_ZH.md", "CLI_PROTOCOL.md", "THIRD_PARTY_LICENSES.md"}),
-    "mods-plugin": frozenset({"LICENSE", "SOURCE.md", "COMPONENT.md"}),
-    "mod-loader": frozenset({"LICENSE", "SOURCE.md", "COMPONENT.md", "THIRD_PARTY_LICENSES.md", "licenses/MinHook-LICENSE.txt", "licenses/ManualMap-LICENSE.txt"}),
-}
-MANAGED_DIRECTORIES = ("plugins", "licenses/nte-core", "licenses/mods-plugin", "licenses/mod-loader")
+LOADER_METADATA = frozenset({
+    "LICENSE", "SOURCE.md", "COMPONENT.md", "THIRD_PARTY_LICENSES.md",
+    "licenses/MinHook-LICENSE.txt", "licenses/ManualMap-LICENSE.txt",
+})
 
 
 def source_component_manifest(application_root: Path) -> Path:
-    native = application_root / "third_party/native-capture/component-bundle.json"
-    return native if native.exists() else application_root / "third_party/mods-plugin/component-bundle.json"
+    return application_root / "third_party/native-capture/component-bundle.json"
 
 
 @dataclass(frozen=True)
@@ -74,44 +54,18 @@ def _unique(pairs):
     return result
 
 
-def component_distribution_path(source_path: str) -> str:
-    """Map an approved canonical source path to its sole distribution location."""
+def loader_distribution_path(source_path: str) -> str:
+    """Map the current native Loader and its license files only."""
     key = _relative(source_path)
-    for role, canonical in BINARY_SOURCE_PATHS.items():
-        if key == canonical:
-            return ROLE_DESTINATIONS[role]
-    for relative in MOD_WORKSPACE_FILES:
-        if key == "third_party/mods-plugin/workspace/" + relative.as_posix():
-            return "plugins/" + relative.as_posix()
-    parts = PurePosixPath(key).parts
-    if len(parts) < 3 or parts[0] != "third_party" or parts[1] not in ALLOWED_METADATA:
-        raise ValueError("组件来源路径不属于允许的发行输入。")
-    tail = "/".join(parts[2:])
-    if tail not in ALLOWED_METADATA[parts[1]]:
-        raise ValueError("组件来源路径包含尚未批准的发行文件。")
-    if parts[1] == "mod-loader" and tail.startswith("licenses/"):
+    if key == "third_party/mod-loader/bin/nte-mod-loader.exe":
+        return "nte-mod-loader.exe"
+    prefix = "third_party/mod-loader/"
+    tail = key.removeprefix(prefix)
+    if not key.startswith(prefix) or tail not in LOADER_METADATA:
+        raise ValueError("Loader 来源路径包含尚未批准的发行文件。")
+    if tail.startswith("licenses/"):
         tail = "dependencies/" + tail.removeprefix("licenses/")
-    return f"licenses/{parts[1]}/{tail}"
-
-
-def component_build_inputs(
-    *, core: Path, proxy: Path, loader: Path, workspace: Path,
-    metadata: Mapping[str, Path],
-) -> dict[str, ComponentBuildInput]:
-    """Bind resolved build inputs, including overrides, to canonical source records."""
-    inputs = {
-        BINARY_SOURCE_PATHS[role]: ComponentBuildInput(Path(path), component_distribution_path(BINARY_SOURCE_PATHS[role]))
-        for role, path in (("core", core), ("proxy", proxy), ("loader", loader))
-    }
-    for relative in MOD_WORKSPACE_FILES:
-        key = "third_party/mods-plugin/workspace/" + relative.as_posix()
-        inputs[key] = ComponentBuildInput(workspace / relative, component_distribution_path(key))
-    for raw_key, path in metadata.items():
-        key = _relative(raw_key)
-        if key in inputs:
-            raise ValueError("组件元数据不能替换程序或工作区输入。")
-        inputs[key] = ComponentBuildInput(Path(path), component_distribution_path(key))
-    return inputs
+    return "licenses/mod-loader/" + tail
 
 
 def prepare_component_bundle(
@@ -131,18 +85,15 @@ def prepare_component_bundle(
         raise ValueError("构建缺少有效的来源组件整包清单。") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("files"), dict) or not isinstance(payload.get("roles"), dict):
         raise ValueError("来源组件整包清单格式无效。")
-    files, roles = payload["files"], payload["roles"]
-    native = payload.get("layout") == "native-capture-v1"
-    if native:
-        from tools.release.native_component_bundle_build import native_distribution_path, native_distribution_manifest
-        mapper = native_distribution_path
-        distribution = native_distribution_manifest(payload)
-    else:
-        mapper = component_distribution_path
-    if set(inputs) != set(files) or (not native and not REQUIRED_PROVENANCE_FILES.issubset(files)):
+    files = payload["files"]
+    if payload.get("layout") != "native-capture-v1":
+        raise ValueError("仅支持 native-capture-v1 原生组件包，旧 Mods 布局已移除。")
+    from tools.release.native_component_bundle_build import native_distribution_path, native_distribution_manifest
+    mapper = native_distribution_path
+    distribution = native_distribution_manifest(payload)
+    if set(inputs) != set(files):
         raise ValueError("组件清单必须覆盖全部实际构建输入及许可、来源文件，且不能携带未选择的文件。")
     destinations: set[str] = set()
-    mapped_files: dict[str, str] = {}
     for key, item in inputs.items():
         _relative(key)
         destination = _relative(item.destination)
@@ -160,18 +111,6 @@ def prepare_component_bundle(
             actual = hashlib.file_digest(stream, "sha256").hexdigest()
         if actual != expected.lower():
             raise ValueError(f"实际构建输入与来源清单哈希不符：{key}")
-        mapped_files[destination] = expected
-    try:
-        mapped_roles = {role: inputs[key].destination for role, key in roles.items()}
-    except (KeyError, TypeError) as exc:
-        raise ValueError("组件角色不在实际构建输入中。") from exc
-    if not native and any(mapped_roles.get(role) != destination for role, destination in ROLE_DESTINATIONS.items()):
-        raise ValueError("组件角色未映射到正式发行布局。")
-    if not native:
-        distribution = {
-            "protocol_version": payload.get("protocol_version"), "source_commits": payload.get("source_commits"),
-            "files": mapped_files, "roles": mapped_roles,
-        }
     output_parent.mkdir(parents=True, exist_ok=True)
     resource_root = Path(tempfile.mkdtemp(prefix="component-candidate-", dir=output_parent))
     staged = []
@@ -186,7 +125,7 @@ def prepare_component_bundle(
     return PreparedComponentBundle(resource_root, manifest, tuple(staged))
 
 
-def _validate_managed_members(resource_root: Path, declared_files: Mapping[str, str], *, directories=MANAGED_DIRECTORIES) -> None:
+def _validate_managed_members(resource_root: Path, declared_files: Mapping[str, str], *, directories) -> None:
     """Reject undeclared members and links without traversing unrelated app resources."""
     def kind(path: Path) -> int:
         info = path.lstat()
@@ -229,30 +168,5 @@ def validate_packaged_component_bundle(resource_root: Path, *, source_manifest_p
     inspection = inspect_game_component_bundle(resource_root)
     if not inspection.ready:
         raise ValueError("发行组件整包校验失败：" + "；".join(inspection.issues))
-    if inspection.layout == "native-capture-v1":
-        from tools.release.native_component_bundle_build import validate_native_packaged_bundle
-        validate_native_packaged_bundle(resource_root, inspection, source_manifest_path)
-        return
-    if any(inspection.roles.get(role) != destination for role, destination in ROLE_DESTINATIONS.items()):
-        raise ValueError("发行组件清单不是当前资源目录布局。")
-    expected_provenance = {f"licenses/{component}/{name}" for component in ("nte-core", "mods-plugin", "mod-loader")
-                           for name in ("LICENSE", "SOURCE.md")}
-    if not expected_provenance.issubset(inspection.files):
-        raise ValueError("发行组件整包缺少许可或来源记录。")
-    _validate_managed_members(resource_root, inspection.files)
-    if source_manifest_path is not None:
-        try:
-            source = json.loads(source_manifest_path.read_text(encoding="utf-8"), object_pairs_hook=_unique)
-            bundled = json.loads(inspection.manifest_path.read_text(encoding="utf-8"), object_pairs_hook=_unique)
-            expected_files = {component_distribution_path(key): value.lower() for key, value in source["files"].items()}
-            expected_roles = {role: component_distribution_path(key) for role, key in source["roles"].items()}
-            consistent = (
-                source["source_commits"] == bundled["source_commits"]
-                and source["protocol_version"] == bundled["protocol_version"]
-                and expected_files == dict(inspection.files)
-                and expected_roles == dict(inspection.roles)
-            )
-        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-            raise ValueError("无法核对发行组件与已批准来源清单。") from exc
-        if not consistent:
-            raise ValueError("发行组件的来源路径或哈希与当前已批准输入不一致。")
+    from tools.release.native_component_bundle_build import validate_native_packaged_bundle
+    validate_native_packaged_bundle(resource_root, inspection, source_manifest_path)

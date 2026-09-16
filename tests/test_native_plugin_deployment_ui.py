@@ -28,7 +28,7 @@ def test_native_status_preserves_loader_and_routes_only_selected_entry(tmp_path)
     window._start_equipment_mod_loader = Mock()
     window._deploy_equipment_plugin = Mock()
     try:
-        assert refresh_native_plugin_status(window)
+        refresh_native_plugin_status(window)
         assert combo.isEnabled() and combo.currentData() == "loader" and combo.count() == 2
         activate_equipment_plugin_loading_method(window)
         window._start_equipment_mod_loader.assert_called_once()
@@ -76,6 +76,5 @@ def test_settings_deploy_routes_minimal_capture_bundle_without_legacy_proxy(tmp_
     deploy = Mock()
     monkeypatch.setattr(environment, 'game_process_running', lambda: False)
     monkeypatch.setattr(environment, 'deploy_native_plugin_from_settings', deploy)
-    monkeypatch.setattr(environment, 'packaged_plugin_dll', Mock(side_effect=AssertionError('no legacy proxy')))
     environment._deploy_equipment_plugin(window)
     deploy.assert_called_once_with(window)

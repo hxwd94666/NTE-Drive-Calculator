@@ -68,19 +68,6 @@ class ProjectMetadataTests(unittest.TestCase):
                     config_path,
                 )
 
-    def test_component_record_hash_parser_is_label_specific(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            record = Path(temporary) / "COMPONENT.md"
-            record.write_text(
-                "- 目标 SHA-256：`" + "A" * 64 + "`\n"
-                "- 其他 SHA-256：`" + "B" * 64 + "`\n",
-                encoding="utf-8",
-            )
-
-            self.assertEqual(
-                "A" * 64,
-                prepare_release._recorded_hash(record, "目标 SHA-256"),
-            )
 
     def test_manual_commands_do_not_execute_release_actions(self):
         with patch("builtins.print") as mocked_print:

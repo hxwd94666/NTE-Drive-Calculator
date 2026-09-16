@@ -1,46 +1,17 @@
-# 提供打包装备插件的显式部署与加载登记清理能力。
-"""Explicit deployment helpers for the packaged game plugin."""
+# 提供游戏路径、进程和 Npcap 探测，以及旧安装加载登记的单向清理。
+"""Game discovery and one-way cleanup of retired workspace registration."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import hashlib
-import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
-from typing import Callable
-from src.integrations.native_capture_release import NATIVE_CAPTURE_FILES, validate_native_capture_release
-from src.integrations.operation_guard import require_operation
 
 
 GAME_EXECUTABLE_NAME = "HTGame.exe"
 PLUGIN_FILENAME = "dwmapi.dll"
-MOD_PLUGIN_SIGNATURE = b"NTE_DPS_TOOL_MODS_PLUGIN_V1"
-PACKAGED_PLUGIN_RELATIVE_PATH = Path("third_party") / "mods-plugin" / "bin" / PLUGIN_FILENAME
-LEGACY_PACKAGED_PLUGIN_RELATIVE_PATH = (
-    Path("third_party") / "equipment-plugin" / "bin" / PLUGIN_FILENAME
-)
-PACKAGED_MOD_WORKSPACE_RELATIVE_PATH = Path("third_party") / "mods-plugin" / "workspace"
 MOD_WORKSPACE_REGISTRY_KEY = r"Software\NTE DPS Tool\Mods Plugin"
 MOD_WORKSPACE_REGISTRY_VALUE = "Workspace"
-MOD_WORKSPACE_FILES = (
-    Path("nte-mods.enabled"),
-    Path("mods-plugin.version"),
-    Path("README.md"),
-    Path("nte-mods") / "equipment.nte",
-    Path("nte-mods") / "combat-clock.nte",
-    *NATIVE_CAPTURE_FILES,
-)
-# The game-side DLL owns these files.  They are generated from the running
-# HTGame image and must never be bundled or overwritten during a workspace
-# refresh.
-MOD_SDK_CACHE_FILES = (
-    Path("NTE_SDK.bin"),
-    Path("NTE_SDK.checksum"),
-)
-_MANAGED_WORKSPACE_MANIFEST = ".nte-drive-calc-managed.json"
 STANDARD_GAME_EXECUTABLE_RELATIVE_PATH = (
     Path("Neverness To Everness")
     / "Client"
@@ -68,25 +39,6 @@ _WINDOWS_UNINSTALL_REGISTRY_PATH = (
 
 class EquipmentPluginDeploymentError(RuntimeError):
     """The selected game or plugin file cannot be deployed safely."""
-
-
-class PluginDeploymentPendingCleanup(EquipmentPluginDeploymentError):
-    """The caller must persist the installed bytes for post-exit cleanup."""
-
-    def __init__(self, message: str, *, deployment: PluginDeployment) -> None:
-        super().__init__(message)
-        self.deployment = deployment
-
-
-@dataclass(frozen=True)
-class PluginDeployment:
-    game_executable: Path
-    target_path: Path
-    backup_path: Path | None
-    deployed_sha256: str
-    workspace_path: Path
-    workspace_registry_value_before: str | None = None
-    workspace_registry_value_existed: bool = False
 
 
 def game_process_running() -> bool:
@@ -121,14 +73,6 @@ def game_process_running() -> bool:
     )
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def game_executable(path: str | Path) -> Path:
     # Explorer's “复制文件地址” commonly yields a quoted absolute path.
     raw_path = str(path).strip().strip('"')
@@ -138,94 +82,6 @@ def game_executable(path: str | Path) -> Path:
             f"请选择游戏主程序 {GAME_EXECUTABLE_NAME}，而不是文件夹或其他可执行文件"
         )
     return candidate
-
-
-def plugin_dll(path: str | Path) -> Path:
-    candidate = Path(path).expanduser().resolve()
-    if not candidate.is_file() or candidate.name.casefold() != PLUGIN_FILENAME:
-        raise EquipmentPluginDeploymentError(
-            f"请选择提供方授权的 {PLUGIN_FILENAME} 文件"
-        )
-    return candidate
-
-
-def is_mods_plugin_dll(path: str | Path) -> bool:
-    """Return whether the DLL carries the public nte-mods-plugin marker."""
-
-    candidate = plugin_dll(path)
-    overlap = len(MOD_PLUGIN_SIGNATURE) - 1
-    tail = b""
-    try:
-        with candidate.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(64 * 1024), b""):
-                if MOD_PLUGIN_SIGNATURE in tail + chunk:
-                    return True
-                tail = (tail + chunk)[-overlap:]
-    except OSError:
-        return False
-    return False
-
-
-def packaged_plugin_dll(application_root: str | Path) -> Path:
-    """Return the packaged plugin, preferring the source-tree component layout.
-
-    PyInstaller releases keep the DLL beside the executable for compatibility with
-    existing installs, while source builds keep it under ``third_party``.
-    """
-
-    root = Path(application_root)
-    candidates = (
-        root / PACKAGED_PLUGIN_RELATIVE_PATH,
-        root / PLUGIN_FILENAME,
-        root / LEGACY_PACKAGED_PLUGIN_RELATIVE_PATH,
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            plugin = plugin_dll(candidate)
-            if is_mods_plugin_dll(plugin):
-                return plugin
-    checked = "、".join(str(candidate) for candidate in candidates)
-    raise EquipmentPluginDeploymentError(
-        f"未找到带新版 MOD 签名的 {PLUGIN_FILENAME}；已检查：{checked}"
-    )
-
-
-def packaged_mod_workspace(application_root: str | Path) -> Path:
-    """Return the release-matched NTE Script workspace bundled with the plugin."""
-
-    root = Path(application_root)
-    candidates = (
-        root / PACKAGED_MOD_WORKSPACE_RELATIVE_PATH,
-        root / "plugins",
-    )
-    for candidate in candidates:
-        if all((candidate / relative).is_file() for relative in MOD_WORKSPACE_FILES):
-            return candidate.resolve()
-    checked = "、".join(str(candidate) for candidate in candidates)
-    raise EquipmentPluginDeploymentError(
-        f"未找到与 {PLUGIN_FILENAME} 配套的 nte-mods 工作区；已检查：{checked}"
-    )
-
-
-def _managed_workspace_hashes(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise EquipmentPluginDeploymentError(f"无法读取托管 Mod 工作区记录：{path}") from exc
-    files = payload.get("files") if isinstance(payload, dict) else None
-    if (
-        not isinstance(payload, dict)
-        or payload.get("version") != 1
-        or not isinstance(files, dict)
-        or any(
-            not isinstance(name, str) or not isinstance(digest, str)
-            for name, digest in files.items()
-        )
-    ):
-        raise EquipmentPluginDeploymentError(f"托管 Mod 工作区记录格式错误：{path}")
-    return files
 
 
 def mod_workspace_registry_snapshot() -> tuple[bool, str | None]:
@@ -249,91 +105,6 @@ def mod_workspace_registry_snapshot() -> tuple[bool, str | None]:
     if value_type != winreg.REG_SZ or not isinstance(value, str):
         return False, None
     return True, value
-
-
-def _register_mod_workspace(workspace: Path) -> tuple[bool, str | None]:
-    if os.name != "nt":
-        raise EquipmentPluginDeploymentError("nte-mods 工作区注册仅支持 Windows")
-    import winreg
-
-    previous_exists, previous_value = mod_workspace_registry_snapshot()
-    try:
-        with winreg.CreateKeyEx(
-            winreg.HKEY_CURRENT_USER,
-            MOD_WORKSPACE_REGISTRY_KEY,
-            access=winreg.KEY_SET_VALUE,
-        ) as key:
-            winreg.SetValueEx(
-                key,
-                MOD_WORKSPACE_REGISTRY_VALUE,
-                0,
-                winreg.REG_SZ,
-                str(workspace),
-            )
-    except OSError as exc:
-        raise EquipmentPluginDeploymentError("无法注册 nte-mods 工作区") from exc
-    return previous_exists, previous_value
-
-
-def registered_mod_workspace() -> Path | None:
-    """Return the workspace currently visible to nte-mods-plugin."""
-
-    if os.name != "nt":
-        return None
-    import winreg
-
-    try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            MOD_WORKSPACE_REGISTRY_KEY,
-            access=winreg.KEY_QUERY_VALUE,
-        ) as key:
-            value, value_type = winreg.QueryValueEx(key, MOD_WORKSPACE_REGISTRY_VALUE)
-    except OSError:
-        return None
-    if value_type != winreg.REG_SZ or not isinstance(value, str) or not value.strip():
-        return None
-    return Path(value).expanduser()
-
-
-def rollback_mod_workspace(
-    *,
-    workspace_path: str | Path | None,
-    previous_value: str | None,
-    previous_value_existed: bool,
-) -> bool:
-    """Roll back a failed deployment transaction; never use for mode cleanup."""
-
-    if workspace_path is None or os.name != "nt":
-        return False
-    workspace = Path(workspace_path).expanduser().resolve()
-    current_exists, current_value = mod_workspace_registry_snapshot()
-    if not current_exists or current_value != str(workspace):
-        return False
-    import winreg
-
-    try:
-        with winreg.CreateKeyEx(
-            winreg.HKEY_CURRENT_USER,
-            MOD_WORKSPACE_REGISTRY_KEY,
-            access=winreg.KEY_SET_VALUE,
-        ) as key:
-            if previous_value_existed:
-                winreg.SetValueEx(
-                    key,
-                    MOD_WORKSPACE_REGISTRY_VALUE,
-                    0,
-                    winreg.REG_SZ,
-                    str(previous_value or ""),
-                )
-            else:
-                try:
-                    winreg.DeleteValue(key, MOD_WORKSPACE_REGISTRY_VALUE)
-                except FileNotFoundError:
-                    pass
-    except OSError as exc:
-        raise EquipmentPluginDeploymentError("无法还原 nte-mods 工作区注册表") from exc
-    return True
 
 
 def cleanup_mod_workspace(*, workspace_path: str | Path | None) -> bool:
@@ -364,90 +135,6 @@ def cleanup_mod_workspace(*, workspace_path: str | Path | None) -> bool:
     except OSError as exc:
         raise EquipmentPluginDeploymentError("无法清除 nte-mods 工作区登记。") from exc
     return True
-
-
-def prepare_mod_workspace(
-    *,
-    application_root: str | Path,
-    writable_workspace_path: str | Path,
-    register_workspace: bool = True,
-    game_running: Callable[[], bool] | None = None,
-    operation_guard: Callable[[str], None] | None = None,
-) -> Path:
-    """Install release defaults without replacing user scripts or SDK cache.
-
-    The current plugin generates ``NTE_SDK.bin`` for the loaded game image and
-    validates it with ``NTE_SDK.checksum`` on later launches.  Those runtime
-    artifacts intentionally remain outside ``MOD_WORKSPACE_FILES``.
-    """
-
-    require_operation(operation_guard, "native_load")
-    process_probe = game_running or game_process_running
-    if process_probe():
-        raise EquipmentPluginDeploymentError("游戏正在运行，工作区更新需等待游戏退出。")
-    source = packaged_mod_workspace(application_root)
-    try:
-        validate_native_capture_release(source)
-    except ValueError as error:
-        raise EquipmentPluginDeploymentError(str(error)) from error
-    destination = Path(writable_workspace_path).expanduser().resolve()
-    # Explicit same-directory use needs no copy. Normal proxy/Loader deployment
-    # uses config/mods-plugin; the bundled source is not proof of the live path.
-    if source == destination:
-        if register_workspace:
-            require_operation(operation_guard, "native_load")
-            if process_probe():
-                raise EquipmentPluginDeploymentError("游戏已经启动，已停止更新加载登记。")
-            _register_mod_workspace(destination)
-        return destination
-    try:
-        destination.mkdir(parents=True, exist_ok=True)
-        manifest_path = destination / _MANAGED_WORKSPACE_MANIFEST
-        previous_hashes = _managed_workspace_hashes(manifest_path)
-        managed_hashes: dict[str, str] = {}
-
-        for relative in MOD_WORKSPACE_FILES:
-            require_operation(operation_guard, "native_load")
-            if process_probe():
-                raise EquipmentPluginDeploymentError("游戏已经启动，已停止更新组件工作区。")
-            source_file = source / relative
-            destination_file = destination / relative
-            source_hash = _file_sha256(source_file)
-            relative_name = relative.as_posix()
-            if destination_file.is_file():
-                current_hash = _file_sha256(destination_file)
-                previous_hash = previous_hashes.get(relative_name)
-                if current_hash != source_hash and current_hash != previous_hash:
-                    if relative in NATIVE_CAPTURE_FILES:
-                        raise EquipmentPluginDeploymentError("目标增强采集组件已被修改，请修复工作区后重试。")
-                    continue
-            destination_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_file, destination_file)
-            managed_hashes[relative_name] = source_hash
-
-        manifest_path.write_text(
-            json.dumps(
-                {"version": 1, "files": managed_hashes},
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-    except EquipmentPluginDeploymentError:
-        raise
-    except OSError as exc:
-        raise EquipmentPluginDeploymentError(
-            f"无法准备 nte-mods 工作区：{destination}"
-        ) from exc
-
-    if register_workspace:
-        require_operation(operation_guard, "native_load")
-        if process_probe():
-            raise EquipmentPluginDeploymentError("游戏已经启动，已停止更新加载登记。")
-        _register_mod_workspace(destination)
-    return destination
 
 
 def _disk_roots() -> list[Path]:
@@ -618,112 +305,6 @@ def find_game_executables(
         if len(candidates) >= limit:
             break
     return list(candidates.values())
-
-
-def deploy_plugin(
-    *,
-    game_executable_path: str | Path,
-    plugin_dll_path: str | Path,
-    application_root: str | Path,
-    writable_workspace_path: str | Path,
-    backup_directory: str | Path,
-    game_running: Callable[[], bool] | None = None,
-    operation_guard: Callable[[str], None] | None = None,
-) -> PluginDeployment:
-    """Prepare the script workspace, deploy the plugin, and preserve any DLL."""
-    require_operation(operation_guard, "native_load")
-    process_probe = game_running or game_process_running
-    if process_probe():
-        raise EquipmentPluginDeploymentError("游戏正在运行，组件更新需等待游戏退出。")
-    executable = game_executable(game_executable_path)
-    source = plugin_dll(plugin_dll_path)
-    target = executable.parent / PLUGIN_FILENAME
-    if target.is_symlink() or (target.exists() and not target.is_file()):
-        raise EquipmentPluginDeploymentError("目标 dwmapi.dll 不是可安全管理的普通文件，已停止部署。")
-    if not is_mods_plugin_dll(source):
-        raise EquipmentPluginDeploymentError(
-            f"所选 {PLUGIN_FILENAME} 不是与当前脚本匹配的新版 nte-mods-plugin"
-        )
-    workspace = prepare_mod_workspace(
-        application_root=application_root,
-        writable_workspace_path=writable_workspace_path,
-        register_workspace=False,
-        game_running=process_probe,
-        operation_guard=operation_guard,
-    )
-    if source == target:
-        raise EquipmentPluginDeploymentError("所选插件已经位于目标游戏目录，无需重复部署")
-
-    source_hash = _file_sha256(source)
-    target_existed_before = target.exists()
-    previous_hash = _file_sha256(target) if target_existed_before else None
-    backup_path: Path | None = None
-    if target.exists() and _file_sha256(target) != source_hash:
-        backup_root = Path(backup_directory).expanduser().resolve()
-        backup_root.mkdir(parents=True, exist_ok=True)
-        backup_path = backup_root / f"{target.parent.name}_{PLUGIN_FILENAME}.{_file_sha256(target)[:16]}.bak"
-        if not backup_path.exists():
-            shutil.copy2(target, backup_path)
-    try:
-        require_operation(operation_guard, "native_load")
-        if process_probe():
-            raise EquipmentPluginDeploymentError("游戏已经启动，已停止部署组件。")
-        if target.is_symlink() or (
-            target.exists() and (not target.is_file() or _file_sha256(target) != previous_hash)
-        ) or (target_existed_before and not target.exists()):
-            raise EquipmentPluginDeploymentError("游戏目录组件在部署前发生变化，已停止部署。")
-        shutil.copy2(source, target)
-    except OSError as exc:
-        raise EquipmentPluginDeploymentError(
-            f"无法写入游戏目录：{target}。请关闭游戏，并以有该目录写入权限的身份重试。"
-        ) from exc
-    try:
-        require_operation(operation_guard, "native_load")
-        if process_probe():
-            raise EquipmentPluginDeploymentError("游戏已经启动，已停止写入加载登记。")
-        registry_existed, registry_value = _register_mod_workspace(workspace)
-    except (EquipmentPluginDeploymentError, PermissionError) as exc:
-        pending = PluginDeployment(executable, target, backup_path, source_hash, workspace)
-        try:
-            require_operation(operation_guard, "native_load")
-            if process_probe():
-                raise EquipmentPluginDeploymentError("游戏已经启动")
-        except (PermissionError, EquipmentPluginDeploymentError) as blocked:
-            raise PluginDeploymentPendingCleanup(
-                "组件部署未完成；加载授权已撤销或游戏已经启动，已保留待清理记录，未恢复旧 DLL。",
-                deployment=pending,
-            ) from blocked
-        try:
-            if target.is_symlink() or not target.is_file() or _file_sha256(target) != source_hash:
-                raise PluginDeploymentPendingCleanup(
-                    "组件部署失败且目标已改变，已保留待核对记录，未恢复旧 DLL。", deployment=pending,
-                )
-            if backup_path is not None and backup_path.is_file():
-                if _file_sha256(backup_path) != previous_hash:
-                    raise PluginDeploymentPendingCleanup(
-                        "组件部署失败且备份已改变，已保留待核对记录，未恢复旧 DLL。", deployment=pending,
-                    )
-                shutil.copy2(backup_path, target)
-            elif not target_existed_before and target.is_file():
-                target.unlink()
-        except OSError as rollback_exc:
-            raise EquipmentPluginDeploymentError(
-                "MOD 工作区注册失败，且游戏目录 DLL 自动回滚失败；"
-                f"请保持游戏关闭并手动检查 {target}"
-            ) from rollback_exc
-        raise EquipmentPluginDeploymentError(
-            "MOD 工作区注册失败，游戏目录 DLL 已回滚："
-            + str(exc)
-        ) from exc
-    return PluginDeployment(
-        executable,
-        target,
-        backup_path,
-        source_hash,
-        workspace,
-        registry_value,
-        registry_existed,
-    )
 
 
 def npcap_installation_present() -> bool:

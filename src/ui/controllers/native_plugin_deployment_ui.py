@@ -3,15 +3,14 @@ from PySide6.QtWidgets import QMessageBox
 
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
-from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError, PluginDeploymentPendingCleanup
+from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError
+from src.services.native_plugin_deployment import PluginDeploymentPendingCleanup
 from src.services.native_plugin_deployment import deploy_native_plugin
 from src.services.mod_plugin_loading_service import ModPluginLoadingError
 
 
-def refresh_native_plugin_status(window) -> bool:
+def refresh_native_plugin_status(window) -> None:
     bundle = inspect_game_component_bundle(window.app_context.paths.root)
-    if getattr(bundle, "layout", "") != "native-capture-v1":
-        return False
     combo = getattr(window, "_equipment_plugin_loading_method_combo", None)
     if combo is not None:
         combo.blockSignals(True)
@@ -55,7 +54,6 @@ def refresh_native_plugin_status(window) -> bool:
             )
             label.setText("原生组件文件已核对；启动游戏后检测连接和各项能力。"
                           if result.files_compatible else "；".join(result.issues))
-    return True
 
 
 def deploy_native_plugin_from_settings(window) -> None:

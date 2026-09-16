@@ -74,7 +74,7 @@ def refresh_account_scoped_settings(window) -> None:
     if method_combo is not None:
         method_combo.blockSignals(True)
         method_index = method_combo.findData(
-            window.work_mode_service.deployment_record.get("loading_method") or "proxy"
+            window.work_mode_service.deployment_record.get("loading_method") or "native-capture"
         )
         method_combo.setCurrentIndex(max(0, method_index))
         method_combo.blockSignals(False)
@@ -214,14 +214,14 @@ def _build_environment_card(window):
     form = QFormLayout()
     window._equipment_plugin_loading_method_combo = NoWheelComboBox()
     window._equipment_plugin_loading_method_combo.addItem(
-        "代理 DLL（推荐）", "proxy"
+        "D3D 采集代理", "native-capture"
     )
     window._equipment_plugin_loading_method_combo.addItem(
-        "Mod Loader（备用）", "loader"
+        "原生 Loader（备用）", "loader"
     )
     loading_method = str(
         window.work_mode_service.deployment_record.get("loading_method")
-        or "proxy"
+        or "native-capture"
     )
     method_index = window._equipment_plugin_loading_method_combo.findData(
         loading_method

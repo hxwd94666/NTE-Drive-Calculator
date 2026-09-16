@@ -1,7 +1,6 @@
 # 用临时配置与组件替身验证模式运行时的清理、更新等待和检测缓存。
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -10,7 +9,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from src.domain.work_mode import CheckState
-from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError, PluginDeployment, PluginDeploymentPendingCleanup
+from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError
+from src.services.native_plugin_deployment import NativePluginDeployment, PluginDeploymentPendingCleanup
 from src.services.work_mode_runtime import WorkModeRuntime
 from src.services.work_mode_service import WorkModeService
 
@@ -37,16 +37,10 @@ class WorkModeRuntimeTests(unittest.TestCase):
             policy=self.policy, native_session=self.native, loader=self.loader,
             application_root=self.root, config_dir=self.root / "config", game_running=self.process,
         )
-        self.bundle_value = SimpleNamespace(ready=True, roles={"proxy": "dwmapi.dll"}, issues=())
-        self.deployed_value = SimpleNamespace(
-            compatible=False, proxy_present=False, proxy_matches_record=False,
-            proxy_matches_package=False, workspace_valid=False,
-            workspace_matches_package=False,
-            workspace_registered=True,
-            native_capabilities=frozenset(), equipment_script_valid=False,
-        )
+        self.bundle_value = SimpleNamespace(ready=True, roles={}, issues=(), layout="native-capture-v1", native_capabilities=frozenset())
+        self.deployed_value = SimpleNamespace(files_compatible=False, files={})
         self.bundle = self.stub("inspect_game_component_bundle", return_value=self.bundle_value)
-        self.deployed = self.stub("inspect_deployed_plugin", return_value=self.deployed_value)
+        self.deployed = self.stub("inspect_deployed_native_plugin", return_value=self.deployed_value)
         self.stub("resolve_nte_core_executable", return_value=self.game)
         self.stub("npcap_installation_present", return_value=False)
         self.stub("find_spec", return_value=None)
@@ -54,7 +48,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.installed_paths = self.stub("find_game_executables", return_value=[])
         self.stub("create_bundled_analysis_client", return_value=SimpleNamespace(supports_battle_page=True))
         self.clean = self.stub("cleanup_managed_plugin", return_value=SimpleNamespace(status="cleaned", detail="cleaned"))
-        self.deploy = self.stub("deploy_plugin", autospec=True)
+        self.deploy = self.stub("deploy_native_plugin", autospec=True)
         self.clock = self.stub("monotonic", return_value=100.0)
 
     def stub(self, name, **kwargs):
@@ -66,12 +60,11 @@ class WorkModeRuntimeTests(unittest.TestCase):
     def enable_auto(self):
         self.policy.select_mode("medium", risk_confirmed=True)
         self.runtime._bundle = self.bundle_value
-        self.runtime._deployed = self.deployed_value
+        self.runtime._native_deployed = self.deployed_value
 
     def deployment(self):
-        return PluginDeployment(
-            self.game, self.root / "dwmapi.dll", None, "a" * 64, self.root / "workspace",
-        )
+        return NativePluginDeployment(self.game, self.root / "d3d12.dll", "a" * 64,
+            self.root, None, {"d3d12.dll": "a" * 64})
 
     def test_low_mode_checks_npcap_without_a_game_path(self):
         self.policy.select_mode("low", risk_confirmed=True)
@@ -327,11 +320,6 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.assertTrue(reopened.settings.pending_cleanup)
         self.assertEqual(reopened.deployment_record, record)
 
-    def test_pending_loader_workspace_is_saved_before_stopping(self):
-        self.loader.pending_workspace_cleanup_path = self.root / "loaded-workspace"
-        self.policy.set_cleanup_pending(True)
-        self.runtime.cleanup(running=True)
-        self.assertEqual(self.policy.deployment_record["workspace_path"], str(self.root / "loaded-workspace"))
 
     def test_automatic_management_waits_for_manifest_or_game_exit(self):
         self.enable_auto()
@@ -345,10 +333,10 @@ class WorkModeRuntimeTests(unittest.TestCase):
 
     def test_automatic_management_never_replaces_unknown_modified_proxy(self):
         self.enable_auto()
-        self.deployed_value.proxy_present = True
+        self.deployed_value.files = {"d3d12.dll": SimpleNamespace(present=True, matches_bundle=False, matches_record=False, matches_predecessor=False)}
         self.runtime._automatic_deploy(False)
         self.deploy.assert_not_called()
-        self.assertIn("归属未知", self.runtime.cleanup_detail)
+        self.assertIn("未匹配部署记录", self.runtime.cleanup_detail)
 
     def test_auto_update_does_not_run_during_battle(self):
         self.enable_auto()
@@ -368,8 +356,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
     def test_failed_deployment_is_not_retried_every_tick(self):
         self.enable_auto()
         self.deploy.side_effect = OSError("fixture failure")
-        with self.assertRaises(OSError):
-            self.runtime._automatic_deploy(False)
+        self.runtime._automatic_deploy(False)
         self.runtime._automatic_deploy(False)
         self.deploy.assert_called_once()
         self.assertIn("fixture failure", self.runtime._auto_error)
@@ -386,72 +373,6 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.native.inspect = MagicMock()
         self.runtime.tick(allow_connect=True)
         self.native.inspect.assert_not_called()
-
-    def prepare_auto_loader(self):
-        self.enable_auto()
-        self.policy.update_deployment({"loading_method": "loader"})
-        self.bundle_value.roles["loader"] = "nte-mod-loader.exe"
-        self.stub("packaged_plugin_dll", return_value=(self.root / "dwmapi.dll").resolve())
-        self.stub("packaged_mod_loader", return_value=(self.root / "nte-mod-loader.exe").resolve())
-        self.loader.start_loader.return_value = SimpleNamespace(workspace_path=self.root / "workspace", removed_proxy=None)
-
-    def test_automatic_management_respects_loader_method_even_with_compatible_proxy(self):
-        self.prepare_auto_loader()
-        self.deployed_value.compatible = True
-        self.deployed_value.workspace_matches_package = True
-        self.runtime._automatic_deploy(False)
-        self.loader.start_loader.assert_called_once()
-        self.deploy.assert_not_called()
-        self.assertEqual(self.policy.deployment_record["loading_method"], "loader")
-        self.assertEqual(self.policy.deployment_record["workspace_path"], str(self.root / "workspace"))
-
-    def test_automatic_loader_waits_for_game_exit_without_start_or_proxy_deploy(self):
-        self.prepare_auto_loader()
-        self.runtime._automatic_deploy(True)
-        self.loader.start_loader.assert_not_called()
-        self.deploy.assert_not_called()
-
-    def test_automatic_loader_guard_rechecks_pause(self):
-        self.prepare_auto_loader()
-
-        def start(**arguments):
-            self.policy.set_paused(True)
-            arguments["scoped_guard"]("native_load")
-
-        self.loader.start_loader.side_effect = start
-        with self.assertRaises(PermissionError):
-            self.runtime._automatic_deploy(False)
-        self.assertIn("失败", self.runtime.cleanup_detail)
-        self.assertTrue(self.policy.settings.paused)
-        self.deploy.assert_not_called()
-
-    def test_automatic_loader_guard_rechecks_runtime_closed(self):
-        self.prepare_auto_loader()
-
-        def start(**arguments):
-            self.runtime.close()
-            arguments["scoped_guard"]("native_load")
-
-        self.loader.start_loader.side_effect = start
-        with self.assertRaisesRegex(PermissionError, "应用正在退出"):
-            self.runtime._automatic_deploy(False)
-        self.deploy.assert_not_called()
-
-    def test_automatic_loader_failure_persists_owned_registration(self):
-        self.prepare_auto_loader()
-        self.loader.pending_workspace_cleanup_path = self.root / "workspace"
-        self.loader.start_loader.side_effect = PermissionError("revoked after register")
-        with self.assertRaises(PermissionError):
-            self.runtime._automatic_deploy(False)
-        self.assertTrue(self.policy.settings.pending_cleanup)
-        self.assertEqual(self.policy.deployment_record["workspace_path"], str(self.root / "workspace"))
-
-    def test_automatic_loader_rejects_unverified_actual_loader_path(self):
-        self.prepare_auto_loader()
-        self.bundle_value.roles["loader"] = "another-loader.exe"
-        with self.assertRaisesRegex(Exception, "实际输入"):
-            self.runtime._automatic_deploy(False)
-        self.loader.start_loader.assert_not_called()
 
     def test_file_checks_are_cached_and_process_checked_once_per_tick(self):
         self.runtime.tick()
@@ -474,7 +395,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
             "combat.hit_buff.v1", "combat.context.v1", "equipment.execute.v1",
         })
         self.runtime._bundle = self.bundle_value
-        self.runtime._deployed = self.deployed_value
+        self.runtime._native_deployed = self.deployed_value
         self.runtime._native_deployed = SimpleNamespace(files_compatible=False)
         self.stub("native_capture_game_pid", return_value=123)
         self.native.inspect = MagicMock(return_value={
@@ -495,16 +416,4 @@ class WorkModeRuntimeTests(unittest.TestCase):
             self.assertTrue(fact.supported)
             self.assertEqual(checks[name].state.value, "available")
         self.native.inspect.assert_called_once_with(refresh=True, check_equipment=True)
-        self.deploy.assert_not_called()
-
-    def test_manual_loader_files_are_usable_without_proxy_deployment(self):
-        payload = self.root / "dwmapi.dll"
-        payload.write_bytes(b"fixture loader payload")
-        self.loader.active_payload_sha256 = hashlib.sha256(payload.read_bytes()).hexdigest()
-        self.loader.snapshot.return_value = SimpleNamespace(phase="running")
-        self.deployed_value.workspace_valid = True
-        with patch("src.services.work_mode_runtime.packaged_plugin_dll", return_value=payload):
-            probe = self.runtime.tick()
-        self.assertTrue(probe.native_load.files)
-        self.assertFalse(self.deployed_value.proxy_present)
         self.deploy.assert_not_called()

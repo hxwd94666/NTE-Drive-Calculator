@@ -24,7 +24,6 @@ import sys
 from pathlib import Path
 
 from tools import build_cli
-from src.integrations.native_capture_release import validate_native_capture_release
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 
@@ -37,11 +36,6 @@ APP_INTERNAL = DIST_APP / "_internal"
 APP_NTE_CORE = APP_INTERNAL / "nte-core.exe"
 APP_ANALYSIS_CORE = APP_INTERNAL / "nte-analysis-core.exe"
 APP_ANALYSIS_CORE_MANIFEST = APP_INTERNAL / "analysis-core-meta" / "component.json"
-APP_MODS_PLUGIN = APP_INTERNAL / "dwmapi.dll"
-APP_MOD_LOADER = APP_INTERNAL / "nte-mod-loader.exe"
-APP_MOD_SET = APP_INTERNAL / "plugins" / "nte-mods.enabled"
-APP_EQUIPMENT_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "equipment.nte"
-APP_COMBAT_CLOCK_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "combat-clock.nte"
 APP_USER_SCHEMA = APP_INTERNAL / "src" / "storage" / "sqlite" / "schema" / "001_user_data.sql"
 APP_STATIC_DATABASE = APP_INTERNAL / "data" / "game_static.sqlite3"
 APP_STATIC_MANIFEST = APP_INTERNAL / "data" / "manifest.json"
@@ -192,18 +186,9 @@ def _validate_app_bundle() -> None:
         "公共额外形状默认库": APP_SHARED_DATABASE_SEED,
         "旧版额外形状迁移基线": APP_SHAPE_BONUS_BASELINE,
     }
-    native = inspect_game_component_bundle(APP_INTERNAL).layout == "native-capture-v1"
-    if not native:
-        required.update({"nte-mods-plugin 本地组件": APP_MODS_PLUGIN,
-                         "nte-mod-loader 备用加载组件": APP_MOD_LOADER,
-                         "nte-mods 启用集合": APP_MOD_SET,
-                         "nte-mods 装备脚本": APP_EQUIPMENT_MOD,
-                         "nte-mods 战斗时钟脚本": APP_COMBAT_CLOCK_MOD})
     missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]
     if missing:
         raise RuntimeError("PyInstaller 产物不完整，缺少：\n" + "\n".join(missing))
-    if not native:
-        validate_native_capture_release(APP_INTERNAL / "plugins")
     validate_packaged_component_bundle(
         APP_INTERNAL, source_manifest_path=source_component_manifest(ROOT),
     )

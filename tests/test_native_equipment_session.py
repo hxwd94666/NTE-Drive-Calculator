@@ -157,7 +157,7 @@ def test_native_runtime_uses_shared_status_and_current_inventory_without_legacy_
     runtime._game_running = lambda: True
     monkeypatch.setattr(module, "native_capture_game_pid", lambda: 123)
     legacy = Mock(side_effect=AssertionError("native equipment cannot probe the old pipe"))
-    monkeypatch.setattr(module, "probe_equipment_pipe", legacy)
+    assert not hasattr(module, "probe_equipment_pipe")
     runtime.native_session.inspect = Mock(return_value={
         "hello": {"capabilities": ["equipment", "native_equipment_v1"]}, "status": {}, "domains": {},
         "equipment": {"ready": True}, "inventory_snapshot_ready": inventory_ready,

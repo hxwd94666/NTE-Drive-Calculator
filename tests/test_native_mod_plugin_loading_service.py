@@ -57,8 +57,7 @@ def loading(tmp_path, monkeypatch):
                                       operation_guard=guard, game_running=lambda: state['running'],
                                       native_workspace_path=workspace)
     monkeypatch.setattr(service, '_require_msvc_runtime', lambda: None)
-    args = dict(game_executable_path=executable, writable_workspace_path=workspace,
-                proxy_backup_directory=root / 'config/native-loader-backups')
+    args = dict(game_executable_path=executable, writable_workspace_path=workspace)
     return service, runtime, state, args, root, payload
 
 
@@ -73,8 +72,7 @@ def test_native_first_start_prepares_only_capture_dll_and_uses_standard_mode(loa
     service, runtime, _state, args, root, payload = loading
     unrelated = args['game_executable_path'].parent / 'dwmapi.dll'
     unrelated.write_bytes(b'other tool')
-    with patch('src.services.mod_plugin_loading_service.prepare_mod_workspace', side_effect=AssertionError('legacy workspace forbidden')):
-        result = service.start_loader(**args)
+    result = service.start_loader(**args)
     assert result.native_workspace == service.native_workspace_record
     assert service.native_workspace_files_compatible
     assert runtime.calls[0]['payload_load_mode'] == 'loadlibrary'
@@ -88,11 +86,11 @@ def test_native_first_start_prepares_only_capture_dll_and_uses_standard_mode(loa
     for deployed_path in NATIVE_PLUGIN_DEPLOYMENT_PATHS.values():
         assert not (args['game_executable_path'].parent / deployed_path).exists()
     assert not unrelated.exists()
-    assert not list(args['proxy_backup_directory'].rglob('dwmapi.dll.bak'))
+    assert not list((root / 'config/native-loader-backups').rglob('dwmapi.dll.bak'))
 
 
 def test_readonly_support_preflight_and_unsupported_loader_have_no_writes(loading):
-    service, runtime, _state, args, _root, _payload = loading
+    service, runtime, _state, args, root, _payload = loading
     service.require_native_loader_supported()
     assert runtime.mode_checks == ['loadlibrary']
     assert not service.native_workspace_path.exists()
@@ -100,7 +98,7 @@ def test_readonly_support_preflight_and_unsupported_loader_have_no_writes(loadin
     with pytest.raises(ModPluginLoadingError, match='标准加载'):
         service.start_loader(**args)
     assert not service.native_workspace_path.exists()
-    assert not args['proxy_backup_directory'].exists()
+    assert not (root / 'config/native-loader-backups').exists()
     assert runtime.calls == []
 
 
@@ -112,7 +110,7 @@ def test_running_game_blocks_preparation_and_start(loading):
 
 
 def test_native_workspace_cannot_be_redirected_into_game(loading):
-    service, runtime, _state, args, _root, _payload = loading
+    service, runtime, _state, args, root, _payload = loading
     args['writable_workspace_path'] = args['game_executable_path'].parent
     with pytest.raises(ModPluginLoadingError, match='专用运行目录'):
         service.start_loader(**args)
@@ -120,7 +118,7 @@ def test_native_workspace_cannot_be_redirected_into_game(loading):
 
 
 def test_launch_failure_retains_prepared_files_for_root_persistence(loading):
-    service, runtime, _state, args, _root, _payload = loading
+    service, runtime, _state, args, root, _payload = loading
     runtime.fail = True
     with pytest.raises(ModPluginLoadingError): service.start_loader(**args)
     assert len(service.native_workspace_record.managed_files) == 1
@@ -196,7 +194,7 @@ def test_retaining_new_writes_never_loses_old_cleanup_facts_on_read_failure(load
     relative = 'NTE_Capture.dll'
     new_hash = 'a' * 64
     record = files.NativeComponentFilesDeployment(previous.directory, previous.backup_path, {relative: new_hash})
-    with patch.object(service, '_file_sha256', side_effect=OSError('synthetic file lock')):
+    with patch('src.services.native_plugin_deployment._digest', side_effect=OSError('synthetic file lock')):
         service._retain_native_workspace(record)
     expected = dict(previous.managed_files)
     expected[relative] = new_hash
@@ -240,7 +238,7 @@ def test_capture_workspace_does_not_require_or_clean_d3d_host(loading):
 
 
 def test_current_loader_payload_is_reused_without_a_file_transaction(loading):
-    service, runtime, _state, args, _root, _payload = loading
+    service, runtime, _state, args, root, _payload = loading
     service.start_loader(**args)
     service.stop_loader()
     target = service.native_workspace_path / 'NTE_Capture.dll'

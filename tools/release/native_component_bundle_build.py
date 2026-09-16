@@ -36,13 +36,13 @@ DEPENDENCY_NOTICE_NAMES = frozenset({
 
 
 def native_distribution_path(source_path: str) -> str:
-    from tools.release.game_component_bundle_build import _relative, component_distribution_path
+    from tools.release.game_component_bundle_build import _relative, loader_distribution_path
 
     key = _relative(source_path)
     if key in NATIVE_PROGRAMS:
         return NATIVE_PROGRAMS[key]
     if key.startswith("third_party/mod-loader/"):
-        return component_distribution_path(key)
+        return loader_distribution_path(key)
     prefix = "third_party/native-capture/"
     if not key.startswith(prefix):
         raise ValueError("原生组件来源路径不属于允许的发行输入。")
@@ -134,7 +134,7 @@ def validate_native_packaged_bundle(resource_root: Path, inspection, source_mani
                                "roles": {role: reverse[path] for role, path in inspection.roles.items()}})
     directories = ("licenses/native-capture",) + (("licenses/mod-loader",) if loader_present else ())
     _validate_managed_members(resource_root, inspection.files, directories=directories)
-    for relative in ("plugins", "dwmapi.dll"):
+    for relative in ("plugins", "dwmapi.dll", "licenses/mods-plugin"):
         if (resource_root / relative).exists():
             raise ValueError("发行原生组件混入旧 Mods 插件或工作区。")
     if not loader_present and ((resource_root / "nte-mod-loader.exe").exists()

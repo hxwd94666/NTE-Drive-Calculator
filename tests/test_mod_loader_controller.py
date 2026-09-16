@@ -2,9 +2,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from PySide6.QtWidgets import QMessageBox
 
-from src.services.mod_plugin_loading_service import ModPluginLoadingError
 from src.services.work_mode_service import WorkModeService
 from src.ui.controllers.mod_loader_controller import (
     deactivate_equipment_plugin_loading_method, equipment_plugin_loading_method_changed,
@@ -42,50 +40,6 @@ def _window(tmp_path):
     )
 
 
-def test_loader_uses_local_record_and_config_paths_without_account_writes(tmp_path):
-    window = _window(tmp_path)
-    with patch("src.ui.controllers.mod_loader_controller.QMessageBox.question", return_value=QMessageBox.Yes), patch(
-        "src.ui.controllers.mod_loader_controller.QMessageBox.information",
-    ):
-        start_equipment_mod_loader(window)
-    arguments = window._mod_plugin_loading_service.start_loader.call_args.kwargs
-    assert arguments["game_executable_path"] == window.work_mode_service.settings.game_executable
-    assert arguments["recorded_proxy_sha256"] == "a" * 64
-    assert arguments["proxy_backup_directory"] == tmp_path / "config" / "component-backups"
-    assert "recorded_proxy_registry_value_before" not in arguments
-    reopened = WorkModeService(tmp_path / "mode.json")
-    assert reopened.deployment_record["loading_method"] == "loader"
-    assert reopened.deployment_record["loader_payload_sha256"] == "b" * 64
-    assert reopened.deployment_record["workspace_path"] == str(tmp_path / "workspace")
-    assert window._ui_preferences["equipment_plugin_deployed_sha256"] == "account-hash"
-    window._save_ui_preferences.assert_not_called()
-
-
-def test_loader_failure_persists_pending_registration_for_next_launch(tmp_path):
-    window = _window(tmp_path)
-    window._mod_plugin_loading_service.start_loader.side_effect = ModPluginLoadingError("fixture failed after registration")
-    with patch("src.ui.controllers.mod_loader_controller.QMessageBox.question", return_value=QMessageBox.Yes), patch(
-        "src.ui.controllers.mod_loader_controller.QMessageBox.warning",
-    ):
-        start_equipment_mod_loader(window)
-    reopened = WorkModeService(tmp_path / "mode.json")
-    assert reopened.settings.pending_cleanup
-    assert reopened.deployment_record["workspace_path"] == str(tmp_path / "workspace")
-    window._save_ui_preferences.assert_not_called()
-
-
-def test_loader_failure_without_owned_registration_does_not_invent_pending(tmp_path):
-    window = _window(tmp_path)
-    window._mod_plugin_loading_service.pending_workspace_cleanup_path = None
-    window._mod_plugin_loading_service.start_loader.side_effect = ModPluginLoadingError("unknown proxy")
-    with patch("src.ui.controllers.mod_loader_controller.QMessageBox.question", return_value=QMessageBox.Yes), patch(
-        "src.ui.controllers.mod_loader_controller.QMessageBox.warning",
-    ):
-        start_equipment_mod_loader(window)
-    assert not window.work_mode_service.settings.pending_cleanup
-    assert window.work_mode_service.deployment_record["deployed_sha256"] == "a" * 64
-
-
 def test_offline_loader_ignores_old_account_risk_acknowledgement(tmp_path):
     window = _window(tmp_path)
     window.work_mode_service.select_mode("offline")
@@ -113,11 +67,9 @@ def test_loading_method_is_saved_only_to_local_record(tmp_path):
     window._save_ui_preferences.assert_not_called()
 
 
-def test_start_confirmation_preserves_unknown_files_and_explains_no_hot_unload(tmp_path):
+def test_loader_entry_routes_to_native_ui(tmp_path):
     window = _window(tmp_path)
-    with patch("src.ui.controllers.mod_loader_controller.QMessageBox.question", return_value=QMessageBox.No) as question:
+    with patch("src.ui.controllers.native_plugin_deployment_ui.start_native_loader_from_settings") as start:
         start_equipment_mod_loader(window)
-    message = question.call_args.args[2]
-    assert "来源未知或已修改的文件会保留" in message
-    assert "不代表游戏中的 DLL 已卸载" in message
-    assert "账号存储" not in message
+    start.assert_called_once_with(window)
+    window._mod_plugin_loading_service.start_loader.assert_not_called()

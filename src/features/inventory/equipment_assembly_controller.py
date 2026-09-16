@@ -14,7 +14,6 @@ from PySide6.QtWidgets import QMessageBox, QProgressBar, QProgressDialog
 from src.app.workers import WorkerThread
 from src.observability.context import OperationContext
 from src.integrations.nte_core import is_mods_plugin_unavailable_error
-from src.services.dwmapi_diagnostics import probe_equipment_pipe
 from src.features.inventory.equipment_assembly_dialogs import (
     assembly_report_dialog as _assembly_report_dialog,
 )
@@ -53,30 +52,12 @@ def _is_equipment_plugin_unavailable_error(error: object) -> bool:
 def _equipment_failure_details(
     failure_kind: str,
     error: object,
-    *,
-    pipe_probe: dict[str, Any] | None = None,
 ) -> str:
     """Render one concrete failure category without conflating pipe states."""
 
     message = str(error or "未知错误")
     if failure_kind == "plugin_unavailable":
-        probe = pipe_probe if pipe_probe is not None else probe_equipment_pipe()
-        state = str(probe.get("state") or "error")
-        if state == "missing":
-            return (
-                "当前探测确认装备插件命名管道不存在。"
-                "通常表示 DLL/脚本未完成加载、Viewport Tick 未运行，或 IPC 版本不匹配。"
-            )
-        if state == "busy":
-            return "当前探测确认命名管道存在，但连接实例仍被占用。"
-        if state == "available":
-            return (
-                "当前探测确认命名管道存在；此前请求更可能是管道短暂不可用或等待响应超时，"
-                "不是持续性的管道缺失。"
-            )
-        if state == "access_denied":
-            return "当前探测确认命名管道访问被拒绝，请检查程序与游戏的权限级别。"
-        return f"装备插件通道不可用，当前管道探测结果：{probe.get('message') or message}"
+        return f"原生装备通道不可用：{message}。请在工作模式检测详情中核对当前原生组件连接与装备能力。"
     if failure_kind == "plugin_busy":
         return "装备执行仍繁忙或正在等待同步就绪，本次请求尚未派发；已完成的步骤不会回滚。"
     if failure_kind == "outcome_unknown":
@@ -293,7 +274,7 @@ def _start_nte_core_equipment_apply(
                     f"{reason}\n\n"
                     "请先确认：\n"
                     "1. 已在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
-                    "nte-mods-plugin 和 equipment.nte；\n"
+                    "原生采集组件；\n"
                     "2. 游戏保持登录，随后从首页重新启动背包同步并等待“后台监听”；\n"
                     "3. 完成上述检查后，再点击右上角“极速装配”重新执行。\n\n"
                     f"此前已确认 {len(applied)} 个角色；任务日志已保存。此次不会立即重试。",

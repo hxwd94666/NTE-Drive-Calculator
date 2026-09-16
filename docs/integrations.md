@@ -300,7 +300,7 @@ Service 负责 OCR、归一化和装备字段。Integration 返回截图、索�
 本期原生组件采用采集 DLL 与最小 D3D 入口；可选 Loader 直接标准加载同一个采集 DLL。
 采集默认不显示界面，可由 Calc 显式开启原生 Canvas 显示插件。
 Toolkit 负责与 Core 成套核对后交付，Calc 不引入开发工具 UI、MCP、SDK 或内部构建明细。
-旧脚本链只在明确的旧布局清单下使用 `mods-plugin` 工作区。当前整包、加载入口、授权和清理的唯一契约见
+旧 Mods 脚本链不再提供部署、加载、检测或打包入口，仅保留旧安装残留的单向清理。当前整包、加载入口、授权和清理的唯一契约见
 [工作模式](reference/work-modes.md)与[组件包格式及生命周期](reference/game-component-bundle.md)。
 游戏已加载的 DLL 需退出游戏后才能由 Calc 更新；Calc 不增加文件监视或热重载编排。
 部署文件、加载管道、协议握手和业务快照分别检测，不以交付文件哈希证明游戏正在使用新版。

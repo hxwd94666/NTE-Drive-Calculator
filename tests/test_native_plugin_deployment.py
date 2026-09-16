@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import patch
 
 from src.services import native_plugin_deployment as module
-from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError, PluginDeploymentPendingCleanup
+from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError
+from src.services.native_plugin_deployment import PluginDeploymentPendingCleanup
 
 
 class NativePluginDeploymentTests(unittest.TestCase):

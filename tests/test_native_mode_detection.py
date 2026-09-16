@@ -34,15 +34,13 @@ def test_partial_native_fixture_does_not_block_ready_battle(tmp_path, domain_err
         "domain_errors": {"inventory": {"code": -32001, "message": domain_error, "reason": ""}} if domain_error else {},
     }))
     runtime = WorkModeRuntime(policy=policy, native_session=native,
-        loader=SimpleNamespace(), application_root=tmp_path, config_dir=tmp_path, game_running=lambda: True)
-    runtime._bundle = SimpleNamespace(ready=False, issues=("bundle missing",))
-    runtime._deployed = SimpleNamespace(compatible=True, workspace_matches_package=False,
-        proxy_matches_package=True, workspace_registered=True, native_capabilities=dll_caps, equipment_script_valid=True)
+        loader=SimpleNamespace(snapshot=lambda: SimpleNamespace(phase="stopped")), application_root=tmp_path, config_dir=tmp_path, game_running=lambda: True)
+    runtime._bundle = SimpleNamespace(ready=True, layout="native-capture-v1", issues=(), native_capabilities=dll_caps)
+    runtime._native_deployed = SimpleNamespace(files_compatible=True)
     with (patch.object(runtime, "_inspect_component_files"),
           patch("src.services.work_mode_runtime.resolve_nte_core_executable", return_value=game),
           patch("src.services.work_mode_runtime.create_bundled_analysis_client", return_value=None),
           patch("src.services.work_mode_runtime.native_capture_game_pid", return_value=1234),
-          patch("src.services.work_mode_runtime.probe_equipment_pipe", return_value={"state": "available"}),
           patch("src.services.work_mode_runtime.npcap_installation_present", return_value=False)):
         probe = runtime.tick(allow_connect=True)
     checks = {row.feature: row for row in policy.build_report(probe).features}

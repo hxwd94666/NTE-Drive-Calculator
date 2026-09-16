@@ -24,7 +24,7 @@ from .inventory_sync_service import InventorySyncState
 
 MAX_UID_COMPONENT = 4_294_967_295
 _PROTAGONIST_CHARACTER_IDS = {1046: "male", 1051: "female"}
-# nte-mods-plugin 的成功响应表示请求已被 IPC 接收；游戏线程完成装备变更
+# 原生装备接口的成功响应表示请求已被接收；游戏线程完成装备变更
 # 可能稍晚。极速模式没有可靠的逐条完成事件，因此在相邻装备命令之间保留
 # 一个短执行窗口，避免驱动-only 方案连续塞入 8 条请求时中间指令被吞。
 FAST_EQUIPMENT_COMMAND_SETTLE_SECONDS = 0.5

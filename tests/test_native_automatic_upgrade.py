@@ -40,7 +40,7 @@ def test_medium_upgrades_audited_predecessor_without_deployment_record(tmp_path)
     runtime._automatic_deploy(False)
     assert (game.parent / 'd3d12.dll').read_bytes() != old
     assert policy.deployment_record['managed_files']['d3d12.dll'] == payload['files'][payload['roles']['host']]
-    assert policy.deployment_record['loading_method'] == 'proxy'
+    assert policy.deployment_record['loading_method'] == 'native-capture'
 
 
 def test_unknown_predecessor_is_not_taken_over(tmp_path):

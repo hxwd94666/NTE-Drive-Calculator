@@ -75,8 +75,9 @@ def test_missing_new_manifest_never_borrows_old_dlls_or_claims_delivery(tmp_path
     (tmp_path / "dwmapi.dll").write_bytes(b"legacy fixture")
     (tmp_path / "NTE_Capture.dll").write_bytes(b"legacy fixture")
     assert not inspect_native_plugin_bundle(tmp_path).ready
-    assert inspect_game_component_bundle(tmp_path).layout == "legacy-mods-v1"
-    assert resolve_bundled_native_core(tmp_path) is None
+    assert not inspect_game_component_bundle(tmp_path).ready
+    with pytest.raises(ValueError, match="原生配套 Core 不可用"):
+        resolve_bundled_native_core(tmp_path)
 
 
 @pytest.mark.parametrize("role", ["host", "capture_plugin", "core", "capture_license", "capture_source", "core_license", "core_source"])
@@ -119,7 +120,7 @@ def test_deployed_files_are_distinct_from_bundle_and_do_not_touch_registry(tmp_p
     game = game_files(tmp_path, root, payload)
     old = game.parent / "dwmapi.dll"
     old.write_bytes(b"unrelated legacy file")
-    with patch("src.services.deployed_plugin_inspection.mod_workspace_registry_snapshot", side_effect=AssertionError("registry must not be read")):
+    with patch("src.services.equipment_plugin_deployment.mod_workspace_registry_snapshot", side_effect=AssertionError("registry must not be read")):
         result = inspect_deployed_native_plugin(application_root=root, game_executable_path=game)
     assert not result.files_compatible and result.legacy_proxy_present
     assert set(result.files) == set(NATIVE_PLUGIN_DEPLOYMENT_PATHS.values())

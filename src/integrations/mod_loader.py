@@ -156,10 +156,10 @@ def probe_mod_loader_capabilities(loader_path: str | Path) -> frozenset[str]:
 
 
 def mod_loader_arguments(*, payload_path: Path, event_name: str, owner_pid: int,
-                         payload_load_mode: str | None = None) -> str:
-    if payload_load_mode not in {None, 'manualmap', 'loadlibrary'}:
+                         payload_load_mode: str = "loadlibrary") -> str:
+    if payload_load_mode != 'loadlibrary':
         raise ModLoaderRuntimeError('不支持的 Loader payload 加载方式。')
-    mode = '' if payload_load_mode is None else f' --payload-load-mode {payload_load_mode}'
+    mode = ' --payload-load-mode loadlibrary'
     return (f'--dll "{payload_path}"{mode} --monitor-timeout 0 '
             f'--stop-event "{event_name}" --owner-pid {owner_pid}')
 
@@ -252,15 +252,14 @@ class ModLoaderRuntime:
         *,
         payload_path: str | Path,
         launcher_path: str | Path,
-        payload_load_mode: str | None = None,
+        payload_load_mode: str = "loadlibrary",
         launch_guard: Callable[[], None] | None = None,
     ) -> ModLoaderRuntimeSnapshot:
         if os.name != "nt":
             raise ModLoaderRuntimeError("Mod Loader 仅支持 Windows")
-        if payload_load_mode not in {None, 'manualmap', 'loadlibrary'}:
+        if payload_load_mode != 'loadlibrary':
             raise ModLoaderRuntimeError('不支持的 Loader payload 加载方式。')
-        if payload_load_mode == 'loadlibrary':
-            self.require_payload_load_mode(payload_load_mode)
+        self.require_payload_load_mode(payload_load_mode)
         loader = packaged_mod_loader(self._application_root)
         payload = Path(payload_path).resolve()
         if not payload.is_file():
