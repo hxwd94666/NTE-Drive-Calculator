@@ -111,6 +111,9 @@ def format_analysis_evidence(analysis: BattleAnalysisSnapshot) -> str:
 def format_time_stop_evidence(analysis: BattleAnalysisSnapshot) -> str:
     return {
         "nte_core": f"nte-core 记录时停 {len(analysis.time_stop_intervals)} 段",
+        "nte_core_partial": (
+            f"实测时停 {len(analysis.time_stop_intervals)} 段（覆盖不完整，缺失区间未知）"
+        ),
         "nte_core_plus_inferred_linko_e": (
             f"nte-core 时停 + 灵可 E 推算 {len(analysis.time_stop_intervals)} 段"
             "（含低置信）"

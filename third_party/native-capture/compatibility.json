@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "core_rebuilt": true,
+  "core_sha256": "aab46c3a5927576e531062195171b57b21cb5e0173b7e73c54b441bc8cf8b7c2",
+  "capture_sha256": "5fa57cbaa1b1be281d51ab5d6281ed5a83a496f64fccebb4986632a42c2951b8",
+  "proxy_sha256": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
+  "protocol_version": 1,
+  "provider_capabilities": [
+    "hud.configure.v1",
+    "combat.hit_buff.v1",
+    "combat.effects.v1",
+    "combat.context.v1",
+    "combat.hit_attributes.v1",
+    "combat.applied_modifiers.v1",
+    "combat.formula_reads.v1",
+    "combat.raw_evidence.v1",
+    "character.snapshot.v1",
+    "inventory.snapshot.v1",
+    "team.snapshot.v1",
+    "environment.snapshot.v1",
+    "equipment.execute.v1",
+    "combat.clock.v1",
+    "snapshot.changes.v1"
+  ],
+  "core_capabilities": [
+    "capture",
+    "battle_summary",
+    "battle_record_v1",
+    "battle_axis_v1",
+    "native_hit_buff_v1",
+    "native_buff_events_v1",
+    "native_context_observation_v1",
+    "native_snapshot_archive_v1",
+    "native_hud_v1",
+    "native_battle_scope_snapshot_v1",
+    "native_snapshot_inline_raw_v1",
+    "character.snapshot.v1",
+    "inventory.snapshot.v1",
+    "team.snapshot.v1",
+    "environment.snapshot.v1",
+    "snapshot.changes.v1",
+    "equipment",
+    "native_equipment_v1",
+    "native_combat_clock_v1",
+    "native_character_profile_v1",
+    "native_inventory_dto_v1"
+  ],
+  "validation": {
+    "calc_persistence": "known and unknown event payloads retained",
+    "game": "pending_glow_and_cooldown_mask",
+    "non_game": "Paired direct/proxy Core handshake, independent HUD controls and capture status passed; live switch and close behavior pending.",
+    "build": "paired Release x64",
+    "transport": "execution, dynamic panel and formula evidence preserved through protocol and axis paging",
+    "attribute_replication": "compiled; gameplay callbacks pending; does not establish server per-hit inputs"
+  },
+  "limits": [
+    "Game acceptance pending.",
+    "Unknown restart callbacks do not delete battle data.",
+    "Witch raw evidence is saved; activation remains unverified.",
+    "Conflicting configurations across halves cannot yet be replayed as multiple versions."
+  ]
+}

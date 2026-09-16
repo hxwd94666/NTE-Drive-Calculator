@@ -14,9 +14,16 @@ def build_official_role_page(window):
     return _page_my_role(window)
 
 
-def refresh_official_role_page(window, *, restore_scroll_value: int | None = None):
+def refresh_official_role_page(
+    window, *, restore_scroll_value: int | None = None, discard_pending: bool = False,
+):
     """Refresh the role page through its public feature entry point."""
 
+    if discard_pending:
+        window._official_role_dirty_ids = set()
+        window._official_role_world_bonus_dirty = False
+        window._my_role_dirty = False
+        window._official_role_editors = {}
     return _refresh_my_role(window, restore_scroll_value=restore_scroll_value)
 
 

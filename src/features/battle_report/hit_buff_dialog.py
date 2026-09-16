@@ -1,23 +1,14 @@
-# 展示逐击日志中单击“推算 Buff”后的结构化加成详情。
-"""Reusable modeless dialog for one hit's inferred Buff projection."""
+# 分开展示逐击原生 Buff 采样与规则推断的结构化加成详情。
+"""Reusable modeless dialog for observed effects and inferred Buff projection."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QSize
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QLabel,
-    QPlainTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QWidget
 
-from src.app.theme import themed_style
-from src.app.window_geometry import fit_dialog_to_available_screen
+from src.services.battle_native_evidence_rendering import render_field_evidence, render_native_evidence
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleHitReplayResult,
@@ -26,36 +17,16 @@ from src.domain.battle_report import (
 from src.services.battle_hit_buff_explanation_service import (
     BattleHitBuffExplanationService,
 )
-from src.services.skill_name_rendering_service import preferred_battle_damage_name
+from .hit_inspection_dialog import HitInspectionDialog
 
 
-class BattleHitBuffDialog(QDialog):
+class BattleHitBuffDialog(HitInspectionDialog):
     """Keep one modeless dialog while the user inspects adjacent hit rows."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self, parent: QWidget | None = None, *, game_ui_asset_root=None) -> None:
+        super().__init__(parent, game_ui_asset_root=game_ui_asset_root)
         self.setWindowTitle("逐击详情")
-        self.setModal(False)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(10)
-
-        self.title_label = QLabel("逐击推算 Buff")
-        self.title_label.setStyleSheet(
-            themed_style("color:#58a6ff;font-size:16px;font-weight:700")
-        )
-        root.addWidget(self.title_label)
-
-        self.detail = QPlainTextEdit()
         self.detail.setObjectName("battleHitBuffDetail")
-        self.detail.setReadOnly(True)
-        self.detail.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        root.addWidget(self.detail, 1)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.hide)
-        root.addWidget(buttons)
-        fit_dialog_to_available_screen(self, QSize(980, 760))
 
     def show_for_hit(
         self,
@@ -63,14 +34,10 @@ class BattleHitBuffDialog(QDialog):
         intervals: Sequence[BattleInferredBuffInterval],
         *,
         replay: BattleHitReplayResult | None = None,
-        projection=None,
+        projection=None, participant_names=None, target_resolutions=(),
     ) -> None:
-        damage_name = preferred_battle_damage_name(
-            hit.damage_name,
-            hit.skill_name,
-            hit.ability_id,
-        )
-        self.title_label.setText(f"{hit.character_name} · {damage_name} · 逐击详情")
+        self.setWindowTitle(f"逐击详情 · Hit #{hit.sequence} · {hit.character_name}")
+        self.inspection.set_hit(hit, replay, projection, participant_names=participant_names, target_resolutions=target_resolutions)
         hp_before = "—" if hit.target_hp_before is None else f"{hit.target_hp_before:,.0f}"
         hp_after = "—" if hit.target_hp_after is None else f"{hit.target_hp_after:,.0f}"
         raw_lines = (
@@ -96,12 +63,14 @@ class BattleHitBuffDialog(QDialog):
                 + (f"\n缺失证据：\n{gaps}" if gaps else "")
             )
         self.detail.setPlainText(
-            raw_lines + "\n" + replay_lines + "\n\n"
+            raw_lines + "\n" + render_field_evidence(hit.field_evidence)
+            + "\n" + render_native_evidence(hit.native_evidence)
+            + "\n\n规则推断与公式重放（与原生采样分开）\n" + replay_lines + "\n\n"
             + BattleHitBuffExplanationService.build(hit, intervals, projection=projection,
                                                    allow_projection_fallback=False)
         )
         self.detail.moveCursor(QTextCursor.MoveOperation.Start)
-        fit_dialog_to_available_screen(self, QSize(980, 760))
+        self.fit_overview()
         self.show()
         self.raise_()
         self.activateWindow()

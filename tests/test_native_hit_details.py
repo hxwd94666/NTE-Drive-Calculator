@@ -28,6 +28,59 @@ def tables():
 
 
 class NativeHitDetailTests(unittest.TestCase):
+    def test_projection_transport_negotiates_v2_only_with_advertised_capability(self):
+        from dataclasses import asdict
+        import json
+        from pathlib import Path
+        import tempfile
+        from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+        value,_,hit,_=tables()
+        value.update(schema_version="nte-analysis-response-v1",engine_version="0.3.0",
+                     dataset_version="fixture",batch_kind="buff_projection_v1",compute_elapsed_ns=1)
+        value["results"]=[{"job_id":"0","projection_index":1}]
+        payload={"hits":[asdict(hit)],"intervals":[],"jobs":[
+            {"job_id":"0","hit_index":0,"active_indices":[],"temporal_indices":[]}]}
+        with tempfile.TemporaryDirectory() as directory:
+            exe=Path(directory)/"nte-analysis-core.exe";exe.touch()
+            for encoding in ("interned_v1","interned_v2"):
+                caps=frozenset({"interned_buff_projection_v2"}) if encoding=="interned_v2" else frozenset()
+                client=NteAnalysisCoreClient(exe,"fixture",capabilities=caps)
+                response=deepcopy(value);response["result_encoding"]=encoding
+                if encoding=="interned_v2":
+                    response["decisions"][0].extend([3,4])
+                with patch.object(client,"_run",return_value=json.dumps(response).encode()) as run:
+                    result=client.project_batch(payload)
+                self.assertEqual(encoding,json.loads(run.call_args.args[0])["result_encoding"])
+                self.assertEqual(3 if encoding=="interned_v2" else None,
+                                 result[0]["decisions"][0].get("observed_stacks"))
+
+    def test_v2_keeps_observed_stacks_separate_from_formula_and_validates_types(self):
+        from src.integrations.native_buff_projection_wire import expand_projection_tables
+        from src.services.battle_native_buff_projection import projection_from_wire
+        value,analysis,hit,_=tables()
+        value["result_encoding"]="interned_v2"
+        value["strings"].append("低")
+        value["decisions"][0].extend([3,len(value["strings"])-1])
+        details=decode_hit_details(value,analysis,analysis)
+        formula,intervals=details.analysis.for_hit(hit,formula=True)
+        decision=formula.decisions[0]
+        self.assertEqual(3,decision.observed_stacks)
+        self.assertEqual("低",decision.state_confidence)
+        text=BattleHitBuffExplanationService.build(hit,intervals,projection=formula,allow_projection_fallback=False)
+        self.assertIn("回调采样层数：3",text)
+        self.assertIn(f"公式采用区间层数 ×{intervals[0].stacks}",text)
+        expanded=expand_projection_tables(value)
+        raw=expanded[1]["projection"]
+        from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+        NteAnalysisCoreClient._validate_projection(raw)
+        self.assertEqual(decision,projection_from_wire(raw).decisions[0])
+        for invalid in (True,-1,"3"):
+            broken=deepcopy(value);broken["decisions"][0][5]=invalid
+            with self.assertRaises(NativeAnalysisError):
+                decode_hit_details(broken,analysis,analysis)
+            with self.assertRaises(NativeAnalysisError):
+                NteAnalysisCoreClient._validate_projection(expand_projection_tables(broken)[1]["projection"])
+
     def test_raw_and_formula_views_share_tables_without_mixing_attribution(self):
         value,analysis,hit,interval=tables()
         details=decode_hit_details(value,analysis,analysis)
@@ -67,5 +120,5 @@ class NativeHitDetailTests(unittest.TestCase):
         with patch.object(BattleBuffAttributeProjectionService,"project_hit",side_effect=AssertionError("recalculated")):
             text=BattleHitBuffExplanationService.build(hit,(),allow_projection_fallback=False)
             formula=BattleHitReplayExplanationService.build(hit,None,allow_projection_fallback=False)
-        self.assertIn("未生成原生 Buff",text)
+        self.assertIn("未生成 Buff 分析详情",text)
         self.assertIn("没有重放结果",formula)

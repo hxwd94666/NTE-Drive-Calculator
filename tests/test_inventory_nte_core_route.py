@@ -611,25 +611,12 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             )
         )
 
-    def test_plugin_unavailable_message_distinguishes_current_pipe_state(self) -> None:
-        available = page_module._equipment_failure_details(
-            "plugin_unavailable",
-            "[MODS_PLUGIN_UNAVAILABLE]",
-            pipe_probe={"state": "available"},
-        )
-        missing = page_module._equipment_failure_details(
-            "plugin_unavailable",
-            "[MODS_PLUGIN_UNAVAILABLE]",
-            pipe_probe={"state": "missing"},
-        )
-        timed_out = page_module._equipment_failure_details(
-            "core_request_timeout",
-            "nte-core request timed out",
-        )
-
-        self.assertIn("管道存在", available)
-        self.assertIn("短暂不可用或等待响应超时", available)
-        self.assertIn("管道不存在", missing)
+    def test_plugin_unavailable_message_preserves_native_error_without_legacy_pipe_guess(self):
+        message = page_module._equipment_failure_details("plugin_unavailable", "native runtime not ready")
+        self.assertIn("native runtime not ready", message)
+        self.assertIn("检测详情", message)
+        self.assertNotIn("管道不存在", message)
+        timed_out = page_module._equipment_failure_details("core_request_timeout", "nte-core request timed out")
         self.assertIn("不是命名管道缺失", timed_out)
 
     def test_automatic_assembly_uses_duplicate_warning_after_mode_choice(self) -> None:

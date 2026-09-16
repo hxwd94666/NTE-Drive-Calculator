@@ -33,6 +33,7 @@ from src.storage.sqlite.static_catalog_character_queries import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.native_role_profile_projection import load_template_growth_defaults, project_native_role_profile
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,7 +355,14 @@ class CultivationPlannerService:
     def _load_profile(self, character_id: int) -> dict[str, object] | None:
         dao = self._user_dao_factory(self._user_database_path)
         try:
-            return dao.get_character_profile(int(character_id))
+            profile = dao.get_character_profile(int(character_id))
+            observation = dao.get_native_character_profile_observation(int(character_id))
+            if observation is None:
+                return profile
+            base = profile if profile is not None else load_template_growth_defaults(
+                (int(character_id),), static_database_path=self._static_database_path,
+            )[int(character_id)]
+            return project_native_role_profile(base, observation, persisted=profile is not None)
         finally:
             dao.close()
 

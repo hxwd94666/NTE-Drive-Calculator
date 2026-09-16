@@ -349,6 +349,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             source_character_id=1,
             source_character_name="角色1",
             buff_name="团队增伤",
+            buff_asset_path="/Game/Test/TeamBuff",
             target_scope="team",
             affected_hits=2,
             without_quantified_effect_damage=3000.0,
@@ -395,6 +396,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             source_character_id=2,
             source_character_name="角色2",
             buff_name="其他角色 Buff",
+            buff_asset_path="/Game/Test/OtherBuff",
             target_scope="team",
             affected_hits=2,
             without_quantified_effect_damage=3000.0,
@@ -458,6 +460,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             source_character_id=1,
             source_character_name="角色1",
             buff_name="混合团队 Buff",
+            buff_asset_path="/Game/Test/MixedBuff",
             target_scope="team",
             affected_hits=2,
             without_quantified_effect_damage=2_000.0,
@@ -491,7 +494,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            "+7.50%（部分）",
+            "+7.50%",
             page.buff_benefit_table.item(0, 5).text(),
         )
 
@@ -514,6 +517,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             source_character_id=1,
             source_character_name="角色1",
             buff_name="联动 Buff",
+            buff_asset_path="/Game/Test/LinkedBuff",
             target_scope="team",
             affected_hits=1,
             without_quantified_effect_damage=None,

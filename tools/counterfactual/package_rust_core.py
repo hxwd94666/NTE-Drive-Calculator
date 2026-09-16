@@ -1,5 +1,5 @@
 # 打包并部署独立分析程序，不构建或覆盖采集 Core。
-"""Package a verified standalone Rust build with its exact source inputs."""
+"""Deliver verified analysis binaries and licenses; record source hashes without source files."""
 
 from __future__ import annotations
 
@@ -63,11 +63,17 @@ def main() -> int:
         "source_base_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=source, text=True,
         ).strip(),
+        "source_worktree_modified": bool(subprocess.check_output(
+            ["git", "status", "--porcelain", "--", ".", "../LICENSE"], cwd=source, text=True,
+        ).strip()),
         "rustc": subprocess.check_output(["rustc", "--version"], cwd=source, text=True).strip(),
         "license_sha256": sha256(license_path),
         "dependency_notices_sha256": sha256(source / "THIRD_PARTY_NOTICES.txt"),
         "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel; Python owns user input, process lifecycle and rendering",
     }
+    manifest["source_input_sha256"] = hashlib.sha256(json.dumps(
+        manifest["source_files"], sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
     destination = args.destination.resolve()
     (destination / "bin").mkdir(parents=True, exist_ok=True)
     shutil.copy2(executable, destination / "bin/nte-analysis-core.exe")
@@ -89,8 +95,6 @@ def main() -> int:
         bundle.write(license_path, "LICENSE")
         bundle.write(source / "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_NOTICES.txt")
         bundle.write(destination / "SOURCE.md", "SOURCE.md")
-        for path in source_files:
-            bundle.write(path, f"source/{path.relative_to(source).as_posix()}")
     with zipfile.ZipFile(archive) as bundle:
         if bundle.testzip() is not None:
             raise RuntimeError("archive verification failed")

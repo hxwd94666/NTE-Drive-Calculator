@@ -239,7 +239,7 @@ def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
 
     QApplication.instance() or QApplication([])
     service = Service()
-    dialog = _RewindRecommendationDialog(service, None)
+    dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     monkeypatch.setattr(rewind_execution_ui, "RewindExecutionDialog", AcceptedDialog)
     monkeypatch.setattr(dialog, "_start_rewind_execution", lambda: None)
 
@@ -253,7 +253,7 @@ def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
     assert service.saved["target_custom_percent"] is None
     assert service.saved["rewind_qualities"] == ["purple", "gold"]
     assert service.saved["rewind_drive_customization"] == "enabled"
-    reopened = _RewindRecommendationDialog(service, None)
+    reopened = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     assert reopened._rewind_options == RewindExecutionOptions(
         qualities=("purple", "gold"),
         drive_customization="enabled",
@@ -297,7 +297,7 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
 
     QApplication.instance() or QApplication([])
     service = Service()
-    dialog = _RewindRecommendationDialog(service, None)
+    dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     assert dialog._custom_percent_input.text() == ""
     assert dialog._custom_percent_input.width() == 60
     grade_help = next(
@@ -330,7 +330,7 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
     assert service.saved["target_custom_percent"] == 90.0
     assert dialog._custom_percent_input.isEnabled()
 
-    reopened = _RewindRecommendationDialog(service, None)
+    reopened = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     assert reopened._target_threshold_mode == "custom"
     assert reopened._custom_percent_input.value() == 90.0
     assert reopened._custom_percent_input.isEnabled()
@@ -403,7 +403,7 @@ def test_rewind_execution_minimizes_host_and_restores_after_completion() -> None
     QApplication.instance() or QApplication([])
     host = QWidget()
     host.show()
-    dialog = _RewindRecommendationDialog(Service(), host)
+    dialog = _RewindRecommendationDialog(Service(), host, operation_entry=lambda *_: True)
     dialog.show()
 
     dialog._prepare_rewind_game_foreground()
@@ -473,6 +473,9 @@ def test_rewind_execution_replaces_deleted_worker_and_clears_finished_reference(
     class Host(rewind_execution_ui.RewindExecutionUiMixin):
         def __init__(self) -> None:
             self._rewind_worker = DeletedWorker()
+            self.operation_guard = lambda _: None
+            self.operation_entry = lambda *_: True
+            self.operation_generation = lambda: 1
             self._rewind_options = RewindExecutionOptions(("purple",), "none")
             self._saved_rewind_shape_ids = ()
             self._start_rewind_button = QPushButton()
@@ -550,7 +553,7 @@ def test_rewind_execution_registers_and_releases_the_global_stop_hotkey(monkeypa
     host = QWidget()
     hotkeys = FakeHotkeys()
     host.global_hotkey_manager = hotkeys
-    dialog = _RewindRecommendationDialog(Service(), host)
+    dialog = _RewindRecommendationDialog(Service(), host, operation_entry=lambda *_: True)
     execution_dialog = RewindExecutionDialog(dialog)
     assert execution_dialog._stop_hotkey_label() == "F8"
     dialog._rewind_foreground_settle_seconds = 0
@@ -560,7 +563,11 @@ def test_rewind_execution_registers_and_releases_the_global_stop_hotkey(monkeypa
     monkeypatch.setattr(
         rewind_execution_ui,
         "execute_rewind_request",
-        lambda _request, *, should_stop: captured.setdefault("stopped", should_stop()),
+        lambda _request, *, backend, should_stop: captured.setdefault("stopped", should_stop()),
+    )
+    monkeypatch.setattr(
+        rewind_execution_ui, "PyAutoGuiMouseBackend",
+        lambda **_: SimpleNamespace(force_mouse_release=lambda: None, close=lambda: None),
     )
 
     dialog._start_rewind_execution()
@@ -587,7 +594,7 @@ def test_rewind_open_prefers_saved_plan_and_replacement_has_all_twelve_shapes() 
             return {"saved_rewind_shape_ids": ["EquipmentGeometry_Hen2"] * 8}
 
     QApplication.instance() or QApplication([])
-    dialog = _RewindRecommendationDialog(Service(), None)
+    dialog = _RewindRecommendationDialog(Service(), None, operation_entry=lambda *_: True)
     assert dialog._slots_complete()
     assert all(slot.shape.shape_id == "EquipmentGeometry_Hen2" for slot in dialog._editable_slots)
     picker = RewindShapeReplacementDialog(None, candidates=all_rewind_shape_candidates())
@@ -613,7 +620,7 @@ def test_saved_rewind_plan_restores_quality_gap_without_another_analysis() -> No
 
     QApplication.instance() or QApplication([])
     service = Service()
-    dialog = _RewindRecommendationDialog(service, None)
+    dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     saved = RewindShapeRecommendation(
         RewindShape("EquipmentGeometry_Hen2", 2),
         suit_demand=1,
@@ -629,7 +636,7 @@ def test_saved_rewind_plan_restores_quality_gap_without_another_analysis() -> No
         {"shape_id": "EquipmentGeometry_Hen2", "quality_gap": 12.5}
     ] * 8
 
-    reopened = _RewindRecommendationDialog(service, None)
+    reopened = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     assert reopened._slots_complete()
     assert [slot.quality_gap for slot in reopened._editable_slots if slot is not None] == [
         12.5
@@ -657,7 +664,7 @@ def test_rewind_candidates_clear_only_the_current_page_and_keep_the_saved_plan()
 
     QApplication.instance() or QApplication([])
     service = Service()
-    dialog = _RewindRecommendationDialog(service, None)
+    dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     clear_button = dialog.findChild(QPushButton, "rewindClearCandidates")
 
     assert clear_button is not None
@@ -668,7 +675,7 @@ def test_rewind_candidates_clear_only_the_current_page_and_keep_the_saved_plan()
     assert service.saved["saved_rewind_shape_ids"] == ["EquipmentGeometry_Hen2"] * 8
     assert dialog._saved_rewind_shape_ids == ("EquipmentGeometry_Hen2",) * 8
 
-    reopened = _RewindRecommendationDialog(service, None)
+    reopened = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     assert reopened._slots_complete()
     assert all(
         slot.shape.shape_id == "EquipmentGeometry_Hen2"
@@ -687,7 +694,7 @@ def test_generating_another_strategy_replaces_the_current_transient_slots() -> N
             return {}
 
     QApplication.instance() or QApplication([])
-    dialog = _RewindRecommendationDialog(Service(), None)
+    dialog = _RewindRecommendationDialog(Service(), None, operation_entry=lambda *_: True)
     balanced = RewindShapeRecommendation(
         RewindShape("EquipmentGeometry_Hen2", 2),
         suit_demand=1,

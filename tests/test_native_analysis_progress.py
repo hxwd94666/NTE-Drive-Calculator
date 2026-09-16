@@ -117,6 +117,24 @@ class ProgressTransportTests(unittest.TestCase):
         self.assertLess(times[-1] - times[0], 1.0)
         self.assert_clean()
 
+    def test_large_fast_response_checks_boundaries_not_each_pipe_fragment(self):
+        checks = Mock()
+        source = "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*2000000)"
+        # Hold the clock within one checkpoint period. The number of checks
+        # must depend on lifecycle boundaries, not OS pipe fragmentation.
+        with self.child(source), patch('src.integrations.native_analysis_stream.time.monotonic', return_value=1.0):
+            result = self.client._run_progress(b'{}', checkpoint=checks, progress_callback=Mock())
+        self.assertEqual(result, b'x' * 2000000)
+        self.assertEqual(checks.call_count, 3)  # Before start, first poll, final delivery.
+        self.assert_clean()
+
+    def test_fast_response_still_checks_cancellation_before_delivery(self):
+        checks = Mock(side_effect=[None, None, NativeAnalysisCancelled('cancel')])
+        with self.child("print('{}')"), patch('src.integrations.native_analysis_stream.time.monotonic', return_value=1.0):
+            with self.assertRaises(NativeAnalysisCancelled):
+                self.client._run_progress(b'{}', checkpoint=checks, progress_callback=Mock())
+        self.assert_clean()
+
     def test_cancel_blocked_stdin_writer_closes_pipe_and_thread(self):
         checks = []
 

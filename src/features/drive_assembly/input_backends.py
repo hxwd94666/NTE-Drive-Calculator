@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 import pyautogui
+from src.integrations.operation_guard import GuardedGuiInput, OperationGuard, require_operation
 
 from src.features.drive_assembly.randomization import (
     RandomizationContext,
@@ -116,22 +117,23 @@ def f12_stop_checker() -> Callable[[], bool]:
 class PyAutoGuiMouseBackend:
     """Mouse backend powered by pyautogui."""
 
-    def __init__(self, randomization: RandomizationContext | None = None):
-
+    def __init__(self, randomization: RandomizationContext | None = None, *, operation_guard: OperationGuard | None = None):
+        self.operation_guard = operation_guard
         self._randomization = (
             randomization
             if randomization is not None
             else RandomizationContext()
         )
-        self._pyautogui = pyautogui
-        self._pyautogui.FAILSAFE = True
-        self._send_input = _WindowsSendInputMouseDriver(randomization=self._randomization)
-        self._gamepad = _VirtualGamepadDriver()
+        pyautogui.FAILSAFE = True
+        self._pyautogui = GuardedGuiInput(pyautogui, operation_guard)
+        self._send_input = _WindowsSendInputMouseDriver(randomization=self._randomization, operation_guard=operation_guard)
+        self._gamepad = _VirtualGamepadDriver(operation_guard=operation_guard)
         self._sleeper = time.sleep
         self._mouse_delivery_diagnostics: list[dict[str, Any]] = []
 
     def click(self, position: tuple[int, int]) -> None:
         ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         jpos = jitter_position(ctx, position, ctx.click_offset_range)
         jhold = jitter_timing(ctx, DEFAULT_CLICK_HOLD_SECONDS)
         input_delay = random_input_delay(ctx)
@@ -150,8 +152,10 @@ class PyAutoGuiMouseBackend:
         self._pyautogui.mouseUp()
         self._pyautogui.moveTo(*jpos)
         self._pyautogui.mouseDown()
-        sleeper(jhold)
-        self._pyautogui.mouseUp()
+        try:
+            sleeper(jhold)
+        finally:
+            self._pyautogui.mouseUp()
         self._record_mouse_delivery(
             "pyautogui_click",
             requested_position=position,
@@ -161,7 +165,7 @@ class PyAutoGuiMouseBackend:
 
     def move_to(self, position: tuple[int, int]) -> None:
         """Send a pointer-only movement to wake the cloud cursor after gamepad input."""
-
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         if self._send_input.available:
             self._send_input.move_to(position)
             self._record_mouse_delivery(
@@ -181,7 +185,7 @@ class PyAutoGuiMouseBackend:
 
     def cloud_click(self, position: tuple[int, int], hold_seconds: float = 0.12) -> None:
         """Use PyAutoGUI's down/up route for cloud-stream controls that retain SendInput state."""
-
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
         jpos = jitter_position(ctx, position, ctx.click_offset_range)
         sleeper = getattr(self, "_sleeper", time.sleep)
@@ -193,9 +197,11 @@ class PyAutoGuiMouseBackend:
         self._pyautogui.moveTo(*jpos)
         sleeper(0.05)
         self._pyautogui.mouseDown(button="left")
-        self._record_mouse_delivery("cloud_after_down")
-        sleeper(max(0.06, float(hold_seconds)))
-        self._pyautogui.mouseUp(button="left")
+        try:
+            self._record_mouse_delivery("cloud_after_down")
+            sleeper(max(0.06, float(hold_seconds)))
+        finally:
+            self._pyautogui.mouseUp(button="left")
         self._record_mouse_delivery("cloud_after_up")
 
     def force_mouse_release(self) -> None:
@@ -270,6 +276,7 @@ class PyAutoGuiMouseBackend:
 
     def drag(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
         # Equipment placement needs the game's original mouse drag behavior.
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         # Filter-panel scrolling uses drag_scroll() and remains on SendInput.
         ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
         jittered_start = jitter_position(ctx, start, ctx.drag_start_offset_range)
@@ -292,12 +299,14 @@ class PyAutoGuiMouseBackend:
         sleeper(jitter_timing(ctx, EQUIPMENT_DRAG_RELEASE_SECONDS))
 
     def drag_scroll(self, start: tuple[int, int], end: tuple[int, int], duration_ms: int) -> None:
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         if self._send_input.available:
             self._send_input.drag(start, end, duration_ms)
             return
         self.drag(start, end, duration_ms)
 
     def scroll(self, position: tuple[int, int], clicks: int) -> None:
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         if not clicks:
             return
         ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
@@ -313,6 +322,7 @@ class PyAutoGuiMouseBackend:
         self._pyautogui.scroll(int(clicks))
 
     def press_key(self, key_name: str) -> None:
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         ctx = getattr(self, "_randomization", _DEFAULT_RANDOMIZATION_CTX)
         input_delay = random_input_delay(ctx)
         if input_delay > 0.0:
@@ -320,9 +330,11 @@ class PyAutoGuiMouseBackend:
         self._pyautogui.press(str(key_name))
 
     def press_gamepad_button(self, button_name: str) -> None:
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         self._gamepad.press(button_name)
 
     def push_left_joystick(self, x: float, y: float) -> None:
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         self._gamepad.push_left_joystick(x, y)
 
     def close(self) -> None:
@@ -356,7 +368,9 @@ class _WindowsSendInputMouseDriver:
         user32: Any | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         randomization: RandomizationContext | None = None,
+        operation_guard: OperationGuard | None = None,
     ):
+        self.operation_guard = operation_guard
         self._randomization = randomization or _DEFAULT_RANDOMIZATION_CTX
         self._sleeper = sleeper
         self._ctypes = None
@@ -389,11 +403,13 @@ class _WindowsSendInputMouseDriver:
         self._move_to(jittered_start)
         self._sleeper(jitter_timing(ctx, 0.15))
         self._send(MOUSEEVENTF_LEFTDOWN)
-        self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_HOLD_SECONDS))
-        steps = self._drag_steps(jittered_start, jittered_end, jittered_duration_ms)
-        self._move_relative_in_steps(jittered_start, jittered_end, steps, ctx=ctx)
-        self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_RELEASE_SECONDS))
-        self._send(MOUSEEVENTF_LEFTUP)
+        try:
+            self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_HOLD_SECONDS))
+            steps = self._drag_steps(jittered_start, jittered_end, jittered_duration_ms)
+            self._move_relative_in_steps(jittered_start, jittered_end, steps, ctx=ctx)
+            self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_RELEASE_SECONDS))
+        finally:
+            self._send(MOUSEEVENTF_LEFTUP)
         self._sleeper(jitter_timing(ctx, SENDINPUT_DRAG_RELEASE_SECONDS))
 
     def click(self, position: tuple[int, int], hold_seconds: float | None = None) -> None:
@@ -405,8 +421,10 @@ class _WindowsSendInputMouseDriver:
         self._move_to(position)
         self._sleeper(0.05)
         self._send(MOUSEEVENTF_LEFTDOWN)
-        self._sleeper(hold)
-        self._send(MOUSEEVENTF_LEFTUP)
+        try:
+            self._sleeper(hold)
+        finally:
+            self._send(MOUSEEVENTF_LEFTUP)
 
     def release_left(self) -> int | None:
         """Issue a standalone left-button release without moving the pointer."""
@@ -496,6 +514,8 @@ class _WindowsSendInputMouseDriver:
         return max(50, min(90, max(duration_steps, distance_steps)))
 
     def _send(self, flags: int, dx: int = 0, dy: int = 0, mouse_data: int = 0) -> int:
+        if flags != MOUSEEVENTF_LEFTUP:
+            require_operation(self.operation_guard, "interface_input")
         mouse_input = self._mouse_input_cls(dx, dy, mouse_data, flags, 0, None)
         input_value = self._input_cls(INPUT_MOUSE, mouse_input)
         return int(self._user32.SendInput(1, self._ctypes.byref(input_value), self._ctypes.sizeof(input_value)))
@@ -542,7 +562,9 @@ class _VirtualGamepadDriver:
         settle_seconds: float = 0.30,
         connect_settle_seconds: float = 0.40,
         sleeper: Callable[[float], None] = time.sleep,
+        operation_guard: OperationGuard | None = None,
     ):
+        self.operation_guard = operation_guard
         self._hold_seconds = hold_seconds
         self._settle_seconds = settle_seconds
         self._connect_settle_seconds = connect_settle_seconds
@@ -551,7 +573,9 @@ class _VirtualGamepadDriver:
         self._buttons = None
 
     def press(self, button_name: str) -> None:
+        require_operation(self.operation_guard, "interface_input")
         self._ensure_connected()
+        require_operation(self.operation_guard, "interface_input")
         key = str(button_name).strip().lower()
         attr_name = self.BUTTON_NAMES.get(key)
         if not attr_name:
@@ -564,18 +588,23 @@ class _VirtualGamepadDriver:
             if key == "rs"
             else self._hold_seconds
         )
-        self._sleeper(hold_seconds)
-        self._gamepad.release_button(button=button)
-        self._gamepad.update()
+        try:
+            self._sleeper(hold_seconds)
+        finally:
+            self._gamepad.release_button(button=button)
+            self._gamepad.update()
         self._sleeper(self._settle_seconds)
 
     def push_left_joystick(self, x: float, y: float) -> None:
         self._ensure_connected()
+        require_operation(self.operation_guard, "interface_input")
         self._gamepad.left_joystick_float(x_value_float=float(x), y_value_float=float(y))
         self._gamepad.update()
-        self._sleeper(self._hold_seconds)
-        self._gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
-        self._gamepad.update()
+        try:
+            self._sleeper(self._hold_seconds)
+        finally:
+            self._gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
+            self._gamepad.update()
         self._sleeper(self._settle_seconds)
 
     def close(self) -> None:
@@ -597,6 +626,7 @@ class _VirtualGamepadDriver:
             del gamepad
 
     def _ensure_connected(self) -> None:
+        require_operation(self.operation_guard, "interface_input")
         if self._gamepad is not None:
             return
         import vgamepad as vg

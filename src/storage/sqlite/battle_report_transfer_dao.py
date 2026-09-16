@@ -8,6 +8,8 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.domain.battle_report_transfer import portable_battle_evidence
+
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import (
     BATTLE_REPORT_MAX_MANUAL_RECORDS,
@@ -137,9 +139,14 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
                 if existing is None:
                     pending.append(item)
                     continue
-                if str(existing["raw_summary_sha256"]) != item["raw_summary_sha256"]:
+                local_graph = self.load_battle_report_transfer_rows(int(existing["battle_record_id"]))
+                local = portable_battle_evidence(local_graph["tables"])
+                if (
+                    str(local["battle_record"][0]["raw_summary_sha256"]) != item["raw_summary_sha256"]
+                    or self._raw_evidence_identity(local) != self._raw_evidence_identity(item["tables"])
+                ):
                     raise UserDataValidationError(
-                        "本地已有同 capture_operation_id 的不同战报，已拒绝覆盖"
+                        "本地已有同 capture_operation_id 的不同战报或原始逐击证据，已拒绝覆盖"
                     )
                 skipped += 1
             self._validate_retention_capacity(connection, pending)
@@ -213,11 +220,28 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
         if raw_sha256 != expected:
             raise UserDataValidationError("战报包原始摘要 SHA-256 不匹配")
         cls._validate_record_graph(tables)
+        # Validate source hashes before removing old packages' local file paths.
+        tables = portable_battle_evidence(tables)
         return {
             "capture_operation_id": operation_id,
-            "raw_summary_sha256": raw_sha256,
+            "raw_summary_sha256": tables["battle_record"][0]["raw_summary_sha256"],
             "tables": tables,
         }
+
+    @staticmethod
+    def _raw_evidence_identity(tables: Mapping[str, list[dict[str, Any]]]) -> str:
+        """Compare immutable raw facts, ignoring remapped local database IDs."""
+        captures = tables["battle_axis_capture"]
+        evidence = {
+            "record": json.loads(captures[0]["raw_record_json"])
+            if captures and captures[0].get("raw_record_json") else None,
+            "hits": [json.loads(row["raw_hit_json"]) for row in sorted(
+                tables["battle_hit_evidence"], key=lambda row: row["sequence_order"])],
+            "time_stop": [json.loads(row["raw_interval_json"]) for row in sorted(
+                tables["battle_time_stop_interval"], key=lambda row: row["ordinal"])],
+        }
+        return json.dumps(evidence, ensure_ascii=False, separators=(",", ":"),
+                          sort_keys=True, allow_nan=False)
 
     @staticmethod
     def _validate_record_graph(tables: Mapping[str, list[dict[str, Any]]]) -> None:

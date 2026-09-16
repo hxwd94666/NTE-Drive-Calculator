@@ -73,7 +73,7 @@ _CORE_MAIN_PROPERTIES = (
 
 
 class BattleMarginalBenefitService:
-    """Calculate decision-oriented equipment benefits outside the Qt thread."""
+    """DEPRECATED：旧边际实现，仅作离线差分；正式边际使用 battle_page_v1。"""
 
     @classmethod
     def calculate(
@@ -87,6 +87,7 @@ class BattleMarginalBenefitService:
         progress_callback: BattleAnalysisProgressCallback | None = None,
         projection_memo: BattleBuffProjectionMemo | None = None,
     ) -> BattleMarginalBenefits:
+        """DEPRECATED：离线差分入口；正式边际候选由原生页面计算。"""
         current = cls._materialize_current(current)
         profile = cls._profile(candidate, character_id)
         if profile is None:

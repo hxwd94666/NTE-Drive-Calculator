@@ -13,6 +13,21 @@ from src.services.battle_timeline_time_service import (
 from src.features.battle_report.timeline_layout import LABEL_WIDTH, RIGHT_MARGIN
 
 
+def select_axis_evidence(analysis):
+    """Select damage by hit identity and independent switches by occurrence time."""
+    start_us, end_us = analysis.range_start_us, analysis.range_end_us
+    hits = tuple(hit for hit in getattr(analysis, "timeline_hits", ())
+                 if start_us <= hit.relative_time_us < end_us)
+    hit_ids = {hit.event_id for hit in hits}
+    actions = tuple(action for action in getattr(analysis, "inferred_actions", ())
+                    if hit_ids.intersection(action.evidence_event_ids)
+                    or (action.input_kind == "SWITCH" and start_us <= action.start_us < end_us))
+    action_ids = {action.action_id for action in actions}
+    inputs = tuple(row for row in getattr(analysis, "inferred_inputs", ())
+                   if row.action_id in action_ids)
+    return hits, actions, inputs
+
+
 class BattleTimelineRangeMixin:
     """Project full immutable evidence into the currently selected axis range."""
 
@@ -51,21 +66,8 @@ class BattleTimelineRangeMixin:
         cache_key = (id(analysis), int(start_us), int(end_us))
         if cache_key == getattr(self, "_visible_analysis_cache_key", None):
             return getattr(self, "_visible_analysis_cache", analysis)
-        hits = tuple(
-            hit
-            for hit in analysis.timeline_hits
-            if start_us <= hit.relative_time_us < end_us
-        )
+        hits, actions, inputs = select_axis_evidence(analysis)
         hit_ids = {hit.event_id for hit in hits}
-        actions = tuple(
-            action
-            for action in analysis.inferred_actions
-            if hit_ids.intersection(action.evidence_event_ids)
-        )
-        action_ids = {action.action_id for action in actions}
-        inputs = tuple(
-            row for row in analysis.inferred_inputs if row.action_id in action_ids
-        )
         groups = tuple(
             group
             for group in analysis.timeline_damage_groups

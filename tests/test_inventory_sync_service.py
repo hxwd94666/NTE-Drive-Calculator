@@ -143,7 +143,7 @@ class InventorySyncServiceTests(unittest.TestCase):
     def test_guard_diagnostic_reports_when_no_inventory_event_arrives(self) -> None:
         """A guarded state operation must distinguish no packet from a subset packet."""
 
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
 
         with patch("src.services.inventory_sync_service.logger.info") as info:
@@ -160,7 +160,7 @@ class InventorySyncServiceTests(unittest.TestCase):
     def test_guard_diagnostic_keeps_subset_evidence_separate_from_full_inventory(self) -> None:
         """A non-empty scoped packet is observable but never evidence for pointer replacement."""
 
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
         service._on_inventory_event(snapshot(item(1), sequence=4))
 
@@ -179,7 +179,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         )
 
     def test_guard_records_smaller_declared_inventory_count_for_one_key_warning(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
 
         service._on_inventory_event(snapshot(item(1), sequence=4))
@@ -188,7 +188,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         service.end_full_inventory_guard(guard)
 
     def test_one_key_action_snapshot_requires_one_packet_covering_every_target(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
         cursor = service.scoped_equipment_snapshot_cursor()
 
@@ -204,7 +204,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         service.end_full_inventory_guard(guard)
 
     def test_guarded_role_subset_event_is_available_only_for_memory_verification(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
         cursor = service.scoped_equipment_snapshot_cursor()
 
@@ -227,7 +227,7 @@ class InventorySyncServiceTests(unittest.TestCase):
             )
 
     def test_guarded_fragments_are_merged_by_uid_for_role_verification(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
         cursor = service.scoped_equipment_snapshot_cursor()
 
@@ -246,7 +246,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         service.end_full_inventory_guard(guard)
 
     def test_observed_equipment_event_returns_seen_target_without_waiting_for_full_plan(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
         cursor = service.scoped_equipment_snapshot_cursor()
 
@@ -261,7 +261,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         service.end_full_inventory_guard(guard)
 
     def test_finished_guard_blocks_late_subset_until_full_inventory_returns(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         frozen = frozenset({(8, 1), (8, 2), (8, 3)})
         guard = service.begin_full_inventory_guard(frozen)
 
@@ -273,7 +273,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.assertIsNone(service._full_inventory_guard()[1])
 
     def test_new_apply_replaces_only_finished_grace_guard(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         frozen = frozenset({(8, 1), (8, 2), (8, 3)})
         first = service.begin_full_inventory_guard(frozen)
         self.assertTrue(service.finish_full_inventory_guard(first, grace_seconds=90.0))
@@ -287,7 +287,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.assertIsNone(service._full_inventory_guard()[1])
 
     def test_new_apply_cannot_replace_active_guard(self) -> None:
-        service = InventorySyncService("unused.sqlite3")
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
         frozen = frozenset({(8, 1)})
         service.begin_full_inventory_guard(frozen)
 
@@ -301,6 +301,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.template_refreshes: list[bool] = []
         self.service = InventorySyncService(
             self.database_path,
+            operation_guard=lambda _capability: None,
             account_id="tester",
             account_name="测试账号",
             client_factory=lambda: self.core,
@@ -330,6 +331,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         core = FakeCoreClient(emit_running_on_start=False)
         service = InventorySyncService(
             self.database_path,
+            operation_guard=lambda _capability: None,
             account_id="tester",
             account_name="测试账号",
             client_factory=lambda: core,
@@ -346,7 +348,7 @@ class InventorySyncServiceTests(unittest.TestCase):
 
             core.emit(capture_status("running"))
             ready = service.wait_for_phase("waiting", timeout=2.0)
-            self.assertEqual("等待进入游戏并接收完整背包", ready.message)
+            self.assertEqual("监听已就绪，等待进入游戏并接收背包数据。", ready.message)
         finally:
             if service.is_running:
                 service.stop()
@@ -356,6 +358,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         capture_directory = Path(self.temp_dir.name) / "raw_capture"
         service = InventorySyncService(
             self.database_path,
+            operation_guard=lambda _capability: None,
             account_id="tester",
             account_name="测试账号",
             client_factory=lambda: core,
@@ -373,6 +376,7 @@ class InventorySyncServiceTests(unittest.TestCase):
                 service.stop()
 
     def test_reuses_running_core_process_for_one_key_equipment(self) -> None:
+        self.core.hello_result["capabilities"].append("equipment")
         self._start()
         result = self.service.equip_one_key(
             character={"slot": 1, "serial": 2},
@@ -475,7 +479,10 @@ class InventorySyncServiceTests(unittest.TestCase):
             ),
         ):
             self.service.start()
-            self.service.wait_for_phase("listening", timeout=2.0)
+            state = self.service.wait_for_phase("waiting", timeout=2.0)
+            self.assertIn("等待本次背包数据", state.message)
+            self.assertIn("上次保存的背包仍可用于计算", state.message)
+            self.assertFalse(state.source_snapshot_ready)
 
         loaded = next(
             fields
@@ -503,7 +510,7 @@ class InventorySyncServiceTests(unittest.TestCase):
 
         self.service.stop()
         self.service.start()
-        state = self.service.wait_for_phase("listening", timeout=2.0)
+        state = self.service.wait_for_phase("waiting", timeout=2.0)
         self.assertIn("未附带独立角色列表", state.message)
         self.assertNotIn("旧版", state.message)
         self.assertNotIn("极速装配仍不可用", state.message)
@@ -517,7 +524,7 @@ class InventorySyncServiceTests(unittest.TestCase):
                     visual_id = dao.import_inventory_snapshot(visual, source=source)
 
                 self.service.start()
-                state = self.service.wait_for_phase("listening", timeout=2.0)
+                state = self.service.wait_for_phase("waiting", timeout=2.0)
                 self.assertIn("视觉扫描库存", state.message)
                 self.assertNotIn("旧版", state.message)
                 self.assertIsNone(state.error)
@@ -536,7 +543,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         first = self.service.wait_for_snapshot(timeout=2.0)
         self.service.stop()
         self.service.start()
-        self.service.wait_for_phase("listening", timeout=2.0)
+        self.service.wait_for_phase("waiting", timeout=2.0)
 
         self.core.emit(snapshot(item(1), characters=[]))
         upgraded = self.service.wait_for_snapshot(after_snapshot_id=first.last_snapshot_id, timeout=2.0)
@@ -558,7 +565,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         first = self.service.wait_for_snapshot(timeout=2.0)
         self.service.stop()
         self.service.start()
-        self.service.wait_for_phase("listening", timeout=2.0)
+        self.service.wait_for_phase("waiting", timeout=2.0)
         received = threading.Event()
         self.service.add_state_handler(
             lambda state: received.set() if "已收到原生背包" in state.message else None
@@ -569,6 +576,49 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.assertEqual(first.last_snapshot_id, self.service.state.last_snapshot_id)
         self.assertIn("未附带独立角色列表", self.service.state.message)
 
+    def test_restart_notifications_only_claim_sync_after_current_session_confirmation(self) -> None:
+        self._start()
+        original = snapshot(item(1))
+        self.core.emit(original)
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+        states = []
+        listening = threading.Event()
+
+        def observe(state):
+            states.append(state)
+            if state.phase == "listening" and state.source_snapshot_ready:
+                listening.set()
+
+        self.service.add_state_handler(observe)
+        self.service.start()
+        waiting = self.service.wait_for_phase("waiting", timeout=2.0)
+        self.assertEqual(first.last_snapshot_id, waiting.last_snapshot_id)
+        self.assertFalse(waiting.source_snapshot_ready)
+        self.assertFalse(listening.is_set())
+        self.core.emit(snapshot(item(1), item(2), sequence=2))
+        self.assertTrue(listening.wait(2.0))
+        confirmed = next(state for state in states if state.phase == "listening" and state.source_snapshot_ready)
+        self.assertGreater(confirmed.last_snapshot_id, first.last_snapshot_id)
+        self.assertEqual(2, confirmed.last_item_count)
+        self.assertTrue(any(state.phase == "collecting" for state in states))
+        self.assertFalse(any(
+            state.phase == "listening" and state.source_snapshot_ready
+            and state.last_snapshot_id == first.last_snapshot_id for state in states
+        ))
+        self.service.stop()
+        states.clear()
+        listening.clear()
+        self.service.start()
+        self.service.wait_for_phase("waiting", timeout=2.0)
+        self.assertFalse(listening.is_set())
+        self.core.emit(snapshot(item(1), item(2), sequence=3))
+        self.assertTrue(listening.wait(2.0))
+        same = next(state for state in states if state.phase == "listening" and state.source_snapshot_ready)
+        self.assertEqual(confirmed.last_snapshot_id, same.last_snapshot_id)
+        with UserDataDao(self.database_path) as dao:
+            self.assertEqual(2, dao.summary()["snapshot_count"])
+
     def test_keeps_new_character_instance_candidate_when_legacy_event_follows(self) -> None:
         """A trailing old-format event must not cancel the v0.3.5 upgrade."""
 
@@ -578,7 +628,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         self.service.stop()
 
         self.service.start()
-        self.service.wait_for_phase("listening", timeout=2.0)
+        self.service.wait_for_phase("waiting", timeout=2.0)
         characters = [{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}]
         self.core.emit(snapshot(item(1), generation=2, sequence=2, characters=characters))
         self.service.wait_for_phase("collecting", timeout=2.0)
@@ -666,6 +716,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         failing_core = FailingCaptureCoreClient()
         service = InventorySyncService(
             self.database_path,
+            operation_guard=lambda _capability: None,
             account_id="tester",
             account_name="测试账号",
             client_factory=lambda: failing_core,
@@ -683,6 +734,7 @@ class InventorySyncServiceTests(unittest.TestCase):
         failing_core = FailingCaptureCoreClient()
         self.service = InventorySyncService(
             self.database_path, account_id="tester", account_name="测试账号",
+            operation_guard=lambda _capability: None,
             client_factory=lambda: failing_core,
         )
 

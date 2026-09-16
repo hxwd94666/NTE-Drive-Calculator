@@ -109,6 +109,19 @@ def _contains_cjk(value: str) -> bool:
     return any("\u4e00" <= character <= "\u9fff" for character in value)
 
 
+def battle_hit_skill_label(damage_name, skill_name, ability_id="") -> str:
+    """Keep skill category and damage phase without repeating an enclosing name."""
+    damage = preferred_battle_damage_name(damage_name, skill_name, ability_id)
+    skill = preferred_battle_damage_name(None, skill_name)
+    if skill == "未识别技能" or skill == damage:
+        return damage
+    if damage in skill:
+        return skill
+    if skill in damage:
+        return damage
+    return f"{skill} · {damage}"
+
+
 def _localized_attack_fallback(value: str | None) -> str:
     stable = str(value or "").strip()
     localized = render_attack_type(stable)

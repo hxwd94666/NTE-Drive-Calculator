@@ -62,6 +62,8 @@ nte_capture*.json
 /third_party/mods-plugin/workspace/NTE_SDK.bin
 /third_party/mods-plugin/workspace/NTE_SDK.checksum
 /third_party/mods-plugin/workspace/.nte-drive-calc-managed.json
+# The versioned legacy component is required to reproduce the frozen bundle.
+!/third_party/mods-plugin/workspace/NTE_Capture.dll
 /app_shared.sqlite3
 
 # Temporary OCR and scan artifacts
@@ -72,3 +74,20 @@ nte_capture*.json
 # Local battle-damage audit ledgers (may contain account-specific evidence)
 /docs/local-audits/
 /output/
+/config/component-backups/
+/config/work_mode.json
+/config/plugins.json
+
+# Private component source trees and sensitive development artifacts
+/analysis-core/
+/nte-analysis-core/
+/nte-analysis-core-windows-x64.zip
+.pnpm-store/
+*.pdb
+*.dmp
+*.pcap
+*.pcapng
+*.usmap
+*.key
+*.pfx
+*.p12

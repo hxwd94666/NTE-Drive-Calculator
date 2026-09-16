@@ -22,6 +22,7 @@ from src.services.battle_buff_attribute_projection_service import (
     BattleBuffAttributeProjectionService,
 )
 from src.services.skill_name_rendering_service import preferred_battle_damage_name
+from src.services.battle_hit_critical_explanation import critical_explanation
 
 
 _FORMULA_FACTOR_IDS = (
@@ -562,10 +563,7 @@ class BattleHitReplayExplanationService:
                     "期望口径：向下取整后的未暴击/暴击候选按暴击率加权；"
                     "实际期望按本击有符号误差同比补正。"
                 ),
-                (
-                    f"推断暴击：{_CRIT_STATES.get(replay.critical_state, replay.critical_state)}"
-                    f"（置信度{replay.confidence}）"
-                ),
+                critical_explanation(hit, replay),
                 "",
             ))
             if replay.observed_damage_source != "reported_hit":

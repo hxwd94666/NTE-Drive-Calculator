@@ -213,6 +213,7 @@ class DisabledDefaultIntegrationTests(unittest.TestCase):
             available = False
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._randomization = RandomizationContext()  # disabled
         backend._send_input = FakeSendInput()
         backend._pyautogui = FakePA()
@@ -240,6 +241,7 @@ class DisabledDefaultIntegrationTests(unittest.TestCase):
             available = False
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._randomization = RandomizationContext()  # disabled
         backend._send_input = FakeSendInput()
         backend._pyautogui = FakePA()
@@ -285,6 +287,7 @@ class DisabledDefaultIntegrationTests(unittest.TestCase):
             available = False
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._randomization = RandomizationContext(enabled=True, drag_start_offset_range=5)
         backend._randomization.seed(42)
         backend._send_input = FakeSendInput()

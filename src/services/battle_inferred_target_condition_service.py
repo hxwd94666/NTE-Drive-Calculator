@@ -41,7 +41,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
 INFERRED_ENCOUNTER_SOURCE_KIND = "inferred_encounter_hp_injective_default"
-INFERRED_ENCOUNTER_ALGORITHM_VERSION = "battle-encounter-hp-residual-v4"
+INFERRED_ENCOUNTER_ALGORITHM_VERSION = "battle-encounter-native-first-v6"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +50,7 @@ class BattleInferredTargetIdentity:
     captured_target_id: str
     target_name: str
     inferred_monster_id: str
-    initial_max_hp: float
+    initial_max_hp: float | None
 
 
 @dataclass(frozen=True, slots=True)

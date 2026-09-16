@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.features.input_operation_entry import request_input_entry, show_input_unavailable
+
 from collections.abc import Callable
 from typing import Any
 
@@ -12,7 +14,6 @@ from PySide6.QtWidgets import QMessageBox, QProgressBar, QProgressDialog
 from src.app.workers import WorkerThread
 from src.observability.context import OperationContext
 from src.integrations.nte_core import is_mods_plugin_unavailable_error
-from src.services.dwmapi_diagnostics import probe_equipment_pipe
 from src.features.inventory.equipment_assembly_dialogs import (
     assembly_report_dialog as _assembly_report_dialog,
 )
@@ -51,32 +52,16 @@ def _is_equipment_plugin_unavailable_error(error: object) -> bool:
 def _equipment_failure_details(
     failure_kind: str,
     error: object,
-    *,
-    pipe_probe: dict[str, Any] | None = None,
 ) -> str:
     """Render one concrete failure category without conflating pipe states."""
 
     message = str(error or "未知错误")
     if failure_kind == "plugin_unavailable":
-        probe = pipe_probe if pipe_probe is not None else probe_equipment_pipe()
-        state = str(probe.get("state") or "error")
-        if state == "missing":
-            return (
-                "当前探测确认装备插件命名管道不存在。"
-                "通常表示 DLL/脚本未完成加载、Viewport Tick 未运行，或 IPC 版本不匹配。"
-            )
-        if state == "busy":
-            return "当前探测确认命名管道存在，但连接实例仍被占用。"
-        if state == "available":
-            return (
-                "当前探测确认命名管道存在；此前请求更可能是管道短暂不可用或等待响应超时，"
-                "不是持续性的管道缺失。"
-            )
-        if state == "access_denied":
-            return "当前探测确认命名管道访问被拒绝，请检查程序与游戏的权限级别。"
-        return f"装备插件通道不可用，当前管道探测结果：{probe.get('message') or message}"
+        return f"原生装备通道不可用：{message}。请在工作模式检测详情中核对当前原生组件连接与装备能力。"
     if failure_kind == "plugin_busy":
-        return "装备插件队列在 6 次串行退避后仍繁忙，本次请求未进入执行队列。"
+        return "装备执行仍繁忙或正在等待同步就绪，本次请求尚未派发；已完成的步骤不会回滚。"
+    if failure_kind == "outcome_unknown":
+        return "本次装备操作结果未知，已停止后续装配且未自动重发。请等待背包同步并核对游戏装备后再重试。"
     if failure_kind == "core_request_timeout":
         return "nte-core 的请求响应等待超时；这不是命名管道缺失的检测结果。"
     if failure_kind == "request_rejected":
@@ -126,6 +111,7 @@ def _run_nte_core_equipment_apply(
         sync_service,
         dao_factory=UserDataDao,
         apply_service_factory=EquipmentApplyService,
+        operation_guard=getattr(self, "operation_guard", None),
         operation_context=OperationContext.create(
             "equipment_apply",
             account_id=(
@@ -185,6 +171,12 @@ def _start_nte_core_equipment_apply(
     identity_overrides: dict[str, dict[str, Any]] | None = None,
     job_id: int | None = None,
 ) -> None:
+    if not request_input_entry(self, "native_equipment", "极速装配"):
+        return
+    sync = getattr(self, "_inventory_sync_service", None)
+    if sync is None or not sync.is_running:
+        show_input_unavailable(self, "极速装配", "尚未建立可用的游戏装备连接，请检测组件并等待游戏登录。")
+        return
     current_worker = getattr(self, "_equipment_apply_worker", None)
     if current_worker is not None and current_worker.isRunning():
         QMessageBox.information(self, "正在装配", "已有装配任务正在执行，请等待指令下发完成。")
@@ -282,7 +274,7 @@ def _start_nte_core_equipment_apply(
                     f"{reason}\n\n"
                     "请先确认：\n"
                     "1. 已在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
-                    "nte-mods-plugin 和 equipment.nte；\n"
+                    "原生采集组件；\n"
                     "2. 游戏保持登录，随后从首页重新启动背包同步并等待“后台监听”；\n"
                     "3. 完成上述检查后，再点击右上角“极速装配”重新执行。\n\n"
                     f"此前已确认 {len(applied)} 个角色；任务日志已保存。此次不会立即重试。",
@@ -334,11 +326,7 @@ def _start_nte_core_equipment_apply(
 
     def on_error(message: str) -> None:
         close_progress_dialog()
-        QMessageBox.critical(
-            self,
-            "装配失败",
-            f"本地组件未能完成装配：\n{message}\n\n请确认游戏已登录、插件已加载，且首页背包同步处于“后台监听”。",
-        )
+        show_input_unavailable(self, "极速装配", str(message))
 
     worker.result_ready.connect(on_result)
     worker.error.connect(on_error)
@@ -369,6 +357,8 @@ def _preview_nte_core_assemble_role(
     confirmed: bool = False,
 ) -> None:
     """确认后通过装备插件极速装配一个已保存角色方案。"""
+    if not request_input_entry(self, "native_equipment", "极速装配"):
+        return
 
     try:
         with UserDataDao(_account_database_path(self)) as user_dao:
@@ -430,6 +420,8 @@ def _preview_nte_core_assemble_all_roles(
     confirmed: bool = False,
     role_names: list[str] | None = None,
 ) -> None:
+    if not request_input_entry(self, "native_equipment", "极速装配"):
+        return
     requested_roles = tuple(dict.fromkeys(str(name) for name in (role_names or ())))
     try:
         with UserDataDao(_account_database_path(self)) as user_dao:

@@ -89,8 +89,8 @@ def decode_page(value: dict):
     if value['target_catalog_error'] is not None:
         raise NativeAnalysisError('分析核心目标目录读取失败')
     from src.integrations.native_battle_hit_details_wire import decode_hit_details
-    analysis = decode(value['analysis'], BattleAnalysisSnapshot | None)
-    candidate = decode(value['candidate_display_analysis'], BattleAnalysisSnapshot | None)
+    analysis = _decode_snapshot(value['analysis'])
+    candidate = _decode_snapshot(value['candidate_display_analysis'])
     return BattleReportAnalysisLoadResult(
         analysis=analysis,
         target_catalog=catalog,
@@ -101,10 +101,31 @@ def decode_page(value: dict):
     )
 
 
+def _decode_snapshot(value):
+    """Restore explicit same-event wire references before typed display decoding."""
+    if isinstance(value, dict):
+        selected = {hit.get('event_id'): hit.get('native_evidence')
+                    for hit in value.get('hits', ()) if isinstance(hit, dict)}
+        timeline = []
+        for hit in value.get('timeline_hits', ()):
+            evidence = hit.get('native_evidence') if isinstance(hit, dict) else None
+            if isinstance(evidence, dict) and 'reference_event_id' in evidence:
+                identifier = evidence['reference_event_id']
+                if (set(evidence) != {'reference_event_id'} or not isinstance(identifier, str)
+                        or identifier != hit.get('event_id')
+                        or not isinstance(selected.get(identifier), dict)
+                        or 'payload_json' not in selected[identifier]):
+                    raise NativeAnalysisError('分析核心原生证据引用无效')
+                hit = {**hit, 'native_evidence': selected[identifier]}
+            timeline.append(hit)
+        value = {**value, 'timeline_hits': timeline}
+    return decode(value, BattleAnalysisSnapshot | None)
+
+
 def decode_derived_snapshot(value: object, *, battle_record_id: int, dataset_version: str):
     """Validate native persistence metadata without rebuilding its inferred payload."""
     from src.services.battle_inferred_target_condition_service import (
-        BattleInferredEncounter, INFERRED_ENCOUNTER_ALGORITHM_VERSION,
+        BattleInferredEncounter,
     )
     if value is None:
         return None
@@ -118,7 +139,9 @@ def decode_derived_snapshot(value: object, *, battle_record_id: int, dataset_ver
             or type(value['payload_schema_version']) is not int or value['payload_schema_version'] != 1
             or type(value['static_schema_version']) is not int or value['static_schema_version'] <= 0
             or value['static_dataset_id'] != dataset_version
-            or value['algorithm_version'] != INFERRED_ENCOUNTER_ALGORITHM_VERSION
+            # Algorithm revisions belong to the native producer. Wire compatibility
+            # is defined by payload_schema_version, not the legacy Python algorithm.
+            or not value['algorithm_version'].strip()
             or value['inference_status'] != 'resolved'):
         raise NativeAnalysisError('分析核心派生快照身份或版本无效')
     inferred = decode(value['inferred_payload'], BattleInferredEncounter)

@@ -229,8 +229,8 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         attribute_card, attribute_layout = analysis_section("驱动副词条单位边际")
         attribute_note = QLabel(
             "只展示实际可刷出的金色驱动副词条，每行默认单位为一格；面板属性是当前生效基线，"
-            "伤害加权当前面板属性按公式面板"
-            "关联伤害发生时的动态属性加权。灵可面板控制的队友同频伤害也进入这里，因此面板关联"
+            "伤害加权公式属性与逐击计算共用动态面板，有证据时优先采用证据，缺失时推断。"
+            "灵可面板控制的队友同频伤害也进入这里，因此面板关联"
             "伤害可以大于顶部原始角色伤害；Core 原始伤害归属不改写。"
         )
         attribute_note.setStyleSheet(
@@ -242,7 +242,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             (
                 "属性单位",
                 "面板属性",
-                "伤害加权当前面板属性",
+                "伤害加权公式属性",
                 "面板关联收益",
                 "全队期望收益",
                 "关联面板伤害",
@@ -415,6 +415,10 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         hit_details=None,
     ) -> None:
         self._analysis = analysis
+        partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
+        self.timeline_time_mode_combo.setEnabled(not partial_clock)
+        if partial_clock:
+            self.timeline_time_mode_combo.setCurrentIndex(self.timeline_time_mode_combo.findData(ELAPSED_TIME_MODE))
         self._hit_details = hit_details
         comparison = analysis.build_counterfactual
         self.derived_settlements.render(comparison)
@@ -537,7 +541,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
                                          else details.for_hit(original_hit, formula=True))
         dialog = getattr(self, "_counterfactual_hit_dialog", None)
         if dialog is None:
-            dialog = BattleHitFormulaDialog(self)
+            dialog = BattleHitFormulaDialog(self, game_ui_asset_root=self._game_ui_asset_root)
             dialog.setWindowTitle("边际逐击详情")
             self._counterfactual_hit_dialog = dialog
         dialog.show_for_hit(
@@ -548,6 +552,8 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             related_counterfactuals=related_counterfactuals,
             related_analysis=candidate,
             projection=buff_projection, related_hit_details=details,
+            participant_names={b.character_id: b.character_name for b in analysis.baselines},
+            target_resolutions=analysis.target_instance_resolutions,
         )
 
     def profiles(self) -> list[dict]:
@@ -759,9 +765,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.metric_labels["role"].setText(
                 "—" if original is None else _number(original.damage)
             )
-            self.metric_subtitles["role"].setText(
-                "+0.00% · 当前生效基线（本次未修改）"
-            )
+            self.metric_subtitles["role"].setText("+0.00% · 当前生效基线（本次未修改）")
         else:
             projected_damage = display_projection(
                 candidate=role.candidate_damage,

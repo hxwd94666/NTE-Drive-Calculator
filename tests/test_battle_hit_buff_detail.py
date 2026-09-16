@@ -121,6 +121,8 @@ class BattleHitBuffDetailTests(unittest.TestCase):
         )
         view._analysis = SimpleNamespace(
             hits=(hit,),
+            baselines=(),
+            target_instance_resolutions=(),
             buff_intervals=(interval,),
             hit_replays=(),
             battle_start_us=0,

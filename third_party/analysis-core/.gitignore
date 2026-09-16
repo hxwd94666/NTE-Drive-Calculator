@@ -1,3 +1,10 @@
-# 只跟踪正式发布的分析程序，其他本机生成物继续忽略。
+# 公开组件目录仅跟踪程序及必要元数据，不接收私有源码或源码归档。
+/*
+!/.gitignore
+!/LICENSE
+!/SOURCE.md
+!/THIRD_PARTY_NOTICES.txt
+!/component.json
+!/bin/
 /bin/*
 !/bin/nte-analysis-core.exe

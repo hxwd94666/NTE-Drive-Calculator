@@ -7,6 +7,7 @@ import shutil
 import time
 from dataclasses import dataclass
 from typing import Literal
+from src.integrations.operation_guard import OperationGuard, bind_stop_guard, require_operation
 
 import mss
 import mss.tools
@@ -158,7 +159,9 @@ def _format_vigem_error(exc: Exception) -> str:
 class GamepadScanner:
     MAX_INVENTORY_COUNT = 2000
 
-    def __init__(self, output_dir="scanned_images"):
+    def __init__(self, output_dir="scanned_images", *, operation_guard: OperationGuard | None = None):
+        self.operation_guard = bind_stop_guard(operation_guard, lambda: self._stopped)
+        require_operation(operation_guard, "interface_input")
         self.output_dir = output_dir
         self.capture_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
@@ -232,7 +235,7 @@ class GamepadScanner:
             return
         input_driver = getattr(self, "_inventory_reset_input", None)
         if input_driver is None:
-            input_driver = PyAutoGuiMouseScanInput()
+            input_driver = PyAutoGuiMouseScanInput(operation_guard=self.operation_guard)
             self._inventory_reset_input = input_driver
         rect = get_foreground_client_rect()
         left, top, width, height = game_content_rect(rect.width, rect.height)
@@ -282,6 +285,7 @@ class GamepadScanner:
         return getattr(self, "action_profile", DEFAULT_SCAN_PROFILE)
 
     def push_left_joystick(self, x, y, hold_seconds=None, settle_seconds=None):
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         profile = self._profile()
         if hold_seconds is None:
             hold_seconds = profile.move_hold_seconds
@@ -289,12 +293,15 @@ class GamepadScanner:
             settle_seconds = profile.move_settle_seconds
         self.gamepad.left_joystick_float(x_value_float=x, y_value_float=y)
         self.gamepad.update()
-        time.sleep(hold_seconds)
-        self.gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
-        self.gamepad.update()
+        try:
+            time.sleep(hold_seconds)
+        finally:
+            self.gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
+            self.gamepad.update()
         time.sleep(settle_seconds)
 
     def _press_button(self, button, hold_seconds=None, settle_seconds=None):
+        require_operation(getattr(self, "operation_guard", None), "interface_input")
         profile = self._profile()
         if hold_seconds is None:
             hold_seconds = profile.button_hold_seconds
@@ -302,9 +309,11 @@ class GamepadScanner:
             settle_seconds = profile.button_settle_seconds
         self.gamepad.press_button(button=button)
         self.gamepad.update()
-        time.sleep(hold_seconds)
-        self.gamepad.release_button(button=button)
-        self.gamepad.update()
+        try:
+            time.sleep(hold_seconds)
+        finally:
+            self.gamepad.release_button(button=button)
+            self.gamepad.update()
         time.sleep(settle_seconds)
 
     def _press_a(self):

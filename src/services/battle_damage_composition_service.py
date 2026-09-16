@@ -688,10 +688,14 @@ class BattleDamageCompositionService:
 
         if grouping not in {"coarse", "fine"}:
             raise ValueError(f"unsupported damage composition grouping: {grouping}")
-        role_names = {
-            role.character_id: role.character_name for role in roles
-        }
-        role_names.update({int(key): str(value) for key, value in role_identities})
+        role_names: dict[int, str] = {}
+        identities = (*role_identities, *((h.character_id, h.character_name) for h in hits),
+                      *((r.character_id, r.character_name) for r in roles))
+        for key, value in identities:
+            if key is not None:
+                label = str(value or "").strip()
+                if (label and label != str(key)) or key not in role_names:
+                    role_names[int(key)] = label or str(key)
         replay_by_event = {row.event_id: row for row in hit_replays}
         role_damage: dict[int, dict[str, float]] = defaultdict(
             lambda: defaultdict(float)

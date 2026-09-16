@@ -254,6 +254,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 raise AssertionError("pyautogui must not run when SendInput is available")
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._send_input = SendInput()
         backend._pyautogui = PyAutoGui()
 
@@ -275,6 +276,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 return (165, 185)
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._randomization = RandomizationContext(enabled=False)
         backend._send_input = SendInput()
         backend._sleeper = lambda _seconds: None
@@ -310,6 +312,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 return (165, 185)
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._send_input = SendInput()
         backend._mouse_delivery_diagnostics = []
         backend._local_left_button_down = lambda: False
@@ -345,6 +348,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 calls.append(("down", button))
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._randomization = RandomizationContext(enabled=False)
         backend._send_input = SendInput()
         backend._pyautogui = PyAutoGui()
@@ -381,6 +385,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 self.button = button
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._send_input = SendInput()
         backend._pyautogui = PyAutoGui()
         backend._mouse_delivery_diagnostics = []
@@ -413,6 +418,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 calls.append(position)
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._randomization = RandomizationContext(enabled=True)
         backend._randomization.seed(42)
         backend._send_input = SendInput()
@@ -441,6 +447,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 calls.append((position, clicks))
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._randomization = RandomizationContext(enabled=True)
         backend._randomization.seed(77)
         backend._send_input = SendInput()
@@ -473,6 +480,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 calls.append(("up", kwargs))
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._send_input = SendInput()
         backend._pyautogui = PyAutoGui()
         backend._sleeper = lambda seconds: calls.append(("sleep", round(seconds, 3)))
@@ -510,6 +518,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
                 raise AssertionError("filter scroll should use SendInput")
 
         backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+        backend.operation_guard = lambda _: None
         backend._send_input = SendInput()
         backend._pyautogui = PyAutoGui()
 

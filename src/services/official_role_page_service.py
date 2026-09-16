@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Mapping
 
 from src.domain.official_role import (
@@ -30,6 +31,7 @@ from src.services.damage_calculation_service import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.native_role_profile_projection import project_native_role_profile
 from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
 
 __all__ = [
@@ -254,20 +256,36 @@ def load_official_role_index(
     user_database_path: str | Path,
     *,
     asset_root: str | Path | None = None,
+    stage_duration_ms: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """List official playable roles, ordered by account pointers when present."""
 
+    started = perf_counter()
+
+    def mark(stage: str) -> None:
+        nonlocal started
+        now = perf_counter()
+        if stage_duration_ms is not None:
+            stage_duration_ms[stage] = round((now - started) * 1000, 3)
+        started = now
+
     catalog = GameUiAssetCatalog(_asset_root(asset_root))
+    mark("asset_manifest")
     with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
+        mark("database_open")
         profiles = {row["character_id"]: row for row in user_dao.list_character_profiles()}
+        mark("profiles")
         preferred_character_ids = [
             *user_dao.list_observed_character_ids(),
             *profiles,
         ]
+        mark("observed_characters")
         characters = static_dao.list_role_template_characters(
             preferred_character_ids,
         )
+        mark("static_characters")
         saved_order = user_dao.get_ui_item_order(OFFICIAL_ROLE_TAB_ORDER_SCOPE)
+    mark("saved_order_and_close")
     saved_rank: dict[int, int] = {}
     for ordinal, item_key in enumerate(saved_order):
         try:
@@ -275,7 +293,7 @@ def load_official_role_index(
         except (TypeError, ValueError):
             continue
         saved_rank.setdefault(character_id, ordinal)
-    return sorted(
+    result = sorted(
         [
             {
                 **character,
@@ -294,6 +312,8 @@ def load_official_role_index(
             int(row["character_id"]),
         ),
     )
+    mark("icons_and_sort")
+    return result
 
 
 def save_official_role_tab_order(
@@ -422,6 +442,9 @@ def load_official_role_detail(
         )
         if saved_profile is None:
             profile["likeability_level_10_enabled"] = likeability_bonus is not None
+        profile = project_native_role_profile(
+            profile, user_dao.get_native_character_profile_observation(character_id), persisted=saved_profile is not None,
+        )
         profile = resolve_awakening_profile(profile, awakenings)
         profile["persisted"] = saved_profile is not None
         current_items: list[dict[str, Any]] = []

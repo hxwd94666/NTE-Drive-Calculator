@@ -20,6 +20,7 @@ PROGRESS_PHASES = frozenset({
 MAX_PROGRESS_BYTES = 2048
 MAX_PROGRESS_COUNT = 2**31 - 1
 _CHUNK_BYTES = 8192
+_CHECKPOINT_SECONDS = 0.1
 _ERROR_LINE = re.compile(rb"nte-analysis-core: [a-z][a-z0-9_]*\Z")
 
 
@@ -120,6 +121,7 @@ def communicate_progress(
     finished: set[str] = set()
     started: list[threading.Thread] = []
     deadline = time.monotonic() + timeout
+    next_checkpoint = 0.0
 
     def deliver(line: bytes) -> None:
         event = decode_progress(line)
@@ -132,7 +134,13 @@ def communicate_progress(
             worker.start()
             started.append(worker)
         while len(finished) != 2 or process.poll() is None:
-            checkpoint()
+            now = time.monotonic()
+            # Pipe fragmentation is not a request boundary. A large response can
+            # contain thousands of tiny reads; keep the same 100 ms cancellation
+            # cadence as idle waiting instead of rechecking files for each chunk.
+            if now >= next_checkpoint:
+                checkpoint()
+                next_checkpoint = time.monotonic() + _CHECKPOINT_SECONDS
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise NativeStreamError("独立分析核心计算超时")

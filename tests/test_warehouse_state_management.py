@@ -81,6 +81,10 @@ class WarehouseStateManagementTests(unittest.TestCase):
         dao = Dao()
 
         class Sync:
+            def equipment_batch(self):
+                from contextlib import nullcontext
+                return nullcontext()
+
             is_running = True
             state = SimpleNamespace(phase="listening")
             core_hello_result = {"capabilities": ["equipment"]}
@@ -189,6 +193,10 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 return rows
 
         class Sync:
+            def equipment_batch(self):
+                from contextlib import nullcontext
+                return nullcontext()
+
             is_running = True
             state = SimpleNamespace(phase="listening")
             core_hello_result = {"capabilities": ["equipment"]}
@@ -268,6 +276,10 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 return len(projection)
 
         class Sync:
+            def equipment_batch(self):
+                from contextlib import nullcontext
+                return nullcontext()
+
             is_running = True
             state = SimpleNamespace(phase="listening")
             core_hello_result = {"capabilities": ["equipment"]}
@@ -317,6 +329,10 @@ class WarehouseStateManagementTests(unittest.TestCase):
             def apply_inventory_command_state_projection(self, *_args): return 1
 
         class Sync:
+            def equipment_batch(self):
+                from contextlib import nullcontext
+                return nullcontext()
+
             is_running = True
             state = SimpleNamespace(phase="listening")
             core_hello_result = {"capabilities": ["equipment"]}
@@ -364,6 +380,10 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 return 8
 
         class Sync:
+            def equipment_batch(self):
+                from contextlib import nullcontext
+                return nullcontext()
+
             is_running = True
             state = SimpleNamespace(phase="listening")
             core_hello_result = {"capabilities": ["equipment"]}
@@ -418,6 +438,10 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 }]
 
         class Sync:
+            def equipment_batch(self):
+                from contextlib import nullcontext
+                return nullcontext()
+
             is_running = True
             state = SimpleNamespace(phase="listening")
             core_hello_result = {"capabilities": ["equipment"]}

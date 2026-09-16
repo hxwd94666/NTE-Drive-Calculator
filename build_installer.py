@@ -24,6 +24,8 @@ import sys
 from pathlib import Path
 
 from tools import build_cli
+from src.integrations.game_component_bundle import inspect_game_component_bundle
+from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 
 
 ROOT = Path(__file__).parent.resolve()
@@ -34,11 +36,6 @@ APP_INTERNAL = DIST_APP / "_internal"
 APP_NTE_CORE = APP_INTERNAL / "nte-core.exe"
 APP_ANALYSIS_CORE = APP_INTERNAL / "nte-analysis-core.exe"
 APP_ANALYSIS_CORE_MANIFEST = APP_INTERNAL / "analysis-core-meta" / "component.json"
-APP_MODS_PLUGIN = APP_INTERNAL / "dwmapi.dll"
-APP_MOD_LOADER = APP_INTERNAL / "nte-mod-loader.exe"
-APP_MOD_SET = APP_INTERNAL / "plugins" / "nte-mods.enabled"
-APP_EQUIPMENT_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "equipment.nte"
-APP_COMBAT_CLOCK_MOD = APP_INTERNAL / "plugins" / "nte-mods" / "combat-clock.nte"
 APP_USER_SCHEMA = APP_INTERNAL / "src" / "storage" / "sqlite" / "schema" / "001_user_data.sql"
 APP_STATIC_DATABASE = APP_INTERNAL / "data" / "game_static.sqlite3"
 APP_STATIC_MANIFEST = APP_INTERNAL / "data" / "manifest.json"
@@ -182,11 +179,7 @@ def _validate_app_bundle() -> None:
         "nte-core 本地组件": APP_NTE_CORE,
         "战报分析本地组件": APP_ANALYSIS_CORE,
         "战报分析组件清单": APP_ANALYSIS_CORE_MANIFEST,
-        "nte-mods-plugin 本地组件": APP_MODS_PLUGIN,
-        "nte-mod-loader 备用加载组件": APP_MOD_LOADER,
-        "nte-mods 启用集合": APP_MOD_SET,
-        "nte-mods 装备脚本": APP_EQUIPMENT_MOD,
-        "nte-mods 战斗时钟脚本": APP_COMBAT_CLOCK_MOD,
+        "游戏组件整包清单": APP_INTERNAL / "component-bundle.json",
         "用户数据库结构": APP_USER_SCHEMA,
         "发行版静态数据库": APP_STATIC_DATABASE,
         "发行版静态数据库清单": APP_STATIC_MANIFEST,
@@ -196,6 +189,9 @@ def _validate_app_bundle() -> None:
     missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]
     if missing:
         raise RuntimeError("PyInstaller 产物不完整，缺少：\n" + "\n".join(missing))
+    validate_packaged_component_bundle(
+        APP_INTERNAL, source_manifest_path=source_component_manifest(ROOT),
+    )
 
 
 def _ensure_app_bundle(skip_app_build: bool) -> None:
@@ -234,9 +230,14 @@ def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
         'Flags: ignoreversion'
         for name in CORE_CONFIG_FILES
     )
-    stale_icu_delete_lines = "\n".join(
+    stale_runtime_dlls = list(STALE_AMBIENT_ICU_DLLS)
+    if inspect_game_component_bundle(APP_INTERNAL).layout == "native-capture-v1":
+        # Old installers could include this game proxy as an ambient dependency.
+        # It is not a Calc runtime DLL; clean only the old application-local copy.
+        stale_runtime_dlls.append("dwmapi.dll")
+    stale_runtime_delete_lines = "\n".join(
         f'Type: files; Name: "{{app}}\\_internal\\{name}"'
-        for name in STALE_AMBIENT_ICU_DLLS
+        for name in stale_runtime_dlls
     )
     if vigem_is_exe:
         vigem_install_filename = "{app}\\drivers\\ViGEmBus_Setup.exe"
@@ -364,7 +365,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={{app}}\\{{#MyAppExeName}}
 CloseApplications=yes
-CloseApplicationsFilter=NTE_Drive_Calc.exe
+CloseApplicationsFilter=NTE_Drive_Calc.exe,nte-mod-loader.exe,nte-core.exe,nte-analysis-core.exe
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
@@ -382,7 +383,7 @@ Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: i
 {vigem_file_line}
 
 [InstallDelete]
-{stale_icu_delete_lines}
+{stale_runtime_delete_lines}
 
 [Dirs]
 Name: "{{app}}\\config"; Permissions: users-modify

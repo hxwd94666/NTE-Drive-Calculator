@@ -26,6 +26,8 @@ from src.features.battle_report.build_snapshot_controller import (
     BattleBuildSnapshotController,
 )
 from src.features.battle_report.capture_controls import BattleCaptureControlsMixin
+from src.features.battle_report.entry_guidance import show_capture_connection_failure
+from src.features.battle_report.comparison_capture import ComparisonCapture
 from src.features.battle_report.marginal_session_controller import (
     BattleMarginalSessionController,
 )
@@ -35,11 +37,8 @@ from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
-from src.services.battle_capture_service import (
-    BattleCaptureService,
-    BattleCoreClient,
-    BattleSummaryWriter,
-)
+from src.services.battle_capture_service import BattleCaptureService
+from src.services.battle_capture_contracts import BattleCoreClient, BattleSummaryWriter
 from src.services.battle_report_persistence_service import (
     BattleReportPersistenceDependencies,
 )
@@ -79,12 +78,16 @@ class BattleReportController(
         inventory_sync_is_running: Callable[[], bool],
         stop_inventory_sync: Callable[[], None],
         start_inventory_sync: Callable[[], None],
-        client_factory: Callable[[Path], BattleCoreClient],
+        client_factory: Callable[[Path, Callable[[], None]], BattleCoreClient],
         persistence_factory: BattlePersistenceFactory,
         history_factory: BattleHistoryFactory,
         transfer_factory: BattleTransferFactory,
         hotkey_manager: GlobalHotkeyManager,
         marginal_units_provider: Callable[[], dict[str, float]],
+        comparison_client_factory: Callable[[Path], BattleCoreClient] | None = None,
+        work_mode_service=None,
+        operation_entry: Callable[[str, str], bool] | None = None,
+        operation_unavailable: Callable[..., None] | None = None,
     ) -> None:
         super().__init__(dialog_parent)
         self._app_context = app_context
@@ -93,6 +96,12 @@ class BattleReportController(
         self._stop_inventory_sync = stop_inventory_sync
         self._start_inventory_sync = start_inventory_sync
         self._client_factory = client_factory
+        self._comparison_client_factory = comparison_client_factory
+        self._work_mode_service = work_mode_service
+        self._operation_entry = operation_entry
+        self._operation_unavailable = operation_unavailable
+        self._capture_guidance_enabled = False
+        self._capture_unavailable_notified = False
         self._persistence_factory = persistence_factory
         self._history_factory = history_factory
         self._transfer_factory = transfer_factory
@@ -101,7 +110,7 @@ class BattleReportController(
         self._asset_root = asset_root
         self._page = BattleReportPage(game_ui_asset_root=asset_root)
         self._overlay = BattleReportOverlay(game_ui_asset_root=asset_root)
-        self._service: BattleCaptureService | None = None
+        self._service: BattleCaptureService | ComparisonCapture | None = None
         self._history_service: BattleReportHistoryService | None = None
         self._history_dialog: BattleReportHistoryDialog | None = None
         self._transfer_dialog: BattleReportTransferDialog | None = None
@@ -164,94 +173,19 @@ class BattleReportController(
         self._restore_last_history()
         return self._page
 
+    def set_work_mode_presentation(self) -> None:
+        policy = self._work_mode_service
+        compare = bool(policy and policy.allowed("compare_sources"))
+        self._page.comparison_toggle.setVisible(False)
+        self._page.comparison_toggle.setChecked(compare)
+        self._page.comparison_panel.setVisible(compare)
+
     def is_running(self) -> bool:
         service = self._service
         return bool(service is not None and service.is_running)
 
-    def start(self, *, preserve_inventory_pause: bool = False) -> None:
-        if self.is_running():
-            return
-        self._invalidate_analysis_loading()
-        self._operation_token += 1
-        token = self._operation_token
-        account = self._app_context.account
-        self._frozen_account_id = account.active_account_id
-        self._frozen_generation = self._app_context.generation
-        try:
-            sync_settings = self._app_context.account_settings.load("sync")
-        except Exception as error:
-            QMessageBox.warning(
-                self._dialog_parent,
-                "无法开始战报",
-                f"读取抓包设置失败，未启动战报采集：{error}",
-            )
-            if preserve_inventory_pause:
-                self._restore_inventory_sync()
-            return
-        configured_device = str(sync_settings.get("capture_device_id") or "").strip()
-        if preserve_inventory_pause:
-            self._resume_inventory = self._restart_resume_inventory
-            self._restart_resume_inventory = False
-        else:
-            self._restart_pending = False
-            self._restart_resume_inventory = False
-            self._resume_inventory = self._inventory_sync_is_running()
-        if self._resume_inventory and not preserve_inventory_pause:
-            try:
-                self._stop_inventory_sync()
-            except Exception as error:
-                self._resume_inventory = False
-                QMessageBox.warning(
-                    self._dialog_parent,
-                    "无法开始战报",
-                    f"停止背包同步失败，未启动战报采集：{error}",
-                )
-                return
-        self._overlay_capture_active = True
-        self._overlay.clear_summary()
-        show_report = getattr(self._page, "show_report", None)
-        if callable(show_report):
-            show_report()
-        self._page.clear_summary()
-        self._page.clear_analysis("采集中；结束并保存正式逐击后生成长页分析。")
-        if self._page.overlay_toggle.isChecked():
-            self._overlay.show_overlay()
-        operation = OperationContext.create(
-            "battle_report",
-            account_id=account.active_account_id,
-            context_generation=self._app_context.generation,
-        )
-        persistence_dependencies = BattleReportPersistenceDependencies(
-            account_id=account.active_account_id,
-            user_database_path=account.user_database_path,
-            generation=self._app_context.generation,
-            static_database_path=self._app_context.paths.static_database_path,
-        )
-        self._history_service = self._history_factory(persistence_dependencies)
-        self._history_restored_generation = self._app_context.generation
-        raw_capture_enabled = bool(sync_settings.get("raw_capture_enabled"))
-        raw_capture_directory = account.log_dir / "nte_core" / "raw_capture"
-        service = BattleCaptureService(
-            client_factory=lambda: self._client_factory(raw_capture_directory),
-            operation_context=operation,
-            device_name=configured_device or None,
-            summary_writer=self._persistence_factory(
-                persistence_dependencies,
-                operation,
-            ),
-            raw_capture_enabled=raw_capture_enabled,
-            raw_capture_directory=raw_capture_directory,
-        )
-        service.add_state_handler(
-            lambda state, operation_token=token: self._state_received.emit(
-                operation_token, state
-            )
-        )
-        self._service = service
-        service.start()
-        self._start_battle_hotkeys()
-
     def stop(self) -> None:
+        self._manual_stop_requested = True
         self._stop_battle_hotkeys()
         self._overlay_capture_active = False
         self._overlay.hide()
@@ -319,6 +253,8 @@ class BattleReportController(
         ):
             return
         self._latest_state = state
+        if state.phase == "running":
+            self._capture_guidance_enabled = False
         self._page.update_state(state)
         if state.summary is not None:
             self._overlay.update_summary(state.summary)
@@ -336,6 +272,12 @@ class BattleReportController(
             if self._consume_rerecord_terminal(state):
                 self.start(preserve_inventory_pause=True)
                 return
+            if (state.phase == "stopped" and state.end_reason == "scene_transition"
+                    and state.persistence_status in {"saved", "skipped_empty"}
+                    and not self._manual_stop_requested and not self._closing):
+                self._restart_resume_inventory = self._resume_inventory
+                self.start(preserve_inventory_pause=True, continue_after_scene=True)
+                return
             if state.battle_record_id is not None:
                 self._save_detail_scope(self._page.detail_scope())
                 self._load_analysis(
@@ -343,6 +285,7 @@ class BattleReportController(
                     detail_scope=self._page.detail_scope(),
                 )
             self._restore_inventory_sync()
+            show_capture_connection_failure(self, state)
 
     def _restore_inventory_sync(self) -> None:
         should_resume = self._resume_inventory
@@ -352,6 +295,8 @@ class BattleReportController(
         if (
             self._frozen_account_id == self._app_context.account.active_account_id
             and self._frozen_generation == self._app_context.generation
+            and self._work_mode_service.allowed("native_sync", automatic=True)
+            and not self._inventory_sync_is_running()
         ):
             self._start_inventory_sync()
 
@@ -749,6 +694,9 @@ class BattleReportController(
         state: BattleCaptureState,
         stored: StoredBattleSummary,
     ) -> None:
+        # A selected history record owns the view; queued notifications from the
+        # preceding capture must not overwrite its summary or trigger analysis.
+        self._operation_token += 1
         show_report = getattr(self._page, "show_report", None)
         if callable(show_report):
             show_report()

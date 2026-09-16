@@ -39,7 +39,7 @@ def _highest_max_hp_target_name(analysis: object) -> str:
         target_condition = getattr(row, "target_condition", None)
         name = str(getattr(target_condition, "target_name", "") or "").strip()
         if name and name != "未知目标":
-            resolved.append((float(getattr(row, "initial_max_hp", 0.0)), -index, name))
+            resolved.append((float(getattr(row, "initial_max_hp", None) or 0.0), -index, name))
     if resolved:
         return max(resolved)[2]
     targets = []
@@ -58,9 +58,10 @@ def apply_inferred_scope_warning(
 ) -> None:
     """Keep a residual-selected scope visible while marking weak evidence."""
 
-    inferred_source = getattr(condition, "source_kind", "") == (
-        "inferred_encounter_hp_injective_default"
-    )
+    inferred_source = getattr(condition, "source_kind", "") in {
+        "inferred_encounter_hp_injective_default", "native_environment_with_static_candidates",
+        "native_monster_with_inferred_environment",
+    }
     detected = condition is None and bool(
         getattr(analysis, "detected_environment_kind", "")
     )

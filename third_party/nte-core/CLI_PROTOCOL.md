@@ -32,6 +32,12 @@ successful `devices --json` each write exactly one JSON line to stdout.
 `--data-dir` is the root used for Core PCAP files. It defaults to `logs`; an
 explicit directory is used directly and is created when raw capture starts.
 
+Private native capture builds also provide `serve-native --stdio --game-pid <pid> [--data-dir <path>]`.
+This mode writes compact DLL evidence instead of PCAP when `capture.start.raw_capture` is enabled
+(the default); explicit `disabled` creates no raw journal. The account directory and final journal
+path/write integrity are retained through the standard battle record extension. Native capability,
+path and completeness rules are defined in [the native protocol](NATIVE_CAPTURE_PROTOCOL.md).
+
 ### One-shot examples
 
 ```powershell
@@ -156,6 +162,7 @@ identifies the local `nte-mods-plugin` bridge included in this Core build.
 | `capture.start` | capture options | Yes | process-local `operation_id` |
 | `capture.stop` | `{}` or omitted | Yes | stopped `operation_id` |
 | `inventory.get_latest` | `{}` or omitted | Yes | latest complete inventory snapshot |
+| `buff.get_snapshot` | `{}`, null or omitted | Yes | private, idle-only observed party effects; see [Buff observer](BUFF_OBSERVER.md) |
 | `equipment.equip_module` | character, equipment, row, column | Yes | plugin dispatch status |
 | `equipment.equip_core` | character, equipment | Yes | plugin dispatch status |
 | `equipment.unequip_module` | character, equipment | Yes | plugin dispatch status |
@@ -488,12 +495,23 @@ UI state.
 For authoritative weave follow-up damage, a validated character declaration in
 the same settlement container restricts the preceding-hit candidates to that
 character. Core then uses its existing damage, HP-continuity and unique recent
-hit matching rules and adds the follow-up to the matched row. A character
-declaration alone does not create an independent attributed hit. If no source
-hit can be matched, the existing unattributed-damage representation is retained.
+hit matching rules and adds the follow-up to the matched row. If no source hit
+matches, independent primary and additional amounts still retain the validated
+container character declaration. A catalogued character yields character_known=true
+and character_source=packet; absent, invalid or uncatalogued declarations stay
+unknown. A known character does not imply a known skill: unbound GE, GA, skill and
+element fields remain unknown, without borrowing another character's or a nearby hit's skill.
 Equal hits in one frame remain separate when their decoded locations or targets
 differ. Packet and reassembled observations of the same settlement supplement
 the source declaration without counting the damage twice.
+
+A structurally complete server primary amount is retained even without a preceding
+skill hit, using the container character policy above; ordinary display type 0 is
+no longer diagnostic-only. An unresolved client target candidate keeps the diagnostic
+representation to avoid counting the same occurrence twice, without guessing its
+owner from damage or HP. Terminal residual reconciliation follows all observed
+primary and additional components. Amounts retained as hits are not also added to
+the unattributed-damage diagnostic or observed again as new client calibration sources.
 
 Core retains a bounded hit window. Once earlier rows have been trimmed,
 `complete` becomes false and `first_available_cursor` identifies the first

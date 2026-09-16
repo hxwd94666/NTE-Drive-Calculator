@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "purpose": "2.3.0 pre-refactor comparison baseline; not a 2.3.0 release",
+  "application_version": "2.2.2",
+  "source_checkpoints": {
+    "analysis_and_core": "8110d6cb4d24eb84006ac691ac7528f5066617d1",
+    "capture": "21dff2110b2c74a94117dde925de9f91e5cc0a4d"
+  },
+  "build_provenance": "Original component manifests retain actual build base and dirty-input hashes. Checkpoints do not relabel existing binaries as rebuilt.",
+  "analysis_input_sha256": "716c883815707f9a1b006abe786d863693a499a7cea6f75a2f9f9427a600bcbe",
+  "native_input_digests": {
+    "capture": "4a44bb9bf0b9bd8b1e29219b821fb4ab7a4122176c35804173e6ac0110cf82b3",
+    "core": "aecbcc6e5fa3c541e957cb8a2be8364b0b40ec2b5d25bd22fcf1880bb365f36f"
+  },
+  "artifacts": {
+    "third_party/analysis-core/bin/nte-analysis-core.exe": "e71795eeca90065f97ca81ec29402443e92a82818730032dec6d2eefbe79f6ae",
+    "third_party/mod-loader/bin/nte-mod-loader.exe": "9bf8b28b0fb55304d09bc61503062ebcb931d611b05c8006f1f78d624218e8e6",
+    "third_party/mods-plugin/bin/dwmapi.dll": "9b59c1dd756202506dc0f0f6306aab6163980f2c01f5e8588eab97f7b132ffda",
+    "third_party/mods-plugin/workspace/NTE_Capture.dll": "de919128eb6d982ce7e53bdde485bb46773df8e0577f3fda9aa6c891a6e32c74",
+    "third_party/native-capture/capture/d3d12.dll": "30d79dca9e944d21c7170f327d326fce3ea4e26762948bcfd7dd37321cc58cf6",
+    "third_party/native-capture/capture/NTE_Capture.dll": "85d857ee5001f7c8d28f56b24ef458a27a756268feeb25a92f77c1932a026b22",
+    "third_party/native-capture/core/nte-core.exe": "fadaf5eb2fa8da4b1208d25f1a500f88de98de1a6f978dcdd92f29c1b7c08afa",
+    "third_party/nte-core/bin/nte-core.exe": "734c7fb708ca2a598df35569425a8f032e9b7aa9a0e4501ed1a46e72ac9380b2",
+    "third_party/vigembus/bin/ViGEmBus_1.22.0_x64_x86_arm64.exe": "89220a7865076b342892f98865f3499fb7c4cfd673159e89d352c360fd014c6a"
+  },
+  "static_dataset": {
+    "path": "data/game_static.sqlite3",
+    "sha256": "bc49cf8622924d0b32d4f61607ca170c83c218850a5f8f3bebe58a4291f3e123"
+  },
+  "validation_scope": "Component hashes, analysis source input hashes and 27 focused component/bundle tests; no full suite, new build or new game acceptance in this checkpoint."
+}

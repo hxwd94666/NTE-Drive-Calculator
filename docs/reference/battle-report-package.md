@@ -44,12 +44,23 @@ schema、当前静态 dataset/schema/hash 和本次导出账号昵称。`manifes
 - 当前战报存在时保存详情范围、时间范围和角色筛选页面状态；
 - `database_rows` 保存白名单战报表的精确可移植行图，作为读取功能的唯一数据库导入输入。
 
-当前 v2 读取器明确接受账号库 schema 36、37、38 和 39，不按当前账号库版本做机械的严格相等判断。schema 36
-战报缺少 `fork_breakthrough_stage` 时，导入到 schema 39 的 nullable 列保持 `NULL`，继续使用旧战报的
+当前 v2 读取器明确接受账号库 schema 36、37、38、39、40 和 41，不按当前账号库版本做机械的严格相等判断。schema 36
+战报缺少 `fork_breakthrough_stage` 时，导入到当前库的 nullable 列保持 `NULL`，继续使用旧战报的
 等级派生语义且不改写原始快照；schema 36～38 的时停行缺少 `pause_type_mask` 时也以 `NULL` 导入，保留旧
 记录类型未知及旧 Q 锚定兼容，不从时间或技能反推 mask。schema 39 的 v5 压缩区间可显式保存 `NULL`，仅
-参与有效时钟扣除，不视为 Q 或 type6 证据。低于 36 或高于 39 的包必须拒绝，新增 schema 兼容性需逐版
-审计后显式加入。
+参与有效时钟扣除，不视为 Q 或 type6 证据。schema 40 仅收口配装优化偏好的分配策略，没有改变战报白名单表。
+schema 41 仅新增账号角色等级与突破观测表，没有改变战报白名单表。
+低于 36 或高于 41 的包必须拒绝，新增 schema 兼容性需逐版审计后显式加入。
+
+原生逐击的 `native_capture.rawHit` 按原始 JSON 保存：包括 GE、独立暴击/元素已知状态、双方 Buff 快照、
+本击采样时间、生命与最大生命采样及其关联字段，以及 `executionEvidence` 的执行前输入、执行后输出和读取状态。
+执行证据内嵌在逐击中，随战报往返，不依赖外置 journal。未知、明确空列表、部分快照和“不适用”不相互转换；
+快照内容版本时间不替代本击采样时间，大整数身份不转成浮点数。导入不靠显示名称或静态映射补写原始证据。
+
+外置采集 journal 的文件内容不随战报包导出。已知文件定位字段 `rawCapturePath`、`raw_capture_path` 和
+`rawCapture.path` 在包内所有对象及已保存 JSON 副本中置为 `null`，其余原始证据保留。受影响的 summary、
+record 和容器摘要按可移植内容重新计算；本机原始数据库和日志文件保持不变。导入旧包先验证其原始哈希，
+再做同样的路径清理，不能用清理过程掩盖损坏的数据。
 
 ## 写出和导入
 
@@ -58,7 +69,10 @@ schema、当前静态 dataset/schema/hash 和本次导出账号昵称。`manifes
 
 读取把整个包作为一个事务导入当前账号。`battle_record_id`、`capture_id` 重映射为本地 ID；来源账号的
 `source_inventory_snapshot_id` 清空，因为它不能指向当前账号库存；账号活动配装指针从不导出或导入。
-`capture_operation_id + raw_summary_sha256` 相同的记录幂等跳过，同 operation ID 但摘要不同会拒绝整包。
+同 `capture_operation_id` 的记录，只有清理路径后的摘要及原始 record、逐击、时停证据均相同时才幂等跳过；
+比较忽略本地重映射 ID，并按 JSON 内容比较原始证据。同 operation ID 下摘要相同但逐击证据不同也拒绝整包，
+不静默丢弃不同的 Buff 或字段证据。双路对照的 `calc_capture.comparison_id` 与来源标记原样保留，作为同一轮
+采集的关联信息，不替代战报导入身份。
 导入不会为了满足保留上限静默删除本地记录；容量不足时整包回滚并提示先清理历史。
 
 导入记录写入来源表和逐角色装备锁。其养成、技能、觉醒、弧盘、精炼及手工边际属性可以修改，也可以执行

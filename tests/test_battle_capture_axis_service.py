@@ -258,7 +258,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
                 )
 
         core = _Core()
-        service = BattleCaptureService(
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
             client_factory=lambda: core,
             operation_context=OperationContext.create("battle_report"),
             summary_writer=AssumedWriter(),
@@ -279,7 +279,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         core = _Core()
         writer = _Writer()
         states = []
-        service = BattleCaptureService(
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
             client_factory=lambda: core,
             operation_context=OperationContext.create("battle_report"),
             summary_writer=writer,
@@ -316,7 +316,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         writer = _Writer()
         with tempfile.TemporaryDirectory() as temp_dir:
             capture_directory = Path(temp_dir) / "account" / "raw_capture"
-            service = BattleCaptureService(
+            service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
                 client_factory=lambda: core,
                 operation_context=OperationContext.create("battle_report"),
                 summary_writer=writer,
@@ -332,11 +332,25 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
             self.assertTrue(capture_directory.is_dir())
             self.assertEqual("enabled", core.capture_params["raw_capture"])
 
+    def test_native_capture_does_not_enable_raw_evidence_without_explicit_diagnostics(self) -> None:
+        core = _Core()
+        core.native_capture = True
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
+            client_factory=lambda: core,
+            operation_context=OperationContext.create("battle_report"),
+            raw_capture_enabled=False,
+        )
+        service.start()
+        self.assertTrue(core.capture_started.wait(1.0))
+        service.request_stop()
+        service.close(timeout=2.0)
+        self.assertEqual("disabled", core.capture_params["raw_capture"])
+
     def test_immediate_stop_without_observed_battle_skips_final_record_wait(self) -> None:
         core = _ImmediateStopCore()
         writer = _Writer()
         states = []
-        service = BattleCaptureService(
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
             client_factory=lambda: core,
             operation_context=OperationContext.create("battle_report"),
             summary_writer=writer,
@@ -359,7 +373,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         core = _Core()
         writer = _Writer()
         states = []
-        service = BattleCaptureService(
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
             client_factory=lambda: core,
             operation_context=OperationContext.create("battle_report"),
             summary_writer=writer,
@@ -385,7 +399,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         core = _HungStopCore()
         writer = _Writer()
         states = []
-        service = BattleCaptureService(
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
             client_factory=lambda: core,
             operation_context=OperationContext.create("battle_report"),
             summary_writer=writer,
@@ -407,7 +421,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         core = _Core(contract_version=4)
         writer = _Writer()
         states = []
-        service = BattleCaptureService(
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
             client_factory=lambda: core,
             operation_context=OperationContext.create("battle_report"),
             summary_writer=writer,
@@ -434,7 +448,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
         core.finalized = True
         core.final_axis_complete = False
         writer = _Writer()
-        service = BattleCaptureService(
+        service = BattleCaptureService(operation_guard=lambda _: None, required_source="native" if getattr(core, "native_capture", False) else "packet",
             client_factory=lambda: core,
             operation_context=OperationContext.create("battle_report"),
             summary_writer=writer,
@@ -451,7 +465,7 @@ class BattleCaptureAxisServiceTests(unittest.TestCase):
 
     def test_enabled_raw_capture_requires_an_explicit_account_directory(self) -> None:
         with self.assertRaisesRegex(ValueError, "账号抓包目录"):
-            BattleCaptureService(
+            BattleCaptureService(operation_guard=lambda _: None, required_source="packet",
                 client_factory=_Core,
                 operation_context=OperationContext.create("battle_report"),
                 raw_capture_enabled=True,

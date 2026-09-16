@@ -5,10 +5,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+import warnings
 
 from src.domain.battle_marginal_benefit import BattleMarginalBenefits
 from src.domain.battle_report import BattleAnalysisSnapshot
 from src.domain.battle_hit_details import BattlePageHitDetails
+from src.integrations.nte_analysis_core import NativeAnalysisError
 from src.services.battle_buff_projection_memo import BattleBuffProjectionMemo
 from src.services.battle_build_counterfactual_service import (
     BattleBuildCounterfactualService,
@@ -119,9 +121,21 @@ class BattleReportAnalysisLoadService:
         *,
         progress_callback: BattleAnalysisProgressCallback | None = None,
     ) -> BattleReportAnalysisLoadResult:
+        """所有正式战报页统一走原生准备与计算入口，包括边际及反事实。"""
+        if history.native_page_loader is None:
+            raise NativeAnalysisError('战报分析需要新原生组件，旧计算入口已废弃，不能自动回退')
+        return history.native_page_loader.load(request, progress_callback=progress_callback)
+
+    @staticmethod
+    def load_legacy_for_differential(
+        history: BattleReportHistoryService,
+        request: BattleReportAnalysisLoadRequest,
+        *,
+        progress_callback: BattleAnalysisProgressCallback | None = None,
+    ) -> BattleReportAnalysisLoadResult:
+        """DEPRECATED：仅供离线新旧差分；正式页面禁止调用。"""
+        warnings.warn('旧战报页面计算已废弃，仅供离线差分', DeprecationWarning, stacklevel=2)
         detail_level = request.detail_level
-        if history.native_page_loader is not None:
-            return history.native_page_loader.load(request, progress_callback=progress_callback)
         if detail_level not in {"overview", "hit", "buff", "marginal"}:
             raise ValueError(f"unsupported battle analysis detail: {detail_level}")
         candidate = request.marginal_candidate

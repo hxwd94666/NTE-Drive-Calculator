@@ -73,6 +73,9 @@ class MainWindowNavigationMixin:
             self._nav_buttons[item.key] = button
             if item.sidebar:
                 sl.addWidget(button)
+        self.work_mode_button = QPushButton("模式：离线")
+        self.work_mode_button.clicked.connect(lambda: self._go("settings"))
+        sl.addWidget(self.work_mode_button)
         sl.addStretch()
         body.addWidget(sidebar)
 
@@ -173,6 +176,8 @@ class MainWindowNavigationMixin:
 
     def _go(self, page):
         item = nav_item_by_key(page) or NAV_ITEMS[0]
+        if item.required_capability and not self.operation_entry(item.required_capability, item.label.strip()):
+            return
         indexes = nav_index_map()
         if (
             self._nav_key_for_index(self.stack.currentIndex()) == "config"

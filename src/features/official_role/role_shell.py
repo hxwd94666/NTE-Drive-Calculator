@@ -376,6 +376,9 @@ def _page_my_role(window) -> QWidget:
     header.addWidget(reset_current)
     header.addWidget(reset_all)
     header.addWidget(save)
+    sync = QPushButton("同步角色状态")
+    sync.setObjectName("officialRoleSync")
+    header.addWidget(sync)
     root.addLayout(header)
 
     area = QScrollArea()
@@ -388,6 +391,15 @@ def _page_my_role(window) -> QWidget:
     window.my_role_form_widget = content
     window.my_role_form_layout = content_layout
     window._official_role_page = page
+    sync_controller = getattr(window, "character_profile_sync_controller", None)
+    if sync_controller is not None:
+        sync_controller.attach_controls(sync, (area, reset_current, reset_all, save,
+                                               window.official_role_world_attack,
+                                               window.official_role_world_crit_damage))
+    else:
+        from src.features.input_operation_entry import show_input_unavailable
+        sync.clicked.connect(lambda: show_input_unavailable(
+            window, "同步角色状态", "角色状态同步服务尚未就绪，请检查组件连接。"))
     window.official_role_search = search
     window._official_role_dirty_ids = set()
     window._official_role_world_bonus_dirty = False

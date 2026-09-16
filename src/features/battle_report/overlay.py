@@ -24,6 +24,8 @@ from src.domain.battle_report import (
     active_abyss_half,
 )
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.domain.battle_summary_observation import has_active_battle_observation
+from src.features.battle_report.summary_clock import summary_clock_label
 
 
 _ROLE_COLORS = ("#45d0ff", "#9b83ff", "#59d49a", "#e7b75f")
@@ -72,6 +74,15 @@ class BattleReportOverlay(QWidget):
         self.raise_()
 
     def update_summary(self, summary: BattleSummary | None) -> None:
+        if summary is not None and not has_active_battle_observation(summary):
+            summary = None
+        previous = self._summary
+        if summary is None or (
+            previous is not None
+            and (previous.dps_time_mode != summary.dps_time_mode
+                 or previous.abyss.active_half != summary.abyss.active_half)
+        ):
+            self._history.clear()
         self._summary = summary
         if summary is not None:
             half = active_abyss_half(summary)
@@ -111,7 +122,7 @@ class BattleReportOverlay(QWidget):
         self._halo_text(
             painter,
             QRectF(14, 8, 205, 18),
-            f"队伍 DPS · {duration:.1f}s",
+            f"{summary_clock_label(summary.dps_time_mode)} DPS · {duration:.1f}s",
             10,
             Qt.AlignLeft | Qt.AlignVCenter,
             QColor("#d8dee9"),

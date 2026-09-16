@@ -53,8 +53,9 @@ class ScanWorkerThread(QThread):
     error = Signal(str)
     scanner_ready = Signal()
 
-    def __init__(self, *, output_dir, template_path, mode="semi", parent=None):
+    def __init__(self, *, output_dir, template_path, mode="semi", parent=None, operation_guard=None):
         super().__init__(parent)
+        self.operation_guard = operation_guard
         self.output_dir = str(output_dir)
         self.template_path = str(template_path)
         self.mode = mode
@@ -65,6 +66,7 @@ class ScanWorkerThread(QThread):
             self.scanner = DroneScanner(
                 output_dir=self.output_dir,
                 template_path=self.template_path,
+                operation_guard=self.operation_guard,
             )
             self.scanner_ready.emit()
             if self.mode == "auto":
@@ -100,8 +102,10 @@ class FullVisualScanParseWorkerThread(QThread):
         amd_compatibility=False,
         capture_driver="mouse",
         result_is_current=None,
+        operation_guard=None,
     ):
         super().__init__(parent)
+        self.operation_guard = operation_guard
         self.total_drives = total_drives
         self.screenshot_dir = str(screenshot_dir)
         self.config_dir = str(config_dir)
@@ -161,11 +165,12 @@ class FullVisualScanParseWorkerThread(QThread):
                 self.scanner = MouseInventoryScanner(
                     output_dir=self.screenshot_dir,
                     input_speed_profile=self.mouse_input_profile,
+                    operation_guard=self.operation_guard,
                 )
             else:
                 from src.scanner.gamepad_controller import GamepadScanner
 
-                self.scanner = GamepadScanner(output_dir=self.screenshot_dir)
+                self.scanner = GamepadScanner(output_dir=self.screenshot_dir, operation_guard=self.operation_guard)
             self.scanner_ready.emit()
             init_start = time.perf_counter()
             processor = BatchProcessor(

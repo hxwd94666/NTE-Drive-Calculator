@@ -56,6 +56,10 @@ def snapshot(generation: int, items: list[dict], *, characters: list[dict] | Non
 
 
 class FakeSyncService:
+    def equipment_batch(self):
+        from contextlib import nullcontext
+        return nullcontext()
+
     def __init__(self, dao: UserDataDao, before_snapshot_id: int) -> None:
         self.dao = dao
         self.is_running = True
@@ -241,7 +245,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_dispatches_native_uids_and_verifies_new_snapshot(self) -> None:
-        result = EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
+        result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(self.plan_id)
 
         self.assertTrue(result.verified)
         self.assertFalse(result.already_applied)
@@ -269,7 +273,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             last_item_count=2,
         )
 
-        result = EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
+        result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(self.plan_id)
 
         self.assertTrue(result.verified)
         self.assertTrue(result.already_applied)
@@ -295,7 +299,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.sync.emit_snapshot = False
 
         with patch("src.services.equipment_apply_service.time.sleep") as sleep:
-            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+            result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 self.plan_id,
                 stable_snapshot_id=current,
                 verify_after_dispatch=False,
@@ -395,7 +399,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             ],
         )
 
-        result = EquipmentApplyService(self.dao, self.sync).apply_plan(plan_id)
+        result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(plan_id)
 
         self.assertTrue(result.verified)
         self.assertEqual(self.sync.params, None)
@@ -427,7 +431,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             ],
         )
 
-        service = EquipmentApplyService(self.dao, self.sync)
+        service = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None)
         service.validate_bulk_plans_for_fast_apply(
             [{
                 "role_name": "旧版无卡带方案",
@@ -446,7 +450,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.sync.emit_snapshot = False
 
         with patch("src.services.equipment_apply_service.time.sleep") as sleep:
-            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+            result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 self.plan_id,
                 verify_after_dispatch=False,
             )
@@ -461,7 +465,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.sync.emit_snapshot = False
 
         with patch("src.services.equipment_apply_service.time.sleep") as sleep:
-            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+            result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 self.plan_id,
                 verify_after_dispatch=False,
                 exact_loadout=True,
@@ -492,7 +496,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         self.sync.emit_snapshot = False
 
         with patch("src.services.equipment_apply_service.time.sleep") as sleep:
-            result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+            result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 plan_id,
                 verify_after_dispatch=False,
                 exact_loadout=True,
@@ -521,7 +525,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             last_item_count=2,
         )
 
-        result = EquipmentApplyService(self.dao, self.sync).apply_plan(
+        result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
             self.plan_id,
             stable_snapshot_id=before_snapshot_id,
             verify_after_dispatch=False,
@@ -551,7 +555,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             {"slot": 300, "serial": 301},
-            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current),
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).resolve_character_uid(2000, current),
         )
 
     def test_manual_instance_mapping_takes_priority_over_history(self) -> None:
@@ -562,7 +566,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
 
         self.assertEqual(
             {"slot": 300, "serial": 301},
-            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(1003, current),
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).resolve_character_uid(1003, current),
         )
 
     def test_resolves_uid_from_account_snapshot_cache_when_current_core_event_omits_role(self) -> None:
@@ -583,7 +587,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
 
         self.assertEqual(
             {"slot": 300, "serial": 301},
-            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current),
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).resolve_character_uid(2000, current),
         )
 
     def test_rejects_missing_character_instance_when_account_cache_is_empty(self) -> None:
@@ -591,7 +595,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             snapshot(5, [item(11, "module"), item(22, "core")])
         )
         with self.assertRaisesRegex(EquipmentApplyError, "角色实例缓存"):
-            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(2000, current)
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).resolve_character_uid(2000, current)
 
     def test_current_snapshot_character_uid_beats_manual_fallback(self) -> None:
         self.dao.upsert_character_instance_mapping(1003, {"slot": 300, "serial": 301})
@@ -603,13 +607,13 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             CHARACTER_UID,
-            EquipmentApplyService(self.dao, self.sync).resolve_character_uid(1003, current),
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).resolve_character_uid(1003, current),
         )
 
     def test_rejects_missing_equipment_capability_before_rpc(self) -> None:
         self.sync.core_hello_result = {"capabilities": ["inventory"]}
         with self.assertRaisesRegex(EquipmentApplyError, "equipment"):
-            EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(self.plan_id)
         self.assertIsNone(self.sync.params)
 
     def test_rejects_virtual_incomplete_plan_before_any_equipment_rpc(self) -> None:
@@ -630,13 +634,13 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(EquipmentApplyError, "虚拟补位驱动"):
-            EquipmentApplyService(self.dao, self.sync).apply_plan(plan_id)
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(plan_id)
         self.assertIsNone(self.sync.params)
 
     def test_rejects_snapshot_that_does_not_confirm_target_position(self) -> None:
         self.sync.verify_correctly = False
         with self.assertRaisesRegex(EquipmentApplyError, "位置不一致"):
-            EquipmentApplyService(self.dao, self.sync).apply_plan(self.plan_id)
+            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(self.plan_id)
 
     def test_bulk_validation_rejects_equipment_uid_conflict(self) -> None:
         duplicate_plan_id = self.dao.save_loadout_plan(
@@ -653,7 +657,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
                 "rotation": 0,
             }],
         )
-        service = EquipmentApplyService(self.dao, self.sync)
+        service = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None)
 
         with self.assertRaisesRegex(EquipmentApplyError, "方案冲突"):
             service.validate_bulk_plans_for_fast_apply(

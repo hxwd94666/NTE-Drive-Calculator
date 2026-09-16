@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .inventory_save_error import InventorySnapshotSaveError
+from .inventory_snapshot_usage import (
+    exported_snapshot_ids, protect_exported_snapshot, serialize_snapshot_prune,
+)
 from .user_data_support import (
     SNAPSHOT_SOURCES,
     UserDataError,
@@ -308,6 +311,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             row["is_current"] = bool(row["is_current"])
         return rows
 
+    @serialize_snapshot_prune
     def prune_inventory_snapshots(
         self,
         *,
@@ -316,6 +320,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
         """安全删除未受保护的历史稳定快照。
 
         始终保留当前快照、已保存装配方案引用的快照，以及按时间最近的若干份。
+        显式传入 0 时只保留当前快照及被引用的快照，不按采集时间额外保留历史。
         删除依靠外键级联清理对应的背包物品和词条；不会修改任何装配方案。
         """
 
@@ -324,7 +329,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                 "inventory_snapshot_retention_count"
             ]
         raw_retain_recent = _integer(
-            retain_recent, "retain_recent", minimum=1
+            retain_recent, "retain_recent", minimum=0
         )
         connection = self._db()
         try:
@@ -370,6 +375,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                 | referenced_snapshot_ids
                 | job_snapshot_ids
                 | recent_snapshot_ids
+                | exported_snapshot_ids(self.database_path)
             )
             deleted_snapshot_ids = sorted(
                 int(row["snapshot_id"])
@@ -490,6 +496,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                 row[field] = int(row[field] or 0)
         return row
 
+    @protect_exported_snapshot
     def export_inventory_snapshot(
         self, snapshot_id: int
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:

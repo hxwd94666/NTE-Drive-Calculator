@@ -126,13 +126,18 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
         return result
 
     def battle_report_equipment_editable(self, battle_record_id: int) -> bool:
+        build = self.load_battle_build_snapshot(battle_record_id)
         return (
             self.load_battle_report_import_origin(battle_record_id) is None
-            and not has_graduation_assumption(self.load_battle_build_snapshot(battle_record_id))
+            and not has_graduation_assumption(build)
+            and (build or {}).get("calculation_status", {}).get("state") != "unknown"
         )
 
     def battle_report_counterfactual_editable(self, battle_record_id: int) -> bool:
         record_id = _integer(battle_record_id, "battle_record_id", minimum=1)
+        build = self.load_battle_build_snapshot(record_id)
+        if (build or {}).get("calculation_status", {}).get("state") == "unknown":
+            return False
         row = self._one(
             """
             SELECT contract_version, capture_state

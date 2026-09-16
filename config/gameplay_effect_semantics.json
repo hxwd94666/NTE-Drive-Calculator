@@ -1,6 +1,12 @@
 {
   "format_version": 1,
   "effects": {
+    "GE_Xiaozhen_Skill1_Damage": {
+      "attack_type": "普攻",
+      "show_parent_ability": false,
+      "override_observed_damage_name": true,
+      "damage_name_zh": "普通攻击：恶灵闪击战！"
+    },
     "GE_ActorReaction_1_Damage": {
       "attack_type": "创生花",
       "show_parent_ability": false,

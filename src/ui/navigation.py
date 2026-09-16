@@ -15,6 +15,7 @@ class NavItem:
     refresh_method: str | None = None
     sidebar: bool = True
     parent_key: str | None = None
+    required_capability: str | None = None
 
 
 NAV_ITEMS = (
@@ -55,6 +56,8 @@ NAV_ITEMS = (
         parent_key="my_role",
     ),
     NavItem("toolbox", "🧰  工具", "btn_toolbox", "_page_toolbox", "_refresh_toolbox"),
+    NavItem("plugins", "🧩  插件", "btn_plugins", "_page_plugins", "_refresh_plugins",
+            required_capability="native_load"),
     NavItem(
         "static_catalog",
         "游戏资料库",

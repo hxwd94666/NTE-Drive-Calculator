@@ -1,15 +1,10 @@
-# NTE Core - Windows x64
+# NTE Core build variant
 
-This build provides the capture component's JSON-RPC stdio interface. The exact source revision,
-build command, license, toolchain and binary hashes are recorded in [SOURCE.md](SOURCE.md).
-Read [CLI_PROTOCOL.md](CLI_PROTOCOL.md) before integrating.
+The executable here is identical to the Core in the native-capture component bundle.
+The authoritative build options, source revision, input digest and validation boundaries are recorded in
+[the Core source declaration](../native-capture/core/SOURCE.md) and
+[the paired component manifest](../native-capture/component-bundle.json).
 
-The included fixes constrain weave attribution by its declared source role, preserve distinct
-same-frame hits, prevent duplicate settlement, and isolate the inventory fragment clock from
-unsupported Bunch modes. Supported empty packets still expire fragments, independent raw records
-keep their existing handling, and the 96-packet window is unchanged.
-
-Focused regressions, production capture replay, Release build, UPX integrity, deployed version/hash
-checks and installer content verification passed. Truncated capture tails remain input errors.
-Live login synchronization, the capture component's full suite and actual installation acceptance
-remain unverified. See [COMPONENT.md](COMPONENT.md) for the integration boundary.
+The native and packet entries preserve separate sources. Common observation envelopes retain unknown
+payloads; calculation interpretation belongs to the independent analysis component.
+Updating files does not update an already running game process. See the component manifest for the paired runtime.

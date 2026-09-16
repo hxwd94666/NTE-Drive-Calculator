@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -41,9 +43,9 @@ _SYNC_ERROR_GUIDANCE = {
         "处理：关闭游戏和本程序后重新打开；仍失败时检查安全软件拦截，并尝试以管理员身份运行。"
     ),
     "CAPTURE_ALREADY_RUNNING": (
-        "原因：nte-core 中已经存在一个抓包任务。\n处理：先点击“停止同步”；若状态没有恢复，重启本程序后再同步。"
+        "原因：nte-core 中已经存在一个抓包任务。\n处理：点击“重新同步”等待旧会话收尾；若仍未恢复，请退出并重新打开本程序。"
     ),
-    "CAPTURE_NOT_RUNNING": ("原因：nte-core 的抓包会话已经停止。\n处理：点击“启动背包同步”重新建立会话。"),
+    "CAPTURE_NOT_RUNNING": ("原因：nte-core 的抓包会话已经停止。\n处理：点击“重新同步”重新建立会话。"),
     "PROTOCOL_VERSION_MISMATCH": (
         "原因：本程序与 nte-core 的协议版本不一致。\n处理：重新安装同一发布包中的完整程序，不要混用旧版 nte-core.exe。"
     ),
@@ -206,7 +208,7 @@ def build_home_page(window) -> QScrollArea:
         ("core", "卡带", "原始游戏 UID"),
         ("equipped", "已装备", "按当前稳定快照"),
         ("plans", "配装方案", "保存在当前账号"),
-        ("characters", "角色数据", "来自随程序静态数据库"),
+        ("characters", "角色目录", "当前账号尚未同步角色"),
     )
     window.home_metric_labels = {}
     for index, (key, label, subtitle) in enumerate(definitions):
@@ -215,27 +217,38 @@ def build_home_page(window) -> QScrollArea:
         metrics.addWidget(card, index // 3, index % 3)
     root.addLayout(metrics)
 
-    sync_card, sync_layout = _section(
-        "背包同步",
-        "请关闭代理和加速器，停留在游戏登录页，再启动同步并进入游戏，期间保证自己的网络通畅！！！",
-    )
-    window.home_sync_detail = QLabel("尚未启动 nte-core")
+    sync_card, sync_layout = _section("游戏数据同步")
+    window.home_sync_title = sync_layout.itemAt(0).widget()
+    window.home_sync_source_label = QLabel("同步方式随已确认的工作模式选择。")
+    window.home_sync_source_label.setWordWrap(True)
+    sync_layout.addWidget(window.home_sync_source_label)
+    window.home_sync_detail = QLabel("背包同步尚未启动")
     window.home_sync_detail.setWordWrap(True)
     sync_layout.addWidget(window.home_sync_detail)
+    window.home_character_sync_detail = QLabel("角色养成：尚无已保存的游戏养成数据。")
+    window.home_character_sync_detail.setWordWrap(True)
+    window.home_character_sync_detail.setProperty("savedSummary", window.home_character_sync_detail.text())
+    sync_layout.addWidget(window.home_character_sync_detail)
     sync_actions = QHBoxLayout()
-    window.home_start_sync_button = QPushButton("启动背包同步")
-    window.home_start_sync_button.setObjectName("btnPrimary")
-    window.home_start_sync_button.clicked.connect(window._start_inventory_sync)
-    window.home_stop_sync_button = QPushButton("停止同步")
-    window.home_stop_sync_button.clicked.connect(window._stop_inventory_sync)
-    window.home_stop_sync_button.setEnabled(False)
-    environment_button = QPushButton("环境配置")
-    environment_button.clicked.connect(window._focus_environment_configuration)
-    sync_actions.addWidget(window.home_start_sync_button)
-    sync_actions.addWidget(window.home_stop_sync_button)
-    sync_actions.addWidget(environment_button)
+    window.home_auto_sync_toggle = QCheckBox("自动同步")
+    window.home_auto_sync_toggle.setChecked(window.work_mode_service.settings.auto_sync_enabled)
+    window.home_auto_sync_toggle.toggled.connect(window.auto_sync_controller.set_enabled)
+    window.home_restart_sync_button = QPushButton("重新同步")
+    window.home_restart_sync_button.setObjectName("btnPrimary")
+    window.home_restart_sync_button.clicked.connect(window.auto_sync_controller.open_restart)
+    check = QPushButton("检测详情")
+    check.clicked.connect(lambda: window.work_mode_controller.check(show=True))
+    sync_actions.addWidget(window.home_auto_sync_toggle)
+    sync_actions.addWidget(window.home_restart_sync_button)
+    sync_actions.addWidget(check)
     sync_actions.addStretch()
     sync_layout.addLayout(sync_actions)
+    window.home_sync_action_hint = QLabel("")
+    window.home_sync_action_hint.setWordWrap(True)
+    sync_layout.addWidget(window.home_sync_action_hint)
+    window.home_last_sync_label = QLabel("尚无已保存的背包")
+    window.home_last_sync_label.setWordWrap(True)
+    sync_layout.addWidget(window.home_last_sync_label)
     root.addWidget(sync_card)
 
     actions_card, actions_layout = _section("快捷操作")
@@ -258,10 +271,20 @@ def build_home_page(window) -> QScrollArea:
     return scroll
 
 
+def _local_snapshot_time(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return value
+
+
 def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
     account = dashboard["account"]
     inventory = dashboard.get("inventory")
-    window.home_account_label.setText(f"当前账号：{account['account_name']} · 数据库仅保存该账号的稳定背包与方案")
+    window.home_account_label.setText(f"当前账号：{account['account_name']} · 背包、角色养成与配装方案独立保存")
 
     values = {
         "inventory": int(inventory["stored_item_count"]) if inventory else 0,
@@ -269,13 +292,36 @@ def refresh_home_page(window, dashboard: dict[str, Any]) -> None:
         "core": int(inventory["core_count"]) if inventory else 0,
         "equipped": int(inventory["equipped_count"]) if inventory else 0,
         "plans": int(dashboard["loadout_plan_count"]),
-        "characters": int(dashboard["static"]["counts"]["character"]),
+        "characters": int(dashboard["characters"]["catalog_count"]),
     }
     for key, value in values.items():
         window.home_metric_labels[key][0].setText(str(value))
 
+    synced_count = int(dashboard["characters"]["synced_count"])
+    window.home_metric_labels["characters"][1].setText(
+        f"当前账号已同步 {synced_count} 个角色" if synced_count else "当前账号尚未同步角色"
+    )
+    profile_count = int(dashboard["characters"]["profile_count"])
+    role_detail = (f"角色养成：已保存 {profile_count} 个角色的已确认养成字段。" if profile_count else
+                   "角色养成：尚无已保存的游戏养成数据，连接后自动读取。")
+    window.home_character_sync_detail.setProperty("savedSummary", role_detail)
+    window.home_character_sync_detail.setText(role_detail)
+
     inventory_subtitle = window.home_metric_labels["inventory"][1]
     if inventory:
-        inventory_subtitle.setText(f"快照 #{inventory['snapshot_id']} · {inventory['captured_at_utc']}")
+        saved_time = _local_snapshot_time(inventory["captured_at_utc"])
+        inventory_subtitle.setText(f"快照 #{inventory['snapshot_id']} · {saved_time}")
     else:
         inventory_subtitle.setText("等待首次同步")
+    if inventory:
+        window.home_last_sync_label.setText(
+            f"上次保存（本地时间）：{saved_time} · 驱动 {inventory['module_count']} 件"
+            f" · 空幕 {inventory['core_count']} 件"
+        )
+        window.home_last_sync_label.setToolTip(
+            "当前背包快照的保存时间。同步内容未变化时沿用已有快照，保存时间不会更新；本次同步状态见上方。"
+        )
+    else:
+        window.home_last_sync_label.setText("尚无已保存的背包")
+        window.home_last_sync_label.setToolTip("")
+    window.auto_sync_controller.render()

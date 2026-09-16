@@ -1,5 +1,5 @@
-# 把单次逐击的推算 Buff 投影整理为可审计的中文详情。
-"""Qt-free explanation for inferred Buffs active on one battle hit."""
+# 把单次逐击的 Buff 证据与属性投影整理为可审计的中文详情。
+"""Qt-free explanation of the core's per-hit Buff decisions."""
 
 from __future__ import annotations
 
@@ -159,7 +159,7 @@ class BattleHitBuffExplanationService:
         if projection is None and allow_projection_fallback:
             projection = BattleBuffAttributeProjectionService.project_hit(hit, intervals)
         if projection is None:
-            return "本击未生成原生 Buff 详情；请先加载对应时段的逐击分析。"
+            return "本击未生成 Buff 分析详情；请先加载对应时段的逐击分析。"
         active_by_id = {row.interval_id: row for row in intervals}
         decisions = tuple(
             decision
@@ -179,11 +179,12 @@ class BattleHitBuffExplanationService:
             f"{hit.character_name} · {damage_name}",
             f"命中时间：{_time(hit.relative_time_us)}    目标：{hit.target_name}",
             (
-                f"命中时推算 Buff：{len(decisions)} 个    "
+                f"命中时 Buff 分析：{len(decisions)} 个    "
                 f"已投影 {counts['applied']} / 未采用 {counts['not_applied']} / "
                 f"待确认 {counts['unresolved']}"
             ),
-            "口径：这是冻结配装、动作和逐击推算，不是 nte-core 运行时实测 Buff。",
+            "口径：采用分析核心返回的逐击判定；运行时观测、静态规则与推断须按各项依据区分。",
+            "状态证据与数值证据分别标注；观测到效果存在，不等于已证明它对本击的数值收益。",
             "公式消费口径：已投影只表示进入逐击属性值；是否被当前伤害公式消费，"
             "以伤害公式列出的乘区和来源项为准。",
             "",
@@ -214,19 +215,22 @@ class BattleHitBuffExplanationService:
             for decision in matching:
                 interval = active_by_id[decision.interval_id]
                 lines.append(
-                    f"- {interval.buff_name} ×{interval.stacks}"
+                    f"- {interval.buff_name}（公式采用区间层数 ×{interval.stacks}）"
                     f"（来源角色：{interval.source_character_name}；"
                     f"作用对象：{_SCOPE_LABELS.get(interval.target_scope, interval.target_scope)}；"
                     f"区间：{_time(interval.start_us)}—{_time(interval.end_us)}；"
-                    f"状态 {interval.state_confidence} / 数值 {interval.value_confidence}）"
+                    f"状态 {decision.state_confidence or interval.state_confidence} / 数值 {interval.value_confidence}）"
                 )
+                if decision.observed_stacks is not None:
+                    lines.append(f"  回调采样层数：{decision.observed_stacks}；"
+                                 "该时点不等于执行前，不据此替换公式采用层数。")
                 lines.extend(_raw_modifier_lines(interval, decision))
                 if decision.reasons:
                     lines.append(f"  判定：{'；'.join(decision.reasons)}")
                 lines.extend((
                     f"  ID：{interval.source_effect_definition_id}",
                     f"  资产：{interval.buff_asset_path}",
-                    f"  推算依据：{interval.inference_basis}",
+                    f"  状态依据：{interval.inference_basis}",
                 ))
         if not decisions:
             lines.extend((

@@ -28,6 +28,8 @@ _HISTORY_SELECT = """
     SELECT
         record.battle_record_id,
         record.capture_operation_id,
+        COALESCE(json_type(record.raw_summary_json, '$.native_capture') = 'object', 0)
+            AS native_capture,
         COALESCE(record.evidence_source_kind, record.source_kind) AS source_kind,
         COALESCE(
             record.evidence_capability_level,
@@ -124,6 +126,7 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
             raise UserDataError("战报角色索引损坏")
         result["character_ids"] = tuple(int(item) for item in character_ids)
         for field in (
+            "native_capture",
             "has_first_half",
             "has_second_half",
             "abyss_detected",

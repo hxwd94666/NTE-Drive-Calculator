@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import QTimer
+from src.features.battle_report.timeline_range_mixin import select_axis_evidence
 
 
 class BattleAnalysisScopeMixin:
@@ -17,26 +18,7 @@ class BattleAnalysisScopeMixin:
         analysis = self._analysis
         if analysis is None:
             return (), (), ()
-        start_us = analysis.range_start_us
-        end_us = analysis.range_end_us
-        hits = tuple(
-            hit
-            for hit in getattr(analysis, "timeline_hits", ())
-            if start_us <= hit.relative_time_us < end_us
-        )
-        hit_ids = {hit.event_id for hit in hits}
-        actions = tuple(
-            action
-            for action in getattr(analysis, "inferred_actions", ())
-            if hit_ids.intersection(action.evidence_event_ids)
-        )
-        action_ids = {action.action_id for action in actions}
-        inputs = tuple(
-            row
-            for row in getattr(analysis, "inferred_inputs", ())
-            if row.action_id in action_ids
-        )
-        return hits, actions, inputs
+        return select_axis_evidence(analysis)
 
     def _focus_selected_timeline_range(self) -> None:
         """Bring the newly selected half-axis to the viewport start."""

@@ -111,9 +111,9 @@ class BattleGraduationFallbackTests(unittest.TestCase):
         self.assertEqual(first.warning_message, retry.warning_message)
 
     def test_native_inventory_still_takes_priority(self):
-        service = self._capture()
         with UserDataDao(self.database_path, account_id="account-a") as dao:
             dao.import_inventory_snapshot(_snapshot(1, [_equipped_item(101, 11, 1051)]))
+        service = self._capture()
         outcome = self._finish(service)
         self.assertIsNone(outcome.warning_message)
         with UserDataDao(self.database_path, account_id="account-a") as dao:
@@ -122,17 +122,25 @@ class BattleGraduationFallbackTests(unittest.TestCase):
         for role in build["characters"]:
             self.assertNotIn("equipment_assumption", role["profile"])
 
-    def test_failed_freeze_keeps_staging_for_retry(self):
-        service = self._capture()
-        with patch.object(service, "_resolve_character_stat_snapshots", side_effect=ValueError("fixture")):
+    def test_failed_start_freeze_does_not_stage_or_start_capture(self):
+        with patch.object(BattleReportPersistenceService, "_resolve_character_stat_snapshots", side_effect=ValueError("fixture")):
             with self.assertRaisesRegex(ValueError, "fixture"):
-                self._finish(service)
+                self._capture()
         with UserDataDao(self.database_path, account_id="account-a") as dao:
             state = dao.battle_axis_capture_state("template-fallback")
-            self.assertEqual("capturing", state["capture_state"])
-            self.assertIsNone(state["battle_record_id"])
-            self.assertEqual(1, state["stored_hits"])
-        self.assertEqual("saved", self._finish(service).status)
+            self.assertIsNone(state)
+        self.assertEqual("saved", self._finish(self._capture()).status)
+
+    def test_inventory_arriving_after_start_does_not_replace_frozen_assumption(self):
+        service = self._capture()
+        with UserDataDao(self.database_path, account_id="account-a") as dao:
+            dao.import_inventory_snapshot(_snapshot(1, [_equipped_item(101, 11, 1051)]))
+        with patch.object(service, "_load_effective_profiles", side_effect=AssertionError("late profile read")), \
+                patch.object(UserDataDao, "latest_native_inventory_snapshot_id", side_effect=AssertionError("late snapshot read")):
+            outcome = self._finish(service)
+        self.assertIn("毕业模板", outcome.warning_message)
+        with UserDataDao(self.database_path, account_id="account-a") as dao:
+            self.assertIsNone(dao.load_battle_build_snapshot(outcome.battle_record_id)["source_inventory_snapshot_id"])
 
     def test_transfer_preserves_assumed_equipment_and_main_stat_candidates(self):
         outcome = self._finish(self._capture())

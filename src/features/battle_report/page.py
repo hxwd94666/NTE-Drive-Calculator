@@ -24,12 +24,15 @@ from src.domain.battle_report import (
     BattleCaptureState,
     BattleSummary,
 )
+from src.domain.battle_capture_comparison import BattleCaptureComparisonState
+from src.features.battle_report.comparison_panel import BattleCaptureComparisonPanel
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
 from src.features.battle_report.analysis_progress_bar import (
     BattleAnalysisProgressBar,
 )
 from src.services.battle_analysis_progress import BattleAnalysisProgress
 from src.features.battle_report.marginal_page import BattleMarginalPage
+from src.features.battle_report.summary_clock import summary_clock_label
 from src.services.battle_buff_counterfactual_service import (
     BUFF_COUNTERFACTUAL_MODEL_VERSION,
 )
@@ -87,6 +90,7 @@ class BattleReportPage(QWidget):
     def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._latest_summary: BattleSummary | None = None
+        self._summary_record_id: int | None = None
         self._source_analysis = None
         self._marginal_result_scope: str | None = None
         self._marginal_result_is_candidate = False
@@ -96,6 +100,8 @@ class BattleReportPage(QWidget):
         ] = {}
         self._detail_scope = "current"
         self._capture_running = False
+        self._capture_busy = False
+        self._comparison_running = False
         self._stack = QStackedWidget(self)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -202,19 +208,27 @@ class BattleReportPage(QWidget):
         actions.addWidget(self.rerecord_button)
         actions.addStretch()
         control_layout.addLayout(actions)
+        self.comparison_toggle = QCheckBox("同时抓包对照")
+        self.comparison_toggle.setChecked(False)
+        self.comparison_toggle.setToolTip("DLL 就绪时同时运行抓包，各自保存战报；仅对照本次配对结果。")
+        control_layout.addWidget(self.comparison_toggle)
         root.addWidget(control_card)
+        self.comparison_panel = BattleCaptureComparisonPanel(content)
+        root.addWidget(self.comparison_panel)
 
         metrics = QGridLayout()
         definitions = (
-            ("dps", "队伍 DPS", "扣除停表时间"),
+            ("dps", "队伍 DPS", "等待计时数据"),
             ("damage", "总伤害", "完整战报"),
-            ("duration", "战斗时长", "扣除停表（括号为真实时长）"),
+            ("duration", "战斗时长", "等待计时数据"),
             ("taken", "承受伤害", "全队"),
         )
         self.metric_labels: dict[str, QLabel] = {}
+        self.metric_subtitles: dict[str, QLabel] = {}
         for column, (key, title, subtitle) in enumerate(definitions):
             card, value, _sub = metric_card(title, "—", subtitle)
             self.metric_labels[key] = value
+            self.metric_subtitles[key] = _sub
             metrics.addWidget(card, 0, column)
         root.addLayout(metrics)
 
@@ -368,6 +382,11 @@ class BattleReportPage(QWidget):
         self.marginal_baseline_requested.emit()
 
     def update_state(self, state: BattleCaptureState) -> None:
+        if state.battle_record_id != self._summary_record_id:
+            self._source_analysis = None
+            self._summary_record_id = state.battle_record_id
+        if state.phase == "history":
+            self.set_capture_comparison(None)
         tones = {
             "starting": ("启动中", "active"),
             "running": ("采集中", "success"),
@@ -382,6 +401,10 @@ class BattleReportPage(QWidget):
             state.message if not state.error else f"{state.message}：{state.error}"
         )
         self._capture_running = state.running
+        self._capture_busy = state.running or state.phase in {"starting", "stopping"}
+        self.comparison_toggle.setEnabled(
+            not self._capture_busy and not self._comparison_running
+        )
         stopping = state.phase == "stopping"
         self.capture_button.setText("结束保存" if state.running else "开始采集")
         object_name = "btnDanger" if state.running else "btnPrimary"
@@ -442,16 +465,23 @@ class BattleReportPage(QWidget):
         return self.long_analysis_view.detail_scope()
 
     def clear_summary(self) -> None:
+        self.set_capture_comparison(None)
         self.marginal_page.clear_candidate()
         self._source_analysis = None
         self._marginal_result_scope = None
         self._marginal_result_is_candidate = False
         self._marginal_baseline_by_scope.clear()
         self._latest_summary = None
+        self._summary_record_id = None
         self._detail_scope = "current"
         for label in self.metric_labels.values():
             label.setText("—")
         self.long_analysis_view.clear()
+
+    def set_capture_comparison(self, snapshot: BattleCaptureComparisonState | None) -> None:
+        self._comparison_running = snapshot is not None and not snapshot.finished
+        self.comparison_panel.set_snapshot(snapshot)
+        self.comparison_toggle.setEnabled(not self._capture_busy and not self._comparison_running)
 
     def set_analysis(self, analysis, *, selected_character_id=None, hit_details=None) -> None:
         self._source_analysis = analysis
@@ -478,11 +508,17 @@ class BattleReportPage(QWidget):
             )
             battle_start_us = int(getattr(analysis, "battle_start_us", 0))
             intervals = tuple(getattr(analysis, "time_stop_intervals", ()))
+            partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
             summary_duration_us = round(
                 self._latest_summary.duration_seconds * 1_000_000
             )
+            observed_intervals = tuple(
+                getattr(analysis, "observed_time_stop_intervals", ())
+            )
+            if not observed_intervals and getattr(analysis, "time_stop_source_kind", "") == "nte_core":
+                observed_intervals = intervals
             if (
-                getattr(analysis, "time_stop_source_kind", "") == "nte_core"
+                observed_intervals
                 and getattr(
                     self._latest_summary,
                     "dps_time_mode",
@@ -491,13 +527,13 @@ class BattleReportPage(QWidget):
                 == "subtract_time_stop"
             ):
                 interval_end_us = max(
-                    (end_us or battle_start_us for _start_us, end_us in intervals),
+                    (end_us or battle_start_us for _start_us, end_us in observed_intervals),
                     default=battle_start_us,
                 )
                 summary_duration_us += time_stop_overlap_us(
                     battle_start_us,
                     max(int(analysis.battle_end_us), interval_end_us),
-                    intervals,
+                    observed_intervals,
                 )
             raw_duration_us = max(
                 summary_duration_us,
@@ -506,7 +542,7 @@ class BattleReportPage(QWidget):
             active_duration_us = projected_range_duration_us(
                 battle_start_us,
                 battle_start_us + raw_duration_us,
-                intervals=intervals,
+                intervals=() if partial_clock else intervals,
                 mode=ACTIVE_TIME_MODE,
             )
             duration = max(0.001, active_duration_us / 1_000_000.0)
@@ -516,6 +552,10 @@ class BattleReportPage(QWidget):
             self.metric_labels["duration"].setText(
                 f"{duration:.1f}s（{real_duration:.1f}s）"
             )
+            subtitles = getattr(self, "metric_subtitles", {})
+            if subtitles:
+                subtitles["dps"].setText("真实时间（时停证据不完整）" if partial_clock else "有效时间")
+                subtitles["duration"].setText("时停覆盖不完整，未扣时停" if partial_clock else "扣除停表（括号为真实时长）")
         self.long_analysis_view.set_analysis(
             analysis,
             selected_character_id=selected_character_id,
@@ -610,10 +650,18 @@ class BattleReportPage(QWidget):
         self.long_analysis_view.audit_buttons["marginal"].setEnabled(available)
 
     def _render_summary(self, summary: BattleSummary) -> None:
+        if summary != self._latest_summary:
+            self._source_analysis = None
         self._latest_summary = summary
-        self.metric_labels["dps"].setText(_format_number(summary.total_dps))
-        self.metric_labels["damage"].setText(_format_number(summary.total_damage))
-        self.metric_labels["duration"].setText(f"{summary.duration_seconds:.1f}s")
+        # Retention/status notifications carry the same frozen summary. They must
+        # not replace this record's completed analysis with its raw clock again.
+        if self._source_analysis is None:
+            self.metric_labels["dps"].setText(_format_number(summary.total_dps))
+            self.metric_labels["damage"].setText(_format_number(summary.total_damage))
+            self.metric_labels["duration"].setText(f"{summary.duration_seconds:.1f}s")
+            clock = summary_clock_label(summary.dps_time_mode)
+            self.metric_subtitles["dps"].setText(clock)
+            self.metric_subtitles["duration"].setText(clock)
         self.metric_labels["taken"].setText(_format_number(summary.total_damage_taken))
         self.set_detail_scope(self._detail_scope)
         quality = summary.quality

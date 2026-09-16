@@ -102,7 +102,7 @@ def _gain_percent(counterfactual) -> str:
         return "—" if value is None else f"{value:+.2f}%"
     if status == "partial":
         value = counterfactual.quantified_gain_percent
-        return "—" if value is None else f"{value:+.2f}%（部分）"
+        return "—" if value is None else f"{value:+.2f}%"
     return "—"
 
 

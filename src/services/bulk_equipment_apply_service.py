@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.integrations.nte_core import equipment_request_failure_kind
+from src.integrations.operation_guard import OperationGuard, require_operation
 from src.observability.context import OperationContext
 from src.observability.operation import operation_scope
 from src.services.bulk_equipment_apply_postcheck import postcheck_and_repair
@@ -64,7 +65,9 @@ class BulkEquipmentApplyService:
         dao_factory=UserDataDao,
         apply_service_factory=EquipmentApplyService,
         operation_context: OperationContext | None = None,
+        operation_guard: OperationGuard | None = None,
     ) -> None:
+        self.operation_guard = operation_guard
         self.database_path = Path(database_path)
         self.sync_service = sync_service
         self.dao_factory = dao_factory
@@ -82,6 +85,7 @@ class BulkEquipmentApplyService:
         job_id: int | None = None,
         progress_callback: ProgressCallback = None,
     ) -> dict[str, Any]:
+        require_operation(self.operation_guard, "native_equipment")
         if job_id is None and bool(role_names) == bool(slot_ids):
             raise RuntimeError("极速装配必须指定角色或显式配装槽位（二者只能选其一）")
         requested_count = len(slot_ids or ()) if slot_ids else len(role_names or ())
@@ -127,6 +131,7 @@ class BulkEquipmentApplyService:
             apply_service = self.apply_service_factory(
                 user_dao,
                 self.sync_service,
+                operation_guard=self.operation_guard,
             )
             if job_id is not None:
                 prepared, pinned_snapshot_id, early = self._prepare_resume(
@@ -157,16 +162,17 @@ class BulkEquipmentApplyService:
                 source_snapshot_id=stable_snapshot_id,
             )
             try:
-                failure = self._execute_prepared(
-                    user_dao,
-                    apply_service,
-                    prepared,
-                    stable_snapshot_id,
-                    applied,
-                    identity_requests,
-                    int(job_id),
-                    progress_callback,
-                )
+                with self.sync_service.equipment_batch():
+                    failure = self._execute_prepared(
+                        user_dao,
+                        apply_service,
+                        prepared,
+                        stable_snapshot_id,
+                        applied,
+                        identity_requests,
+                        int(job_id),
+                        progress_callback,
+                    )
                 projected_count = self._project_dispatched_loadouts(
                     user_dao,
                     applied,
@@ -690,6 +696,8 @@ class BulkEquipmentApplyService:
                 break
             except Exception as exc:
                 last_error = exc
+                if equipment_request_failure_kind(exc) in {"outcome_unknown", "core_request_timeout"}:
+                    raise
                 if index + 1 >= len(targets):
                     raise
                 logger.warning(

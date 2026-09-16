@@ -5,19 +5,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QSize
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QLabel,
-    QPlainTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QWidget
 
-from src.app.theme import themed_style
-from src.app.window_geometry import fit_dialog_to_available_screen
 from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
 from src.domain.battle_report import (
     BattleAnalysisHit,
@@ -28,36 +18,16 @@ from src.domain.battle_report import (
 from src.services.battle_hit_replay_explanation_service import (
     BattleHitReplayExplanationService,
 )
-from src.services.skill_name_rendering_service import preferred_battle_damage_name
+from .hit_inspection_dialog import HitInspectionDialog
 
 
-class BattleHitFormulaDialog(QDialog):
+class BattleHitFormulaDialog(HitInspectionDialog):
     """Keep one non-modal dialog reusable while the user explores nearby hits."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self, parent: QWidget | None = None, *, game_ui_asset_root=None) -> None:
+        super().__init__(parent, game_ui_asset_root=game_ui_asset_root)
         self.setWindowTitle("逐击伤害公式")
-        self.setModal(False)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(10)
-
-        self.title_label = QLabel("逐击伤害公式")
-        self.title_label.setStyleSheet(
-            themed_style("color:#58a6ff;font-size:16px;font-weight:700")
-        )
-        root.addWidget(self.title_label)
-
-        self.detail = QPlainTextEdit()
         self.detail.setObjectName("battleHitFormulaDetail")
-        self.detail.setReadOnly(True)
-        self.detail.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        root.addWidget(self.detail, 1)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.hide)
-        root.addWidget(buttons)
-        fit_dialog_to_available_screen(self, QSize(960, 760))
 
     def set_hit(
         self,
@@ -68,14 +38,10 @@ class BattleHitFormulaDialog(QDialog):
         counterfactual: BattleBuildHitCounterfactual | None = None,
         related_counterfactuals: Sequence[BattleBuildHitCounterfactual] = (),
         related_analysis: BattleAnalysisSnapshot | None = None,
-        projection=None, related_hit_details=None,
+        projection=None, related_hit_details=None, participant_names=None, target_resolutions=(),
     ) -> None:
-        damage_name = preferred_battle_damage_name(
-            hit.damage_name,
-            hit.skill_name,
-            hit.ability_id,
-        )
-        self.title_label.setText(f"{hit.character_name} · {damage_name}")
+        self.setWindowTitle(f"逐击伤害公式 · Hit #{hit.sequence} · {hit.character_name}")
+        self.inspection.set_hit(hit, replay, projection, participant_names=participant_names, target_resolutions=target_resolutions)
         sections = [BattleHitReplayExplanationService.build(
             hit,
             replay,
@@ -157,7 +123,7 @@ class BattleHitFormulaDialog(QDialog):
         counterfactual: BattleBuildHitCounterfactual | None = None,
         related_counterfactuals: Sequence[BattleBuildHitCounterfactual] = (),
         related_analysis: BattleAnalysisSnapshot | None = None,
-        projection=None, related_hit_details=None,
+        projection=None, related_hit_details=None, participant_names=None, target_resolutions=(),
     ) -> None:
         self.set_hit(
             hit,
@@ -166,9 +132,10 @@ class BattleHitFormulaDialog(QDialog):
             counterfactual=counterfactual,
             related_counterfactuals=related_counterfactuals,
             related_analysis=related_analysis,
-            projection=projection, related_hit_details=related_hit_details,
+            projection=projection, related_hit_details=related_hit_details, participant_names=participant_names,
+            target_resolutions=target_resolutions,
         )
-        fit_dialog_to_available_screen(self, QSize(960, 760))
+        self.fit_overview()
         self.show()
         self.raise_()
         self.activateWindow()

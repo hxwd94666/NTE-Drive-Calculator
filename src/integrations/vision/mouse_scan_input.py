@@ -8,6 +8,7 @@ import random
 import time
 from dataclasses import dataclass
 from typing import Callable, Protocol
+from src.integrations.operation_guard import GuardedGuiInput, OperationGuard, require_operation
 
 
 def _round_half_up(value: float) -> int:
@@ -152,11 +153,13 @@ class PyAutoGuiMouseScanInput:
         rng: random.Random | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
         disable_pyautogui_pause: bool = False,
+        operation_guard: OperationGuard | None = None,
     ) -> None:
+        self.operation_guard = operation_guard
         import pyautogui
 
-        self._pyautogui = pyautogui
-        self._pyautogui.FAILSAFE = True
+        pyautogui.FAILSAFE = True
+        self._pyautogui = GuardedGuiInput(pyautogui, operation_guard)
         self._randomization = randomization or MouseInputRandomization()
         self._rng = rng or random.Random()
         self._sleep = sleep_fn
@@ -167,6 +170,7 @@ class PyAutoGuiMouseScanInput:
         return {"_pause": False} if self._disable_pyautogui_pause else {}
 
     def click(self, position: tuple[int, int], *, content_height: int) -> tuple[int, int]:
+        require_operation(self.operation_guard, "interface_input")
         self._last_scroll_position = None
         target = self._randomization.jitter_position(position, content_height, self._rng)
         self._pyautogui.mouseUp(button="left", **self._pause_kwargs())
@@ -184,6 +188,7 @@ class PyAutoGuiMouseScanInput:
         return target
 
     def scroll(self, position: tuple[int, int], amount: int) -> None:
+        require_operation(self.operation_guard, "interface_input")
         import ctypes
 
         if position != self._last_scroll_position:
@@ -195,6 +200,7 @@ class PyAutoGuiMouseScanInput:
             self._last_scroll_position = position
         # Preserve the reference implementation's Windows wheel delta while
         # moving to the scroll anchor only once for the nine-command sequence.
+        require_operation(self.operation_guard, "interface_input")
         ctypes.windll.user32.mouse_event(0x0800, 0, 0, int(amount), 0)
         self._sleep(self._randomization.after_scroll_seconds(self._rng))
 
@@ -207,7 +213,7 @@ class PyAutoGuiMouseScanInput:
         duration_seconds: float,
     ) -> None:
         """Perform one deliberate list-reset drag without click jitter."""
-
+        require_operation(self.operation_guard, "interface_input")
         self._last_scroll_position = None
         self._pyautogui.mouseUp(button="left", **self._pause_kwargs())
         self._pyautogui.moveTo(

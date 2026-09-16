@@ -1,0 +1,4635 @@
+{
+  "character": [
+    {
+      "request": {
+        "id": "4",
+        "jsonrpc": "2.0",
+        "method": "native.snapshot.refresh",
+        "params": {
+          "domain": "character"
+        }
+      },
+      "response": {
+        "id": "4",
+        "jsonrpc": "2.0",
+        "result": {
+          "changeCoverage": "unknown",
+          "characterRefs": [],
+          "characterRefsComplete": false,
+          "collectionComplete": false,
+          "collectionScope": null,
+          "complete": false,
+          "domain": "character",
+          "domainKey": "world-10:2/controller-15:1/ps-20:3/inventory-30:4/clone-None:-1:false:0:None",
+          "enabled": true,
+          "enumerationComplete": true,
+          "failed": false,
+          "generation": "91",
+          "missing": [
+            "collection_coverage_unverified",
+            "change_coverage_unverified",
+            "collection_spans_multiple_pulses",
+            "skill_level_stage",
+            "awaken_selection",
+            "runtime_attributes",
+            "character_scope_card_final_tower_and_trial"
+          ],
+          "observedMonotonicMs": "1000",
+          "observedUnixUs": "1700000000000000",
+          "providerId": "synthetic-provider",
+          "ready": true,
+          "recordCount": 2,
+          "snapshotId": "11",
+          "sourceCoverage": "unknown",
+          "sourceRecordCount": 2,
+          "state": "ready",
+          "truncated": false
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "5",
+        "jsonrpc": "2.0",
+        "method": "native.character.page",
+        "params": {
+          "limit": 64,
+          "offset": 0,
+          "snapshotId": "11"
+        }
+      },
+      "response": {
+        "id": "5",
+        "jsonrpc": "2.0",
+        "result": {
+          "changeCoverage": "unknown",
+          "characterRefs": [],
+          "characterRefsComplete": false,
+          "collectionComplete": false,
+          "collectionScope": null,
+          "complete": false,
+          "domain": "character",
+          "domainKey": "world-10:2/controller-15:1/ps-20:3/inventory-30:4/clone-None:-1:false:0:None",
+          "enabled": true,
+          "enumerationComplete": true,
+          "failed": false,
+          "generation": "91",
+          "missing": [
+            "collection_coverage_unverified",
+            "change_coverage_unverified",
+            "collection_spans_multiple_pulses",
+            "skill_level_stage",
+            "awaken_selection",
+            "runtime_attributes",
+            "character_scope_card_final_tower_and_trial"
+          ],
+          "nextOffset": null,
+          "observedMonotonicMs": "1000",
+          "observedUnixUs": "1700000000000000",
+          "profiles": [
+            {
+              "breakthrough_stage": 6,
+              "character_id": 1003,
+              "character_level": 80
+            },
+            {
+              "breakthrough_stage": 6,
+              "character_id": 1004,
+              "character_level": 80
+            }
+          ],
+          "projectionComplete": false,
+          "projectionMissing": [],
+          "providerId": "synthetic-provider",
+          "ready": true,
+          "recordCount": 2,
+          "snapshotId": "11",
+          "sourceCoverage": "unknown",
+          "sourceRecordCount": 2,
+          "state": "ready",
+          "truncated": false
+        }
+      }
+    }
+  ],
+  "inventory": [
+    {
+      "request": {
+        "id": "1",
+        "jsonrpc": "2.0",
+        "method": "native.snapshot.refresh",
+        "params": {
+          "domain": "inventory"
+        }
+      },
+      "response": {
+        "id": "1",
+        "jsonrpc": "2.0",
+        "result": {
+          "changeCoverage": "unknown",
+          "characterRefs": [
+            {
+              "EquipCoreSlots": [
+                {
+                  "Column": 0,
+                  "EquipNetID": {
+                    "key": "10002:700002",
+                    "serial": 700002,
+                    "solt": 10002
+                  },
+                  "EquipmentID": "Attack_orange",
+                  "Row": 0,
+                  "State": 1,
+                  "bFirstStep": true,
+                  "slotIndex": 0
+                }
+              ],
+              "EquipmentSlots": [
+                {
+                  "SlotList": [
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 0
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 1
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 2
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 3
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 4
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 5
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 6
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 7
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "10001:700001",
+                        "serial": 700001,
+                        "solt": 10001
+                      },
+                      "EquipmentID": "cell2_style1_1_Orange",
+                      "Row": 1,
+                      "State": 1,
+                      "bFirstStep": true,
+                      "slotIndex": 8
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "10001:700001",
+                        "serial": 700001,
+                        "solt": 10001
+                      },
+                      "EquipmentID": "cell2_style1_1_Orange",
+                      "Row": 1,
+                      "State": 1,
+                      "bFirstStep": false,
+                      "slotIndex": 9
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 10
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 11
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 12
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 13
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 14
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 15
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 16
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 17
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 18
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 19
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 20
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 21
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 22
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 23
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 24
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 25
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 26
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 27
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 28
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 29
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 30
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 31
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 32
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 33
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 34
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 35
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 36
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 37
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 38
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 39
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 40
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 41
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 42
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 43
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 44
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 45
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 46
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 47
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 48
+                    }
+                  ],
+                  "groupIndex": 0
+                }
+              ],
+              "ItemID": "1003",
+              "UniqueID": {
+                "key": "20001:900001",
+                "serial": 900001,
+                "solt": 20001
+              },
+              "bIsTemporary": false,
+              "bUnSaved": false,
+              "kind": "HTCharacterItem",
+              "source": "InventoryItemsMap.CARD"
+            },
+            {
+              "EquipCoreSlots": [
+                {
+                  "Column": 0,
+                  "EquipNetID": {
+                    "key": "0:0",
+                    "serial": 0,
+                    "solt": 0
+                  },
+                  "EquipmentID": "None",
+                  "Row": 0,
+                  "State": 0,
+                  "bFirstStep": false,
+                  "slotIndex": 0
+                }
+              ],
+              "EquipmentSlots": [
+                {
+                  "SlotList": [
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 0
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 1
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 2
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 3
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 4
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 5
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 6
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 7
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 8
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 9
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 10
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 11
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 12
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 13
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 14
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 15
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 16
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 17
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 18
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 19
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 20
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 21
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 22
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 23
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 24
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 25
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 26
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 27
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 28
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 29
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 30
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 31
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 32
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 33
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 34
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 35
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 36
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 37
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 38
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 39
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 40
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 41
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 42
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 43
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 44
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 45
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 46
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 47
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 48
+                    }
+                  ],
+                  "groupIndex": 0
+                }
+              ],
+              "ItemID": "1004",
+              "UniqueID": {
+                "key": "20002:900002",
+                "serial": 900002,
+                "solt": 20002
+              },
+              "bIsTemporary": false,
+              "bUnSaved": false,
+              "kind": "HTCharacterItem",
+              "source": "InventoryItemsMap.CARD"
+            }
+          ],
+          "characterRefsComplete": true,
+          "collectionComplete": true,
+          "collectionScope": "EQUIP",
+          "complete": false,
+          "domain": "inventory",
+          "domainKey": "world-10:2/controller-15:1/ps-20:3/inventory-30:4/clone-None:-1:false:0:None",
+          "enabled": true,
+          "enumerationComplete": true,
+          "failed": false,
+          "generation": "7",
+          "missing": [
+            "collection_coverage_unverified",
+            "change_coverage_unverified",
+            "collection_spans_multiple_pulses",
+            "equipment_attribute_units",
+            "inventory_scope_equip_container",
+            "collection_membership_only_values_not_atomic"
+          ],
+          "observedMonotonicMs": "1000",
+          "observedUnixUs": "1700000000000000",
+          "providerId": "synthetic-provider",
+          "ready": true,
+          "recordCount": 3,
+          "snapshotId": "10",
+          "sourceCoverage": "unknown",
+          "sourceRecordCount": 3,
+          "state": "ready",
+          "truncated": false
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "2",
+        "jsonrpc": "2.0",
+        "method": "native.inventory.page",
+        "params": {
+          "limit": 2,
+          "offset": 0,
+          "snapshotId": "10"
+        }
+      },
+      "response": {
+        "id": "2",
+        "jsonrpc": "2.0",
+        "result": {
+          "changeCoverage": "unknown",
+          "characterRefs": [
+            {
+              "EquipCoreSlots": [
+                {
+                  "Column": 0,
+                  "EquipNetID": {
+                    "key": "10002:700002",
+                    "serial": 700002,
+                    "solt": 10002
+                  },
+                  "EquipmentID": "Attack_orange",
+                  "Row": 0,
+                  "State": 1,
+                  "bFirstStep": true,
+                  "slotIndex": 0
+                }
+              ],
+              "EquipmentSlots": [
+                {
+                  "SlotList": [
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 0
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 1
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 2
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 3
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 4
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 5
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 6
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 7
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "10001:700001",
+                        "serial": 700001,
+                        "solt": 10001
+                      },
+                      "EquipmentID": "cell2_style1_1_Orange",
+                      "Row": 1,
+                      "State": 1,
+                      "bFirstStep": true,
+                      "slotIndex": 8
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "10001:700001",
+                        "serial": 700001,
+                        "solt": 10001
+                      },
+                      "EquipmentID": "cell2_style1_1_Orange",
+                      "Row": 1,
+                      "State": 1,
+                      "bFirstStep": false,
+                      "slotIndex": 9
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 10
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 11
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 12
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 13
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 14
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 15
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 16
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 17
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 18
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 19
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 20
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 21
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 22
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 23
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 24
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 25
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 26
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 27
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 28
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 29
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 30
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 31
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 32
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 33
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 34
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 35
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 36
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 37
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 38
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 39
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 40
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 41
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 42
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 43
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 44
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 45
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 46
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 47
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 48
+                    }
+                  ],
+                  "groupIndex": 0
+                }
+              ],
+              "ItemID": "1003",
+              "UniqueID": {
+                "key": "20001:900001",
+                "serial": 900001,
+                "solt": 20001
+              },
+              "bIsTemporary": false,
+              "bUnSaved": false,
+              "kind": "HTCharacterItem",
+              "source": "InventoryItemsMap.CARD"
+            },
+            {
+              "EquipCoreSlots": [
+                {
+                  "Column": 0,
+                  "EquipNetID": {
+                    "key": "0:0",
+                    "serial": 0,
+                    "solt": 0
+                  },
+                  "EquipmentID": "None",
+                  "Row": 0,
+                  "State": 0,
+                  "bFirstStep": false,
+                  "slotIndex": 0
+                }
+              ],
+              "EquipmentSlots": [
+                {
+                  "SlotList": [
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 0
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 1
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 2
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 3
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 4
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 5
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 6
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 7
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 8
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 9
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 10
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 11
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 12
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 13
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 14
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 15
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 16
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 17
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 18
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 19
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 20
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 21
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 22
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 23
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 24
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 25
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 26
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 27
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 28
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 29
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 30
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 31
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 32
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 33
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 34
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 35
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 36
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 37
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 38
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 39
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 40
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 41
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 42
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 43
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 44
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 45
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 46
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 47
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 48
+                    }
+                  ],
+                  "groupIndex": 0
+                }
+              ],
+              "ItemID": "1004",
+              "UniqueID": {
+                "key": "20002:900002",
+                "serial": 900002,
+                "solt": 20002
+              },
+              "bIsTemporary": false,
+              "bUnSaved": false,
+              "kind": "HTCharacterItem",
+              "source": "InventoryItemsMap.CARD"
+            }
+          ],
+          "characterRefsComplete": true,
+          "characters": [
+            {
+              "character_id": 1003,
+              "uid": {
+                "serial": 900001,
+                "slot": 20001
+              }
+            },
+            {
+              "character_id": 1004,
+              "uid": {
+                "serial": 900002,
+                "slot": 20002
+              }
+            }
+          ],
+          "collectionComplete": true,
+          "collectionScope": "EQUIP",
+          "complete": false,
+          "domain": "inventory",
+          "domainKey": "world-10:2/controller-15:1/ps-20:3/inventory-30:4/clone-None:-1:false:0:None",
+          "enabled": true,
+          "enumerationComplete": true,
+          "failed": false,
+          "generation": "7",
+          "items": [
+            {
+              "discarded": false,
+              "equipped": true,
+              "equipped_character_id": 1003,
+              "equipped_character_uid": {
+                "serial": 900001,
+                "slot": 20001
+              },
+              "equipped_placement": {
+                "column": 1,
+                "row": 1
+              },
+              "geometry": "Hen2",
+              "grid": 2,
+              "item_id": "cell2_style1_1_Orange",
+              "kind": "module",
+              "level": 20,
+              "locked": true,
+              "main_stats": [
+                {
+                  "names": {
+                    "en": "ATK",
+                    "ja": "攻撃力",
+                    "zh_cn": "攻击力"
+                  },
+                  "percent": false,
+                  "property_id": "AtkAdd",
+                  "value": 42.0
+                },
+                {
+                  "names": {
+                    "en": "HP",
+                    "ja": "HP",
+                    "zh_cn": "生命值"
+                  },
+                  "percent": false,
+                  "property_id": "HPMaxAdd",
+                  "value": 560.0
+                }
+              ],
+              "max_level": 20,
+              "names": {
+                "en": "Type II Module",
+                "ja": "駆動ブロックⅡ型",
+                "zh_cn": "Ⅱ型驱动"
+              },
+              "quality": "orange",
+              "sub_stats": [
+                {
+                  "names": {
+                    "en": "ATK Bonus",
+                    "ja": "攻撃力％",
+                    "zh_cn": "攻击力百分比"
+                  },
+                  "percent": true,
+                  "property_id": "AtkUp",
+                  "value": 0.05000000074505806
+                },
+                {
+                  "names": {
+                    "en": "CRIT Rate",
+                    "ja": "クリティカル率",
+                    "zh_cn": "暴击率"
+                  },
+                  "percent": true,
+                  "property_id": "CritBase",
+                  "value": 0.05999999865889549
+                },
+                {
+                  "names": {
+                    "en": "CRIT DMG",
+                    "ja": "クリティカルダメージ",
+                    "zh_cn": "暴击伤害"
+                  },
+                  "percent": true,
+                  "property_id": "CritDamageBase",
+                  "value": 0.11999999731779099
+                },
+                {
+                  "names": {
+                    "en": "DEF",
+                    "ja": "防御力",
+                    "zh_cn": "防御力"
+                  },
+                  "percent": false,
+                  "property_id": "DefAdd",
+                  "value": 18.0
+                }
+              ],
+              "suit_id": null,
+              "suit_names": null,
+              "uid": {
+                "serial": 700001,
+                "slot": 10001
+              }
+            },
+            {
+              "discarded": false,
+              "equipped": true,
+              "equipped_character_id": 1003,
+              "equipped_character_uid": {
+                "serial": 900001,
+                "slot": 20001
+              },
+              "equipped_placement": null,
+              "geometry": "Core",
+              "grid": null,
+              "item_id": "Attack_orange",
+              "kind": "core",
+              "level": 20,
+              "locked": true,
+              "main_stats": [
+                {
+                  "names": {
+                    "en": "ATK Bonus",
+                    "ja": "攻撃力％",
+                    "zh_cn": "攻击力百分比"
+                  },
+                  "percent": true,
+                  "property_id": "AtkUp",
+                  "value": 0.375
+                }
+              ],
+              "max_level": 20,
+              "names": {
+                "en": "Shadow Creed",
+                "ja": "「影の信条」",
+                "zh_cn": "「影之信条」"
+              },
+              "quality": "orange",
+              "sub_stats": [
+                {
+                  "names": {
+                    "en": "ATK Bonus",
+                    "ja": "攻撃力％",
+                    "zh_cn": "攻击力百分比"
+                  },
+                  "percent": true,
+                  "property_id": "AtkUp",
+                  "value": 0.05000000074505806
+                },
+                {
+                  "names": {
+                    "en": "CRIT Rate",
+                    "ja": "クリティカル率",
+                    "zh_cn": "暴击率"
+                  },
+                  "percent": true,
+                  "property_id": "CritBase",
+                  "value": 0.05999999865889549
+                },
+                {
+                  "names": {
+                    "en": "CRIT DMG",
+                    "ja": "クリティカルダメージ",
+                    "zh_cn": "暴击伤害"
+                  },
+                  "percent": true,
+                  "property_id": "CritDamageBase",
+                  "value": 0.11999999731779099
+                },
+                {
+                  "names": {
+                    "en": "DEF",
+                    "ja": "防御力",
+                    "zh_cn": "防御力"
+                  },
+                  "percent": false,
+                  "property_id": "DefAdd",
+                  "value": 18.0
+                }
+              ],
+              "suit_id": "Suit8",
+              "suit_names": {
+                "en": "Shadow Creed",
+                "ja": "「影の信条」",
+                "zh_cn": "「影之信条」"
+              },
+              "uid": {
+                "serial": 700002,
+                "slot": 10002
+              }
+            }
+          ],
+          "missing": [
+            "collection_coverage_unverified",
+            "change_coverage_unverified",
+            "collection_spans_multiple_pulses",
+            "equipment_attribute_units",
+            "inventory_scope_equip_container",
+            "collection_membership_only_values_not_atomic"
+          ],
+          "nextOffset": 2,
+          "observedMonotonicMs": "1000",
+          "observedUnixUs": "1700000000000000",
+          "projectionComplete": true,
+          "projectionMissing": [],
+          "providerId": "synthetic-provider",
+          "ready": true,
+          "recordCount": 3,
+          "referencedItemUids": [
+            {
+              "serial": 700001,
+              "slot": 10001
+            },
+            {
+              "serial": 700002,
+              "slot": 10002
+            }
+          ],
+          "snapshotId": "10",
+          "sourceCoverage": "unknown",
+          "sourceRecordCount": 3,
+          "statProvenance": {
+            "main": "static_catalog_curve",
+            "percent": "static_catalog",
+            "sub": "raw_save_struct_float"
+          },
+          "state": "ready",
+          "truncated": false
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "3",
+        "jsonrpc": "2.0",
+        "method": "native.inventory.page",
+        "params": {
+          "limit": 2,
+          "offset": 2,
+          "snapshotId": "10"
+        }
+      },
+      "response": {
+        "id": "3",
+        "jsonrpc": "2.0",
+        "result": {
+          "changeCoverage": "unknown",
+          "characterRefs": [
+            {
+              "EquipCoreSlots": [
+                {
+                  "Column": 0,
+                  "EquipNetID": {
+                    "key": "10002:700002",
+                    "serial": 700002,
+                    "solt": 10002
+                  },
+                  "EquipmentID": "Attack_orange",
+                  "Row": 0,
+                  "State": 1,
+                  "bFirstStep": true,
+                  "slotIndex": 0
+                }
+              ],
+              "EquipmentSlots": [
+                {
+                  "SlotList": [
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 0
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 1
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 2
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 3
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 4
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 5
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 6
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 7
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "10001:700001",
+                        "serial": 700001,
+                        "solt": 10001
+                      },
+                      "EquipmentID": "cell2_style1_1_Orange",
+                      "Row": 1,
+                      "State": 1,
+                      "bFirstStep": true,
+                      "slotIndex": 8
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "10001:700001",
+                        "serial": 700001,
+                        "solt": 10001
+                      },
+                      "EquipmentID": "cell2_style1_1_Orange",
+                      "Row": 1,
+                      "State": 1,
+                      "bFirstStep": false,
+                      "slotIndex": 9
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 10
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 11
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 12
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 13
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 14
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 15
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 16
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 17
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 18
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 19
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 20
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 21
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 22
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 23
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 24
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 25
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 26
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 27
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 28
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 29
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 30
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 31
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 32
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 33
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 34
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 35
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 36
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 37
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 38
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 39
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 40
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 41
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 42
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 43
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 44
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 45
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 46
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 47
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 48
+                    }
+                  ],
+                  "groupIndex": 0
+                }
+              ],
+              "ItemID": "1003",
+              "UniqueID": {
+                "key": "20001:900001",
+                "serial": 900001,
+                "solt": 20001
+              },
+              "bIsTemporary": false,
+              "bUnSaved": false,
+              "kind": "HTCharacterItem",
+              "source": "InventoryItemsMap.CARD"
+            },
+            {
+              "EquipCoreSlots": [
+                {
+                  "Column": 0,
+                  "EquipNetID": {
+                    "key": "0:0",
+                    "serial": 0,
+                    "solt": 0
+                  },
+                  "EquipmentID": "None",
+                  "Row": 0,
+                  "State": 0,
+                  "bFirstStep": false,
+                  "slotIndex": 0
+                }
+              ],
+              "EquipmentSlots": [
+                {
+                  "SlotList": [
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 0
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 1
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 2
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 3
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 4
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 5
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 0,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 6
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 7
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 8
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 9
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 10
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 11
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 12
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 1,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 13
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 14
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 15
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 16
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 17
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 18
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 19
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 2,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 20
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 21
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 22
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 23
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 24
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 25
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 26
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 3,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 27
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 28
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 29
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 30
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 31
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 32
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 33
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 4,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 34
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 35
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 36
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 37
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 38
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 39
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 40
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 5,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 41
+                    },
+                    {
+                      "Column": 0,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 42
+                    },
+                    {
+                      "Column": 1,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 43
+                    },
+                    {
+                      "Column": 2,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 44
+                    },
+                    {
+                      "Column": 3,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 45
+                    },
+                    {
+                      "Column": 4,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 46
+                    },
+                    {
+                      "Column": 5,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 47
+                    },
+                    {
+                      "Column": 6,
+                      "EquipNetID": {
+                        "key": "0:0",
+                        "serial": 0,
+                        "solt": 0
+                      },
+                      "EquipmentID": "None",
+                      "Row": 6,
+                      "State": 0,
+                      "bFirstStep": false,
+                      "slotIndex": 48
+                    }
+                  ],
+                  "groupIndex": 0
+                }
+              ],
+              "ItemID": "1004",
+              "UniqueID": {
+                "key": "20002:900002",
+                "serial": 900002,
+                "solt": 20002
+              },
+              "bIsTemporary": false,
+              "bUnSaved": false,
+              "kind": "HTCharacterItem",
+              "source": "InventoryItemsMap.CARD"
+            }
+          ],
+          "characterRefsComplete": true,
+          "characters": [
+            {
+              "character_id": 1003,
+              "uid": {
+                "serial": 900001,
+                "slot": 20001
+              }
+            },
+            {
+              "character_id": 1004,
+              "uid": {
+                "serial": 900002,
+                "slot": 20002
+              }
+            }
+          ],
+          "collectionComplete": true,
+          "collectionScope": "EQUIP",
+          "complete": false,
+          "domain": "inventory",
+          "domainKey": "world-10:2/controller-15:1/ps-20:3/inventory-30:4/clone-None:-1:false:0:None",
+          "enabled": true,
+          "enumerationComplete": true,
+          "failed": false,
+          "generation": "7",
+          "items": [
+            {
+              "discarded": true,
+              "equipped": false,
+              "equipped_character_id": null,
+              "equipped_character_uid": null,
+              "equipped_placement": null,
+              "geometry": "Hen2",
+              "grid": 2,
+              "item_id": "cell2_style1_1_Orange",
+              "kind": "module",
+              "level": 20,
+              "locked": false,
+              "main_stats": [
+                {
+                  "names": {
+                    "en": "ATK",
+                    "ja": "攻撃力",
+                    "zh_cn": "攻击力"
+                  },
+                  "percent": false,
+                  "property_id": "AtkAdd",
+                  "value": 42.0
+                },
+                {
+                  "names": {
+                    "en": "HP",
+                    "ja": "HP",
+                    "zh_cn": "生命值"
+                  },
+                  "percent": false,
+                  "property_id": "HPMaxAdd",
+                  "value": 560.0
+                }
+              ],
+              "max_level": 20,
+              "names": {
+                "en": "Type II Module",
+                "ja": "駆動ブロックⅡ型",
+                "zh_cn": "Ⅱ型驱动"
+              },
+              "quality": "orange",
+              "sub_stats": [
+                {
+                  "names": {
+                    "en": "ATK Bonus",
+                    "ja": "攻撃力％",
+                    "zh_cn": "攻击力百分比"
+                  },
+                  "percent": true,
+                  "property_id": "AtkUp",
+                  "value": 0.05000000074505806
+                },
+                {
+                  "names": {
+                    "en": "CRIT Rate",
+                    "ja": "クリティカル率",
+                    "zh_cn": "暴击率"
+                  },
+                  "percent": true,
+                  "property_id": "CritBase",
+                  "value": 0.05999999865889549
+                },
+                {
+                  "names": {
+                    "en": "CRIT DMG",
+                    "ja": "クリティカルダメージ",
+                    "zh_cn": "暴击伤害"
+                  },
+                  "percent": true,
+                  "property_id": "CritDamageBase",
+                  "value": 0.11999999731779099
+                },
+                {
+                  "names": {
+                    "en": "DEF",
+                    "ja": "防御力",
+                    "zh_cn": "防御力"
+                  },
+                  "percent": false,
+                  "property_id": "DefAdd",
+                  "value": 18.0
+                }
+              ],
+              "suit_id": null,
+              "suit_names": null,
+              "uid": {
+                "serial": 700003,
+                "slot": 10003
+              }
+            }
+          ],
+          "missing": [
+            "collection_coverage_unverified",
+            "change_coverage_unverified",
+            "collection_spans_multiple_pulses",
+            "equipment_attribute_units",
+            "inventory_scope_equip_container",
+            "collection_membership_only_values_not_atomic"
+          ],
+          "nextOffset": null,
+          "observedMonotonicMs": "1000",
+          "observedUnixUs": "1700000000000000",
+          "projectionComplete": true,
+          "projectionMissing": [],
+          "providerId": "synthetic-provider",
+          "ready": true,
+          "recordCount": 3,
+          "referencedItemUids": [
+            {
+              "serial": 700001,
+              "slot": 10001
+            },
+            {
+              "serial": 700002,
+              "slot": 10002
+            }
+          ],
+          "snapshotId": "10",
+          "sourceCoverage": "unknown",
+          "sourceRecordCount": 3,
+          "statProvenance": {
+            "main": "static_catalog_curve",
+            "percent": "static_catalog",
+            "sub": "raw_save_struct_float"
+          },
+          "state": "ready",
+          "truncated": false
+        }
+      }
+    }
+  ],
+  "origin": "source_authored_synthetic_fixture_not_live_capture",
+  "synthetic": true
+}

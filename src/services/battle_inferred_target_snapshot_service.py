@@ -418,7 +418,8 @@ class BattleInferredTargetSnapshotService:
                         inferred_monster_id=str(
                             item.get("inferred_monster_id") or ""
                         ),
-                        initial_max_hp=float(item.get("initial_max_hp") or 0.0),
+                        initial_max_hp=(None if item.get("initial_max_hp") is None
+                                        else float(item["initial_max_hp"])),
                     )
                     for item in value.get("identities") or ()
                     if isinstance(item, Mapping)
@@ -474,19 +475,19 @@ class BattleInferredTargetSnapshotService:
             return None
 
     @staticmethod
-    def is_current_row(
+    def is_readable_row(
         row: Mapping[str, Any] | None,
         *,
         static_dataset_id: str | None = None,
         static_schema_version: int | None = None,
     ) -> bool:
+        """Read persisted labels by payload contract; producer revisions are not schema versions."""
         return bool(
             row is not None
             and row.get("inference_status") == "resolved"
             and int(row.get("payload_schema_version") or 0)
             == INFERRED_TARGET_SNAPSHOT_SCHEMA_VERSION
-            and str(row.get("algorithm_version") or "")
-            == INFERRED_ENCOUNTER_ALGORITHM_VERSION
+            and str(row.get("algorithm_version") or "").strip()
             and (
                 static_dataset_id is None
                 or str(row.get("static_dataset_id") or "")

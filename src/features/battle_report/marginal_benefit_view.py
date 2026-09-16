@@ -115,7 +115,14 @@ def _render_core(
     notice: QLabel,
     benefits: BattleMarginalBenefits,
 ) -> None:
-    rows = benefits.core_main_stats
+    rows = sorted(
+        benefits.core_main_stats,
+        key=lambda row: (
+            row.contribution.role_gain_percent is not None,
+            row.contribution.role_gain_percent or 0.0,
+        ),
+        reverse=True,
+    )
     table.setRowCount(len(rows))
     notice.setText(benefits.core_notice)
     notice.setVisible(bool(benefits.core_notice))
@@ -206,22 +213,23 @@ def _gain(status: QuantificationStatus, value: float | None) -> str:
         return "—"
     if status == "not_applicable":
         return "+0.00%"
-    text = f"{value:+.2f}%"
-    return f"{text}（部分）" if status == "partial" else text
+    return f"{value:+.2f}%"
 
 
-def _status(delta: BattleMarginalDelta) -> str:
+def _status(delta: BattleMarginalDelta, *, details: bool = False) -> str:
+    role = quantification_status_text(delta.role_status) if details or delta.role_status != "partial" else ""
+    team = quantification_status_text(delta.team_status) if details or delta.team_status != "partial" else ""
     return (
-        f"角色{quantification_status_text(delta.role_status)} "
+        f"角色{role} "
         f"{delta.role_coverage_percent:.1f}% / "
-        f"全队{quantification_status_text(delta.team_status)} "
+        f"全队{team} "
         f"{delta.team_coverage_percent:.1f}%"
     )
 
 
 def _delta_tooltip(label: str, delta: BattleMarginalDelta) -> str:
     gaps = "\n".join(f"- {line}" for line in delta.gap_explanations)
-    text = f"{label}：{_status(delta)}。"
+    text = f"{label}：{_status(delta, details=True)}。"
     return text if not gaps else f"{text}\n缺失依赖：\n{gaps}"
 
 

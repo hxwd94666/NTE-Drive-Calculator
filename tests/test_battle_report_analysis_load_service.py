@@ -33,7 +33,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
         history.load_analysis.return_value = overview
         history.load_target_catalog.return_value = {"kinds": ()}
 
-        result = BattleReportAnalysisLoadService.load(
+        result = BattleReportAnalysisLoadService.load_legacy_for_differential(
             history,
             BattleReportAnalysisLoadRequest(
                 battle_record_id=12,
@@ -92,7 +92,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                 side_effect=(materialized, combined),
             ),
         ):
-            result = BattleReportAnalysisLoadService.load(history, request)
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(history, request)
 
         self.assertIs(combined, result.analysis)
         self.assertEqual({"kinds": ()}, result.target_catalog)
@@ -170,7 +170,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                 return_value=materialized,
             ) as clear_comparison,
         ):
-            result = BattleReportAnalysisLoadService.load(
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(
                 history,
                 BattleReportAnalysisLoadRequest(
                     battle_record_id=12,
@@ -230,7 +230,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                 return_value=combined,
             ),
         ):
-            result = BattleReportAnalysisLoadService.load(
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(
                 history,
                 BattleReportAnalysisLoadRequest(
                     battle_record_id=12,
@@ -253,7 +253,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             "catalog unavailable"
         )
 
-        result = BattleReportAnalysisLoadService.load(
+        result = BattleReportAnalysisLoadService.load_legacy_for_differential(
             history,
             BattleReportAnalysisLoadRequest(
                 battle_record_id=7,
@@ -289,7 +289,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
             patch("src.services.battle_report_analysis_load_service.BattleBuildCounterfactualService.compare"),
             patch("src.services.battle_report_analysis_load_service.BattleMarginalBenefitService.calculate", side_effect=calculate),
         ):
-            result = BattleReportAnalysisLoadService.load(history, BattleReportAnalysisLoadRequest(
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(history, BattleReportAnalysisLoadRequest(
                 battle_record_id=12, detail_level="marginal", marginal_candidate=candidate,
                 marginal_benefit_candidate=candidate, selected_character_id=1004,
                 comparison_baseline=analysis,
@@ -312,7 +312,7 @@ class BattleReportAnalysisLoadServiceTests(unittest.TestCase):
                 raise CancelledError
 
         with self.assertRaises(CancelledError):
-            BattleReportAnalysisLoadService.load(
+            BattleReportAnalysisLoadService.load_legacy_for_differential(
                 history,
                 BattleReportAnalysisLoadRequest(battle_record_id=7),
                 progress_callback=cancel,
@@ -376,11 +376,17 @@ class _AsyncHost(BattleReportAnalysisControllerMixin, QObject):
             refresh=lambda _record_id: None
         )
         self._history = Mock(native_page_loader=None)
+        self._history.native_page_loader = SimpleNamespace(load=self._legacy_fixture_load)
         self._marginal_units_provider = lambda: {"CritBase": 0.032}
         self._initialize_analysis_loading()
 
     def _current_history_service(self):
         return self._history
+
+    def _legacy_fixture_load(self, request, *, progress_callback=None):
+        return BattleReportAnalysisLoadService.load_legacy_for_differential(
+            self._history, request, progress_callback=progress_callback,
+        )
 
     def _save_analysis_range(self, *_args) -> None:
         pass

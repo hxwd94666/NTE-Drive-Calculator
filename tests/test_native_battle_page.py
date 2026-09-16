@@ -10,8 +10,8 @@ import traceback
 import unittest
 from unittest.mock import Mock, patch
 
-from src.domain.battle_report import BattleAnalysisSnapshot
-from src.integrations.native_battle_page_wire import decode
+from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot, BattleInferredBuffInterval
+from src.integrations.native_battle_page_wire import _decode_snapshot, decode, decode_derived_snapshot
 from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_native_page_service import BattleNativePageService
 from src.services.battle_report_analysis_load_service import BattleReportAnalysisLoadRequest
@@ -20,6 +20,29 @@ from tests.test_battle_marginal_benefit_service import _snapshot
 
 
 class NativeBattlePageTests(unittest.TestCase):
+    def test_timeline_evidence_reference_preserves_payload_and_cached_wire(self):
+        raw = json.loads(json.dumps(asdict(_snapshot())))
+        hit = asdict(BattleAnalysisHit(
+            'event', 1, 0, 1004, '角色', '普攻', '伤害', 'direct', 'A', 'dark',
+            'target', '目标', 10.0, 'outgoing', False, 'direct'))
+        evidence = {'payload_json': '{"buffs":null,"damage":10}', 'static_names': []}
+        hit['native_evidence'] = evidence
+        raw['hits'] = [hit]
+        raw['timeline_hits'] = [{**hit, 'native_evidence': {'reference_event_id': 'event'}},
+                                {**hit, 'event_id': 'outside', 'native_evidence': None}]
+        saved = json.dumps(raw)
+        restored = _decode_snapshot(raw)
+        self.assertEqual(restored.timeline_hits[0].native_evidence, restored.hits[0].native_evidence)
+        self.assertEqual(restored.hits[0].native_evidence.payload_json, evidence['payload_json'])
+        self.assertIsNone(restored.timeline_hits[1].native_evidence)
+        self.assertEqual(json.dumps(raw), saved)
+        for reference in ({'reference_event_id': 'other'},
+                          {'reference_event_id': 'event', 'payload_json': '{}'}):
+            with self.subTest(reference=reference), self.assertRaises(NativeAnalysisError):
+                _decode_snapshot({**raw, 'timeline_hits': [{**hit, 'native_evidence': reference}]})
+        with self.assertRaises(NativeAnalysisError):
+            _decode_snapshot({**raw, 'hits': []})
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -35,6 +58,34 @@ class NativeBattlePageTests(unittest.TestCase):
         raw['effective_damage'] = True
         with self.assertRaises(NativeAnalysisError):
             decode(raw, BattleAnalysisSnapshot)
+
+    def test_native_algorithm_revision_is_preserved_without_matching_legacy_python(self):
+        from src.services.battle_inferred_target_condition_service import BattleInferredEncounter
+        inferred = BattleInferredEncounter(
+            environment_kind='feast', environment_ref='stage', environment_name='场景',
+            source_kind='native_environment_with_static_candidates', confidence='高',
+            inference_basis='原生证据', scope_half='', outer_realm_floor=None,
+            difficulty_id=1, feast_options=(), targets=(), identities=(), target_condition=None,
+            algorithm_version='native-next-revision',
+        )
+        snapshot = {
+            'battle_record_id': 7, 'payload_schema_version': 1, 'static_schema_version': 31,
+            'static_dataset_id': 'fixture', 'inference_status': 'resolved',
+            'inferred_payload': json.loads(json.dumps(asdict(inferred))),
+            **{key: getattr(inferred, key) for key in (
+                'algorithm_version', 'environment_kind', 'environment_ref',
+                'environment_name', 'source_kind', 'confidence')},
+        }
+        self.assertEqual(decode_derived_snapshot(snapshot, battle_record_id=7,
+                         dataset_version='fixture'), snapshot)
+        for key, value in (('battle_record_id', 8), ('payload_schema_version', 2),
+                           ('static_dataset_id', 'other'), ('algorithm_version', '')):
+            with self.subTest(key=key), self.assertRaises(NativeAnalysisError):
+                decode_derived_snapshot({**snapshot, key: value}, battle_record_id=7,
+                                        dataset_version='fixture')
+        with self.assertRaisesRegex(NativeAnalysisError, '元数据不匹配'):
+            decode_derived_snapshot({**snapshot, 'algorithm_version': 'different'},
+                                    battle_record_id=7, dataset_version='fixture')
 
     def test_missing_or_old_component_does_not_fall_back_to_python(self):
         dependencies = BattleReportPersistenceDependencies('fixture', Path('missing-user.sqlite3'), 8, self.static_path)
@@ -99,6 +150,53 @@ class NativeBattlePageTests(unittest.TestCase):
         raw['made_up_damage'] = 123
         with self.assertRaises(NativeAnalysisError):
             decode(raw, BattleAnalysisSnapshot)
+
+    def test_native_buff_window_survives_full_page_analysis_decode(self):
+        interval = dict(
+            interval_id='fixture', buff_asset_path='fixture', buff_name='fixture',
+            source_effect_definition_id='', source_kind='native', source_character_id=1004,
+            source_character_name='fixture', target_scope='self', start_us=0, end_us=200,
+            stacks=1, duration_policy='duration', state_confidence='medium',
+            value_confidence='unknown', inference_basis='fixture', trigger_event_type='',
+            evidence_action_ids=[], evidence_event_ids=[], modifiers=[], native_window_end_us=100,
+        )
+        raw = json.loads(json.dumps(asdict(_snapshot())))
+        raw['buff_intervals'] = [interval]
+        raw['timeline_buff_intervals'] = [interval]
+        decoded = decode(raw, BattleAnalysisSnapshot | None)
+        self.assertEqual(decoded.buff_intervals[0].native_window_end_us, 100)
+        self.assertEqual(decoded.timeline_buff_intervals[0].native_window_end_us, 100)
+        for invalid in (True, '100', 100.5):
+            with self.subTest(invalid_type=type(invalid).__name__):
+                with self.assertRaises(NativeAnalysisError):
+                    decode(dict(interval, native_window_end_us=invalid), BattleInferredBuffInterval)
+        interval.pop('native_window_end_us')
+        self.assertIsNone(decode(interval, BattleInferredBuffInterval).native_window_end_us)
+        interval['native_window_end_us'] = None
+        self.assertIsNone(decode(interval, BattleInferredBuffInterval).native_window_end_us)
+
+    def test_target_buff_half_survives_strict_page_decode(self):
+        interval = dict(
+            interval_id='native:target:upper', buff_asset_path='fixture', buff_name='fixture',
+            source_effect_definition_id='fixture', source_kind='native_target_effect',
+            source_character_id=1003, source_character_name='fixture', target_scope='target',
+            target_id='target', start_us=0, end_us=0, stacks=1, duration_policy='observed_only',
+            state_confidence='medium', value_confidence='medium', inference_basis='fixture',
+            trigger_event_type='', evidence_action_ids=[], evidence_event_ids=[], modifiers=[],
+            scope_half='upper',
+        )
+        raw = json.loads(json.dumps(asdict(_snapshot())))
+        raw['buff_intervals'] = [interval]
+        raw['timeline_buff_intervals'] = [dict(interval, scope_half='lower')]
+        decoded = decode(raw, BattleAnalysisSnapshot | None)
+        self.assertEqual(decoded.buff_intervals[0].scope_half, 'upper')
+        self.assertEqual(decoded.timeline_buff_intervals[0].scope_half, 'lower')
+        for invalid in (None, True, 1):
+            with self.subTest(invalid_type=type(invalid).__name__):
+                with self.assertRaises(NativeAnalysisError):
+                    decode(dict(interval, scope_half=invalid), BattleInferredBuffInterval)
+        interval.pop('scope_half')
+        self.assertEqual(decode(interval, BattleInferredBuffInterval).scope_half, '')
 
     def test_request_never_serializes_cached_report_or_reads_database_in_python(self):
         client = Mock(load_battle_page=Mock(return_value={}))

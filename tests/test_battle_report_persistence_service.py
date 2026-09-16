@@ -115,6 +115,10 @@ class BattleReportPersistenceServiceTests(unittest.TestCase):
 
         class FakeUserDao:
             @staticmethod
+            def get_native_character_profile_observation(_character_id):
+                return None
+
+            @staticmethod
             def list_character_profiles(*, include_inactive):
                 self.assertTrue(include_inactive)
                 return []

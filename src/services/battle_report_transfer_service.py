@@ -18,6 +18,7 @@ from src.domain.battle_report_transfer import (
     BattleReportTransferEntry,
     battle_equipment_sha256,
     canonical_battle_equipment_json,
+    portable_battle_evidence,
 )
 from src.integrations.battle_report_bundle import (
     BATTLE_REPORT_BUNDLE_EXTENSION,
@@ -39,7 +40,7 @@ from src.storage.sqlite.user_data_dao import (
 
 BATTLE_REPORT_TRANSFER_FORMAT = "nte-drive-calculator.battle-report-package"
 BATTLE_REPORT_TRANSFER_VERSION = 2
-SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS = frozenset({36, 37, 38, 39})
+SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS = frozenset({36, 37, 38, 39, 40, 41, 42})
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +200,7 @@ class BattleReportTransferService:
                 ],
                 "unavailable_sections": unavailable,
                 "import_policy": {
-                    "idempotency": "capture_operation_id + raw_summary_sha256",
+                    "idempotency": "capture_operation_id + portable_summary_and_raw_evidence",
                     "local_id_remap": ["battle_record_id", "capture_id"],
                     "discarded_foreign_pointers": ["source_inventory_snapshot_id"],
                     "active_loadout_pointer_imported": False,
@@ -268,6 +269,7 @@ class BattleReportTransferService:
         unavailable: list[dict[str, Any]],
     ) -> dict[str, Any]:
         record_id = int(record["battle_record_id"])
+        row_graph = portable_battle_evidence(row_graph)
         tables = row_graph["tables"]
         raw_record = self._decoded_raw_row(
             tables["battle_axis_capture"], "raw_record_json"
@@ -280,7 +282,7 @@ class BattleReportTransferService:
                 "source_fields": dict(row),
                 "raw_hit": self._decoded_json(row.get("raw_hit_json")),
             })
-        projection = self._analysis_projection(record_id, unavailable)
+        projection = portable_battle_evidence(self._analysis_projection(record_id, unavailable))
         if not tables["battle_axis_capture"]:
             unavailable.append(self._unavailable(record_id, "nte_core_record_axis", "not_persisted"))
         if frozen_build is None:
@@ -328,7 +330,7 @@ class BattleReportTransferService:
             "nte_core": {
                 "summary": {
                     "payload_schema_version": record.get("payload_schema_version"),
-                    "sha256": record.get("raw_summary_sha256"),
+                    "sha256": tables["battle_record"][0].get("raw_summary_sha256"),
                     "raw": self._decoded_json(
                         tables["battle_record"][0].get("raw_summary_json")
                     ),

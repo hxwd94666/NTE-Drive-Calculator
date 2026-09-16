@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 import os
+import json
+import subprocess
 from pathlib import Path
 import secrets
 import threading
@@ -104,6 +107,63 @@ def packaged_mod_loader(application_root: str | Path) -> Path:
     )
 
 
+def _unique_capability_pairs(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError('duplicate capability key')
+        value[key] = item
+    return value
+
+
+def probe_mod_loader_capabilities(loader_path: str | Path) -> frozenset[str]:
+    """Query the explicit dry-run protocol; the Loader checks its own embedded shim."""
+    loader = Path(loader_path).resolve()
+    try:
+        completed = subprocess.run(
+            [str(loader), '--capabilities-json', '--dry-run', '--once'],
+            capture_output=True, text=True, encoding='utf-8-sig', errors='strict',
+            timeout=5, check=False, cwd=str(loader.parent),
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except OSError as error:
+        if getattr(error, 'winerror', None) == 740:
+            raise ModLoaderRuntimeError('当前运行环境未提权，无法读取 Loader 能力；请按应用正常提权方式启动。') from error
+        raise ModLoaderRuntimeError('无法运行 Loader 的只读能力检查。') from error
+    except (subprocess.TimeoutExpired, UnicodeError) as error:
+        raise ModLoaderRuntimeError('Loader 能力检查未正常完成；未启动加载。') from error
+    try:
+        if completed.returncode != 0 or len(completed.stdout) > 16384:
+            raise ValueError('query failed')
+        value = json.loads(completed.stdout, object_pairs_hook=_unique_capability_pairs)
+        if not isinstance(value, dict):
+            raise ValueError('capability object required')
+        modes = value.get('payload_load_modes')
+        kinds = value.get('payload_kinds')
+        if (type(value.get('schema_version')) is not int or value['schema_version'] != 1
+                or value.get('component') != 'nte-mod-loader'
+                or value.get('embedded_shim_compatible') is not True
+                or value.get('managed_session') is not True
+                or type(value.get('shim_protocol_version')) is not int or value['shim_protocol_version'] != 3
+                or not isinstance(modes, list) or not modes
+                or any(not isinstance(mode, str) for mode in modes) or len(modes) != len(set(modes))
+                or not isinstance(kinds, list) or any(not isinstance(kind, str) for kind in kinds)
+                or len(kinds) != len(set(kinds)) or 'nte_capture_runtime_v1' not in kinds):
+            raise ValueError('capability protocol mismatch')
+    except (ValueError, TypeError, AttributeError, RecursionError) as error:
+        raise ModLoaderRuntimeError('当前 Loader 与内嵌 shim 未声明兼容的标准加载能力，请更换配套 Loader。') from error
+    return frozenset(modes)
+
+
+def mod_loader_arguments(*, payload_path: Path, event_name: str, owner_pid: int,
+                         payload_load_mode: str = "loadlibrary") -> str:
+    if payload_load_mode != 'loadlibrary':
+        raise ModLoaderRuntimeError('不支持的 Loader payload 加载方式。')
+    mode = ' --payload-load-mode loadlibrary'
+    return (f'--dll "{payload_path}"{mode} --monitor-timeout 0 '
+            f'--stop-event "{event_name}" --owner-pid {owner_pid}')
+
+
 def game_launcher_executable(game_executable_path: str | Path) -> Path:
     """Resolve a trusted launcher from the user-selected HTGame installation."""
 
@@ -146,6 +206,13 @@ class ModLoaderRuntime:
         self._loader_path: Path | None = None
         self._payload_path: Path | None = None
 
+    def require_payload_load_mode(self, mode: str) -> None:
+        if mode != 'loadlibrary':
+            raise ModLoaderRuntimeError('此检查仅用于原生采集 DLL 的标准加载。')
+        loader = packaged_mod_loader(self._application_root)
+        if mode not in probe_mod_loader_capabilities(loader):
+            raise ModLoaderRuntimeError('当前 Loader 不支持标准采集加载，请更换配套 Loader。')
+
     def snapshot(self, *, payload_path: str | Path) -> ModLoaderRuntimeSnapshot:
         payload = Path(payload_path).resolve()
         try:
@@ -162,7 +229,7 @@ class ModLoaderRuntime:
                 "missing_payload",
                 loader,
                 payload,
-                detail="打包的 dwmapi.dll 不存在",
+                detail="Loader 的 payload 文件尚未准备。",
             )
         if os.name != "nt":
             return ModLoaderRuntimeSnapshot(
@@ -185,9 +252,14 @@ class ModLoaderRuntime:
         *,
         payload_path: str | Path,
         launcher_path: str | Path,
+        payload_load_mode: str = "loadlibrary",
+        launch_guard: Callable[[], None] | None = None,
     ) -> ModLoaderRuntimeSnapshot:
         if os.name != "nt":
             raise ModLoaderRuntimeError("Mod Loader 仅支持 Windows")
+        if payload_load_mode != 'loadlibrary':
+            raise ModLoaderRuntimeError('不支持的 Loader payload 加载方式。')
+        self.require_payload_load_mode(payload_load_mode)
         loader = packaged_mod_loader(self._application_root)
         payload = Path(payload_path).resolve()
         if not payload.is_file():
@@ -201,6 +273,8 @@ class ModLoaderRuntime:
             raise ModLoaderRuntimeError("未找到可交给 Mod Loader 的官方启动器")
 
         with self._lock:
+            if launch_guard is not None:
+                launch_guard()
             if self._refresh_running_locked():
                 return ModLoaderRuntimeSnapshot(
                     "running",
@@ -225,10 +299,8 @@ class ModLoaderRuntime:
                     f"无法创建 Loader 停止事件，Windows 错误 {ctypes.get_last_error()}"
                 )
 
-            parameters = (
-                f'--dll "{payload}" --monitor-timeout 0 '
-                f'--stop-event "{event_name}" --owner-pid {os.getpid()}'
-            )
+            parameters = mod_loader_arguments(payload_path=payload, event_name=event_name,
+                                               owner_pid=os.getpid(), payload_load_mode=payload_load_mode)
             execution = _ShellExecuteInfoW()
             execution.cbSize = ctypes.sizeof(_ShellExecuteInfoW)
             execution.fMask = _SEE_MASK_NOCLOSEPROCESS
@@ -244,9 +316,17 @@ class ModLoaderRuntime:
             os.environ[MOD_LOADER_LAUNCHER_ENV] = str(launcher)
             launch_error = 0
             try:
+                if launch_guard is not None:
+                    launch_guard()
                 launched = bool(shell_execute(ctypes.byref(execution)))
                 if not launched or not execution.hProcess:
                     launch_error = ctypes.get_last_error()
+            except Exception:
+                close_handle = kernel32.CloseHandle
+                close_handle.argtypes = (wintypes.HANDLE,)
+                close_handle.restype = wintypes.BOOL
+                close_handle(event_handle)
+                raise
             finally:
                 if previous_launcher is None:
                     os.environ.pop(MOD_LOADER_LAUNCHER_ENV, None)
