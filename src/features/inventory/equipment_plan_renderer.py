@@ -136,10 +136,7 @@ def _saved_plan_contains_virtual_equipment(
 def _saved_plan_requires_score_recalculation(
     role_data: Mapping[str, Any],
 ) -> bool:
-    return (
-        not bool(role_data.get("_sqlite_assignment_scores_complete"))
-        or _saved_plan_contains_virtual_equipment(role_data)
-    )
+    return not bool(role_data.get("_sqlite_assignment_scores_complete"))
 
 
 def _saved_official_attribute_panel(
@@ -156,20 +153,37 @@ def _saved_official_attribute_panel(
     def rows(
         source: Mapping[str, Any], mode: str
     ) -> tuple[AttributeSummaryRow, ...]:
-        return tuple(
-            AttributeSummaryRow(
-                key=str(row.key),
-                label=str(row.label),
+        result = []
+        for row in source.get(mode, ()):
+            key = str(row.key)
+            raw_label = str(row.label)
+            label = (
+                _OFFICIAL_STAT_LABELS.get(key, raw_label)
+                if key.endswith("Up")
+                else raw_label
+            )
+            weight_ids = tuple(getattr(row, "weight_property_ids", ()) or ())
+            weight_names = tuple(
+                _OFFICIAL_STAT_LABELS.get(str(property_id), str(property_id))
+                for property_id in weight_ids
+            ) or (label,)
+            weight_candidates = tuple(dict.fromkeys((*weight_names, raw_label)))
+            weights = []
+            if weight_for_stat is not None:
+                for name in weight_candidates:
+                    try:
+                        weights.append(float(weight_for_stat(name, mode)))
+                    except (KeyError, LookupError):
+                        continue
+            weight = max(weights, default=0.0)
+            result.append(AttributeSummaryRow(
+                key=key,
+                label=label,
                 value=round(float(row.value) * (100.0 if row.percent else 1.0), 2),
                 percent=bool(row.percent),
-                weight=(
-                    float(weight_for_stat(str(row.label), mode))
-                    if weight_for_stat is not None
-                    else 0.0
-                ),
-            )
-            for row in source.get(mode, ())
-        )
+                weight=weight,
+            ))
+        return tuple(result)
 
     current_rows = {
         "equipment": rows(summaries, "equipment"),

@@ -31,14 +31,15 @@ def test_risk_confirmation_only_accepts_explicit_consent(monkeypatch, mode, acti
         assert cancel.isDefault() and not consent.isDefault()
         assert not consent.autoDefault()
         text = dialog.findChild(QLabel).text()
-        assert ("虚拟键盘鼠标" in text and "不推荐" in text) if mode == "low" else True
-        assert ("游戏自身方法" in text and "推荐使用" in text) if mode == "medium" else True
-        assert "请勿作为日常模式开启" in text if mode == "developer" else True
+        assert ("模拟输入" in text and "极速装配等功能不可用" in text) if mode == "low" else True
+        assert ("更新游戏中的对应状态" in text and "兼容问题" in text) if mode == "medium" else True
+        assert "问题排查" in text if mode == "developer" else True
         if mode == "offline":
             assert "停止采集与同步" in text and "清理已部署" in text
-            assert "自动同步开启时会连接游戏并同步背包" not in text
+            assert "自动同步开启时会连接游戏" not in text
         else:
-            assert "自动同步开启时会连接游戏并同步背包" in text and "可在首页随时关闭" in text
+            assert "自动同步开启时会连接游戏" in text and "可在首页随时关闭" in text
+        assert "推荐使用" not in text and "暂未发现" not in text and "极低" not in text
         assert "暂停自动管理" not in text
         assert ("自动部署或更新" in text) == (mode in {"medium", "developer"})
         assert "双路对照" in text if mode == "developer" else True
@@ -92,5 +93,10 @@ def test_low_mode_report_offers_download_only_for_confirmed_missing_npcap(tmp_pa
     dialog = ModeReportDialog(parent, controller)
     dialog.begin('low')
     dialog.set_report(report)
+    assert dialog.close_button.width() == 72
+    assert dialog.retry_button.width() == 88
+    assert dialog.footer.indexOf(dialog.retry_button) < dialog.footer.indexOf(dialog.close_button)
+    dialog.retry_button.click()
+    controller.check.assert_called_once_with(show=True)
     interact(dialog)
     dispose(parent)

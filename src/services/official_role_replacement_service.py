@@ -272,7 +272,7 @@ def save_official_role_replacement(
     context = (detail.get("equipment_contexts") or {}).get(context_key) or {}
     plan = context.get("plan")
     if not isinstance(plan, Mapping) or plan.get("source_snapshot_id") is None:
-        raise ValueError("请先保存一套 SQLite 配装方案，再使用替换优化")
+        raise ValueError("请先保存一套配装方案，再使用替换优化")
     original_assignments = []
     assignments = []
     replaced = False
@@ -298,7 +298,7 @@ def save_official_role_replacement(
             replaced = True
         assignments.append(assignment)
     if not replaced:
-        raise ValueError("目标装备不属于当前 SQLite 配装方案")
+        raise ValueError("目标装备不属于当前配装方案")
     if len({(int(row.get("uid_serial") or 0), int(row.get("uid_slot") or 0)) for row in assignments}) != len(assignments):
         raise ValueError("替换装备已在当前方案中使用")
     target_kind = str(target.get("kind") or "")

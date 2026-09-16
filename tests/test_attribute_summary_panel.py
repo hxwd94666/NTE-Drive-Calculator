@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QW
 from src.ui.attribute_summary_panel import AttributeSummaryPanel, AttributeSummaryRow
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.inventory.equipment_plan_renderer import (
+    _game_official_attribute_panel,
     _saved_official_attribute_panel,
 )
 from src.features.weighted_allocation.weighted_result_view import _role_option_card
@@ -168,6 +169,34 @@ class AttributeSummaryPanelTests(unittest.TestCase):
         self.assertIn("+1120", character_texts)
         self.assertIn("+120", character_texts)
 
+    def test_game_official_panel_compares_current_profile_with_selected_slot(self) -> None:
+        old_character = SimpleNamespace(
+            key="PanelAtk", label="面板攻击力", value=1000.0, percent=False,
+        )
+        current_character = SimpleNamespace(
+            key="PanelAtk", label="面板攻击力", value=1120.0, percent=False,
+        )
+        panel = _game_official_attribute_panel(
+            "角色",
+            {
+                "_official_attribute_summaries": {
+                    "equipment": (), "character": (current_character,),
+                },
+            },
+            {
+                "_official_attribute_summaries": {
+                    "equipment": (), "character": (old_character,),
+                },
+            },
+        )
+
+        self.assertIsNotNone(panel)
+        panel.set_mode("character")
+        texts = [label.text() for label in panel._content_host.findChildren(QLabel)]
+        self.assertIn("+1000", texts)
+        self.assertIn("+1120", texts)
+        self.assertIn("+120", texts)
+
     def test_saved_official_panel_applies_role_weight_sort_and_color(self) -> None:
         low = SimpleNamespace(
             key="HPMaxAdd", label="生命值", value=1000.0, percent=False,
@@ -188,6 +217,67 @@ class AttributeSummaryPanelTests(unittest.TestCase):
         ]
         self.assertEqual(["暴击率", "生命值"], [label.text() for label in labels])
         self.assertIn("#f0883e", labels[0].styleSheet())
+
+    def test_official_attack_percent_keeps_percent_label_and_item_weight_color(self) -> None:
+        attack_percent = SimpleNamespace(
+            key="AtkUp",
+            label="攻击力",
+            value=0.3575,
+            percent=True,
+            weight_property_ids=("AtkUp",),
+        )
+        panel = _saved_official_attribute_panel(
+            "角色",
+            {
+                "_official_attribute_summaries": {
+                    "equipment": (attack_percent,),
+                    "character": (),
+                }
+            },
+            weight_for_stat=lambda stat, _mode: {"攻击力%": 0.9}.get(stat, 0.4),
+        )
+
+        label = next(
+            current for current in panel._content_host.findChildren(QLabel)
+            if current.text() == "攻击力%"
+        )
+        self.assertIn("#f0883e", label.styleSheet())
+
+    def test_calculation_summary_uses_the_same_color_as_attack_percent_item_stat(self) -> None:
+        presentation = EquipmentPresentation(
+            app_context=SimpleNamespace(
+                paths=SimpleNamespace(asset_dir=Path(".")),
+                account=SimpleNamespace(user_database_path=Path("user.sqlite3")),
+            ),
+            dialog_parent=None,
+        )
+        presentation.update_catalog(
+            roles_db={
+                "角色": {
+                    "weights": {"攻击力": 0.4, "攻击力%": 0.9},
+                    "main_weights": {},
+                }
+            },
+            scoring_engine=None,
+            shape_areas={"H_2": 2},
+        )
+        panel = presentation.role_bonus_summary_panel(
+            "角色",
+            None,
+            [{
+                "shape_id": "H_2",
+                "quality": "Gold",
+                "sub_stats": {"攻击力%": 3.75},
+            }],
+        )
+
+        labels = {
+            label.text(): label
+            for label in panel.findChildren(QLabel)
+            if label.text() in {"攻击力", "攻击力%"}
+        }
+        self.assertIn("#f0883e", labels["攻击力%"].styleSheet())
+        self.assertIn("#58a6ff", labels["攻击力"].styleSheet())
 
     def test_weighted_result_shows_changed_saved_slot_menu(self) -> None:
         comparison = WeightedLoadoutComparison(

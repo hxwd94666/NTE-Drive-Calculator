@@ -261,7 +261,7 @@ class AutoSyncController(QObject):
             self._dialog.raise_()
             return
         if not self.policy.allowed("native_sync") and not self.policy.allowed("packet_capture"):
-            self.window.operation_entry("game_sync", "重新同步")
+            self.window.operation_entry("game_sync", "重启同步")
             return
         from src.features.home.sync_retry_dialog import SyncRetryDialog
         dialog = SyncRetryDialog(self.window, controller=self, native=self.policy.allowed("native_sync"))
@@ -284,7 +284,7 @@ class AutoSyncController(QObject):
         self._retry_cancelled = False
         self._stop_failed = False
         self._restarting = True
-        self._detail = "正在停止旧会话并重新准备监听，已保存背包保持可用。"
+        self._detail = "正在停止旧会话并重新建立同步，已保存背包保持可用。"
         if self._watcher is not None and not self._watcher.is_running:
             self._stop_watcher()
         self._stop_inventory()
@@ -295,7 +295,7 @@ class AutoSyncController(QObject):
             return
         self._restarting = False
         self._retry_cancelled = True
-        self._detail = "本次重新同步已取消，可点击重新同步重试。已保存背包保持可用。"
+        self._detail = "本次重启同步已取消，可点击“重启同步”重试。已保存背包保持可用。"
         self._stop_inventory()
         self.render()
 
@@ -321,11 +321,19 @@ class AutoSyncController(QObject):
         toggle.blockSignals(False)
         native = self.policy.allowed("native_sync")
         online = native or self.policy.allowed("packet_capture")
-        source = ("自动连接游戏，同步背包、角色当前装备及养成（等级、突破、技能、好感度、弧盘），并持续监听变化。" if native else
-                  "自动监控游戏进程，登录时抓包同步背包与角色当前装备，并持续监听变化；角色养成需手动配置。")
+        source = ("来源：游戏内组件" if native else
+                  "来源：抓包（角色养成需手动维护）")
+        source_tip = (
+            "同步背包、当前装备及角色养成（等级、突破、技能、好感度、弧盘），并持续监听变化。"
+            if native else
+            "同步背包和当前装备并持续监听变化；角色养成需手动维护。"
+        )
         if not online:
-            source = "离线模式不连接游戏；开启同步可前往设置选择工作模式。"
+            source = "离线模式：使用已保存数据"
+            source_tip = "不连接游戏，也不采集新数据。"
         self.window.home_sync_source_label.setText(source)
+        self.window.home_sync_source_label.setToolTip(source_tip)
+        self.window.home_sync_source_label.hide()
         title = getattr(self.window, "home_sync_title", None)
         if title is not None:
             title.setText("背包同步" if online and not native else "游戏数据同步")
@@ -333,14 +341,20 @@ class AutoSyncController(QObject):
         state = service.state if service is not None else None
         role_detail = getattr(self.window, "home_character_sync_detail", None)
         if role_detail is not None:
-            role_detail.setVisible(native)
             error = getattr(state, "character_sync_error", None)
-            role_detail.setText(error or role_detail.property("savedSummary"))
+            role_detail.setVisible(bool(native and error))
+            if native and error:
+                role_detail.setText(error)
         battle = self.window.battle_report_controller.is_running()
         button = self.window.home_restart_sync_button
-        button.setText("重新同步" if settings.auto_sync_enabled else "开启自动同步")
+        button.setText("重启同步" if settings.auto_sync_enabled else "开启自动同步")
+        button.setToolTip(
+            "停止当前同步连接并重新建立；用于同步异常或背包未更新。已保存数据不会删除。"
+            if settings.auto_sync_enabled else
+            "开启后，登录游戏时自动读取并保存数据。"
+        )
         button.setEnabled(not self._stopping and (not battle or not settings.auto_sync_enabled))
-        hint = "请先结束战报，再重新同步。" if battle and settings.auto_sync_enabled else ""
+        hint = "请先结束战报，再重启同步。" if battle and settings.auto_sync_enabled else ""
         self.window.home_sync_action_hint.setText(hint)
         self.window.home_sync_action_hint.setVisible(bool(hint))
         detail = None

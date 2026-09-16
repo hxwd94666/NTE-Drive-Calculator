@@ -25,7 +25,7 @@ from src.optimizer.contracts import (
     EQUIP_DISPLAY_NAME,
     EQUIP_SET_NAME,
     EQUIP_UID,
-    ROLE_EQUIPPED_DRIVES,
+    ROLE_EQUIPPED_TAPE,
 )
 from src.features.inventory.equipment_display_context import equipment_presentation
 from src.features.inventory.equipment_loadout_scoring import (
@@ -213,6 +213,29 @@ def reset_equipment_account_state(self: Any) -> None:
     self._equip_selected_role_by_mode = {}
 
 
+def _slot_suit_names(states: Any, slot_id: int) -> tuple[str, ...]:
+    """Read the equipped core suit from flat or role-grouped display states."""
+
+    pending = list((states or {}).values()) if isinstance(states, dict) else []
+    while pending:
+        state = pending.pop(0)
+        if not isinstance(state, dict):
+            continue
+        pending.extend(
+            child
+            for child in (state.get("_role_slot_states") or ())
+            if isinstance(child, dict)
+        )
+        if state.get("_loadout_slot_id") != slot_id:
+            continue
+        tape = state.get(ROLE_EQUIPPED_TAPE)
+        if not isinstance(tape, dict):
+            return ()
+        suit_name = str(tape.get(EQUIP_SET_NAME) or "").strip()
+        return (suit_name,) if suit_name else ()
+    return ()
+
+
 def refresh_saved_equipment_after_mutation(
     self: Any,
     *,
@@ -329,21 +352,11 @@ def _manage_loadout_slot(
         return str(slot["slot_name"])
 
     def slot_suit_text(slot: dict[str, Any]) -> str:
-        slot_state = next(
-            (
-                state
-                for state in (getattr(self, "_saved_equipment_states", {}) or {}).values()
-                if isinstance(state, dict)
-                and state.get("_loadout_slot_id") == slot["slot_id"]
-            ),
-            {},
+        suit_names = _slot_suit_names(
+            getattr(self, "_saved_equipment_states", {}),
+            int(slot["slot_id"]),
         )
-        suit_names = {
-            str(drive.get(EQUIP_SET_NAME)).strip()
-            for drive in slot_state.get(ROLE_EQUIPPED_DRIVES, ()) or ()
-            if isinstance(drive, dict) and str(drive.get(EQUIP_SET_NAME) or "").strip()
-        }
-        return f"套装：{' / '.join(sorted(suit_names))}" if suit_names else "套装：未装备"
+        return f"套装：{' / '.join(suit_names)}" if suit_names else "套装：未装备"
 
     def selected_slot() -> dict[str, Any] | None:
         selected_id = selector.currentData()

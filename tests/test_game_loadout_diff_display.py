@@ -133,6 +133,49 @@ def test_saved_plan_cards_use_its_frozen_assignment_scores() -> None:
     assert card["grade"]
 
 
+def test_saved_plan_total_is_rebuilt_from_complete_frozen_item_scores() -> None:
+    """旧聚合分有偏差时，展示总分必须服从完整逐件冻结分。"""
+
+    from src.features.inventory.equipment_plan_optimizer import (
+        _sqlite_plan_display_state,
+    )
+
+    drive = {
+        "kind": "module",
+        "uid_serial": 10,
+        "uid_slot": 11,
+        "geometry": "Hen2",
+        "quality": "orange",
+        "main_stats": [],
+        "sub_stats": [],
+    }
+    uid = "nte-module-11-10"
+    state = _sqlite_plan_display_state(
+        {
+            "plan_id": 1,
+            "source_snapshot_id": 43,
+            "score": 999.0,
+            "payload": {"assignment_scores": {uid: 17.25}},
+            "assignments": [{
+                "kind": "module",
+                "uid_serial": 10,
+                "uid_slot": 11,
+                "target_row": 1,
+                "target_column": 1,
+            }],
+            "allocation_locked": False,
+        },
+        object(),
+        object(),
+        inventory_by_snapshot={43: {(10, 11): drive}},
+        shape_cells={"EquipmentGeometry_Hen2": [{"x": 1, "y": 1}]},
+        suit_names={},
+        attribute_ids=set(),
+    )
+
+    assert state["total_score"] == 17.25
+
+
 def test_diff_tape_card_renders_its_projected_item_icon(tmp_path) -> None:
     from types import SimpleNamespace
 
@@ -677,6 +720,17 @@ def test_missing_tape_game_detail_keeps_blueprint(monkeypatch) -> None:
         "_load_sqlite_equipment_display_states",
         lambda *_args, **_kwargs: {},
     )
+    summary_calls = []
+
+    def load_summaries(_user, _static, character_id, items, **_kwargs):
+        summary_calls.append((character_id, tuple(item["item_id"] for item in items)))
+        return {"equipment": ("equipment",), "character": ("character",)}
+
+    monkeypatch.setattr(
+        equipment_display_loaders,
+        "load_saved_loadout_attribute_summaries",
+        load_summaries,
+    )
 
     result = display_view._load_game_equipment_display_states(
         "user.sqlite3",
@@ -685,6 +739,8 @@ def test_missing_tape_game_detail_keeps_blueprint(monkeypatch) -> None:
 
     state = result["states"]["角色一"]
     assert state["_game_importable"] is True
+    assert state["_official_attribute_summaries"]["character"] == ("character",)
+    assert summary_calls == [(1003, ("module-a",))]
     assert state["_game_status"] == "missing_tape"
     assert state["equipped_tape"] is None
     assert state["blueprint_layout"][0][:2] == ["H_2", "H_2"]

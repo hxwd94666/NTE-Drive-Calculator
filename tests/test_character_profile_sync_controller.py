@@ -58,9 +58,17 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         role_controller = SimpleNamespace(load_world_bonus=lambda: WorldBonusSettings())
         with patch.object(role_shell, '_role_controller', return_value=role_controller), patch.object(role_shell, '_refresh_my_role'):
             page = role_shell._page_my_role(window)
-        button = page.findChild(QPushButton, 'officialRoleSync')
+        button = next(
+            item for item in page.findChildren(QPushButton)
+            if item.text() == '同步状态'
+        )
         self.assertIsNotNone(button)
-        self.assertEqual('同步角色状态', button.text())
+        self.assertEqual('btnAction', button.objectName())
+        save = next(
+            item for item in page.findChildren(QPushButton)
+            if item.text() == '保存'
+        )
+        self.assertEqual(save.height(), button.height())
         button.click()
         self.assertFalse(window.my_role_form_area.isEnabled())
         self.finish_read()
@@ -116,14 +124,14 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
     def test_only_complete_profiles_are_patched_then_refreshed(self):
         self.controller.start()
         self.assertFalse(self.editor.isEnabled())
-        self.assertEqual('取消同步角色状态', self.button.text())
+        self.assertEqual('取消同步', self.button.text())
         self.service.patch_native_profiles.assert_not_called()
         self.finish_read()
         self.service.patch_native_profiles.assert_called_once()
         self.assertEqual(self.reader.return_value['profiles'], self.service.patch_native_profiles.call_args.args[0])
         self.refresh.assert_called_once()
         self.assertTrue(self.editor.isEnabled())
-        self.assertEqual('同步角色状态', self.button.text())
+        self.assertEqual('同步状态', self.button.text())
 
     def test_cancel_during_read_never_patches_or_shows_error(self):
         def read(*, check):

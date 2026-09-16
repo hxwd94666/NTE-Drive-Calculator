@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
 from src.features.battle_report.marginal_page import BattleMarginalPage
@@ -22,6 +22,7 @@ class BattleHelpButtonTests(unittest.TestCase):
             BattleReportPage(game_ui_asset_root=None),
         )
         try:
+            self.assertIsNone(widgets[-1].findChild(QLabel, "battleCounterfactualNotice"))
             buttons = tuple(
                 button
                 for widget in widgets

@@ -184,7 +184,7 @@ def _start_automatic_equipment_assembly(
             slot_ids=slot_ids,
         )
     except Exception as exc:
-        QMessageBox.warning(window, "自动装配", f"无法读取官方 SQLite 方案：{exc}")
+        QMessageBox.warning(window, "自动装配", f"读取已保存方案失败：{exc}")
         return
 
     execution_role_names = list(state)
@@ -387,14 +387,14 @@ def _preview_automatic_assemble_all_roles(
         QMessageBox.warning(
             window,
             "自动装配",
-            f"无法读取官方 SQLite 方案：{exc}",
+            f"读取已保存方案失败：{exc}",
         )
         return
     if not selections:
         QMessageBox.information(
             window,
             "自动装配",
-            "当前没有来自官方背包快照的已保存方案。请先重新计算并保存。",
+            "当前没有基于原生同步背包的已保存方案。请先重新计算并保存。",
         )
         return
     result = QMessageBox.question(

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from src.domain.drive_layout import extract_drive_blocks_from_state
+from src.domain.loadout_plan_scores import exact_assignment_score_total
 from src.services.virtual_equipment_service import (
     is_virtual_equipment_assignment,
     virtual_equipment_inventory_item,
@@ -580,6 +581,15 @@ class SavedStateLoadoutBridge:
         module_count = sum(item["kind"] == "module" for item in assignments)
         if module_count <= 0:
             raise SavedStateLoadoutError(f"角色 [{role_name}] 没有可装配的驱动")
+        normalized_payload = dict(payload or {
+            "schema": "saved-state-official-loadout-v1",
+            "source": "equipment_page",
+            "source_role_name": role_name,
+        })
+        exact_score = exact_assignment_score_total(
+            assignments,
+            normalized_payload.get("assignment_scores") or {},
+        )
         return PreparedLoadoutPlan(
             name=name or f"配装页：{role_name}",
             role_name=role_name,
@@ -594,11 +604,7 @@ class SavedStateLoadoutBridge:
                 else "ready"
             ),
             assignments=tuple(assignments),
-            payload=dict(payload or {
-                "schema": "saved-state-official-loadout-v1",
-                "source": "equipment_page",
-                "source_role_name": role_name,
-            }),
-            score=score,
+            payload=normalized_payload,
+            score=exact_score if exact_score is not None else score,
             module_count=module_count,
         )

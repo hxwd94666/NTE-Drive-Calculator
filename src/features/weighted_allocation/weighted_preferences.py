@@ -520,12 +520,7 @@ def _show_empty_curtain_preferences(window, role_name: str) -> None:
         )
     )
     stats_layout.addLayout(stat_options)
-    priority_tip = QLabel(
-        "副词条黑名单默认最先从驱动候选池硬过滤，不淘汰卡带；开启“黑名单为零权重”后改为在驱动 Top-K 评分中按 0 分计算；"
-        "套装与卡带主词条随后硬过滤；"
-        "副词条自选先使用连续前缀的最深候选池，"
-        "组合无解时逐层放宽，最后回到完整候选池。"
-    )
+    priority_tip = QLabel("黑名单默认排除驱动；详细筛选与回退规则见“?”。")
     priority_tip.setWordWrap(True)
     stats_layout.addWidget(priority_tip)
     layout.addWidget(stats_box)

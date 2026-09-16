@@ -37,6 +37,20 @@ class OfficialRoleShellTests(unittest.TestCase):
         self.assertEqual(35, card.height())
         self.assertEqual(29, window.official_role_world_attack.height())
         self.assertEqual(29, window.official_role_world_crit_damage.height())
+        self.assertEqual("", window.official_role_world_attack.suffix())
+        self.assertEqual("", window.official_role_world_crit_damage.suffix())
+        labels = {
+            label.objectName(): label.text()
+            for label in card.findChildren(QLabel)
+        }
+        self.assertEqual("攻", labels["officialRoleWorldAttackUnit"])
+        self.assertEqual("%爆伤", labels["officialRoleWorldCritDamageUnit"])
+        self.assertLessEqual(window.official_role_world_attack.width(), 64)
+        self.assertLessEqual(window.official_role_world_crit_damage.width(), 64)
+        self.assertGreaterEqual(
+            window.official_role_world_attack.lineEdit().width(),
+            window.official_role_world_attack.fontMetrics().horizontalAdvance("999"),
+        )
         self.assertGreaterEqual(
             window.official_role_world_attack.lineEdit().contentsRect().height(),
             window.official_role_world_attack.fontMetrics().height(),

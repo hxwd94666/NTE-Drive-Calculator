@@ -51,6 +51,7 @@ from src.features.allocation.results_diff_view import (
     _diff_saved_sources,
     _previous_loadout_from_diff,
 )
+from src.ui.attribute_summary_panel import attribute_summary_weight_color
 
 
 __all__ = [
@@ -128,16 +129,7 @@ def _stat_w(self, sn, wts):
 
 
 def _stat_c(self, w):
-    w = max(0.0, min(1.0, w))
-    if w < 0.3:
-        return theme_color("#8b949e")
-    if w < 0.5:
-        return "#58a6ff"
-    if w < 0.7:
-        return "#56d364"
-    if w < 0.85:
-        return "#d2991d"
-    return "#f0883e"
+    return attribute_summary_weight_color(w)
 
 
 def _weighted_score(self, sub_stats, wts):

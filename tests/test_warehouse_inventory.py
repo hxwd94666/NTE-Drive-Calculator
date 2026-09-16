@@ -200,6 +200,50 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual(9, window._warehouse_deferred_snapshot_id)
         self.assertEqual(1, window.refresh_count)
 
+    def test_empty_warehouse_and_empty_filter_have_distinct_guidance(self):
+        from src.features.inventory.warehouse_controller import (
+            _apply_warehouse_filters,
+        )
+        from src.domain.warehouse_filter import WarehouseFilterSpec
+
+        class TextSurface:
+            def __init__(self, value=""):
+                self.value = value
+                self.visible = False
+
+            def text(self):
+                return self.value
+
+            def setText(self, value):
+                self.value = value
+
+            def show(self):
+                self.visible = True
+
+            def hide(self):
+                self.visible = False
+
+        class Model:
+            def set_items(self, items):
+                self.items = list(items)
+
+        window = SimpleNamespace(
+            warehouse_model=Model(),
+            warehouse_search=TextSurface(),
+            warehouse_summary=TextSurface(),
+            warehouse_filter_btn=TextSurface(),
+            warehouse_hint=TextSurface(),
+            _warehouse_all_items=[],
+            _warehouse_filter_spec=WarehouseFilterSpec(),
+        )
+        _apply_warehouse_filters(window)
+        self.assertEqual("背包为空，请先完成同步。", window.warehouse_hint.value)
+
+        window._warehouse_all_items = [{"search_text": "测试装备"}]
+        window.warehouse_search.value = "不存在"
+        _apply_warehouse_filters(window)
+        self.assertEqual("没有符合当前筛选条件的装备。", window.warehouse_hint.value)
+
     def test_core_and_module_use_distinct_packaged_item_images(self):
         from src.features.inventory.warehouse import warehouse_item_view
 

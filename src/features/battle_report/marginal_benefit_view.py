@@ -25,10 +25,7 @@ def build_marginal_benefit_sections(
     root: QVBoxLayout,
 ) -> tuple[QTableWidget, QLabel, QWidget, QTableWidget, QLabel]:
     core_card, core_layout = analysis_section("空幕主属性边际（金色候选）")
-    core_note = QLabel(
-        "识别当前任意品质空幕并固定套装与副词条，候选统一使用金色满级主属性；"
-        "“相对无主属性”用于统一比较，“替换当前”用于实际换装决策。"
-    )
+    core_note = QLabel("候选按金色满级主属性比较；实际换装请看“替换当前”。")
     _style_note(core_note)
     core_layout.addWidget(core_note)
     core_notice = QLabel("等待后台计算…")
@@ -60,10 +57,7 @@ def build_marginal_benefit_sections(
     fork_title.setObjectName("battleForkBenefitTitle")
     fork_title.setStyleSheet(themed_style("font-weight:bold;color:#58a6ff"))
     fork_layout.addWidget(fork_title)
-    fork_note = QLabel(
-        "A=无弧盘，B=仅恢复弧盘常驻面板，C=完整弧盘。"
-        "常驻=B-A，技能/机制=C-B，综合=C-A；团队 Buff 表仍作为机制明细，不与本表相加。"
-    )
+    fork_note = QLabel("拆分弧盘常驻属性与技能机制收益；不要与团队 Buff 表重复相加。")
     _style_note(fork_note)
     fork_layout.addWidget(fork_note)
     fork_notice = QLabel("等待后台计算…")

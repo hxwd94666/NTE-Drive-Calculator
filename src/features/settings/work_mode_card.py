@@ -47,11 +47,20 @@ class ModeReportDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.label)
         layout.addWidget(scroll, 1)
+        footer = QHBoxLayout()
         self.actions = QHBoxLayout()
-        layout.addLayout(self.actions)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        footer.addLayout(self.actions)
+        footer.addStretch()
+        self.close_button = QPushButton("关闭")
+        self.close_button.setFixedWidth(72)
+        self.close_button.clicked.connect(self.reject)
+        self.retry_button = QPushButton("重新检测")
+        self.retry_button.setFixedWidth(88)
+        self.retry_button.clicked.connect(lambda: self._controller.check(show=True))
+        footer.addWidget(self.retry_button)
+        footer.addWidget(self.close_button)
+        self.footer = footer
+        layout.addLayout(footer)
         fit_dialog_to_available_screen(self, QSize(700, 650))
 
     def _clear_actions(self):
@@ -63,6 +72,7 @@ class ModeReportDialog(QDialog):
     def begin(self, mode):
         self.setWindowTitle(f"{MODE_LABELS[mode]}模式检测")
         self._clear_actions()
+        self.retry_button.setEnabled(False)
         detail = ("正在结束原生连接并清理游戏组件…" if mode in {"offline", "low"}
                   else "正在检测环境并部署或更新配套组件…")
         self.label.setText(detail + "\n完成后将在此显示检测结果。\n关闭窗口不会取消已确认的模式切换和组件处理。")
@@ -82,6 +92,7 @@ class ModeReportDialog(QDialog):
     def set_report(self, report):
         self.progress.hide()
         self._clear_actions()
+        self.retry_button.setEnabled(True)
         self.label.setText(report_text(report))
         available = {action for item in report.features for action in item.actions}
         for key, title, callback in (
@@ -91,13 +102,12 @@ class ModeReportDialog(QDialog):
         ):
             if key in available:
                 self._add_action(title, callback, close=True)
-        self._add_action("重新检测", lambda: self._controller.check(show=True))
 
     def set_error(self, detail):
         self.progress.hide()
         self._clear_actions()
+        self.retry_button.setEnabled(True)
         self.label.setText(detail)
-        self._add_action("重新检测", lambda: self._controller.check(show=True))
 
 
 def build_work_mode_card(window):
@@ -110,8 +120,7 @@ def build_work_mode_card(window):
         combo.addItem(label, key)
     combo.setCurrentIndex(combo.findData(service.settings.mode.value))
     form.addRow("当前模式", combo)
-    hint = QLabel("确认模式后按模式管理组件；自动同步在首页控制，开发模式战报固定双路对照。"
-                  "游戏运行时，组件更新等待游戏退出。")
+    hint = QLabel("工作模式决定数据来源和可用操作；自动同步在首页控制。")
     hint.setWordWrap(True)
     form.addRow(hint)
     status = QLabel("正在核对当前模式…")
@@ -136,23 +145,21 @@ def confirm_mode(parent, mode: str) -> bool:
             "游戏仍在运行时，组件清理会等待游戏退出。"
         ),
         "low": (
-            "可使用抓包、虚拟键盘鼠标和虚拟手柄能力，不会直接读取游戏内存或调用游戏内部方法。\n\n"
-            "这不代表游戏官方认可此模式，仍存在极低的账号被处理风险。"
-            "此方案会限制大量功能，不推荐使用。"
+            "使用抓包同步背包和当前装备，并通过模拟输入执行游戏界面操作；"
+            "不读取游戏内存或调用游戏内部方法。\n\n"
+            "抓包和模拟输入可能触发游戏保护或兼容问题。角色养成需手动维护，"
+            "原生同步、战报和极速装配等功能不可用。"
         ),
         "medium": (
-            "通过代理方式读取游戏内存或调用游戏内部方法，支持一键装配、弃置等功能。\n\n"
-            "不保存账号密码等秘密信息，不进行数值修改或作弊式的数据篡改；"
-            "装配、弃置等操作会通过游戏自身方法正常更新对应状态。\n\n"
-            "此方式存在一定风险。目前暂未发现因本模式被处理的账号，但这不代表没有风险。"
-            "综合功能完整性，推荐使用此模式。"
+            "加载游戏内组件，读取同步所需数据，并支持装配、锁定和弃置等操作。\n\n"
+            "这些操作会更新游戏中的对应状态；组件加载可能触发游戏保护或兼容问题。"
         ),
-        "developer": "同时启用 DLL 与抓包进行双路对照，仅供开发人员或排查问题时使用，请勿作为日常模式开启。",
+        "developer": "同时启用原生同步与抓包，用于双路对照和问题排查。",
     }[mode]
     if mode != "offline":
-        description += "\n\n自动同步开启时会连接游戏并同步背包，可在首页随时关闭。"
+        description += "\n\n自动同步开启时会连接游戏；可在首页随时关闭。"
     if mode in {"medium", "developer"}:
-        description += "游戏关闭时，会自动部署或更新本程序管理且已核对的配套组件。"
+        description += "游戏关闭后会自动部署或更新所需组件。"
     dialog = QDialog(parent)
     dialog.setWindowTitle("确认工作模式 · " + MODE_LABELS[mode])
     layout = QVBoxLayout(dialog)

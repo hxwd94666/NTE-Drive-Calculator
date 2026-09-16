@@ -81,9 +81,8 @@ def deploy_native_plugin_from_settings(window) -> None:
     generation = window.operation_generation()
     if QMessageBox.question(
         window, "确认部署原生组件",
-        "将部署无界面采集 DLL 与 D3D 采集入口。已有同名组件会直接替换，不保留备份，"
-        "游戏目录的旧 dwmapi.dll 和本程序旧版 Mod 工作区加载登记会直接删除。\n"
-        "请保持游戏关闭；完成后启动游戏并重新检测。\n\n是否继续？",
+        "将更新游戏内组件，并清理本程序管理的旧版组件。已有组件会直接替换，不保留备份。\n"
+        "请先完全退出游戏。\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
     ) != QMessageBox.Yes:
         return

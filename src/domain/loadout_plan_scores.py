@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 
@@ -17,6 +17,12 @@ def assignment_score_key(assignment: Mapping[str, Any]) -> str:
     )
 
 
+def accumulate_assignment_scores(values: Iterable[Any]) -> float:
+    """Accumulate frozen per-item scores once with the shared precision."""
+
+    return round(sum(float(value) for value in values), 6)
+
+
 def exact_assignment_score_total(
     assignments: Sequence[Mapping[str, Any]],
     assignment_scores: Mapping[str, Any],
@@ -26,4 +32,4 @@ def exact_assignment_score_total(
     keys = tuple(assignment_score_key(assignment) for assignment in assignments)
     if any(key not in assignment_scores for key in keys):
         return None
-    return round(sum(float(assignment_scores[key]) for key in keys), 6)
+    return accumulate_assignment_scores(assignment_scores[key] for key in keys)

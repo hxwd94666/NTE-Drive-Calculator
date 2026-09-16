@@ -52,7 +52,7 @@ def test_login_prompt_requires_capturing_not_starting_or_old_snapshot(dialog):
         c.state_changed.emit(InventorySyncState(phase=phase, last_snapshot_id=42, message="等待网络"))
         assert "现在可以进入游戏" not in view.detail.text()
     c.state_changed.emit(InventorySyncState(phase="waiting", capturing=True, last_snapshot_id=42))
-    assert "现在可以进入游戏" in view.detail.text()
+    assert "现在请重新登录游戏" in view.detail.text()
     view.reject()
     assert not c.cancels
 
@@ -88,6 +88,19 @@ def test_close_guide_before_confirmation_does_not_stop_old_sync(dialog):
     assert not c.starts and not c.cancels
 
 
+def test_action_buttons_immediately_follow_the_instructions(dialog):
+    view, _c, _app = dialog
+    layout = view.layout()
+
+    assert not hasattr(view, "background_hint")
+    assert layout.indexOf(view.detail) == 0
+    assert layout.count() == 2
+    assert layout.itemAt(layout.count() - 1).layout() is view.buttons
+    assert view.begin.text() == "开始重启同步"
+    assert view.dismiss.text() == "关闭"
+    assert (view.width(), view.height()) == (500, 165)
+
+
 def test_collecting_is_not_completed_and_context_change_does_not_cancel_new_owner(dialog):
     view, c, _app = dialog
     view.begin.click()
@@ -104,13 +117,13 @@ def test_battle_started_after_opening_guide_prevents_restart(dialog):
     assert not c.starts and "先结束战报" in view.detail.text()
 
 
-def test_native_retry_does_not_ask_for_login_page(dialog):
+def test_native_retry_uses_the_same_login_guidance(dialog):
     _view, c, _app = dialog
     native = SyncRetryDialog(c.window, controller=c, native=True)
-    assert "登录页" not in native.detail.text()
+    assert "登录界面" in native.detail.text()
     native.begin.click()
     c.state_changed.emit(InventorySyncState(phase="waiting", capturing=True, message="等待组件"))
-    assert "进入游戏" not in native.detail.text()
+    assert "登录界面" in native.detail.text()
     c.state_changed.emit(InventorySyncState(phase="listening", source_snapshot_ready=True))
     assert "同步完成" in native.detail.text()
     dispose(native)

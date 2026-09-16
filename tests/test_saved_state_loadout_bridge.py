@@ -194,6 +194,36 @@ class SavedStateLoadoutBridgeTests(unittest.TestCase):
         )
         self.assertEqual("core", plan["assignments"][1]["kind"])
 
+    def test_complete_frozen_item_scores_override_mismatched_aggregate(self) -> None:
+        role_state = {
+            "blueprint_layout": [
+                ["XX", "XX", "XX", "XX", "XX"],
+                ["XX", "L_3_TL", "L_3_TL", "XX", "XX"],
+                ["XX", "L_3_TL", "XX", "XX", "XX"],
+            ],
+            "equipped_drives": [
+                {"uid": "nte-module-41-410", "shape_id": "L_3_TL"}
+            ],
+            "equipped_tape": {"uid": "nte-core-51-510"},
+        }
+        prepared = SavedStateLoadoutBridge(
+            self.user_dao, self.static_dao
+        ).prepare_role_plan(
+            role_name="测试角色",
+            role_state=role_state,
+            character_id=1003,
+            snapshot_id=self.snapshot_id,
+            score=999.0,
+            payload={
+                "assignment_scores": {
+                    "nte-module-41-410": 12.5,
+                    "nte-core-51-510": 87.5,
+                }
+            },
+        )
+
+        self.assertEqual(100.0, prepared.score)
+
     def test_saves_to_explicit_secondary_slot_without_replacing_primary(self) -> None:
         role_state = {
             "blueprint_layout": [

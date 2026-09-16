@@ -126,10 +126,10 @@ class SettingsContextTests(unittest.TestCase):
                 violations.append(str(path))
         self.assertEqual([], violations)
 
-    def test_capture_device_placeholder_warns_against_manual_input(self):
+    def test_capture_device_placeholder_explains_when_manual_input_is_needed(self):
         source = Path("src/features/settings/page.py").read_text(encoding="utf-8")
         self.assertIn(
-            'setPlaceholderText("特殊情况所需，请勿随意填写此空")',
+            'setPlaceholderText("仅在自动选择网卡失败时填写")',
             source,
         )
 

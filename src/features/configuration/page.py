@@ -421,10 +421,7 @@ def _populate_config_role_tab(window, data, role_name, tab_scroll, rebuild_all_t
     form_layout.setSpacing(12)
     form_layout.setContentsMargins(12, 12, 12, 12)
 
-    source_text = (
-        f"角色：{role_name}　当前账号 SQLite 权重设置"
-        f"（初始来源：{role_data.get('source_kind') or 'default'}）"
-    )
+    source_text = f"角色：{role_name}　当前账号权重设置"
     if not role_data.get("is_custom"):
         source_text += "\n额外形状：发行静态资源库 · 只读"
     source = QLabel(source_text)
@@ -688,7 +685,7 @@ def save_config_form(window, config_dir, json_edit_dialog_cls):
     QMessageBox.information(
         window,
         "保存",
-        "卡带主词条和驱动副词条权重已保存到当前账号 SQLite；自创角色额外形状已保存，官方角色额外形状保持静态资源库值。",
+        "角色权重设置已保存。",
     )
 
 

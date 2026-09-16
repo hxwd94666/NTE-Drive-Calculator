@@ -22,7 +22,9 @@ from src.optimizer.contracts import (
 
 class _FixedPresentation:
     @staticmethod
-    def score_tape(_main, sub_stats, _weights, _quality, _main_weights):
+    def score_tape(
+        _main, sub_stats, _weights, _quality, _main_weights, _main_value=None,
+    ):
         return float(sub_stats["test_score"])
 
     @staticmethod

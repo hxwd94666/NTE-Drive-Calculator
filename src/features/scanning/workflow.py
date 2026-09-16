@@ -28,6 +28,7 @@ from src.features.scanning.scan_contracts import (
     offline_scope_replaces_inventory,
     vision_cancel_message,
 )
+from src.features.scanning.scan_source_warning import confirm_scan_mode_after_workbench_sync, restore_scan_mode_selection
 from src.features.scanning.post_action_summary import append_state_mismatch_summary
 from src.domain.post_actions import post_actions_enabled, validate_post_action_config
 from src.features.scanning.vision_worker import VisionWorkerThread
@@ -51,7 +52,18 @@ def _page_execute(self):
     )
 
 
-def _on_scan_change(self, id):
+def _on_scan_change(self, id, checked=True):
+    if not checked:
+        return
+    previous_id = getattr(self, "_confirmed_scan_mode_id", 4)
+    if id in {1, 2, 3}:
+        dependencies = _current_scanning_dependencies(self)
+        if not confirm_scan_mode_after_workbench_sync(
+            self.dialog_parent, dependencies.user_database_path
+        ):
+            restore_scan_mode_selection(self.scan_group, previous_id)
+            return
+    self._confirmed_scan_mode_id = id
     if hasattr(self, "offline_frame"):
         self.offline_frame.setVisible(id == 3)
     self.total_count_frame.setVisible(id == 1)
@@ -66,14 +78,12 @@ def _on_priority_changed(self):
     pass
 
 
-
-
 def _do_exec(self):
-    if str(self.scan_group.checkedId()) in {"1", "2"} and not request_input_entry(self, "interface_input", "游戏界面扫描"):
+    sm = str(self.scan_group.checkedId())
+    if sm in {"1", "2"} and not request_input_entry(self, "interface_input", "游戏界面扫描"):
         return
     dependencies = _current_scanning_dependencies(self)
     sel = self.role_selector.get_selected()
-    sm = str(self.scan_group.checkedId())
     parse_only = not sel and sm in ("1", "2", "3")
     if not sel and not parse_only:
         QMessageBox.warning(self.dialog_parent, "提示", "请先选择目标角色！")
@@ -108,7 +118,7 @@ def _do_exec(self):
         QMessageBox.information(
             self.dialog_parent,
             "仅生成库存数据",
-            "当前未选择任何角色，本次扫描解析只会写入 SQLite 背包快照，不会进行配装计算。",
+            "当前未选择任何角色，本次扫描只会生成背包记录，不会进行配装计算。",
         )
     offline_scope = None
     if sm == "3":
@@ -339,7 +349,7 @@ def _on_vision_done(self, stats):
                 QMessageBox.information(
                     self.dialog_parent,
                     "补录已取消",
-                    "本次全量视觉扫描未写入 SQLite 背包快照。",
+                    "本次全量视觉扫描未生成背包记录。",
                 )
                 return
             manual_items = manual_result
@@ -356,7 +366,7 @@ def _on_vision_done(self, stats):
             QMessageBox.warning(
                 self.dialog_parent,
                 "补录失败",
-                f"本次扫描未写入 SQLite 背包快照：{exc}",
+                f"本次扫描未生成背包记录：{exc}",
             )
             return
     success_count = int(stats.get("success_count", 0) or 0)
@@ -386,7 +396,7 @@ def _on_vision_done(self, stats):
         QMessageBox.warning(
             self.dialog_parent,
             "扫描结果不完整",
-            f"{exc}\n本次结果未切换 SQLite 当前库存快照。",
+            f"{exc}\n本次结果未替换当前背包。",
         )
         return
     except Exception as exc:
@@ -402,7 +412,7 @@ def _on_vision_done(self, stats):
         QMessageBox.warning(
             self.dialog_parent,
             "库存写入失败",
-            f"本次扫描未写入 SQLite 背包快照：{exc}",
+            f"本次扫描未生成背包记录：{exc}",
         )
         return
     if isinstance(vision_snapshot_id, int) and vision_snapshot_id > 0:
@@ -412,7 +422,7 @@ def _on_vision_done(self, stats):
             refresh_home()
     if pending_manual_count:
         summary += (
-            f"\n待补录 {pending_manual_count} 件，已补录 {len(manual_items)} 件并与本次识别结果共同写入 SQLite 快照。"
+            f"\n待补录 {pending_manual_count} 件，已补录 {len(manual_items)} 件并与本次识别结果共同保存。"
         )
     _scan_event(
         self,
@@ -464,7 +474,7 @@ def _on_vision_done(self, stats):
         QMessageBox.information(
             self.dialog_parent,
             "库存数据已生成",
-            summary + "\n\n本次未配置角色优先级，已仅生成/更新 SQLite 背包快照，未进行配装计算。",
+            summary + "\n\n本次未配置角色优先级，仅更新了背包记录，未进行配装计算。",
         )
         self._pending_parse_only = False
         return
@@ -786,4 +796,3 @@ def _on_scan_error(self, err):
     self.btn_run.setText("⚡  开始计算")
     self._pending_parse_only = False
     show_input_unavailable(self, "截图扫描", str(err))
-

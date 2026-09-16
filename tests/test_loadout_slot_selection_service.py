@@ -92,7 +92,7 @@ class LoadoutSlotSelectionServiceTests(unittest.TestCase):
         )
         self.dao._db().commit()
 
-        with self.assertRaisesRegex(UserDataValidationError, "极速装配只支持 nte-core 原生 UID"):
+        with self.assertRaisesRegex(UserDataValidationError, "极速装配需要原生同步提供的装备标识"):
             self.service.resolve([slot_id], require_native_snapshot=True)
 
     def test_rejects_custom_role_for_fast_apply_even_with_native_snapshot(self) -> None:

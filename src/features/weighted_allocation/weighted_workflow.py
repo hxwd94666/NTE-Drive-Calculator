@@ -711,4 +711,4 @@ def _on_weighted_replacement_done(
         restore_viewport_offset=restore_viewport_offset,
     )
     _set_weighted_equipment_actions_enabled(window, True)
-    window.weighted_status_label.setText("替换已保存为新的 SQLite 配装方案；重新计算会重新生成推荐方案。")
+    window.weighted_status_label.setText("替换已保存；重新计算会生成新的推荐方案。")

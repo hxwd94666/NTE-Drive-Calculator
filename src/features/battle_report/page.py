@@ -106,23 +106,6 @@ class BattleReportPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        model_notice = QLabel(
-            "重要提示：战报反事实计算模型尚未完整覆盖全部游戏机制，"
-            "当前展示的各项收益结果仅供参考。若发现计算结果与实际机制明显不符，"
-            "请将相关战报及问题说明发送至 1412582379@qq.com，"
-            "我们将据此核查并持续完善模型。",
-            self,
-        )
-        model_notice.setObjectName("battleCounterfactualNotice")
-        model_notice.setWordWrap(True)
-        model_notice.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        model_notice.setStyleSheet(themed_style(
-            "QLabel#battleCounterfactualNotice{"
-            "color:#f85149;background:#f8514922;"
-            "border-bottom:1px solid #f85149;"
-            "padding:8px 18px;font-size:12px;font-weight:600;}"
-        ))
-        layout.addWidget(model_notice)
         layout.addWidget(self._stack, 1)
         self.analysis_progress = BattleAnalysisProgressBar(self)
         layout.addWidget(self.analysis_progress)
@@ -156,7 +139,7 @@ class BattleReportPage(QWidget):
         status_row.addWidget(self.status_badge)
         status_row.addWidget(self.status_detail, 1)
         help_text = (
-            "使用 nte-core 采集战斗；采集期间暂停背包同步，结束后自动恢复。"
+            "使用游戏内组件采集战斗；采集期间暂停背包同步，结束后自动恢复。"
             "悬浮窗只在当前采集会话中显示。"
         )
         help_button = QPushButton("?")

@@ -11,18 +11,24 @@ from src.optimizer.contracts import (
 )
 
 
-def test_virtual_drive_forces_visible_total_recalculation() -> None:
-    assert _saved_plan_contains_virtual_equipment({
+def test_virtual_drive_is_detected_without_overriding_complete_frozen_scores() -> None:
+    role_data = {
         ROLE_EQUIPPED_TAPE: {"virtual": False},
         ROLE_EQUIPPED_DRIVES: [{"virtual": True}],
-    })
+        "_sqlite_assignment_scores_complete": True,
+    }
+    assert _saved_plan_contains_virtual_equipment(role_data)
+    assert not _saved_plan_requires_score_recalculation(role_data)
 
 
-def test_virtual_tape_forces_visible_total_recalculation() -> None:
-    assert _saved_plan_contains_virtual_equipment({
+def test_virtual_tape_is_detected_without_overriding_complete_frozen_scores() -> None:
+    role_data = {
         ROLE_EQUIPPED_TAPE: {"virtual": True},
         ROLE_EQUIPPED_DRIVES: [{"virtual": False}],
-    })
+        "_sqlite_assignment_scores_complete": True,
+    }
+    assert _saved_plan_contains_virtual_equipment(role_data)
+    assert not _saved_plan_requires_score_recalculation(role_data)
 
 
 def test_real_saved_plan_keeps_persisted_total() -> None:

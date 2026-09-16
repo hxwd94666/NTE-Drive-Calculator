@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -150,6 +151,23 @@ def _section(title: str, description: str = "") -> tuple[QFrame, QVBoxLayout]:
     return card, layout
 
 
+def _home_sync_help_text(mode: str) -> str:
+    """Return the product-approved synchronization instructions."""
+
+    del mode
+    return (
+        "1. 开启“自动同步”。\n"
+        "2. 启动并登录游戏，程序会自动读取并保存数据。\n"
+        "3. 游戏运行时无法同步，需要退回登录界面重新登录。\n\n"
+        "同步功能使用后，无需再使用扫描模式获取数据！！！"
+    )
+
+
+def _show_home_sync_help(window) -> None:
+    mode = getattr(window.work_mode_service.settings.mode, "value", "offline")
+    QMessageBox.information(window, "背包同步如何使用", _home_sync_help_text(str(mode)))
+
+
 def build_home_page(window) -> QScrollArea:
     page = QWidget()
     page.setObjectName("homePage")
@@ -204,8 +222,8 @@ def build_home_page(window) -> QScrollArea:
     metrics.setVerticalSpacing(12)
     definitions = (
         ("inventory", "稳定背包", "等待首次同步"),
-        ("module", "驱动", "原始游戏 UID"),
-        ("core", "卡带", "原始游戏 UID"),
+        ("module", "驱动", "当前稳定背包"),
+        ("core", "卡带", "当前稳定背包"),
         ("equipped", "已装备", "按当前稳定快照"),
         ("plans", "配装方案", "保存在当前账号"),
         ("characters", "角色目录", "当前账号尚未同步角色"),
@@ -219,9 +237,9 @@ def build_home_page(window) -> QScrollArea:
 
     sync_card, sync_layout = _section("游戏数据同步")
     window.home_sync_title = sync_layout.itemAt(0).widget()
-    window.home_sync_source_label = QLabel("同步方式随已确认的工作模式选择。")
-    window.home_sync_source_label.setWordWrap(True)
-    sync_layout.addWidget(window.home_sync_source_label)
+    # 保留兼容投影供控制器和诊断读取，常态页面只展示当前同步状态。
+    window.home_sync_source_label = QLabel("", sync_card)
+    window.home_sync_source_label.hide()
     window.home_sync_detail = QLabel("背包同步尚未启动")
     window.home_sync_detail.setWordWrap(True)
     sync_layout.addWidget(window.home_sync_detail)
@@ -229,26 +247,30 @@ def build_home_page(window) -> QScrollArea:
     window.home_character_sync_detail.setWordWrap(True)
     window.home_character_sync_detail.setProperty("savedSummary", window.home_character_sync_detail.text())
     sync_layout.addWidget(window.home_character_sync_detail)
+    window.home_character_sync_detail.hide()
     sync_actions = QHBoxLayout()
     window.home_auto_sync_toggle = QCheckBox("自动同步")
     window.home_auto_sync_toggle.setChecked(window.work_mode_service.settings.auto_sync_enabled)
     window.home_auto_sync_toggle.toggled.connect(window.auto_sync_controller.set_enabled)
-    window.home_restart_sync_button = QPushButton("重新同步")
+    window.home_restart_sync_button = QPushButton("重启同步")
     window.home_restart_sync_button.setObjectName("btnPrimary")
     window.home_restart_sync_button.clicked.connect(window.auto_sync_controller.open_restart)
     check = QPushButton("检测详情")
     check.clicked.connect(lambda: window.work_mode_controller.check(show=True))
+    window.home_sync_help_button = QPushButton("如何使用")
+    window.home_sync_help_button.clicked.connect(lambda: _show_home_sync_help(window))
     sync_actions.addWidget(window.home_auto_sync_toggle)
     sync_actions.addWidget(window.home_restart_sync_button)
     sync_actions.addWidget(check)
+    sync_actions.addWidget(window.home_sync_help_button)
     sync_actions.addStretch()
     sync_layout.addLayout(sync_actions)
     window.home_sync_action_hint = QLabel("")
     window.home_sync_action_hint.setWordWrap(True)
     sync_layout.addWidget(window.home_sync_action_hint)
-    window.home_last_sync_label = QLabel("尚无已保存的背包")
-    window.home_last_sync_label.setWordWrap(True)
-    sync_layout.addWidget(window.home_last_sync_label)
+    # 保留兼容投影供控制器与测试读取，页面由“稳定背包”指标卡统一展示保存时间。
+    window.home_last_sync_label = QLabel("尚无已保存的背包", sync_card)
+    window.home_last_sync_label.hide()
     root.addWidget(sync_card)
 
     actions_card, actions_layout = _section("快捷操作")

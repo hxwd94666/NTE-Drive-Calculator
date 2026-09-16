@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.domain.allocation_rating import allocation_grade, loadout_total_grade
+from src.domain.loadout_plan_scores import accumulate_assignment_scores
 from src.optimizer.contracts import (
     EQUIP_GRADE,
     EQUIP_MAIN_STATS,
@@ -70,7 +71,7 @@ def score_equipment_display_state(
         if uid:
             scores[uid] = score
 
-    total = round(sum(scores.values()), 6)
+    total = accumulate_assignment_scores(scores.values())
     state[ROLE_TOTAL_SCORE] = total
     state[ROLE_TOTAL_GRADE] = loadout_total_grade(total)
     return total, scores

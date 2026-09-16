@@ -125,6 +125,11 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         root = QVBoxLayout(content)
         root.setContentsMargins(22, 14, 22, 22)
         root.setSpacing(14)
+        model_notice = QLabel("模拟收益可能遗漏部分游戏机制；实测战报数据不受影响。")
+        model_notice.setObjectName("battleMarginalModelNotice")
+        model_notice.setWordWrap(True)
+        model_notice.setStyleSheet(themed_style("color:#d29922;font-size:12px"))
+        root.addWidget(model_notice)
 
         metrics = QGridLayout()
         definitions = (
@@ -227,12 +232,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         self.character_panel = BattleMarginalCharacterPanel()
         root.addWidget(self.character_panel)
         attribute_card, attribute_layout = analysis_section("驱动副词条单位边际")
-        attribute_note = QLabel(
-            "只展示实际可刷出的金色驱动副词条，每行默认单位为一格；面板属性是当前生效基线，"
-            "伤害加权公式属性与逐击计算共用动态面板，有证据时优先采用证据，缺失时推断。"
-            "灵可面板控制的队友同频伤害也进入这里，因此面板关联"
-            "伤害可以大于顶部原始角色伤害；Core 原始伤害归属不改写。"
-        )
+        attribute_note = QLabel("每行按一格金色驱动副词条计算；“—”表示缺少可量化证据。")
         attribute_note.setStyleSheet(
             themed_style("color:#8b949e;font-size:12px")
         )
@@ -263,12 +263,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.fork_benefit_notice,
         ) = build_marginal_benefit_sections(root)
         buff_card, buff_layout = analysis_section("团队 Buff 边际")
-        buff_note = QLabel(
-            "逐个独立移除 Buff，并按实际造成伤害的角色拆分收益；"
-            "角色收益之间可加总为该 Buff 的全队收益，不同 Buff 之间不可直接相加。"
-            "具有正式逐击因果证据的机制被动也在此按来源角色合并展示。"
-            "伤害覆盖率统计固定轴有效伤害，并包含由覆盖逐击联动的生命上限结算。"
-        )
+        buff_note = QLabel("同一 Buff 的角色收益可合计；不同 Buff 请勿直接相加。")
         buff_note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         buff_note.setWordWrap(True)
         buff_layout.addWidget(buff_note)

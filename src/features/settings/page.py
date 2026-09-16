@@ -109,10 +109,7 @@ def _settings_paths(context: AppContext) -> SettingsPaths:
 
 def _build_capture_diagnostics_card(window):
     card = window._card("采集排错")
-    description = QLabel(
-        "自动同步与重新同步请在首页操作，采集来源随工作模式选择。"
-        "这里只设置原始数据保存与特殊网卡，修改在下次连接或同步启动时生效。"
-    )
+    description = QLabel("仅用于采集排错；设置将在下次连接或同步时生效。")
     description.setWordWrap(True)
     description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     card.layout().addWidget(description)
@@ -124,22 +121,16 @@ def _build_capture_diagnostics_card(window):
     if not settings:
         raise RuntimeError("无法读取静态数据库中的设置默认值。")
     window._sync_capture_device_edit = QLineEdit()
-    window._sync_capture_device_edit.setPlaceholderText("特殊情况所需，请勿随意填写此空")
+    window._sync_capture_device_edit.setPlaceholderText("仅在自动选择网卡失败时填写")
     window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
     form.addRow("抓取网卡:", window._sync_capture_device_edit)
 
-    window._sync_raw_capture_toggle = QCheckBox(
-        "保存原始采集数据（抓包与 DLL 快照，排错时才开启）"
-    )
+    window._sync_raw_capture_toggle = QCheckBox("保存原始采集数据（排错）")
     window._sync_raw_capture_toggle.setChecked(
         bool(settings["raw_capture_enabled"])
     )
     window._sync_raw_capture_toggle.setToolTip(
-        "抓包保存 .pcapng；DLL 保存业务转换前的四域快照请求、响应和原始页，映射失败也保留。"
-        "DLL 快照只包含实际请求到的数据，不额外扫描游戏；开关在下次连接检查或同步启动时生效。"
-        "文件仅保存到当前账号的 logs/nte_core/raw_capture。"
-        "采集结束后自动保留最近 5 份，并优先将历史文件压至 512 MiB；"
-        "正在写入和最新的一份不会被删除。DLL 快照位于 native_snapshots 子目录，按 64 MiB 分卷保留最近 5 份。"
+        "排错时开启；数据保存在当前账号日志目录并自动轮换，可能占用较多磁盘空间。"
     )
     raw_capture_row = QHBoxLayout()
     raw_capture_row.addWidget(window._sync_raw_capture_toggle)
@@ -174,9 +165,7 @@ def _build_environment_card(window):
     npcap_title = QLabel("Npcap · 抓包模式使用")
     npcap_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(npcap_title)
-    npcap_description = QLabel(
-        "Npcap 抓包用于识别背包；虽有一定风险，但低于视觉扫描快照，建议优先使用。"
-    )
+    npcap_description = QLabel("用于抓包同步；是否可用以检测结果为准。")
     npcap_description.setTextFormat(Qt.RichText)
     npcap_description.setWordWrap(False)
     npcap_description.setStyleSheet(
@@ -200,10 +189,9 @@ def _build_environment_card(window):
     equipment_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(equipment_title)
     equipment_description = QLabel(
-        "<b>简单原理：</b>把当前版本的配套组件部署到游戏目录，由游戏启动时加载；"
-        "更新组件前需完全退出游戏，具体加载方式以配套组件的检测结果为准。"
-        "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
-        "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
+        "用于原生同步、战报和极速装配；更新前请完全退出游戏。"
+        "<br><span style='color:#d29922'><b>风险：</b>组件会加载到游戏进程，"
+        "可能触发游戏保护或兼容问题。</span>"
     )
     equipment_description.setTextFormat(Qt.RichText)
     equipment_description.setWordWrap(True)

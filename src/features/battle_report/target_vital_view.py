@@ -206,10 +206,10 @@ class BattleTargetVitalPanel(QWidget):
             ),
         )
         layout.addWidget(self.event_table)
-        self.note = QLabel(
-            "生命上限结算 = 变化前同半场、同实例、同旧上限的附近逐击中最小 "
-            "HPAfter ÷ 旧 HPMax × HPMax 下降量。正式逐击不改写；"
-            "观测耗血 = 分析有效伤害 + 未解释差额。"
+        self.note = QLabel("生命上限变化会单独结算；原始逐击数据不改写。")
+        self.note.setToolTip(
+            "结算值取同半场、同目标、同旧上限附近逐击中的最小剩余生命比例，"
+            "再乘以上限下降量；未能解释的耗血会单独标记。"
         )
         self.note.setWordWrap(True)
         self.note.setStyleSheet(themed_style("color:#d29922;font-size:12px"))
@@ -396,7 +396,7 @@ class BattleTargetVitalPanel(QWidget):
             "user_confirmed_single_target": (
                 "本记录没有正式目标实例 ID；用户已明确只选择一个对象，"
                 "分析投影已把全部对敌逐击绑定到该对象。该身份属于用户证据，"
-                "只用于生命证据分组，不会写回、冒充 nte-core 原始实例 ID，"
+                "只用于生命证据分组，不会写回或替代采集到的目标身份，"
                 "也不会作为新逐击敌方属性的主要目标回退。"
             ),
         }.get(

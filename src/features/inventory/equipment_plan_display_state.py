@@ -90,10 +90,10 @@ def _sqlite_plan_display_state(
         str(uid): float(score)
         for uid, score in raw_assignment_scores.items()
     }
-    assignment_scores_complete = (
-        exact_assignment_score_total(plan["assignments"], assignment_scores)
-        is not None
+    exact_frozen_total = exact_assignment_score_total(
+        plan["assignments"], assignment_scores
     )
+    assignment_scores_complete = exact_frozen_total is not None
 
     def persisted_score_fields(uid: str, area: int) -> dict[str, float | str]:
         """Expose the immutable plan score on every saved equipment card."""
@@ -296,7 +296,11 @@ def _sqlite_plan_display_state(
         ROLE_BLUEPRINT_LAYOUT: board,
         ROLE_EQUIPPED_TAPE: tape,
         ROLE_EQUIPPED_DRIVES: drives,
-        ROLE_TOTAL_SCORE: float(plan.get("score") or 0.0),
+        ROLE_TOTAL_SCORE: (
+            exact_frozen_total
+            if exact_frozen_total is not None
+            else float(plan.get("score") or 0.0)
+        ),
         ROLE_TOTAL_GRADE: "",
         # A plan imported from the game is a mutually exclusive origin marker,
         # not a result of the strategy that happened to be active earlier.

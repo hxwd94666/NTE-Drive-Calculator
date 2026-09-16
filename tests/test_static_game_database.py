@@ -354,6 +354,54 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertGreater(len(catalog.sets_db), 0)
         self.assertGreater(len(catalog.shapes_db), 0)
 
+    def test_legacy_calculation_projection_uses_current_role_profile(self):
+        from src.services import legacy_allocation_static_catalog as catalog_service
+
+        detail = {
+            "profile": {
+                "persisted": True,
+                "fork_id": "fork-current",
+                "fork_level": 20,
+                "fork_breakthrough_stage": 1,
+                "fork_refinement_level": 2,
+            },
+            "forks": ({
+                "fork_id": "fork-current",
+                "name_zh": "当前弧盘",
+                "upgrade_levels": ({
+                    "level": 20,
+                    "modifiers": ({"property_id": "CritBase", "value": 0.10},),
+                },),
+                "breakthroughs": ({
+                    "stage": 1,
+                    "max_fork_level": 20,
+                    "modifiers": (),
+                },),
+                "permanent_properties": ({
+                    "refinement_level": 2,
+                    "property_id": "CritBase",
+                    "property_value": 0.025,
+                },),
+            },),
+        }
+        with patch.object(
+            catalog_service,
+            "calculate_official_role_final_weights",
+            return_value={
+                "property_weights": {"CritBase": 0.9},
+                "main_property_weights": {"AtkUp": 0.7},
+            },
+        ):
+            projected = catalog_service._current_role_calculation_projection(
+                detail,
+                attribute_labels={"CritBase": "暴击率%", "AtkUp": "攻击力%"},
+            )
+
+        self.assertEqual("当前弧盘", projected["default_weapon"])
+        self.assertEqual(12.5, projected["active_fork_crit_rate_bonus"])
+        self.assertEqual({"暴击率%": 0.9}, projected["weights"])
+        self.assertEqual({"攻击力%": 0.7}, projected["main_weights"])
+
     def test_legacy_calculation_catalog_includes_custom_role_for_step_two(self):
         from src.services.custom_character_service import (
             create_custom_character,

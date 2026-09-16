@@ -233,6 +233,8 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         page = BattleMarginalPage()
         label_texts = {label.text() for label in page.findChildren(QLabel)}
 
+        notice = page.findChild(QLabel, "battleMarginalModelNotice")
+        self.assertEqual("模拟收益可能遗漏部分游戏机制；实测战报数据不受影响。", notice.text())
         self.assertIn("当前/候选 DPS", label_texts)
         self.assertIn("当前/候选总伤害", label_texts)
         self.assertIn("角色伤害", label_texts)

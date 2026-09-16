@@ -185,9 +185,9 @@ def test_native_retry_without_game_tracks_waiting_and_component_readiness(owner,
         setattr(window, name, QLabel(window))
     c.open_restart()
     view = c._dialog
-    assert '正在检测游戏是否启动' in view.detail.text()
+    assert '请先退回游戏登录界面' in view.detail.text()
     c.observe_probe(WorkModeProbe(game_running=False))
-    assert '等待启动游戏' in view.detail.text()
+    assert '请先退回游戏登录界面' in view.detail.text()
     view.begin.click()
     assert not starts
     assert '等待启动游戏' in view.detail.text()
@@ -205,12 +205,12 @@ def test_native_retry_without_game_tracks_waiting_and_component_readiness(owner,
     window._inventory_sync_service = None
     c.observe_probe(WorkModeProbe(game_running=True, core_available=True))
     assert not starts
-    assert '等待游戏内组件就绪' in view.detail.text()
+    assert '等待同步组件就绪' in view.detail.text()
     c.observe_probe(WorkModeProbe(game_running=True, core_available=True,
                                  native_inventory=NativeFeatureProbe(handshake=True)))
     assert len(starts) == 1
     assert '等待启动游戏' not in view.detail.text()
-    assert '等待游戏内组件就绪' not in view.detail.text()
+    assert '等待同步组件就绪' not in view.detail.text()
 
 
 def test_cancel_restart_prevents_queued_start_without_disabling_preference(owner):
@@ -296,7 +296,7 @@ def test_native_game_exit_stops_inventory_and_reconnects_after_ready(owner):
     assert len(starts) == 2
 
 
-def test_home_only_has_auto_and_restart_and_keeps_last_saved_separate(owner, tmp_path):
+def test_home_only_has_auto_and_restart_and_uses_metric_for_last_saved(owner, tmp_path):
     from PySide6.QtWidgets import QPushButton
     from src.features.home.page import build_home_page, refresh_home_page
     c, window, policy, _starts, _jobs, _watchers, app = owner
@@ -307,7 +307,8 @@ def test_home_only_has_auto_and_restart_and_keeps_last_saved_separate(owner, tmp
     window._go = lambda _key: None
     page = build_home_page(window)
     titles = [button.text() for button in page.findChildren(QPushButton)]
-    assert "重新同步" in titles and "停止同步" not in titles and "背包同步" not in titles
+    assert "重启同步" in titles and "如何使用" in titles
+    assert "停止同步" not in titles and "背包同步" not in titles
     refresh_home_page(window, {
         "account": {"account_name": "测试"}, "loadout_plan_count": 2,
         "static": {"counts": {"character": 3}},
@@ -316,21 +317,25 @@ def test_home_only_has_auto_and_restart_and_keeps_last_saved_separate(owner, tmp
                       "equipped_count": 1, "snapshot_id": 4, "captured_at_utc": "2026-01-01"},
     })
     assert "上次保存" in window.home_last_sync_label.text()
+    assert window.home_last_sync_label.isHidden()
+    assert "快照 #4" in window.home_metric_labels["inventory"][1].text()
     assert window.home_metric_labels["characters"][0].text() == "22"
     assert "21" in window.home_metric_labels["characters"][1].text()
     assert window.home_sync_title.text() == "背包同步"
     assert window.home_character_sync_detail.isHidden()
+    assert window.home_sync_source_label.isHidden()
     assert "等待启动游戏" in window.home_sync_detail.text()
     window.home_auto_sync_toggle.setChecked(False)
     app.processEvents()
     assert not policy.settings.auto_sync_enabled
     assert window.home_restart_sync_button.text() == "开启自动同步"
     assert "上次保存" in window.home_last_sync_label.text()
+    assert window.home_sync_source_label.text() == "来源：抓包（角色养成需手动维护）"
     dispose(page)
 
 
 @pytest.mark.parametrize("mode", ["medium", "developer"])
-def test_native_home_distinguishes_saved_roles_and_role_failure(owner, tmp_path, mode):
+def test_native_home_hides_redundant_rows_but_surfaces_role_failure(owner, tmp_path, mode):
     from src.features.home.page import build_home_page, refresh_home_page
     c, window, policy, _starts, _jobs, _watchers, _app = owner
     policy.select_mode(mode, risk_confirmed=True)
@@ -344,19 +349,39 @@ def test_native_home_distinguishes_saved_roles_and_role_failure(owner, tmp_path,
                  "characters": {"catalog_count": 22, "synced_count": 21, "profile_count": 21}}
     refresh_home_page(window, dashboard)
     assert window.home_sync_title.text() == "游戏数据同步"
-    assert all(field in window.home_sync_source_label.text() for field in ("等级", "突破", "技能", "好感度", "弧盘"))
-    assert not window.home_character_sync_detail.isHidden()
-    assert "21" in window.home_character_sync_detail.text()
+    assert window.home_sync_source_label.text() == "来源：游戏内组件"
+    assert all(field in window.home_sync_source_label.toolTip() for field in ("等级", "突破", "技能", "好感度", "弧盘"))
+    assert window.home_sync_source_label.isHidden()
+    assert window.home_character_sync_detail.isHidden()
     service = Inventory()
     service.state.character_sync_error = "角色自动同步未保存，已保留原养成。"
     window._inventory_sync_service = service
     c.render()
+    assert not window.home_character_sync_detail.isHidden()
     assert "未保存" in window.home_character_sync_detail.text()
     service.state.character_sync_error = None
     c.render()
-    assert "21" in window.home_character_sync_detail.text()
+    assert window.home_character_sync_detail.isHidden()
     dashboard["characters"].update(synced_count=0, profile_count=0)
     refresh_home_page(window, dashboard)
     assert "尚未同步" in window.home_metric_labels["characters"][1].text()
-    assert "尚无已保存" in window.home_character_sync_detail.text()
+    assert window.home_character_sync_detail.isHidden()
     dispose(page)
+
+
+def test_home_sync_help_keeps_usage_steps_and_mode_boundaries():
+    from src.features.home.page import _home_sync_help_text
+
+    low = _home_sync_help_text("low")
+    native = _home_sync_help_text("medium")
+    offline = _home_sync_help_text("offline")
+
+    expected = (
+        "1. 开启“自动同步”。\n"
+        "2. 启动并登录游戏，程序会自动读取并保存数据。\n"
+        "3. 游戏运行时无法同步，需要退回登录界面重新登录。\n\n"
+        "同步功能使用后，无需再使用扫描模式获取数据！！！"
+    )
+    assert low == expected
+    assert native == expected
+    assert offline == expected

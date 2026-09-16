@@ -460,16 +460,15 @@ def _preview_nte_core_assemble_all_roles(
                 elif summary and is_visual_inventory_source(summary.get("source")):
                     visual_roles.append(role_name)
     except Exception as exc:
-        QMessageBox.warning(self, "极速装配", f"无法读取官方 SQLite 方案：{exc}")
+        QMessageBox.warning(self, "极速装配", f"读取已保存方案失败：{exc}")
         return
     if nte_slot_ids:
         selected_slot_ids = list(nte_slot_ids)
     elif visual_roles:
         if _confirm_automatic_assembly_fallback(
             self,
-            "当前已保存方案来自视觉扫描快照，装备 UID 是视觉扫描生成的临时标识；"
-            "极速装配只能写入抓包同步（nte_core）提供的游戏原生 UID。\n\n"
-            "为避免写入错误装备，可以改用逐步自动装配。若要使用极速装配，请完成一次背包同步，"
+            "当前方案来自视觉扫描，无法取得极速装配所需的游戏装备标识。\n\n"
+            "请使用逐步自动装配。若要使用极速装配，请先完成一次原生背包同步，"
             "再重新计算并保存方案。",
         ):
             _preview_automatic_assemble_all_roles(
@@ -478,7 +477,7 @@ def _preview_nte_core_assemble_all_roles(
             )
         return
     else:
-        QMessageBox.information(self, "极速装配", "当前没有来自官方背包快照的已保存方案。请先重新计算并保存。")
+        QMessageBox.information(self, "极速装配", "当前没有基于原生同步背包的已保存方案。请先重新计算并保存。")
         return
     if confirmed:
         _start_nte_core_equipment_apply(self, [], slot_ids=selected_slot_ids)

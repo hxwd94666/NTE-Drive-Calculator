@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from src.features.inventory import equipment_display_loaders
 from src.features.inventory import equipment_display_view
 from src.features.inventory import equipment_plan_optimizer
+from src.features.inventory.equipment_display_controller import _slot_suit_names
 from src.features.inventory.equipment_master_detail_view import (
     _loadout_slot_manage_style,
     sorted_equipment_role_states,
@@ -101,6 +102,19 @@ def test_loadout_slot_manager_indicator_uses_a_light_theme_surface() -> None:
     assert "background:#f6f8fa" in style
     assert "background:#d8f5df" in style
     assert "background:#0d1117" not in style
+
+
+def test_loadout_slot_manager_reads_the_suit_from_the_equipped_tape() -> None:
+    assert _slot_suit_names(
+        {
+            "slot:7": {
+                "_loadout_slot_id": 7,
+                "equipped_tape": {"set_name": "失落光芒"},
+                "equipped_drives": [{"shape_id": "H_2"}],
+            }
+        },
+        7,
+    ) == ("失落光芒",)
 
 
 

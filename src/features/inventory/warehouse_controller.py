@@ -220,6 +220,11 @@ def _page_warehouse(self):
         themed_style("#warehouseView{background:#0d1117;border:1px solid #21262d;border-radius:10px;padding:8px}")
     )
     layout.addWidget(self.warehouse_view, 1)
+    self.warehouse_source_notice = QLabel()
+    self.warehouse_source_notice.setWordWrap(True)
+    self.warehouse_source_notice.setStyleSheet(themed_style("color:#d29922;padding:4px 8px"))
+    self.warehouse_source_notice.hide()
+    layout.addWidget(self.warehouse_source_notice)
     self.warehouse_hint = QLabel("仓库将在打开此页面时读取最新稳定背包快照。")
     self.warehouse_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     self.warehouse_hint.setStyleSheet(themed_style("color:#8b949e;padding:8px"))
@@ -298,8 +303,12 @@ def _on_warehouse_loaded(self, token, result):
     )
     self._apply_warehouse_filters()
     if is_visual_inventory_source(self._warehouse_source):
-        self.warehouse_hint.setText("当前为全量扫描库存：等级、锁定/弃置状态和已装备角色无法识别；鉴定与对比仍可使用。")
-        self.warehouse_hint.show()
+        self.warehouse_source_notice.setText(
+            "视觉扫描库存：无法读取等级、锁定/弃置和已装备角色；鉴定与对比仍可用。"
+        )
+        self.warehouse_source_notice.show()
+    else:
+        self.warehouse_source_notice.hide()
 
 
 def _on_warehouse_load_error(self, token, error):
@@ -308,6 +317,7 @@ def _on_warehouse_load_error(self, token, error):
     self._warehouse_all_items = []
     self.warehouse_model.set_items([])
     self.warehouse_summary.setText("读取失败")
+    self.warehouse_source_notice.hide()
     self.warehouse_hint.setText(f"仓库读取失败：{error}")
     self.warehouse_hint.show()
     logger.error(f"读取仓库稳定快照失败: {error}")
@@ -333,7 +343,9 @@ def _apply_warehouse_filters(self):
     if filtered:
         self.warehouse_hint.hide()
     else:
-        self.warehouse_hint.setText("当前筛选条件下没有装备。请先完成背包同步，或调整筛选条件。")
+        self.warehouse_hint.setText(
+            "背包为空，请先完成同步。" if total == 0 else "没有符合当前筛选条件的装备。"
+        )
         self.warehouse_hint.show()
 
 

@@ -33,6 +33,7 @@ def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, s
     _build_full_scan_driver_frame(window, scan_card)
     build_scan_processing_options(window, scan_card, show_help)
     _build_drone_frame(window, scan_card, drone_help, show_help)
+    window._confirmed_scan_mode_id = window.scan_group.checkedId()
     window.scan_group.idToggled.connect(window._on_scan_change)
     layout.addWidget(scan_card)
 
