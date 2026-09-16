@@ -46,6 +46,30 @@ def test_missing_context_does_not_poll_but_active_scope_keeps_baseline_current()
         prepared.prepare(waiting(), {"combat": attempt()}, forbidden)
 
 
+def test_entry_refresh_retains_only_previous_character_evidence_across_pending_read():
+    prepared = NativeBattlePreparation()
+    old = native_snapshot()
+    prepared.prepare(waiting(), {}, lambda: old)
+    prepared.prepare(waiting("2"), {}, lambda: {"state": "source_changed"})
+    new = native_snapshot()
+    new["domains"]["character"]["revision"] = "2"
+    with patch("src.services.native_battle_preparation.monotonic", return_value=10**10):
+        result = prepared.prepare(waiting("2"), {}, lambda: new)
+    assert result["prior_character_observation"] == old["domains"]["character"]
+    old["domains"]["character"]["revision"] = "changed"
+    assert result["prior_character_observation"]["revision"] == "1"
+
+
+def test_backpack_refresh_does_not_reprepare_a_frozen_role_panel():
+    prepared = NativeBattlePreparation()
+    record = waiting()
+    with patch("src.services.native_battle_preparation.monotonic", return_value=0):
+        prepared.prepare(record, {}, native_snapshot)
+        changed = deepcopy(record)
+        changed["native_capture"]["contextEvents"][0]["snapshotChanges"]["inventory"]["revision"] = "999"
+        prepared.prepare(changed, {}, lambda: (_ for _ in ()).throw(AssertionError("backpack triggered panel read")))
+
+
 def test_direct_hit_reference_beats_stale_context_but_requires_same_provider():
     snapshot = native_snapshot()
     evidence = attempt(revision="0")
@@ -54,7 +78,7 @@ def test_direct_hit_reference_beats_stale_context_but_requires_same_provider():
         row["domain"] = domain
         evidence["firstSnapshotRefs"][domain] = {k: row[k] for k in ("providerId", "domain", "domainKey", "revision")}
     assert validate_first_hit(snapshot, evidence) is None
-    evidence["firstSnapshotRefs"]["inventory"]["providerId"] = "other-provider"
+    evidence["firstSnapshotRefs"]["character"]["providerId"] = "other-provider"
     assert validate_first_hit(snapshot, evidence) == "first_hit_configuration_unverified"
 
 

@@ -87,7 +87,8 @@ def test_native_first_start_prepares_only_capture_dll_and_uses_standard_mode(loa
     assert set(service.native_workspace_record.managed_files) == {'NTE_Capture.dll'}
     for deployed_path in NATIVE_PLUGIN_DEPLOYMENT_PATHS.values():
         assert not (args['game_executable_path'].parent / deployed_path).exists()
-    assert unrelated.read_bytes() == b'other tool'
+    assert not unrelated.exists()
+    assert not list(args['proxy_backup_directory'].rglob('dwmapi.dll.bak'))
 
 
 def test_readonly_support_preflight_and_unsupported_loader_have_no_writes(loading):
@@ -133,6 +134,7 @@ def test_revoke_preserves_actual_written_and_previous_unchanged_owned_files(load
     if previous:
         service.start_loader(**args)
         runtime.stop()
+        (service.native_workspace_path / "NTE_Capture.dll").write_bytes(b"previous version")
     replace = files.os.replace
     def revoke(source, target):
         replace(source, target)
@@ -236,3 +238,29 @@ def test_capture_workspace_does_not_require_or_clean_d3d_host(loading):
     assert service.cleanup_native_workspace().status == 'cleaned'
     assert host.read_bytes() == b'unowned host remains untouched'
     assert not (service.native_workspace_path / 'NTE_Capture.dll').exists()
+
+
+def test_current_loader_payload_is_reused_without_a_file_transaction(loading):
+    service, runtime, _state, args, _root, _payload = loading
+    service.start_loader(**args)
+    service.stop_loader()
+    target = service.native_workspace_path / 'NTE_Capture.dll'
+    before = target.stat().st_mtime_ns
+    with patch('src.services.native_loader_workspace.deploy_native_component_files', side_effect=AssertionError('current payload must not be rewritten')):
+        result = service.start_loader(**args)
+    assert target.stat().st_mtime_ns == before
+    assert result.native_workspace.backup_path is None
+    assert service.native_workspace_files_compatible
+
+
+def test_old_loader_payload_without_record_is_updated_by_filename(loading):
+    service, runtime, _state, args, root, payload = loading
+    directory = service.native_workspace_path
+    directory.mkdir(parents=True)
+    target = directory / 'NTE_Capture.dll'
+    target.write_bytes(b'older version without deployment record')
+    unrelated = directory / 'keep.txt'
+    unrelated.write_text('keep', encoding='utf-8')
+    service.start_loader(**args)
+    assert target.read_bytes() == (root / payload['roles']['capture_plugin']).read_bytes()
+    assert unrelated.read_text(encoding='utf-8') == 'keep'

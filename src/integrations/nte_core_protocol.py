@@ -111,7 +111,9 @@ def native_capture_readiness_message(error: NteCoreRpcError) -> str:
 
 
 def translate_native_start_error(error: BaseException, stderr_lines: Sequence[str]) -> BaseException:
-    """Translate one fixed capability rejection after the process streams have drained."""
+    """Translate known startup failures after the process streams have drained."""
+    if any(line.strip() == 'error: native capture native_resources_unavailable' for line in stderr_lines):
+        return NteCoreProcessError('采集 Core 缺少必需的内置资源，请更新完整的采集组件。')
     if any(line.strip() == 'error: native capture native_context_capability_required_restart_game'
            for line in stderr_lines):
         return NteCoreProcessError('游戏内的采集 DLL 版本过旧，请更新采集组件并重启游戏。')

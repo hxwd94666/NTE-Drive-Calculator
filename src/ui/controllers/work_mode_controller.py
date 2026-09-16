@@ -391,8 +391,10 @@ class WorkModeController(QObject):
             self.window.invalidate_inventory_sync_notifications()
         self.runtime.request_close()
         self._observer.close(finalize=lambda: self._finish_live_work(service, shutdown=True))
-        if self.policy.settings.pending_cleanup:
+        detail = self.runtime.cleanup_exit_detail
+        if detail:
             QMessageBox.information(
-                self.window, "清理尚未完成",
-                "游戏内组件清理仍待完成。Calc 退出后不会继续后台监控；下次启动将重新核对。",
+                self.window, "游戏组件清理提示",
+                detail + "\n\nCalc 退出后不会继续后台监控。按上述原因处理后，重新打开 Calc "
+                "继续核对和清理；无需重装或清空账号数据。",
             )

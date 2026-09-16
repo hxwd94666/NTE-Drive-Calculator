@@ -80,7 +80,7 @@ def test_end_uses_durable_start_equipment_and_profiles_even_after_service_recrea
         outcome = finish(restarted)
     with UserDataDao(deps.user_database_path) as dao:
         build = dao.load_battle_build_snapshot(outcome.battle_record_id)
-        assert build["source_inventory_snapshot_id"] == snapshot_id
+        assert build["source_inventory_snapshot_id"] is None
         assert build["characters"][0]["character_level"] == before["profiles"]["1072"]["character_level"]
         assert build["characters"][0]["equipment"][0]["uid_serial"] == 101
         assert dao.load_battle_capture_build("capture") == before

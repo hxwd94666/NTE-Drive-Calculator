@@ -114,14 +114,14 @@ def _refresh_equipment_plugin_status(self):
             "Npcap：已检测到" if npcap_installation_present()
             else "Npcap：未检测到（请选择官方安装程序安装）"
         )
+    if refresh_native_plugin_status(self):
+        return
     plugin_label = getattr(self, "_equipment_plugin_status_label", None)
     if plugin_label is None:
         return
     executable = getattr(self, "_equipment_plugin_game_executable_edit", None)
     bundle_label = getattr(self, "_equipment_plugin_bundle_label", None)
     if executable is None:
-        return
-    if refresh_native_plugin_status(self):
         return
     bundled_plugin = None
     loader_snapshot = None
@@ -279,9 +279,6 @@ def _detect_equipment_plugin_game_executable(self):
         self._equipment_plugin_game_executable_edit.setText(selected)
         self.work_mode_service.set_game_executable(selected)
         self._refresh_equipment_plugin_status()
-        self._equipment_plugin_status_label.setText(
-            f"已自动找到并保存游戏主程序：{selected}"
-        )
 
     def failed(error):
         if button is not None:
@@ -708,7 +705,7 @@ def _deploy_equipment_plugin(self):
             backup_created=bool(deployed.backup_path),
             registry_value_existed=deployed.workspace_registry_value_existed,
         )
-        self._equipment_plugin_status_label.setText("当前 Calc 配套组件已部署；游戏退出后可清理加载入口。")
+        self._refresh_equipment_plugin_status()
         QMessageBox.information(
             self,
             "部署装备插件",

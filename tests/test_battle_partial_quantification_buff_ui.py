@@ -86,6 +86,7 @@ def _result(*, status: str):
         )
     return SimpleNamespace(
         buff_key=battle_buff_counterfactual_key(interval),
+        buff_asset_path=interval.buff_asset_path,
         source_character_id=1001,
         source_character_name="测试角色",
         buff_name="测试 Buff",
@@ -152,13 +153,13 @@ class BattlePartialQuantificationBuffUiTests(unittest.TestCase):
         self.assertNotIn("+0.00%", panel.table.item(0, 8).text())
         self.assertIn("量化状态：unavailable", panel.table.item(0, 9).toolTip())
 
-    def test_partial_is_labeled_as_quantified_component(self) -> None:
+    def test_partial_value_keeps_evidence_in_details_without_repeated_suffix(self) -> None:
         panel = BattleBuffEvidencePanel()
 
         panel.render(_analysis(_result(status="partial")))
 
         self.assertEqual("100.0%", panel.table.item(0, 7).text())
-        self.assertTrue(panel.table.item(0, 8).text().endswith("（部分）"))
+        self.assertEqual("+11.11%", panel.table.item(0, 8).text())
         self.assertNotIn("已量化", panel.table.item(0, 8).text())
         self.assertIn("不代表完整 Buff 收益", panel.table.item(0, 9).toolTip())
 

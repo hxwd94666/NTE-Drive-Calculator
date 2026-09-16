@@ -57,7 +57,7 @@ from src.services.battle_buff_projection_memo import BattleBuffProjectionMemo
 from src.services.battle_topple_marginal import topple_ratio, topple_ratio_batch
 from src.services.battle_weave_source_service import BattleWeaveSourceLookup, find_paired_weave_source_hit
 class BattleMarginalCalculationService:
-    """Calculate role margins without mistaking inferred Buffs for raw facts."""
+    """DEPRECATED：旧动态属性边际计算，仅供离线差分；正式结果由原生页面提供。"""
     @staticmethod
     def default_units(
         baseline: BattleCharacterBaseline,

@@ -168,7 +168,8 @@ def test_loader_selection_and_native_cleanup_failure_keep_full_deployment_record
     assert policy.settings.pending_cleanup
     assert policy.deployment_record == record
     assert (game.parent / "d3d12.dll").is_file()
-    assert "未清理" in runtime.cleanup_detail
+    assert "组件文件已变化" in runtime.cleanup_detail
+    assert "NTE_Capture.dll" in runtime.cleanup_detail
 
 
 def test_d3d_autodeploy_does_not_require_optional_loader_binary(tmp_path, monkeypatch):

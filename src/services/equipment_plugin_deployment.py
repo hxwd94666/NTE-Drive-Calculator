@@ -108,6 +108,7 @@ def game_process_running() -> bool:
             errors="replace",
             text=True,
             timeout=3,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise EquipmentPluginDeploymentError("无法确认游戏进程状态，请重新检测后再操作组件。") from exc

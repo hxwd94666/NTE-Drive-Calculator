@@ -37,6 +37,18 @@ def test_manual_start_persists_actual_stage_and_offline_cleans_it(tmp_path, monk
     assert not (runtime.loader.native_workspace_path / 'NTE_Capture.dll').exists()
 
 
+@pytest.mark.parametrize('automatic', [False, True])
+def test_native_loader_retires_old_proxy_on_start_and_repeat(tmp_path, monkeypatch, automatic):
+    runtime, _, game, process = setup_loader(tmp_path, monkeypatch)
+    target = game.parent / 'dwmapi.dll'
+    for contents in (b'old proxy', b'proxy reappeared while loader waiting'):
+        target.write_bytes(contents)
+        runtime.start_native_loader(automatic=automatic)
+        assert not target.exists()
+        assert not list(runtime.config_dir.rglob('dwmapi.dll.bak'))
+    assert len(process.calls) == 1
+
+
 def test_launch_failure_retains_stage_record_for_cleanup(tmp_path, monkeypatch):
     runtime, policy, _game, process = setup_loader(tmp_path, monkeypatch)
     process.fail = True

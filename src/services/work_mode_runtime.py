@@ -1,7 +1,7 @@
 # 收集模式所需真实状态并执行已授权的组件生命周期，不接触账号业务数据。
 from __future__ import annotations
 
-from dataclasses import replace, asdict
+from dataclasses import dataclass, replace, asdict
 import hashlib
 from importlib.util import find_spec
 from pathlib import Path
@@ -12,6 +12,7 @@ from typing import Callable
 from src.domain.work_mode import CheckState, NativeFeatureProbe, WorkModeProbe
 from src.integrations.analysis_core_release import create_bundled_analysis_client
 from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.integrations.legacy_game_proxy import legacy_game_proxy_present
 from src.integrations.game_path_discovery import running_game_executables
 from src.integrations.mod_loader import packaged_mod_loader
 from src.integrations.native_capture_process import native_capture_game_pid
@@ -20,13 +21,42 @@ from src.services.deployed_plugin_inspection import inspect_deployed_plugin, ins
 from src.services.native_plugin_deployment import deploy_native_plugin, cleanup_native_plugin, NativePluginCleanupResult
 from src.services.dwmapi_diagnostics import probe_equipment_pipe
 from src.services.equipment_plugin_deployment import (
-    deploy_plugin, find_game_executables, game_process_running,
+    deploy_plugin, find_game_executables, game_process_running, game_executable,
     npcap_installation_present, packaged_plugin_dll, PluginDeploymentPendingCleanup,
-    mod_workspace_registry_snapshot,
     EquipmentPluginDeploymentError,
 )
 from src.services.managed_plugin_cleanup import cleanup_managed_plugin
 from src.services.mod_plugin_loading_service import ModPluginLoadingError
+
+
+@dataclass(frozen=True)
+class _CleanupObservation:
+    context: tuple[str, str]
+    state: CheckState
+    detail: str
+    notify_on_exit: bool
+
+
+def _cleanup_error_detail(error: Exception) -> str:
+    cause = error.__cause__ if isinstance(error.__cause__, OSError) else error
+    code = getattr(cause, "winerror", None)
+    if code in {32, 33}:
+        reason = "组件文件被其他进程占用，请完全退出游戏及占用程序后重新检测。"
+    elif code == 5 or isinstance(cause, PermissionError):
+        reason = "权限不足，请检查游戏目录权限，或以管理员身份启动 Calc 后重新检测。"
+    elif code in {2, 3} or isinstance(cause, FileNotFoundError):
+        reason = "清理目标路径已不存在，请重新检测游戏路径。"
+    else:
+        reason = str(error) or type(error).__name__
+    filename = getattr(cause, "filename", None)
+    evidence = ([f"文件：{Path(filename).name}"] if filename else []) + ([f"系统错误 {code}"] if code is not None else [])
+    return "组件清理失败：" + reason + ("（" + "；".join(evidence) + "）" if evidence else "")
+
+
+def _has_cleanup_record(record: dict) -> bool:
+    return any(record.get(key) for key in (
+        "deployed_sha256", "managed_files", "workspace_path", "native_workspace_root",
+    ))
 
 
 class WorkModeRuntime:
@@ -43,9 +73,12 @@ class WorkModeRuntime:
         self._deployed = None
         self._native_deployed = None
         self._bundle = None
-        self._discovered = False
+        self._last_discovery = float("-inf")
+        self._discovery_key = None
         self.path_candidates: tuple[str, ...] = ()
+        self.path_detail = ""
         self.cleanup_detail = ""
+        self._cleanup_observation: _CleanupObservation | None = None
         self._refresh_at = 0.0
         self._closed = False
         self._analysis_available = False
@@ -57,20 +90,52 @@ class WorkModeRuntime:
             self._last_files = float("-inf")
             self._last_auto_attempt = float("-inf")
             self._last_analysis = float("-inf")
+            self._last_discovery = float("-inf")
             self._auto_error = ""
 
-    def discover(self) -> tuple[str, ...]:
+    @staticmethod
+    def _validated_game_path(raw: str | Path) -> str:
+        try:
+            if not Path(str(raw).strip().strip('"')).expanduser().is_absolute():
+                return ""
+            return str(game_executable(raw))
+        except (EquipmentPluginDeploymentError, OSError, ValueError):
+            return ""
+
+    def discover(self, *, force: bool = True) -> tuple[str, ...]:
         with self._lock:
+            if self._closed:
+                return ()
             configured = self.policy.settings.game_executable
-            if configured and Path(configured).is_file():
-                self.path_candidates = (configured,)
+            valid = self._validated_game_path(configured)
+            if valid:
+                self.path_candidates = (valid,)
+                self.path_detail = ""
+                self._discovery_key = None
                 return self.path_candidates
-            discovered = (*running_game_executables(), *find_game_executables())
-            paths = tuple(dict.fromkeys(str(path) for path in discovered))
+            record_path = str(self.policy.deployment_record.get("game_executable") or "")
+            key = configured, record_path
+            if not force and key == self._discovery_key and monotonic() - self._last_discovery < 15:
+                return self.path_candidates
+            self._last_discovery, self._discovery_key = monotonic(), key
+            discovered = (*running_game_executables(), *find_game_executables(), record_path)
+            candidates = {}
+            for candidate in discovered:
+                path = self._validated_game_path(candidate)
+                if path:
+                    candidates.setdefault(path.casefold(), path)
+            paths = tuple(candidates.values())
+            if self._closed or self.policy.settings.game_executable != configured:
+                return ()
             self.path_candidates = paths
             if len(paths) == 1:
                 self.policy.set_game_executable(paths[0])
-            self._discovered = True
+                self.path_detail = ""
+            else:
+                self.path_detail = (
+                    "发现多个游戏目录，尚无法确认使用哪一个；请检测并选择 HTGame.exe。" if paths else
+                    "未找到游戏路径（HTGame.exe）。请点击自动检测或手动选择游戏主程序；后台会自动重试。"
+                )
             return paths
 
     def save_deployment(self, deployed) -> None:
@@ -93,7 +158,7 @@ class WorkModeRuntime:
     def save_pending_deployment(self, error: PluginDeploymentPendingCleanup) -> None:
         self.save_deployment(error.deployment)
         self.policy.set_cleanup_pending(True)
-        self.cleanup_detail = str(error)
+        self._record_cleanup(CheckState.CLEANUP_PENDING, str(error), notify=True)
 
     def prepare_manual_native_deployment(self, *, expected_revision: int) -> int:
         """Finish old cleanup before replacing its ownership with a new deployment."""
@@ -113,14 +178,58 @@ class WorkModeRuntime:
             self.policy.require("native_load")
             return self.policy.settings.revision
 
+    def _current_cleanup_observation(self) -> _CleanupObservation | None:
+        settings = self.policy.settings
+        result = self._cleanup_observation
+        if (not settings.pending_cleanup or result is None
+                or result.context != (settings.game_executable, settings.deployment_json)):
+            return None
+        return result
+
+    @property
+    def cleanup_state(self) -> CheckState | None:
+        result = self._current_cleanup_observation()
+        return result.state if result is not None else None
+
+    @property
+    def cleanup_exit_detail(self) -> str:
+        result = self._current_cleanup_observation()
+        return result.detail if result is not None and result.notify_on_exit else ""
+
+    def _record_cleanup(self, state: CheckState, detail: str, *, notify: bool = False) -> None:
+        settings = self.policy.settings
+        self.cleanup_detail = detail
+        self._cleanup_observation = _CleanupObservation(
+            (settings.game_executable, settings.deployment_json), state, detail, notify,
+        )
+
     def cleanup(self, *, running: bool | None = None) -> None:
-        if self.native_session.battle_active:
-            self.cleanup_detail = "正在收尾本场原生战报，随后清理。"
-            return
-        if running is None:
-            running = self._game_running()
+        self._cleanup_observation = None
+        try:
+            self._cleanup_components(running=running)
+        except (EquipmentPluginDeploymentError, ModPluginLoadingError, OSError) as error:
+            self._record_cleanup(CheckState.FAULT, _cleanup_error_detail(error), notify=True)
+            raise
+
+    def _cleanup_components(self, *, running: bool | None = None) -> None:
         record = self.policy.deployment_record
-        path = str(record.get("game_executable") or self.policy.settings.game_executable)
+        has_deployment = _has_cleanup_record(record)
+        if self.native_session.battle_active:
+            self._record_cleanup(CheckState.WAITING, "正在收尾本场原生战报，随后清理。", notify=has_deployment)
+            return
+        self.discover(force=False)
+        record = self.policy.deployment_record
+        recorded_path = str(record.get("game_executable") or "")
+        path = self._validated_game_path(recorded_path or self.policy.settings.game_executable)
+        workspace_only = (record.get("deployment_layout") == "native-capture-v1"
+                          and not record.get("managed_files") and bool(record.get("native_workspace_root")))
+        if not path and not workspace_only:
+            detail = (
+                "原组件部署记录中的游戏路径已失效，无法确认原清理目录；保留记录，不改用其他游戏目录。"
+                if recorded_path else self.path_detail
+            )
+            self._record_cleanup(CheckState.WAITING, detail, notify=has_deployment)
+            return
         if record.get("deployment_layout") == "native-capture-v1":
             self._restore_native_workspace(record)
             self.loader.stop_loader()
@@ -132,6 +241,10 @@ class WorkModeRuntime:
             if result.status == "cleaned" and record.get("native_workspace_root"):
                 result = self.loader.cleanup_native_workspace()
                 self.cleanup_detail = result.detail
+            self._record_cleanup(
+                CheckState.FAULT if result.status == "conflict" else CheckState.CLEANUP_PENDING,
+                result.detail, notify=result.status != "cleaned",
+            )
             if result.status == "cleaned":
                 self.policy.update_deployment({"loading_method": self.policy.deployment_record.get("loading_method", "native-capture")})
                 self.policy.set_cleanup_pending(False)
@@ -142,26 +255,27 @@ class WorkModeRuntime:
             record = {**record, "workspace_path": str(workspace)}
             self.policy.update_deployment(record)
         self.loader.stop_loader()
+        if running is None:
+            running = self._game_running()
         if running:
-            self.cleanup_detail = "已停止后续加载；等待游戏退出后清理，当前 DLL 尚未卸载。"
-            return
-        if not path:
-            registered, _value = mod_workspace_registry_snapshot()
-            self.cleanup_detail = (
-                "缺少游戏路径且存在加载登记，无法确认清理范围，请重新检测路径。" if registered else
-                "缺少游戏路径，尚未核对游戏目录中的组件，请重新检测路径。"
+            self._record_cleanup(
+                CheckState.CLEANUP_PENDING if has_deployment or workspace else CheckState.WAITING,
+                "游戏未关闭，暂时不能清理组件。请完全退出游戏后重新检测。"
+                if has_deployment or workspace else "游戏未关闭，尚未核对游戏目录是否有组件。请退出游戏后重新检测。",
+                notify=bool(has_deployment or workspace),
             )
             return
-        if path:
-            result = cleanup_managed_plugin(
-                game_executable_path=path,
-                deployed_sha256=str(record.get("deployed_sha256") or ""),
-                mod_workspace_path=workspace,
-                game_running=self._game_running,
-            )
-            self.cleanup_detail = result.detail
-            if result.status != "cleaned":
-                return
+        result = cleanup_managed_plugin(
+            game_executable_path=path,
+            mod_workspace_path=workspace,
+            game_running=self._game_running,
+        )
+        self._record_cleanup(
+            CheckState.FAULT if result.status == "conflict" else CheckState.CLEANUP_PENDING,
+            result.detail, notify=result.status != "cleaned",
+        )
+        if result.status != "cleaned":
+            return
         method = self.policy.deployment_record.get("loading_method", "proxy")
         self.policy.update_deployment({"loading_method": method})
         self.policy.set_cleanup_pending(False)
@@ -378,7 +492,8 @@ class WorkModeRuntime:
             guard("native_load")
             record = self.policy.deployment_record
             self._restore_native_workspace(record)
-            if self.loader.snapshot().phase == "running" and not frozen.pending_cleanup:
+            if (self.loader.snapshot().phase == "running" and not frozen.pending_cleanup
+                    and not legacy_game_proxy_present(Path(executable).parent)):
                 return None
             self.native_session.close()
             guard("native_load")
@@ -456,7 +571,6 @@ class WorkModeRuntime:
         self._native_deployed = None
         self._deployed = inspect_deployed_plugin(
             application_root=self.root, game_executable_path=settings.game_executable,
-            deployed_sha256=str(record.get("deployed_sha256") or ""),
             mod_workspace_path=record.get("workspace_path"),
         ) if path_valid else None
         self._loader_files = False
@@ -473,24 +587,10 @@ class WorkModeRuntime:
         with self._lock:
             if self._closed:
                 return WorkModeProbe()
-            if not self._discovered:
-                self.discover()
-                self._discovered = True
-            running = self._game_running()
-            settings = self.policy.settings
-            if settings.pending_cleanup:
-                if self.native_session.battle_active:
-                    self.cleanup_detail = "正在收尾本场原生战报，随后清理。"
-                else:
-                    self.native_session.close()
-                    self.cleanup(running=running)
-            settings = self.policy.settings
-            path_valid = bool(settings.game_executable and Path(settings.game_executable).is_file())
-            try:
-                core_available = resolve_nte_core_executable().is_file()
-            except Exception:
-                core_available = False
-            self._inspect_component_files(path_valid=path_valid, running=running)
+            self.discover(force=False)
+            if self._closed:
+                return WorkModeProbe()
+            path_valid = bool(self._validated_game_path(self.policy.settings.game_executable))
             if monotonic() - self._last_analysis > 15:
                 try:
                     analysis = create_bundled_analysis_client(static_database_path=self.root / "data" / "game_static.sqlite3")
@@ -498,6 +598,41 @@ class WorkModeRuntime:
                 except Exception:
                     self._analysis_available = False
                 self._last_analysis = monotonic()
+            try:
+                core_available = resolve_nte_core_executable().is_file()
+            except Exception:
+                core_available = False
+            local_probe = WorkModeProbe(
+                analysis_available=self._analysis_available, core_available=core_available,
+                npcap_available=npcap_installation_present(), input_available=find_spec("pyautogui") is not None,
+            )
+            if not path_valid:
+                self._file_key = None
+                if self.policy.settings.pending_cleanup:
+                    self._record_cleanup(CheckState.WAITING, self.path_detail,
+                                         notify=_has_cleanup_record(self.policy.deployment_record))
+                return replace(local_probe,
+                    game_path_valid=False,
+                    component_update_state=CheckState.WAITING, component_update_detail=self.path_detail,
+                    cleanup_detail=self.path_detail, cleanup_state=self.cleanup_state,
+                )
+            running = self._game_running()
+            settings = self.policy.settings
+            if settings.pending_cleanup:
+                if self.native_session.battle_active:
+                    self.cleanup(running=running)
+                else:
+                    self.native_session.close()
+                    try:
+                        self.cleanup(running=running)
+                    except (EquipmentPluginDeploymentError, ModPluginLoadingError, OSError):
+                        return replace(local_probe,
+                            game_path_valid=True, game_running=running,
+                            cleanup_state=self.cleanup_state, cleanup_detail=self.cleanup_detail,
+                            component_update_state=CheckState.FAULT, component_update_detail=self.cleanup_detail,
+                        )
+            settings = self.policy.settings
+            self._inspect_component_files(path_valid=path_valid, running=running)
             if path_valid and not settings.pending_cleanup:
                 self._automatic_deploy(running)
             files = self._loader_files or bool(self._deployed and self._deployed.compatible)
@@ -517,14 +652,13 @@ class WorkModeRuntime:
                             for name in ("character", "inventory", "team", "environment")}
             battle_files = NativeFeatureProbe(files=loading and {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities))
             equipment_files = NativeFeatureProbe(files=loading and getattr(self._deployed, "equipment_script_valid", False))
-            if native_capture and files:
+            if native_capture:
                 if not {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities):
-                    battle_files = NativeFeatureProbe(files=True, supported=False, reason="packaged_capability_missing")
+                    battle_files = NativeFeatureProbe(files=files, supported=False, reason="packaged_capability_missing")
                 equipment_supported = "equipment.execute.v1" in capabilities
-                equipment_files = NativeFeatureProbe(files=True, supported=equipment_supported,
+                equipment_files = NativeFeatureProbe(files=files, supported=equipment_supported,
                     reason="" if equipment_supported else "packaged_capability_missing")
-            probe = WorkModeProbe(
-                analysis_available=self._analysis_available,
+            probe = replace(local_probe,
                 component_update_state=(CheckState.FAULT if self._auto_error
                                         else CheckState.MISSING if not self._bundle or not self._bundle.ready
                                         else CheckState.CLEANUP_PENDING if settings.pending_cleanup
@@ -533,10 +667,9 @@ class WorkModeRuntime:
                                          else "当前配套组件已部署。" if current_package
                                          else self.cleanup_detail or "等待部署或更新当前配套组件。")),
                 game_path_valid=path_valid, game_running=running,
-                core_available=core_available, npcap_available=npcap_installation_present(),
-                input_available=find_spec("pyautogui") is not None,
+                core_available=core_available,
                 native_load=native, **domain_files, native_battle=battle_files,
-                native_equipment=equipment_files, cleanup_detail=self.cleanup_detail,
+                native_equipment=equipment_files, cleanup_detail=self.cleanup_detail, cleanup_state=self.cleanup_state,
             )
             if not running:
                 self.native_session.close()

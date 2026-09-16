@@ -37,7 +37,7 @@ class CandidateDisplayAnalysisTests(unittest.TestCase):
         history = Mock(native_page_loader=None)
         history.load_analysis.return_value = analysis
         with patch.object(BattleBuildTimelineProjectionService, 'project', return_value=display) as project:
-            result = BattleReportAnalysisLoadService.load(
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(
                 history, BattleReportAnalysisLoadRequest(7, detail_level='hit'),
             )
         project.assert_called_once_with(analysis, analysis.build_counterfactual)
@@ -48,7 +48,7 @@ class CandidateDisplayAnalysisTests(unittest.TestCase):
         history = Mock(native_page_loader=None)
         history.load_analysis.return_value = _snapshot()
         with patch.object(BattleBuildTimelineProjectionService, 'project') as project:
-            result = BattleReportAnalysisLoadService.load(history, BattleReportAnalysisLoadRequest(7))
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(history, BattleReportAnalysisLoadRequest(7))
         project.assert_not_called()
         self.assertIsNone(result.candidate_display_analysis)
 

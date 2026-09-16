@@ -13,7 +13,7 @@ import json
 import os
 import shutil
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 import PyInstaller.__main__
@@ -28,6 +28,7 @@ from tools import build_cli
 from src.integrations.native_capture_release import validate_native_capture_release
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from tools.release.native_component_bundle_build import native_component_build_inputs
+from tools.release.pyinstaller_native_dependencies import declared_native_proxies_only
 from tools.release.game_component_bundle_build import (
     component_build_inputs, prepare_component_bundle, validate_packaged_component_bundle,
 )
@@ -513,7 +514,7 @@ for path in (PACKAGE_BUILD_DIR, PACKAGE_ONEDIR_DIR, PACKAGE_ONEFILE_EXE):
     _remove_package_artifact(path)
 if SPEC.exists():
     SPEC.unlink()
-with _without_ambient_system_icu_on_path():
+with _without_ambient_system_icu_on_path(), (declared_native_proxies_only() if native_component_layout else nullcontext()):
     PyInstaller.__main__.run(args)
 
 output = PACKAGE_ONEDIR_DIR

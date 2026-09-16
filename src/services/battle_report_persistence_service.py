@@ -104,7 +104,7 @@ class BattleReportPersistenceService:
         capture_operation_id: str,
         captured_at_utc: str,
     ) -> None:
-        """Freeze inventory, profiles and stats before capture, then stage them durably."""
+        """Freeze equipped items, profiles and stats before capture."""
 
         dependencies = self._dependencies
         if not self._context_is_current(dependencies):
@@ -139,7 +139,7 @@ class BattleReportPersistenceService:
         if dependencies.static_database_path is None:
             raise UserDataError("战报采集缺少静态数据库路径")
         snapshot_id = user_dao.latest_native_inventory_snapshot_id()
-        equipment = user_dao.list_inventory_items(snapshot_id) if snapshot_id is not None else []
+        equipment = user_dao.list_inventory_items(snapshot_id, equipped=True) if snapshot_id is not None else []
         world_bonus = WorldBonusSettings.from_payload(
             user_dao.list_application_setting_copies().get(WORLD_BONUS_SETTING_KEY),
         ).to_payload()
@@ -154,7 +154,7 @@ class BattleReportPersistenceService:
                 character_ids=tuple(profiles), profiles=profiles, frozen_equipment=equipment, frozen_world_bonus=world_bonus,
             )
         return {
-            "schema_version": 1, "freeze_phase": "capture_start", "snapshot_id": snapshot_id,
+            "schema_version": 1, "freeze_phase": "capture_start", "snapshot_id": None,
             "dataset_id": str(dataset.get("dataset_id") or "") or None,
             "static_schema_version": int(static_summary["schema_version"]),
             "profiles": profiles, "stat_snapshots": stats, "equipment": equipment, "world_bonus": world_bonus,
@@ -226,6 +226,19 @@ class BattleReportPersistenceService:
             if not self._context_is_current(dependencies):
                 raise UserDataError("战报账号上下文已经变化")
             user_dao.bind_battle_runtime_snapshot(capture_operation_id, snapshot, frozen_build=build)
+
+    def restore_missing_native_build(self, battle_record_id: int) -> bool:
+        """Reapply the current binding policy to already saved scope evidence."""
+        if not self._context_is_current(self._dependencies):
+            return False
+        with UserDataDao(self._dependencies.user_database_path, account_id=self._dependencies.account_id) as dao:
+            record = dao.load_finalized_battle_capture_record(battle_record_id)
+            if not record or not (record.get("calc_capture_context") or {}).get("native_scope_builds"):
+                return False
+            selected, reason = select_scope_builds(record["calc_capture_context"], record)
+            if reason or not selected["profiles"]:
+                return False
+            return dao.restore_missing_battle_build(battle_record_id, selected)
 
     @staticmethod
     def _load_effective_profiles(
@@ -306,7 +319,7 @@ class BattleReportPersistenceService:
         """Freeze formula-ready role stats beside the historical build."""
 
         all_items = (list(frozen_equipment) if frozen_equipment is not None else
-                     user_dao.list_inventory_items(snapshot_id) if snapshot_id is not None else [])
+                     user_dao.list_inventory_items(snapshot_id, equipped=True) if snapshot_id is not None else [])
         snapshots: dict[int, list[dict[str, Any]]] = {}
         for character_id in character_ids:
             profile = profiles.get(character_id)
@@ -491,6 +504,16 @@ class BattleReportPersistenceService:
                     post_battle_build, unavailable = select_scope_builds(post_battle_build, raw_record_payload or {})
                 elif isinstance((raw_record_payload or {}).get("native_capture"), Mapping):
                     unavailable = "native_first_hit_snapshot_missing"
+                else:
+                    # Packet evidence only identifies the observed participants;
+                    # retain their equipped items, never an account-wide pool.
+                    post_battle_build["profiles"] = {key: value for key, value in post_battle_build["profiles"].items()
+                                                    if key in character_ids}
+                    post_battle_build["stat_snapshots"] = {key: value for key, value in post_battle_build["stat_snapshots"].items()
+                                                          if key in character_ids}
+                    post_battle_build["equipment"] = [item for item in post_battle_build["equipment"]
+                                                     if item.get("equipped_character_id") in character_ids]
+                post_battle_build["snapshot_id"] = None
                 if unavailable:
                     post_battle_build.update(profiles={}, stat_snapshots={}, equipment=[])
                     warning_message = NATIVE_BUILD_WARNING
@@ -554,7 +577,7 @@ class BattleReportPersistenceService:
                         post_battle_build["stat_snapshots"],
                     ),
                     frozen_equipment=post_battle_build["equipment"],
-                    frozen_capture_context=(post_battle_build if isinstance(runtime, Mapping) and runtime.get("state") == "scoped" else None),
+                    frozen_capture_context=post_battle_build,
                     calculation_unavailable_reason=unavailable,
                     formula_model_version=FORMULA_MODEL_VERSION,
                     name_mapping_version=self._name_mapping_version(),

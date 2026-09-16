@@ -48,7 +48,7 @@ def list_history_entries(
             continue
 
         snapshot = user_dao.load_battle_inferred_target_snapshot(record_id)
-        if not BattleInferredTargetSnapshotService.is_current_row(
+        if not BattleInferredTargetSnapshotService.is_readable_row(
             snapshot,
             static_dataset_id=static_dataset_id,
             static_schema_version=static_schema_version,

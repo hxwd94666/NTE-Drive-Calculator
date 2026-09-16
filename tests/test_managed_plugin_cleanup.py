@@ -1,7 +1,6 @@
 # 验证托管组件清理的归属、退出等待、幂等和加载配置边界。
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -24,7 +23,6 @@ class ManagedPluginCleanupTests(unittest.TestCase):
         self.game.write_bytes(b"game")
         self.dll = self.root / "dwmapi.dll"
         self.dll.write_bytes(b"managed")
-        self.digest = hashlib.sha256(b"managed").hexdigest()
         self.workspace = self.root / "workspace"
         self.registry = patch(
             "src.services.managed_plugin_cleanup.mod_workspace_registry_snapshot",
@@ -37,7 +35,7 @@ class ManagedPluginCleanupTests(unittest.TestCase):
 
     def clean(self, **kwargs):
         return cleanup_managed_plugin(
-            game_executable_path=self.game, deployed_sha256=self.digest,
+            game_executable_path=self.game,
             mod_workspace_path=self.workspace, **kwargs,
         )
 
@@ -54,11 +52,11 @@ class ManagedPluginCleanupTests(unittest.TestCase):
         self.assertEqual(self.clean(game_running=lambda: False).status, "cleaned")
         self.assertEqual(self.clean(game_running=lambda: False).status, "cleaned")
 
-    def test_unknown_hash_is_a_conflict_and_not_adopted(self) -> None:
+    def test_old_proxy_without_deployment_record_is_removed(self) -> None:
         result = cleanup_managed_plugin(game_executable_path=self.game, game_running=lambda: False)
-        self.assertEqual(result.status, "conflict")
-        self.assertEqual(self.dll.read_bytes(), b"managed")
-        self.clear_registry.assert_not_called()
+        self.assertEqual(result.status, "cleaned")
+        self.assertFalse(self.dll.exists())
+        self.clear_registry.assert_called_once()
 
     def test_changed_registry_preserves_dll_and_registration(self) -> None:
         self.registry.return_value = (True, str(self.root / "another-workspace"))
@@ -87,23 +85,22 @@ class ManagedPluginCleanupTests(unittest.TestCase):
 
     def test_read_only_inspection_does_not_claim_pipe_or_business_readiness(self) -> None:
         result = inspect_managed_plugin(
-            game_executable_path=self.game, deployed_sha256=self.digest,
+            game_executable_path=self.game,
             game_running=lambda: False,
         )
         self.assertEqual(result.dll_state, "managed")
-        self.assertEqual(result.observed_sha256, self.digest)
         self.assertTrue(self.dll.exists())
         self.clear_registry.assert_not_called()
 
-    def test_file_change_after_inspection_is_not_deleted(self) -> None:
+    def test_different_old_proxy_bytes_do_not_block_filename_cleanup(self) -> None:
         def process():
-            if process.calls:
+            if process.calls == 1:
                 self.dll.write_bytes(b"changed")
             process.calls += 1
             return False
         process.calls = 0
-        self.assertEqual(self.clean(game_running=process).status, "conflict")
-        self.assertEqual(self.dll.read_bytes(), b"changed")
+        self.assertEqual(self.clean(game_running=process).status, "cleaned")
+        self.assertFalse(self.dll.exists())
 
 
 class WorkspaceRegistrationCleanupTests(unittest.TestCase):

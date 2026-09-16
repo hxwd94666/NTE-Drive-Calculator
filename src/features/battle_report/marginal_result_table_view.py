@@ -63,7 +63,7 @@ def _gain_value(
     if status == "complete":
         return "—" if complete is None else _percent(complete)
     if status == "partial":
-        return "—" if partial is None else f"{_percent(partial)}（部分）"
+        return "—" if partial is None else _percent(partial)
     if status == "not_applicable":
         return "+0.00%"
     return "—"
@@ -79,7 +79,7 @@ def _buff_value(
     if status == "complete":
         return "—" if complete is None else formatter(complete)
     if status == "partial":
-        return "—" if partial is None else f"{formatter(partial)}（部分）"
+        return "—" if partial is None else formatter(partial)
     if status == "not_applicable":
         return "不适用"
     return "—"
@@ -167,6 +167,11 @@ def render_attribute_results(
                 "\n此处只显示角色侧面板穿透；精确调频等目标减抗已经进入"
                 "目标抗性区基线，不计入角色穿透数值。"
             )
+        if result.property_id in ("AtkAdd", "HPMaxAdd", "DefAdd"):
+            tooltip += (
+                "\n加权公式属性包含动态面板证据折算的等效固定增量，"
+                "与逐击公式采用值一致；这不代表每个 Buff 的增量均已独立取证。"
+            )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
             item.setToolTip(tooltip)
@@ -200,7 +205,7 @@ def _team_gain_text(result: BattleBuffCounterfactualResult) -> str:
             return "—"
         return (
             f"{result.quantified_damage_gain:+,.0f}"
-            f"（{result.quantified_gain_percent:+.2f}%，部分）"
+            f"（{result.quantified_gain_percent:+.2f}%）"
         )
     if status == "not_applicable":
         return "不适用"
@@ -292,7 +297,7 @@ def render_buff_benefit_results(
         )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
-            item.setToolTip(tooltip)
+            item.setToolTip(f"{tooltip}\n原始效果标识：{result.buff_asset_path}")
             table.setItem(row_index, column, item)
         row_index += 1
     for result in unattributed:
@@ -303,7 +308,6 @@ def render_buff_benefit_results(
             else result.without_quantified_effect_damage
         )
         team_gain = gain / denominator * 100.0 if gain is not None and denominator else None
-        suffix = "（部分）" if result.quantification.status == "partial" else ""
         beneficiary_label = (
             "不适用"
             if result.quantification.status == "not_applicable"
@@ -315,9 +319,9 @@ def render_buff_benefit_results(
             result.source_character_name,
             _buff_name(result),
             beneficiary_label,
-            "—" if gain is None else f"{gain:+,.0f}{suffix}",
+            "—" if gain is None else f"{gain:+,.0f}",
             "—",
-            "—" if team_gain is None else f"{team_gain:+.2f}%{suffix}",
+            "—" if team_gain is None else f"{team_gain:+.2f}%",
             _team_gain_text(result),
             "—",
             damage_coverage_text(getattr(result, "damage_coverage", None)),
@@ -325,7 +329,7 @@ def render_buff_benefit_results(
         tooltip = f"{result.explanation}\n{_quantification_tooltip(result.quantification)}"
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
-            item.setToolTip(tooltip)
+            item.setToolTip(f"{tooltip}\n原始效果标识：{result.buff_asset_path}")
             table.setItem(row_index, column, item)
         row_index += 1
     for result in uncovered:
@@ -353,7 +357,7 @@ def render_buff_benefit_results(
         )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
-            item.setToolTip(tooltip)
+            item.setToolTip(f"{tooltip}\n原始效果标识：{result.buff_asset_path}")
             table.setItem(row_index, column, item)
         row_index += 1
 

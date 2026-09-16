@@ -39,7 +39,7 @@ def test_mode_execution_matrix(tmp_path, mode, packet, native, compare):
     assert service.allowed(Capability.NATIVE_LOAD) == native
     assert service.allowed(Capability.COMPARE_SOURCES) == compare
     assert service.allowed(Capability.INTERFACE_INPUT) == (mode != "offline")
-    assert service.allowed(Capability.DIAGNOSTICS) == (mode == "developer")
+    assert service.allowed(Capability.DIAGNOSTICS)
     for capability in Capability:
         expected = capability in {Capability.PACKET_CAPTURE, Capability.NATIVE_LOAD, Capability.NATIVE_SYNC}
         assert service.allowed(capability, automatic=True) == (service.allowed(capability) and expected)
@@ -307,6 +307,40 @@ def test_native_stages_not_collapsed(tmp_path, native, state):
         core_available=True, native_inventory=native,
     ))
     assert next(item for item in report.features if item.feature == "native_inventory").state == state
+
+
+@pytest.mark.parametrize("mode, changes, available", [
+    ("developer", {}, True),
+    ("medium", {}, False),
+    ("developer", {"handshake": False}, False),
+    ("developer", {"pipe": False}, False),
+    ("developer", {"supported": False}, False),
+    ("developer", {"ready": False}, False),
+])
+def test_external_native_provider_requires_developer_handshake_and_readiness(tmp_path, mode, changes, available):
+    service = WorkModeService(tmp_path / "settings.json")
+    service.select_mode(mode, risk_confirmed=True)
+    service.set_cleanup_pending(False)
+    native = replace(NativeFeatureProbe(files=False, pipe=True, handshake=True,
+                                       supported=True, ready=True), **changes)
+    probe = WorkModeProbe(game_path_valid=True, game_running=True, core_available=True,
+                         native_load=native, native_battle=native)
+    checks = {item.feature: item for item in service.build_report(probe).features}
+    assert (checks["native_battle"].state == CheckState.AVAILABLE) is available
+    assert dict(checks["native_battle"].facts)["files"] is False
+    assert checks["native_load"].state == CheckState.MISSING
+
+
+def test_external_native_provider_still_requires_complete_inventory(tmp_path):
+    service = WorkModeService(tmp_path / "settings.json")
+    service.select_mode("developer", risk_confirmed=True)
+    service.set_cleanup_pending(False)
+    native = NativeFeatureProbe(files=False, pipe=True, handshake=True, supported=True,
+                                ready=True, snapshot=True, complete=False, source_coverage="partial")
+    probe = WorkModeProbe(game_path_valid=True, game_running=True, core_available=True,
+                         native_inventory=native)
+    checks = {item.feature: item for item in service.build_report(probe).features}
+    assert checks["native_inventory"].state == CheckState.MISSING
 
 
 def test_supported_battle_still_needs_business_readiness(tmp_path):

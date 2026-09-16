@@ -17,7 +17,7 @@ from src.features.battle_report.analysis_components import (
 from src.features.battle_report.hit_buff_dialog import BattleHitBuffDialog
 from src.services.battle_native_evidence_rendering import field_critical_label, render_field_evidence
 from src.services.skill_name_rendering_service import (
-    preferred_battle_damage_name,
+    battle_hit_skill_label,
     render_battle_event_type,
 )
 
@@ -94,19 +94,11 @@ class BattleAnalysisLogMixin:
             "unreplayable": "未重放",
         }
         for row, hit in enumerate(page):
-            damage_name = preferred_battle_damage_name(
+            damage_source_name = battle_hit_skill_label(
                 hit.damage_name,
                 hit.skill_name,
                 hit.ability_id,
             )
-            damage_source_name = damage_name
-            if hit.skill_name not in {
-                "",
-                damage_name,
-                "未知技能",
-                "未识别技能",
-            }:
-                damage_source_name = f"{damage_name} / {hit.skill_name}"
             replay = replay_by_event.get(hit.event_id)
             replay_text = "—"
             crit_text = "未重放"
@@ -231,7 +223,7 @@ class BattleAnalysisLogMixin:
             return
         dialog = getattr(self, "_hit_buff_dialog", None)
         if dialog is None:
-            dialog = BattleHitBuffDialog(getattr(self, "log_dialog", self))
+            dialog = BattleHitBuffDialog(getattr(self, "log_dialog", self), game_ui_asset_root=self._game_ui_asset_root)
             self._hit_buff_dialog = dialog
         replay = next(
             (
@@ -242,7 +234,9 @@ class BattleAnalysisLogMixin:
         )
         details = getattr(self, "_hit_details", None)
         projection, intervals = ((None, ()) if details is None else details.for_hit(hit, formula=False))
-        dialog.show_for_hit(hit, intervals, replay=replay, projection=projection)
+        dialog.show_for_hit(hit, intervals, replay=replay, projection=projection,
+                            target_resolutions=self._analysis.target_instance_resolutions,
+                            participant_names={b.character_id: b.character_name for b in self._analysis.baselines})
 
     def _hide_hit_buff_dialog(self) -> None:
         dialog = getattr(self, "_hit_buff_dialog", None)

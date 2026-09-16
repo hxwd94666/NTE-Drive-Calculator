@@ -189,3 +189,44 @@ class BattleNativeCaptureLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_ui_stop_during_live_snapshot_still_finalizes_and_saves():
+    from concurrent.futures import CancelledError
+    from unittest.mock import patch
+    from src.services.native_game_session import NativeGameSession
+    core = _NativeCore(auto_end=False)
+    core.hello_result['capabilities'] = ['native_battle_scope_snapshot_v1']
+    session = NativeGameSession(lambda: core, lambda _: None)
+    writer = _Writer()
+    ui_stopped = False
+    def check_start():
+        if ui_stopped:
+            raise CancelledError('本次战报启动已取消。')
+    def factory():
+        lease = session.battle_client(check=check_start)
+        def observe(record, *, final=False, stop_requested=None):
+            if not final:
+                lease._read_battle_snapshot(stop_requested)
+        lease.observe_battle_scopes = observe
+        return lease
+    service = BattleCaptureService(client_factory=factory, summary_writer=writer, operation_guard=lambda _: None,
+                                   required_source='native', operation_context=OperationContext.create('battle_report'))
+    def snapshot(client, check, **kwargs):
+        nonlocal ui_stopped
+        ui_stopped = True
+        # UI stop intent can precede the service stop signal during an in-flight read.
+        check()
+        service.request_stop()
+        check()
+    with patch('src.integrations.native_battle_snapshot.freeze_native_battle_snapshot', snapshot):
+        try:
+            service.start()
+            assert _wait_until(lambda: not service.is_running)
+            assert ui_stopped
+            assert service.state.persistence_status == 'saved', service.state.error
+            assert writer.record is not None and not writer.discarded
+            assert len(writer.final_pages) == 1
+        finally:
+            service.close(timeout=2)
+            session.close()

@@ -43,13 +43,15 @@ class BattleTimelineDetailMixin:
                                    else details.for_hit(hit, formula=True))
         dialog = getattr(self, "_hit_formula_dialog", None)
         if dialog is None:
-            dialog = BattleHitFormulaDialog(self)
+            dialog = BattleHitFormulaDialog(self, game_ui_asset_root=self._game_ui_asset_root)
             self._hit_formula_dialog = dialog
         dialog.show_for_hit(
             hit,
             replay,
             active_buffs=active_buffs,
             projection=projection,
+            participant_names={b.character_id: b.character_name for b in analysis.baselines},
+            target_resolutions=analysis.target_instance_resolutions,
         )
 
     def _hide_hit_formula_dialog(self) -> None:

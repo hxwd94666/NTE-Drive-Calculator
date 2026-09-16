@@ -44,19 +44,28 @@ class BattleReportHistorySceneUiTests(unittest.TestCase):
             dialog.delete_requested.connect(deleted.append)
             dialog.retention_toggle_requested.connect(lambda rid, kind: retained.append((rid, kind)))
             dialog.set_entries((
-                _entry(battle_record_id=82, native_capture=True),
-                _entry(battle_record_id=81),
+                _entry(battle_record_id=82, native_capture=True, character_ids=tuple(range(8))),
+                _entry(battle_record_id=81, retention_kind="manual"),
             ))
             self.assertEqual("ID", dialog.table.horizontalHeaderItem(0).text())
             self.assertEqual("82", dialog.table.item(0, 0).text())
             self.assertEqual("完整", dialog.table.item(0, 1).text())
             self.assertEqual("部分", dialog.table.item(1, 1).text())
             for row in (0, 1):
-                for button in dialog.table.cellWidget(row, 7).findChildren(QPushButton):
-                    button.click()
+                actions = dialog.table.cellWidget(row, 7).findChildren(QPushButton)
+                self.assertEqual(["查看", "保存" if row == 0 else "取消保存", "删除"],
+                                 [action.text() for action in actions])
+                for action in actions:
+                    action.click()
             self.assertEqual([82, 81], viewed)
             self.assertEqual([82, 81], deleted)
-            self.assertEqual([(82, "auto"), (81, "auto")], retained)
+            self.assertEqual([(82, "auto"), (81, "manual")], retained)
+            dialog.resize(1120, 650)
+            dialog.show()
+            app.processEvents()
+            self.assertEqual(0, dialog.table.horizontalScrollBar().maximum())
+            self.assertGreater(dialog.table.columnWidth(5), 180)
+            self.assertLess(dialog.table.columnWidth(5), 250)
             dialog.close()
             dialog.deleteLater()
             app.processEvents()

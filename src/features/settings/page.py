@@ -196,12 +196,12 @@ def _build_environment_card(window):
     npcap_row.addStretch()
     card.layout().addLayout(npcap_row)
 
-    equipment_title = QLabel("装备插件 · 极速装配必需")
+    equipment_title = QLabel("游戏内组件 · 原生同步、战报与极速装配")
     equipment_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(equipment_title)
     equipment_description = QLabel(
-        "<b>简单原理：</b>默认把 dwmapi.dll 放入游戏目录，由游戏代理加载；"
-        "少数环境不加载代理 DLL 时，可显式改用管理员 Mod Loader。"
+        "<b>简单原理：</b>把当前版本的配套组件部署到游戏目录，由游戏启动时加载；"
+        "更新组件前需完全退出游戏，具体加载方式以配套组件的检测结果为准。"
         "<br><span style='color:#d29922'><b>风险提示：</b>该功能会介入游戏进程，但不会直接篡改"
         "游戏数据；仍可能触发游戏保护，产生兼容问题或账号风险。</span>"
     )
@@ -256,6 +256,13 @@ def _build_environment_card(window):
     game_row.addWidget(window._equipment_plugin_detect_button)
     form.addRow("游戏主程序:", game_row)
     card.layout().addLayout(form)
+
+    window._equipment_plugin_bundle_label = QLabel()
+    window._equipment_plugin_bundle_label.setWordWrap(True)
+    window._equipment_plugin_status_label = QLabel()
+    window._equipment_plugin_status_label.setWordWrap(True)
+    card.layout().addWidget(window._equipment_plugin_bundle_label)
+    card.layout().addWidget(window._equipment_plugin_status_label)
 
     actions = QHBoxLayout()
     window._equipment_plugin_primary_button = QPushButton("部署代理 DLL")

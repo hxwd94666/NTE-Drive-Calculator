@@ -1,7 +1,7 @@
 # 将独立运行事实投影为逐功能检测结果，不执行安装或加载。
 from src.domain.work_mode import (
     Capability, CheckState, FeatureCheck, NativeFeatureProbe, WorkModeProbe,
-    WorkModeReport, WorkModeSettings, allowed_capabilities,
+    WorkMode, WorkModeReport, WorkModeSettings, allowed_capabilities,
 )
 from src.integrations.nte_core_protocol import (
     NATIVE_CAPTURE_TRANSIENT_REASONS, NteCoreRpcError, native_capture_readiness_message,
@@ -10,7 +10,7 @@ from src.integrations.nte_core_protocol import (
 
 def _native_check(
     feature: str, label: str, native: NativeFeatureProbe,
-    probe: WorkModeProbe, *, needs_snapshot: bool,
+    probe: WorkModeProbe, *, needs_snapshot: bool, external_provider_allowed: bool = False,
 ) -> FeatureCheck:
     facts = tuple((name, getattr(native, name)) for name in (
         "files", "pipe", "handshake", "supported", "snapshot", "ready",
@@ -24,7 +24,9 @@ def _native_check(
         return result(CheckState.FAULT, native.fault, "recheck")
     if not probe.game_path_valid:
         return result(CheckState.MISSING, "尚未确认游戏目录。", "detect_game_path")
-    if native.files is not True:
+    external_connection = (external_provider_allowed and feature != "native_load"
+                           and native.pipe is True and native.handshake is True)
+    if native.files is not True and not external_connection:
         return result(CheckState.MISSING, "尚未核对兼容的游戏内组件。", "manual_deploy", "recheck")
     if feature == "native_load":
         return result(CheckState.AVAILABLE, "已核对组件文件；手动管理可用。")
@@ -62,6 +64,16 @@ def _native_check(
         return result(CheckState.WAITING, "等待原生装备接口和本次完整背包；已保存的历史背包不能替代。", "recheck")
     if feature == "native_character" and native.profile_projection_supported is True and native.ready is True:
         return result(CheckState.AVAILABLE, "可同步组件已支持的角色状态字段；未观测字段保持原值。")
+    observation_details = {
+        "native_team": "已取得组件支持的队伍观测；角色对象与装备实例的完整对应关系尚未确认，不能视为完整实际队伍。",
+        "native_environment": "已取得组件支持的环境观测；未观测的世界等级、关卡、半场或效果生效状态仍需其他证据补充。",
+    }
+    if feature in observation_details:
+        if native.snapshot is not True:
+            return result(CheckState.WAITING, "尚未取得本项观测数据，请重新检测。", "recheck")
+        if native.ready is not True:
+            return result(CheckState.WAITING, native.reason or "本项观测尚未就绪，请重新检测。", "recheck")
+        return result(CheckState.AVAILABLE, observation_details[feature])
     if needs_snapshot and (native.complete is False or (
         native.snapshot is True and native.source_coverage != "complete"
     )):
@@ -92,11 +104,12 @@ def build_work_mode_report(settings: WorkModeSettings, probe: WorkModeProbe) -> 
         ))
     if settings.pending_cleanup:
         items.append(FeatureCheck(
-            "cleanup", "清理游戏目录", CheckState.CLEANUP_PENDING,
+            "cleanup", "确认游戏路径" if probe.game_path_valid is False else "清理游戏目录",
+            probe.cleanup_state or CheckState.WAITING,
             probe.cleanup_detail or (
                 "游戏正在运行，退出后重新核对并清理已管理组件。"
                 if probe.game_running else "等待核对本程序管理的组件，已不存在视为已清理。"
-            ), ("recheck",),
+            ), ("detect_game_path", "recheck") if probe.game_path_valid is False else ("recheck",),
         ))
     if Capability.INTERFACE_INPUT in allowed:
         items.append(FeatureCheck(
@@ -108,13 +121,23 @@ def build_work_mode_report(settings: WorkModeSettings, probe: WorkModeProbe) -> 
             ), ("recheck",),
         ))
     if Capability.PACKET_CAPTURE in allowed:
+        npcap_state = (CheckState.AVAILABLE if probe.npcap_available is True else
+                       CheckState.MISSING if probe.npcap_available is False else CheckState.WAITING)
+        npcap_detail = (
+            "已检测到 Npcap 安装；抓包能否正常启动见下方抓包同步状态。" if probe.npcap_available is True else
+            "未检测到 Npcap，低风险抓包需要此组件。请点击下方“下载 Npcap”，运行官方安装程序，"
+            "安装完成后回到这里点击“重新检测”。" if probe.npcap_available is False else
+            "尚未取得 Npcap 检测结果，请重新检测。"
+        )
+        items.append(FeatureCheck("npcap", "Npcap 抓包依赖", npcap_state, npcap_detail,
+                                  ("download_npcap", "recheck") if probe.npcap_available is False else ("recheck",)))
         state, detail, actions = CheckState.AVAILABLE, "抓包与完整快照已就绪。", ()
         if probe.packet_fault:
             state, detail, actions = CheckState.FAULT, probe.packet_fault, ("recheck",)
         elif probe.core_available is not True:
             state, detail, actions = CheckState.MISSING, "采集组件缺失或尚未核对。", ("recheck",)
         elif probe.npcap_available is not True:
-            state, detail, actions = CheckState.MISSING, "Npcap 缺失或尚未核对。", ("download_npcap", "recheck")
+            state, detail, actions = npcap_state, "抓包依赖尚未就绪，请按上方 Npcap 检测结果处理。", ("recheck",)
         elif not probe.packet_listening:
             state, detail, actions = CheckState.WAITING, "等待启动抓包监听；应在登录前监听。", ("recheck",)
         elif not probe.game_running or not probe.logged_in:
@@ -131,13 +154,16 @@ def build_work_mode_report(settings: WorkModeSettings, probe: WorkModeProbe) -> 
         (Capability.NATIVE_EQUIPMENT, "DLL 装配", True),
     ):
         if capability in allowed:
-            items.append(_native_check(capability.value, label, getattr(probe, capability.value), probe, needs_snapshot=needs_snapshot))
+            items.append(_native_check(capability.value, label, getattr(probe, capability.value), probe,
+                                       needs_snapshot=needs_snapshot,
+                                       external_provider_allowed=settings.mode == WorkMode.DEVELOPER))
     if Capability.NATIVE_SYNC in allowed:
         for feature, label in (
             ("native_character", "DLL 角色状态（已支持字段）"),
             ("native_inventory", "DLL 完整背包库存"),
-            ("native_team", "DLL 队伍"),
-            ("native_environment", "DLL 环境"),
+            ("native_team", "DLL 队伍观测（已支持字段）"),
+            ("native_environment", "DLL 环境观测（已支持字段）"),
         ):
-            items.append(_native_check(feature, label, getattr(probe, feature), probe, needs_snapshot=True))
+            items.append(_native_check(feature, label, getattr(probe, feature), probe, needs_snapshot=True,
+                                       external_provider_allowed=settings.mode == WorkMode.DEVELOPER))
     return WorkModeReport(settings.mode, tuple(items))

@@ -699,6 +699,7 @@ class BattleLongAnalysisView(
             for hit in selected_hits
             if hit.direction == "outgoing"
         )
+        action_event_ids.intersection_update(hit.event_id for hit in outgoing)
         covered_damage = sum(
             hit.damage for hit in outgoing if hit.event_id in action_event_ids
         )

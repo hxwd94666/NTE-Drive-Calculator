@@ -18,6 +18,7 @@ from src.integrations.mod_loader import (
     game_launcher_executable,
 )
 from src.integrations.operation_guard import require_operation
+from src.integrations.legacy_game_proxy import remove_legacy_game_proxy
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUT
 from src.services.native_loader_workspace import (
@@ -408,12 +409,11 @@ class ModPluginLoadingService:
             raise ModPluginLoadingError('原生 Loader 必须使用本机配置的专用运行目录。')
         self.require_native_loader_supported()
         self._require_load_allowed(scoped_guard)
-        launcher = game_launcher_executable(game_executable(game_executable_path))
+        executable = game_executable(game_executable_path)
+        launcher = game_launcher_executable(executable)
         payload = self._native_workspace_root / NATIVE_LOADER_PAYLOAD_RELATIVE_PATH
         current = self._runtime.snapshot(payload_path=payload)
-        if current.phase == 'running':
-            return ModPluginLoaderStartResult(current, self._native_workspace_root, native_workspace=self._native_workspace)
-        if current.phase not in {'stopped', 'missing_payload'}:
+        if current.phase not in {'running', 'stopped', 'missing_payload'}:
             raise ModPluginLoadingError(current.detail or 'Loader 当前状态不可启动。')
 
         def guard(capability):
@@ -421,12 +421,20 @@ class ModPluginLoadingService:
             if scoped_guard is not None:
                 scoped_guard(capability)
             self._require_load_allowed(scoped_guard)
+        def require_idle():
+            guard('native_load')
+            if self._game_running():
+                raise ModPluginLoadingError('游戏正在运行，旧代理清理等待游戏完全退出。')
         try:
+            if current.phase == 'running':
+                remove_legacy_game_proxy(game_directory=executable.parent, require_idle=require_idle)
+                return ModPluginLoaderStartResult(current, self._native_workspace_root, native_workspace=self._native_workspace)
             prepared = prepare_native_loader_workspace(
                 application_root=self._application_root, workspace_path=self._native_workspace_root,
                 backup_directory=backup_directory, operation_guard=guard, game_running=self._game_running,
             )
             self._retain_native_workspace(prepared)
+            remove_legacy_game_proxy(game_directory=executable.parent, require_idle=require_idle)
             self._require_load_allowed(scoped_guard)
             runtime = self._runtime.start(
                 payload_path=payload, launcher_path=launcher, payload_load_mode='loadlibrary',
@@ -436,7 +444,7 @@ class ModPluginLoadingService:
             self._retain_native_workspace(error.deployment)
             raise ModPluginLoadingPendingCleanup('Loader 准备未完成；已保留实际写入记录，等待清理。',
                                                  native_workspace=self._native_workspace) from error
-        except (EquipmentPluginDeploymentError, ModLoaderRuntimeError, PermissionError) as error:
+        except (EquipmentPluginDeploymentError, ModLoaderRuntimeError, OSError) as error:
             raise ModPluginLoadingError(str(error)) from error
         self._active_payload_sha256 = self._native_workspace.managed_files[NATIVE_LOADER_PAYLOAD_RELATIVE_PATH]
         return ModPluginLoaderStartResult(runtime, self._native_workspace_root, native_workspace=self._native_workspace)

@@ -86,14 +86,55 @@ def test_real_team_change_or_missing_proof_remains_unavailable(change):
     assert validate_first_hit(snapshot, attempt, record) == "first_hit_configuration_unverified"
 
 
-@pytest.mark.parametrize("domain", ["character", "inventory", "environment"])
+@pytest.mark.parametrize("domain", ["character"])
 def test_team_proof_never_bypasses_other_domain_versions(domain):
     snapshot, attempt, record = observed_team()
     snapshot["domains"][domain]["revision"] = "2"
     assert validate_first_hit(snapshot, attempt, record) == "first_hit_configuration_unverified"
 
 
-@pytest.mark.parametrize("domain", ["character", "inventory", "environment"])
+def refreshed_character():
+    snapshot, attempt, record = observed_team()
+    current = snapshot["domains"]["character"]
+    current.update(revision="2", observedUnixUs="1500000", enumerationComplete=True,
+                   domainKey="world-1:1/controller-2:2/ps-3:3/inventory-4:4/clone-entered",
+                   records=[{"ItemID": "1072", "CharacterLevel": 70, "Equipments": [42]}])
+    previous = deepcopy(current)
+    previous.update(revision="1", observedUnixUs="400000",
+                    domainKey="world-1:1/controller-2:2/ps-3:3/inventory-4:4/clone-before")
+    snapshot["prior_character_observation"] = previous
+    attempt["changes"][0]["character"] = {"revision": "2", "dirty": False}
+    return snapshot, attempt, record
+
+
+def test_entry_refresh_accepts_identical_observed_character_configuration():
+    from src.services.native_battle_scopes import scope_changed
+    snapshot, attempt, record = refreshed_character()
+    assert scope_changed(snapshot, attempt, record) is None
+
+
+@pytest.mark.parametrize("change", ["equipment", "level", "provider", "roots", "time", "incomplete", "reference"])
+def test_entry_refresh_requires_matching_configuration_evidence(change):
+    snapshot, attempt, record = refreshed_character()
+    previous = snapshot["prior_character_observation"]
+    if change == "equipment":
+        previous["records"][0]["Equipments"] = [43]
+    elif change == "level":
+        previous["records"][0]["CharacterLevel"] = 69
+    elif change == "provider":
+        previous["providerId"] = "other"
+    elif change == "roots":
+        previous["domainKey"] = previous["domainKey"].replace("ps-3:3", "ps-3:4")
+    elif change == "time":
+        previous["observedUnixUs"] = "1800000"
+    elif change == "incomplete":
+        previous["enumerationComplete"] = False
+    else:
+        attempt["firstSnapshotRefs"] = {"character": {"providerId": "other"}}
+    assert validate_first_hit(snapshot, attempt, record) == "first_hit_configuration_unverified"
+
+
+@pytest.mark.parametrize("domain", ["character"])
 def test_midbattle_other_domain_change_still_invalidates_build(domain):
     from src.services.native_battle_scopes import scope_changed
 
@@ -106,6 +147,39 @@ def test_selected_roster_and_runtime_roster_must_agree():
     snapshot, attempt, record = observed_team()
     snapshot["domains"]["team"]["records"][0]["CharacterItems"][0]["ItemID"] = "1004"
     assert validate_first_hit(snapshot, attempt, record) == "first_hit_configuration_unverified"
+
+
+@pytest.mark.parametrize("domain", ["inventory", "environment"])
+def test_non_panel_domain_changes_do_not_discard_frozen_role_build(domain):
+    from src.services.native_battle_scopes import scope_changed
+    snapshot, attempt, record = observed_team()
+    snapshot["domains"][domain]["revision"] = "9"
+    attempt["changes"][0][domain] = {"revision": "10", "dirty": True}
+    assert validate_first_hit(snapshot, attempt, record) is None
+    assert scope_changed(snapshot, attempt, record) is None
+
+
+def test_restore_empty_calculation_copy_uses_saved_equipment_and_is_idempotent(capture):
+    service, deps, _, _ = capture
+    snapshot, _, record = observed_team()
+    with patch.object(service, "_resolve_character_stat_snapshots", return_value={}):
+        service.bind_runtime_snapshot(capture_operation_id="capture", snapshot=scoped(snapshot))
+    with patch("src.services.battle_report_persistence_service.select_scope_builds") as select:
+        with UserDataDao(deps.user_database_path) as dao:
+            frozen = dao.load_battle_capture_build("capture")
+        select.return_value = (frozen, "first_hit_configuration_unverified")
+        outcome = finish(service, record)
+    with UserDataDao(deps.user_database_path) as dao:
+        before = dao.load_finalized_battle_capture_record(outcome.battle_record_id)
+    assert service.restore_missing_native_build(outcome.battle_record_id)
+    assert not service.restore_missing_native_build(outcome.battle_record_id)
+    with UserDataDao(deps.user_database_path) as dao:
+        build = dao.load_battle_build_snapshot(outcome.battle_record_id)
+        after = dao.load_finalized_battle_capture_record(outcome.battle_record_id)
+        assert build["source_inventory_snapshot_id"] is None
+        assert build["characters"][0]["equipment"][0]["uid_serial"] == 202
+        assert before["native_capture"] == after["native_capture"]
+        assert "calc_build_validation" not in after
 
 
 def test_on_field_switch_materializes_saved_build_without_changing_account(capture):
@@ -165,12 +239,14 @@ def test_first_poll_missing_context_does_not_permanently_reject_saved_build(capt
 def test_dirty_cache_is_only_resolved_by_same_epoch_later_read(condition):
     from src.services.native_battle_scopes import scope_changed
     snapshot, attempt, record = pending_refresh()
+    snapshot["domains"]["character"].update(domainKey="world-1:1/controller-2:2/ps-3:3/clone-fixture", observedUnixUs="2500000")
+    attempt["changes"][0]["character"]["dirty"] = True
     if condition == "new_epoch":
-        attempt["changes"][0]["inventory"]["revision"] = "2"
+        attempt["changes"][0]["character"]["revision"] = "2"
     elif condition == "after_read":
-        snapshot["domains"]["inventory"]["observedUnixUs"] = "1500000"
+        snapshot["domains"]["character"]["observedUnixUs"] = "1500000"
     elif condition == "missing_time":
-        snapshot["domains"]["inventory"].pop("observedUnixUs")
+        snapshot["domains"]["character"].pop("observedUnixUs")
     elif condition == "missing_context":
         record["native_capture"]["contextEvents"].pop()
     elif condition == "provider":

@@ -245,9 +245,14 @@ def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
         'Flags: ignoreversion'
         for name in CORE_CONFIG_FILES
     )
-    stale_icu_delete_lines = "\n".join(
+    stale_runtime_dlls = list(STALE_AMBIENT_ICU_DLLS)
+    if inspect_game_component_bundle(APP_INTERNAL).layout == "native-capture-v1":
+        # Old installers could include this game proxy as an ambient dependency.
+        # It is not a Calc runtime DLL; clean only the old application-local copy.
+        stale_runtime_dlls.append("dwmapi.dll")
+    stale_runtime_delete_lines = "\n".join(
         f'Type: files; Name: "{{app}}\\_internal\\{name}"'
-        for name in STALE_AMBIENT_ICU_DLLS
+        for name in stale_runtime_dlls
     )
     if vigem_is_exe:
         vigem_install_filename = "{app}\\drivers\\ViGEmBus_Setup.exe"
@@ -375,7 +380,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={{app}}\\{{#MyAppExeName}}
 CloseApplications=yes
-CloseApplicationsFilter=NTE_Drive_Calc.exe
+CloseApplicationsFilter=NTE_Drive_Calc.exe,nte-mod-loader.exe,nte-core.exe,nte-analysis-core.exe
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
@@ -393,7 +398,7 @@ Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: i
 {vigem_file_line}
 
 [InstallDelete]
-{stale_icu_delete_lines}
+{stale_runtime_delete_lines}
 
 [Dirs]
 Name: "{{app}}\\config"; Permissions: users-modify

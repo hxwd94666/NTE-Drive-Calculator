@@ -22,7 +22,7 @@ from src.services.battle_build_quantification_service import (
 
 
 class BattleBuildTimelineProjectionService:
-    """Project candidate hit sizes without changing the immutable source axis."""
+    """DEPRECATED：旧候选显示轴投影，仅供离线差分；正式显示轴由原生页面提供。"""
 
     @staticmethod
     def project(

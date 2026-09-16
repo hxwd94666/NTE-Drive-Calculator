@@ -35,7 +35,6 @@ def test_partial_native_fixture_does_not_block_ready_battle(tmp_path, domain_err
     }))
     runtime = WorkModeRuntime(policy=policy, native_session=native,
         loader=SimpleNamespace(), application_root=tmp_path, config_dir=tmp_path, game_running=lambda: True)
-    runtime._discovered = True
     runtime._bundle = SimpleNamespace(ready=False, issues=("bundle missing",))
     runtime._deployed = SimpleNamespace(compatible=True, workspace_matches_package=False,
         proxy_matches_package=True, workspace_registered=True, native_capabilities=dll_caps, equipment_script_valid=True)
@@ -110,3 +109,38 @@ def test_supported_sparse_character_fields_do_not_claim_full_character_observati
     check = next(row for row in policy.build_report(probe).features if row.feature == "native_character")
     assert check.state == CheckState.AVAILABLE and "未观测字段保持原值" in check.detail
     assert dict(check.facts)["complete"] is False
+
+
+@pytest.mark.parametrize("feature", ["native_team", "native_environment"])
+def test_ready_observation_does_not_require_full_domain_coverage(tmp_path, feature):
+    policy = WorkModeService(tmp_path / "mode.json")
+    policy.select_mode("medium", risk_confirmed=True)
+    native = NativeFeatureProbe(files=True, pipe=True, handshake=True, supported=True,
+                                snapshot=True, ready=True, complete=False, source_coverage="unknown")
+    probe = WorkModeProbe(game_path_valid=True, core_available=True, game_running=True, **{feature: native})
+    check = next(row for row in policy.build_report(probe).features if row.feature == feature)
+    assert check.state == CheckState.AVAILABLE
+    assert "已支持字段" in check.label and "已取得" in check.detail
+    assert dict(check.facts)["complete"] is False
+    assert dict(check.facts)["source_coverage"] == "unknown"
+    assert getattr(probe, feature) == native
+
+
+@pytest.mark.parametrize("feature", ["native_team", "native_environment"])
+@pytest.mark.parametrize("change,state", [
+    ({"snapshot": False}, CheckState.WAITING),
+    ({"ready": False, "reason": "source_changed"}, CheckState.WAITING),
+    ({"pipe": False}, CheckState.WAITING),
+    ({"handshake": False}, CheckState.FAULT),
+    ({"fault": "读取失败"}, CheckState.FAULT),
+    ({"supported": False}, CheckState.MISSING),
+])
+def test_observation_still_requires_live_supported_data(tmp_path, feature, change, state):
+    policy = WorkModeService(tmp_path / "mode.json")
+    policy.select_mode("medium", risk_confirmed=True)
+    native = NativeFeatureProbe(files=True, pipe=True, handshake=True, supported=True,
+                                snapshot=True, ready=True, complete=False, source_coverage="unknown")
+    probe = WorkModeProbe(game_path_valid=True, core_available=True, game_running=True,
+                          **{feature: replace(native, **change)})
+    check = next(row for row in policy.build_report(probe).features if row.feature == feature)
+    assert check.state == state

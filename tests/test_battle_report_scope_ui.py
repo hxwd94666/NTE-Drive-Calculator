@@ -56,8 +56,8 @@ class BattleReportScopeUiTests(unittest.TestCase):
         upper_hit = _hit("upper", 10_000_000, 100.0)
         lower_hit = _hit("lower", 80_000_000, 200.0)
         actions = (
-            SimpleNamespace(action_id="upper-action", evidence_event_ids=("upper",)),
-            SimpleNamespace(action_id="lower-action", evidence_event_ids=("lower",)),
+            SimpleNamespace(action_id="upper-action", evidence_event_ids=("upper",), input_kind="A", start_us=9_000_000),
+            SimpleNamespace(action_id="lower-action", evidence_event_ids=("lower",), input_kind="E", start_us=79_000_000),
         )
         view._analysis = SimpleNamespace(
             range_start_us=70_000_000,

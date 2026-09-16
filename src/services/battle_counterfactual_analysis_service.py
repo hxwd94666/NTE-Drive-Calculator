@@ -197,7 +197,7 @@ def _baselines(build: Mapping[str, Any] | None) -> tuple[BattleCharacterBaseline
 
 
 class BattleCounterfactualAnalysisService:
-    """Build one immutable range projection and calculate role margins."""
+    """DEPRECATED：旧分析实现，仅作离线差分；正式分析使用 battle_page_v1。"""
 
     @staticmethod
     def analyze(
@@ -221,6 +221,7 @@ class BattleCounterfactualAnalysisService:
         compute_backend: BattleComputeBackend | None = None,
         checkpoint: Callable[[], None] | None = None,
     ) -> BattleAnalysisSnapshot:
+        """DEPRECATED：离线差分入口；正式逐击及反事实使用原生 battle_page_v1。"""
         resolved_target_condition = resolve_battle_target_condition(target_condition)
         source_hits = (evidence or {}).get("hits") or ()
         hp_pool_reconciliation = (

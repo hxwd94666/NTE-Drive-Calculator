@@ -75,6 +75,10 @@ def validate_native_snapshot_current(bundle, status):
     observations = list(bundle["domains"].values())
     observations.extend(bundle[key] for key in ("inventory_projection", "character_projection") if key in bundle)
     for snapshot in observations:
+        # The equipped-item observation is already frozen and internally bound
+        # to its raw page. Later backpack refreshes must not discard that panel.
+        if snapshot["domain"] == "inventory":
+            continue
         matches = [row for row in status["domains"] if isinstance(row, dict) and row.get("domain") == snapshot["domain"]]
         if len(matches) != 1:
             raise NteCoreProtocolError("战报快照复核缺少唯一数据域。")
@@ -91,6 +95,7 @@ def freeze_native_battle_snapshot(client, check, *, baseline=None):
     if "snapshot.changes.v1" not in capabilities:
         return {**base, "state": "unavailable", "missing": ["snapshot_changes_capability_missing"]}
     deadline = monotonic() + FREEZE_TIMEOUT_SECONDS
+    prior_character = baseline.previous_observation("character") if baseline is not None else None
 
     def call(method, params):
         check()
@@ -161,6 +166,9 @@ def freeze_native_battle_snapshot(client, check, *, baseline=None):
                     bundle["missing"].append(f"{domain}_projection_unavailable")
             validate_native_snapshot_current(bundle, call("native.snapshot.status", {}))
             check()
+            current_character = bundle["domains"].get("character") or {}
+            if prior_character and prior_character.get("revision") != current_character.get("revision"):
+                bundle["prior_character_observation"] = prior_character
             if len(json.dumps(bundle, ensure_ascii=False).encode("utf-8")) > MAX_BUNDLE_BYTES:
                 raise NteCoreProtocolError("战报入场快照总大小超限。")
             if baseline is not None:

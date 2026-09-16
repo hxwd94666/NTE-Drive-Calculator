@@ -85,6 +85,7 @@ def controller(tmp_path, monkeypatch, qt_app):
     )
     probe = WorkModeProbe(game_running=True, npcap_available=True, core_available=True)
     runtime = SimpleNamespace(
+        path_detail="", cleanup_detail="", cleanup_exit_detail="",
         native_session=native, invalidate=lambda: events.append("invalidate"),
         tick=lambda **kwargs: probe, discover=lambda: (),
         request_close=lambda: events.append("runtime_request"),
@@ -96,6 +97,44 @@ def controller(tmp_path, monkeypatch, qt_app):
     if value._observer.finalize:
         value._observer.finalize()
     dispose(window)
+
+
+def test_close_with_unverified_path_does_not_report_cleanup_failure(controller, monkeypatch):
+    c, _window, policy, _events, _popups, _probe = controller
+    messages = []
+    monkeypatch.setattr(module.QMessageBox, "information", lambda _owner, title, message: messages.append((title, message)))
+    policy.set_cleanup_pending(True)
+    c.runtime.path_detail = "尚未找到有效游戏路径。"
+    c.close()
+    assert messages == []
+    assert policy.settings.pending_cleanup
+
+
+@pytest.mark.parametrize("detail", [
+    "已停止后续加载；等待游戏退出后清理，当前 DLL 尚未卸载。",
+    "组件文件或加载配置归属未知或已修改，请手动核对；尚未清理。",
+])
+def test_close_pending_cleanup_shows_observed_reason_without_clearing_record(controller, monkeypatch, detail):
+    c, _window, policy, _events, _popups, _probe = controller
+    messages = []
+    monkeypatch.setattr(module.QMessageBox, "information", lambda _owner, title, message: messages.append((title, message)))
+    policy.update_deployment({"deployed_sha256": "old-component", "loading_method": "proxy"})
+    policy.set_cleanup_pending(True)
+    c.runtime.cleanup_exit_detail = detail
+    c.close()
+    assert messages[0][0] == "游戏组件清理提示"
+    assert detail in messages[0][1] and "按上述原因处理" in messages[0][1]
+    assert policy.settings.pending_cleanup
+    assert policy.deployment_record["deployed_sha256"] == "old-component"
+
+
+def test_close_does_not_turn_general_detection_message_into_cleanup_failure(controller):
+    c, _window, policy, _events, popups, _probe = controller
+    policy.set_cleanup_pending(True)
+    c.runtime.cleanup_detail = "原生组件已部署；启动游戏后重新核对连接和各项能力。"
+    c.close()
+    assert popups == []
+    assert policy.settings.pending_cleanup
 
 
 def test_stale_revision_generation_and_fault_do_not_start_or_show(controller):

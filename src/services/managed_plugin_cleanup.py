@@ -1,9 +1,8 @@
-# 只读核对托管组件归属，并在游戏退出后清理部署及加载登记。
+# 按游戏目录旧代理文件名清理，并核对加载登记和游戏退出状态。
 """Managed-file lifecycle facts; never infer pipe or business readiness."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -23,7 +22,6 @@ class ManagedPluginInspection:
     dll_state: Literal["missing", "managed", "conflict"]
     registry_state: Literal["absent", "owned", "conflict"]
     game_running: bool
-    observed_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -42,33 +40,21 @@ def _target_path(game_executable_path: str | Path) -> Path:
     return parent / PLUGIN_FILENAME
 
 
-def _digest(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
 def inspect_managed_plugin(
     *,
     game_executable_path: str | Path,
-    deployed_sha256: str = "",
     mod_workspace_path: str | Path | None = None,
     game_running: Callable[[], bool] | None = None,
 ) -> ManagedPluginInspection:
-    """Read file/hash/registration/process facts without opening a native pipe."""
+    """Inspect the game-local legacy filename and registration without hashing."""
     target = _target_path(game_executable_path)
     process_running = (game_running or game_process_running)()
-    digest = ""
     if target.is_symlink() or (target.exists() and not target.is_file()):
         dll_state = "conflict"
     elif not target.exists():
         dll_state = "missing"
     else:
-        try:
-            digest = _digest(target)
-        except OSError as exc:
-            raise EquipmentPluginDeploymentError("无法核对游戏目录组件，请重新检测。") from exc
-        expected = str(deployed_sha256).strip().casefold()
-        dll_state = "managed" if expected and digest == expected else "conflict"
+        dll_state = "managed"
     registered, current = mod_workspace_registry_snapshot()
     if not registered:
         registry_state = "absent"
@@ -78,46 +64,49 @@ def inspect_managed_plugin(
         registry_state = "owned"
     else:
         registry_state = "conflict"
-    return ManagedPluginInspection(target, dll_state, registry_state, process_running, digest)
+    return ManagedPluginInspection(target, dll_state, registry_state, process_running)
 
 
 def cleanup_managed_plugin(
     *,
     game_executable_path: str | Path,
-    deployed_sha256: str = "",
     mod_workspace_path: str | Path | None = None,
     game_running: Callable[[], bool] | None = None,
 ) -> ManagedPluginCleanupResult:
-    """Remove managed loading entries after exit; backups are never reactivated."""
+    """Remove the game-local dwmapi.dll regardless of its version or recorded hash."""
     probe = game_running or game_process_running
     facts = inspect_managed_plugin(
-        game_executable_path=game_executable_path, deployed_sha256=deployed_sha256,
+        game_executable_path=game_executable_path,
         mod_workspace_path=mod_workspace_path, game_running=probe,
     )
     if facts.game_running:
         return ManagedPluginCleanupResult(
-            "waiting_game_exit", facts, "游戏仍在运行；请退出游戏后清理。当前 DLL 不支持安全热卸载。",
+            "waiting_game_exit", facts, "游戏未关闭，暂时不能清理组件。请完全退出游戏后重新检测。",
         )
-    if facts.dll_state == "conflict" or facts.registry_state == "conflict":
+    if facts.dll_state == "conflict":
         return ManagedPluginCleanupResult(
-            "conflict", facts, "组件文件或加载配置归属未知或已修改，请手动核对；尚未清理。",
+            "conflict", facts, "组件路径不是普通文件：dwmapi.dll。请检查游戏目录中的同名目录或链接。",
+        )
+    if facts.registry_state == "conflict":
+        return ManagedPluginCleanupResult(
+            "conflict", facts, "加载配置与部署记录不一致，未清理。请核对当前注册的 Mod 工作区。",
         )
     if probe():
-        return ManagedPluginCleanupResult("waiting_game_exit", facts, "游戏已经启动，清理等待游戏退出。")
+        return ManagedPluginCleanupResult("waiting_game_exit", facts, "游戏在清理前启动。请完全退出游戏后重新检测。")
     if facts.dll_state == "managed":
         try:
             if facts.target_path.is_symlink() or (
-                facts.target_path.exists() and _digest(facts.target_path) != facts.observed_sha256
+                facts.target_path.exists() and not facts.target_path.is_file()
             ):
-                return ManagedPluginCleanupResult("conflict", facts, "组件在清理前发生变化，已停止清理。")
+                return ManagedPluginCleanupResult("conflict", facts, "组件文件已变化：dwmapi.dll 在清理前被修改。已停止清理，请核对该组件。")
             facts.target_path.unlink(missing_ok=True)
         except OSError as exc:
             raise EquipmentPluginDeploymentError("组件清理失败，请保持游戏关闭并重新检测。") from exc
     if probe():
-        return ManagedPluginCleanupResult("waiting_game_exit", facts, "游戏已经启动，剩余加载配置等待退出后清理。")
+        return ManagedPluginCleanupResult("waiting_game_exit", facts, "游戏在清理过程中启动，加载配置尚未清理。请退出游戏后重新检测。")
     cleanup_mod_workspace(workspace_path=mod_workspace_path)
     final = inspect_managed_plugin(
-        game_executable_path=game_executable_path, deployed_sha256=deployed_sha256,
+        game_executable_path=game_executable_path,
         mod_workspace_path=mod_workspace_path, game_running=probe,
     )
     if final.game_running:

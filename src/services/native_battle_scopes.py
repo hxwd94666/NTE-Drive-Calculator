@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from math import isfinite
 
-from src.services.battle_capture_build_context import DOMAINS
+from src.services.battle_capture_build_context import PANEL_DOMAINS
 
 
 def observe_native_scopes(client, writer, operation_id, record, *, final=False, stop_requested=None):
@@ -122,12 +122,40 @@ def _pending_cache_was_read(actual, current, event, native):
         return False
 
 
+def _same_character_configuration(snapshot, attempt, record):
+    """An entry refresh changes the observation epoch even when the build is identical."""
+    before = snapshot.get("prior_character_observation") or {}
+    after = (snapshot.get("domains") or {}).get("character") or {}
+    native = (record or {}).get("native_capture") or {}
+    expected = (attempt.get("firstChanges") or {}).get("character") or {}
+    contexts = _scope_contexts(attempt, native)
+    if (not contexts or native.get("droppedContexts") not in (0, "0")
+            or not native.get("providerId") or expected.get("revision") != before.get("revision")):
+        return False
+    roots = contexts[0].get("roots") or {}
+    prefix = f"world-{roots.get('world')}/controller-{roots.get('controller')}/ps-{roots.get('ps')}/inventory-"
+    for observed in (before, after):
+        if (observed.get("providerId") != native["providerId"]
+                or observed.get("enumerationComplete") is not True or observed.get("dirty") is not False
+                or observed.get("failed") or observed.get("truncated")
+                or not str(observed.get("domainKey") or "").startswith(prefix)):
+            return False
+    if (before["domainKey"].split("/clone-", 1)[0] != after["domainKey"].split("/clone-", 1)[0]
+            or not before.get("records") or before["records"] != after.get("records")):
+        return False
+    try:
+        return (0 < int(before["observedUnixUs"]) <= float(attempt["firstUnixSeconds"]) * 1_000_000
+                <= int(after["observedUnixUs"]))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
 def validate_first_hit(snapshot, attempt, record=None):
     """A later read is usable only if its revision still belongs to the first hit."""
     changes = attempt.get("firstChanges") or {}
     refs = attempt.get("firstSnapshotRefs") or {}
     domains = snapshot.get("domains") or {}
-    for domain in DOMAINS:
+    for domain in PANEL_DOMAINS:
         expected = changes.get(domain) or refs.get(domain) or {}
         actual = domains.get(domain) or {}
         reference = refs.get(domain) or {}
@@ -139,6 +167,8 @@ def validate_first_hit(snapshot, attempt, record=None):
             expected = reference
         if not expected.get("revision") or expected.get("revision") != actual.get("revision"):
             if domain == "team" and team_configuration_unchanged(snapshot, attempt, record):
+                continue
+            if domain == "character" and not reference and _same_character_configuration(snapshot, attempt, record):
                 continue
             return "first_hit_configuration_unverified"
     return None
@@ -152,7 +182,7 @@ def scope_changed(snapshot, attempt, record=None):
     native = (record or {}).get("native_capture") or {}
     contexts = _scope_contexts(attempt, native)
     for index, changes in enumerate(attempt.get("changes") or ()):
-        for domain in DOMAINS:
+        for domain in PANEL_DOMAINS:
             current = changes.get(domain) or {}
             if current.get("dirty") is not False or current.get("revision") != snapshot["domains"][domain]["revision"]:
                 if domain == "team" and same_team:

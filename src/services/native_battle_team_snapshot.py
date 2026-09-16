@@ -21,6 +21,11 @@ def select_native_team_snapshot(snapshot):
         profiles["profiles"] = [row for row in profiles["profiles"] if row.get("character_id") in ids]
     domains = selected.get("domains") or {}
     strings = {str(value) for value in ids}
+    # Compare the same team subset on both sides of an entry refresh. Retain the
+    # original observation identity; this does not make it a current snapshot.
+    previous = selected.get("prior_character_observation")
+    if previous is not None:
+        previous["records"] = [row for row in previous.get("records", []) if str(row.get("ItemID")) in strings]
     unknown_character = False
     for domain in ("character", "inventory"):
         source = domains.get(domain)

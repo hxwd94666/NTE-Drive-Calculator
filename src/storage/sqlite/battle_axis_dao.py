@@ -590,6 +590,44 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             connection.rollback()
             raise
 
+    def load_finalized_battle_capture_record(self, battle_record_id: int) -> dict[str, Any] | None:
+        row = self._one("SELECT raw_record_json FROM battle_axis_capture WHERE battle_record_id=? AND capture_state='finalized'",
+                        (_integer(battle_record_id, "battle_record_id", minimum=1),))
+        return _decoded(row["raw_record_json"], {}) if row else None
+
+    def restore_missing_battle_build(self, battle_record_id: int, frozen_build: Mapping[str, Any]) -> bool:
+        """Rematerialize an empty calculation copy from its retained capture evidence."""
+        record_id = _integer(battle_record_id, "battle_record_id", minimum=1)
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            record = self.load_finalized_battle_capture_record(record_id)
+            if record is None or connection.execute(
+                    "SELECT 1 FROM battle_character_build_snapshot WHERE battle_record_id=? LIMIT 1", (record_id,)).fetchone():
+                connection.rollback()
+                return False
+            profiles = [(int(cid), "", dict(profile)) for cid, profile in frozen_build["profiles"].items()]
+            if not profiles:
+                raise UserDataValidationError("没有可恢复的本场角色配置")
+            materialize_character_builds(connection, record_id=record_id, snapshot_id=None,
+                                         profiles=profiles, frozen_equipment=frozen_build["equipment"])
+            self._materialize_character_stats(connection, record_id=record_id,
+                                              character_ids={row[0] for row in profiles},
+                                              snapshots=frozen_build["stat_snapshots"])
+            connection.execute("UPDATE battle_build_snapshot SET source_inventory_snapshot_id=NULL, observed_character_count=? WHERE battle_record_id=?",
+                               (len(profiles), record_id))
+            # Only Calc's configuration decision changes; Core evidence stays intact.
+            record["calc_capture_context"] = dict(frozen_build)
+            record.pop("calc_build_validation", None)
+            raw = _json_object(record, "battle record")
+            connection.execute("UPDATE battle_axis_capture SET source_inventory_snapshot_id=NULL, raw_record_json=?, raw_record_sha256=? WHERE battle_record_id=?",
+                               (raw, hashlib.sha256(raw.encode("utf-8")).hexdigest(), record_id))
+            connection.commit()
+            return True
+        except Exception:
+            connection.rollback()
+            raise
+
     @staticmethod
     def _materialize_character_stats(
         connection: sqlite3.Connection,

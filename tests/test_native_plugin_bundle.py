@@ -121,10 +121,14 @@ def test_deployed_files_are_distinct_from_bundle_and_do_not_touch_registry(tmp_p
     old.write_bytes(b"unrelated legacy file")
     with patch("src.services.deployed_plugin_inspection.mod_workspace_registry_snapshot", side_effect=AssertionError("registry must not be read")):
         result = inspect_deployed_native_plugin(application_root=root, game_executable_path=game)
-    assert result.files_compatible and set(result.files) == set(NATIVE_PLUGIN_DEPLOYMENT_PATHS.values())
+    assert not result.files_compatible and result.legacy_proxy_present
+    assert set(result.files) == set(NATIVE_PLUGIN_DEPLOYMENT_PATHS.values())
+    assert all(item.matches_bundle for item in result.files.values())
     assert old.read_bytes() == b"unrelated legacy file"
     assert not any(item.matches_record for item in result.files.values())
     assert not hasattr(result, "pipe_ready") and not hasattr(result, "workspace_registered")
+    old.unlink()
+    assert inspect_deployed_native_plugin(application_root=root, game_executable_path=game).files_compatible
     (game.parent / "NTE_Capture.dll").write_bytes(b"other capture version")
     assert inspect_native_plugin_bundle(root).ready
     result = inspect_deployed_native_plugin(application_root=root, game_executable_path=game)

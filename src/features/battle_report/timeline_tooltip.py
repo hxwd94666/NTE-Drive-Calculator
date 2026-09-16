@@ -99,7 +99,7 @@ def build_timeline_tooltip(
     assert isinstance(item, BattleInferredInput)
     if item.is_character_switch:
         return (
-            f"推算 QTE 切换 · {item.character_name}\n"
+            f"角色切换 · {item.character_name}\n"
             f"{format_time(projected_time(item.start_us))} · "
             f"时间置信度{item.timing_confidence}\n"
             "头像表示切换结果；当前没有真实键盘槽位证据。"

@@ -14,6 +14,7 @@ from src.integrations.native_plugin_bundle import (
     NATIVE_PLUGIN_DEPLOYMENT_PATHS, inspect_native_plugin_bundle,
 )
 from src.integrations.operation_guard import require_operation
+from src.integrations.legacy_game_proxy import remove_legacy_game_proxy
 from src.services.equipment_plugin_deployment import (
     EquipmentPluginDeploymentError, PluginDeploymentPendingCleanup,
     GAME_EXECUTABLE_NAME, game_executable, game_process_running,
@@ -41,7 +42,7 @@ class NativePluginCleanupResult:
 @dataclass(frozen=True)
 class NativeComponentFilesDeployment:
     directory: Path
-    backup_path: Path
+    backup_path: Path | None
     managed_files: dict[str, str]
 
 
@@ -156,6 +157,8 @@ def deploy_native_component_files(
                 if _digest(backup) != previous:
                     raise EquipmentPluginDeploymentError('游戏目录组件在备份时发生变化，已停止部署。')
             originals[relative] = previous, backup
+        if 'host' in order:
+            remove_legacy_game_proxy(game_directory=directory, require_idle=require_idle)
         for relative, target in targets.items():
             require_idle()
             target = _target(directory, relative)
@@ -230,7 +233,7 @@ def cleanup_native_component_files(
 ) -> NativePluginCleanupResult:
     probe = game_running or game_process_running
     if probe():
-        return NativePluginCleanupResult('waiting_game_exit', '游戏仍在运行，组件清理等待游戏退出。')
+        return NativePluginCleanupResult('waiting_game_exit', '游戏未关闭，暂时不能清理组件。请完全退出游戏后重新检测。')
     directory = Path(directory_path).expanduser()
     if not directory.is_absolute():
         raise EquipmentPluginDeploymentError('组件清理目录必须是已记录的绝对路径。')
@@ -240,16 +243,16 @@ def cleanup_native_component_files(
         for relative, digest in files.items():
             target = _target(directory, relative)
             if target.exists() and _digest(target) != digest:
-                return NativePluginCleanupResult('conflict', '已记录组件已被修改，未清理其他文件。')
+                return NativePluginCleanupResult('conflict', f'组件文件已变化：{relative} 与部署记录不一致。未删除文件，请核对该组件。')
         # Remove the automatic loading entry first; never restore transaction backups.
         ordered = sorted(files, key=lambda relative: relative != NATIVE_PLUGIN_DEPLOYMENT_PATHS['host'])
         for relative in ordered:
             if probe():
-                return NativePluginCleanupResult('waiting_game_exit', '游戏已经启动，剩余组件清理等待退出。')
+                return NativePluginCleanupResult('waiting_game_exit', '游戏在清理过程中启动，剩余组件尚未清理。请完全退出游戏后重新检测。')
             target = _target(directory, relative)
             if target.exists():
                 if _digest(target) != files[relative]:
-                    return NativePluginCleanupResult('conflict', '组件在清理前发生变化，已停止清理。')
+                    return NativePluginCleanupResult('conflict', f'组件文件已变化：{relative} 在清理前被修改。已停止清理，请核对该组件。')
                 target.unlink()
     except EquipmentPluginDeploymentError as error:
         return NativePluginCleanupResult('conflict', str(error))

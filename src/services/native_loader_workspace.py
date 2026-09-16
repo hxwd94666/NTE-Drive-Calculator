@@ -6,7 +6,9 @@ import hashlib
 from pathlib import Path
 
 from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_DEPLOYMENT_PATHS, inspect_native_plugin_bundle
-from src.services.native_plugin_deployment import deploy_native_component_files
+from src.services.native_plugin_deployment import NativeComponentFilesDeployment, deploy_native_component_files
+from src.integrations.operation_guard import require_operation
+from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError, game_process_running
 
 NATIVE_LOADER_COMPONENT_ROLES = ('capture_plugin',)
 NATIVE_LOADER_PAYLOAD_RELATIVE_PATH = NATIVE_PLUGIN_DEPLOYMENT_PATHS['capture_plugin']
@@ -46,6 +48,12 @@ def inspect_native_loader_workspace(*, application_root, workspace_path) -> Nati
 
 
 def prepare_native_loader_workspace(*, application_root, workspace_path, backup_directory, operation_guard, game_running):
+    require_operation(operation_guard, 'native_load')
+    if (game_running or game_process_running)():
+        raise EquipmentPluginDeploymentError('游戏未关闭，暂时不能更新 Loader 运行组件。请完全退出游戏后重试。')
+    current = inspect_native_loader_workspace(application_root=application_root, workspace_path=workspace_path)
+    if current.files_compatible:
+        return NativeComponentFilesDeployment(current.workspace_path, None, current.managed_files)
     return deploy_native_component_files(
         application_root=application_root, directory_path=workspace_path,
         backup_directory=backup_directory, operation_guard=operation_guard, game_running=game_running,

@@ -393,3 +393,43 @@ def test_domain_protocol_and_transport_faults_still_invalidate_idle_core(error):
     assert clients[0].closed
     session.inspect()
     assert len(clients) == 2
+
+
+def test_started_capture_does_not_reuse_start_cancellation_during_snapshot(monkeypatch):
+    from concurrent.futures import CancelledError
+    cancelled = False
+    def check_start():
+        if cancelled:
+            raise CancelledError("本次战报启动已取消。")
+    session, clients = make_session()
+    lease = session.battle_client(check=check_start)
+    lease.start_capture(profile="combat")
+    cancelled = True
+    monkeypatch.setattr("src.integrations.native_battle_snapshot.freeze_native_battle_snapshot",
+                        lambda client, check, **kwargs: (check(), {"state": "observed"})[1])
+    try:
+        assert lease._read_battle_snapshot(lambda: False)["state"] == "observed"
+        assert lease._read_battle_snapshot(lambda: True)["missing"] == ["snapshot_read_cancelled_by_stop"]
+        lease.stop_capture()
+        assert lease.get_battle_record()["final"]
+    finally:
+        lease.close()
+        session.close()
+
+
+def test_start_cancellation_still_blocks_capture_before_it_begins():
+    from concurrent.futures import CancelledError
+    cancelled = False
+    def check_start():
+        if cancelled:
+            raise CancelledError("cancelled before start")
+    session, clients = make_session()
+    lease = session.battle_client(check=check_start)
+    cancelled = True
+    try:
+        with pytest.raises(CancelledError):
+            lease.start_capture(profile="combat")
+        assert not any(name == "capture.start" for name, _ in clients[0].calls)
+    finally:
+        lease.close()
+        session.close()

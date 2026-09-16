@@ -71,7 +71,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
         progress = Mock()
         with (patch.object(BattleReportAnalysisLoadService, "_materialize_marginal_baseline", return_value=analysis),
               patch.object(BattleMarginalPanelService, "calculate", return_value=panel) as calculate):
-            result = BattleReportAnalysisLoadService.load(history, request, progress_callback=progress)
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(history, request, progress_callback=progress)
         calculate.assert_called_once_with(analysis=analysis, character_id=2, drive_units={"CritBase": 0.032}, projection_memo=memo, progress_callback=progress)
         history.new_projection_memo.assert_called_once_with(progress_callback=progress)
         self.assertIs(result.marginal_panel, panel)
@@ -90,7 +90,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
         with (patch.object(BattleReportAnalysisLoadService, "_materialize_marginal_baseline", return_value=analysis),
               patch.object(BattleMarginalPanelService, "calculate") as calculate):
             with self.assertRaises(CancelledError):
-                BattleReportAnalysisLoadService.load(history, BattleReportAnalysisLoadRequest(
+                BattleReportAnalysisLoadService.load_legacy_for_differential(history, BattleReportAnalysisLoadRequest(
                     battle_record_id=1, detail_level="marginal", selected_character_id=2,
                     marginal_drive_units=(("CritBase", 0.032),),
                 ), progress_callback=cancel)
@@ -128,7 +128,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
         history.new_projection_memo.side_effect = lambda **_kwargs: BattleBuffProjectionMemo()
         with (patch.object(BattleReportAnalysisLoadService, "_materialize_marginal_baseline", return_value=analysis),
               patch("src.services.battle_marginal_calculation_service.BattleMarginalCalculationService.calculate", return_value=()) as calculate):
-            result = BattleReportAnalysisLoadService.load(history, BattleReportAnalysisLoadRequest(
+            result = BattleReportAnalysisLoadService.load_legacy_for_differential(history, BattleReportAnalysisLoadRequest(
                 battle_record_id=1, detail_level="marginal", selected_character_id=2, marginal_drive_units=(),
             ))
             self.assertIsNotNone(result.marginal_panel)
@@ -138,7 +138,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
             self.assertIn("DefIgnore", units)
             self.assertTrue(all(unit == 0.0 for unit in units.values()))
             calculate.reset_mock()
-            omitted = BattleReportAnalysisLoadService.load(history, BattleReportAnalysisLoadRequest(
+            omitted = BattleReportAnalysisLoadService.load_legacy_for_differential(history, BattleReportAnalysisLoadRequest(
                 battle_record_id=1, detail_level="marginal", selected_character_id=2,
             ))
             self.assertIsNone(omitted.marginal_panel)
@@ -194,7 +194,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
 
                 with patch.object(BattleReportAnalysisLoadService, "_materialize_marginal_baseline", return_value=analysis):
                     with self.assertRaises(CancelledError):
-                        BattleReportAnalysisLoadService.load(history, BattleReportAnalysisLoadRequest(
+                        BattleReportAnalysisLoadService.load_legacy_for_differential(history, BattleReportAnalysisLoadRequest(
                             battle_record_id=1, detail_level="marginal", selected_character_id=CHARACTER_ID,
                             marginal_drive_units=(("CritBase", 0.032), ("AtkUp", 0.04)),
                         ), progress_callback=cancel)

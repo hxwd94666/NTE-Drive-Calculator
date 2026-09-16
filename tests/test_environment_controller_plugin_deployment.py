@@ -1,5 +1,7 @@
 # 验证部署装备插件前的游戏进程提示和精简确认文案。
 from pathlib import Path
+
+import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -115,27 +117,26 @@ def test_refresh_buttons_remain_clickable_for_guidance_in_every_mode(tmp_path):
     window._equipment_plugin_stop_button.setText.assert_called_with("清理游戏目录")
 
 
-def test_raw_diagnostics_blocked_outside_developer_mode(tmp_path):
+@pytest.mark.parametrize("mode", ["offline", "low", "medium", "developer"])
+def test_raw_diagnostics_available_in_every_mode(tmp_path, mode):
+    from src.services.mod_plugin_loading_service import ModPluginLoadingError
     window = _window(tmp_path)
-    with patch("src.ui.controllers.environment_controller.QMessageBox.warning"), patch(
-        "src.ui.controllers.environment_controller.WorkerThread",
-    ) as worker:
+    window.work_mode_service.select_mode(mode, risk_confirmed=mode != "offline")
+    window._mod_plugin_loading_service.snapshot = MagicMock(side_effect=ModPluginLoadingError("not running"))
+    with patch("src.ui.controllers.environment_controller.WorkerThread") as worker:
         _diagnose_dwmapi(window)
-    worker.assert_not_called()
+    worker.assert_called_once()
+    worker.return_value.start.assert_called_once()
 
 
-def test_packet_diagnostic_worker_rechecks_mode_before_execution(tmp_path):
+def test_readonly_diagnostic_worker_remains_allowed_after_switch_to_offline(tmp_path):
     window = _window(tmp_path)
+    window.app_context.paths.app_dir = tmp_path
     window.work_mode_service.select_mode("low", risk_confirmed=True)
     with patch("src.ui.controllers.environment_controller.WorkerThread") as worker, patch(
         "src.ui.controllers.environment_controller.collect_nte_core_diagnostics",
     ) as collect:
         _diagnose_nte_core(window)
         window.work_mode_service.select_mode("offline")
-        try:
-            worker.call_args.kwargs["target"]()
-        except PermissionError:
-            pass
-        else:
-            raise AssertionError("revoked worker should not run diagnostics")
-    collect.assert_not_called()
+        worker.call_args.kwargs["target"]()
+    collect.assert_called_once_with(cwd=tmp_path)

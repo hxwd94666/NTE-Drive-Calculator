@@ -66,5 +66,5 @@ class BattleBuildProjectionReuseTests(unittest.TestCase):
             patch("src.services.battle_report_analysis_load_service.BattleMarginalBenefitService.calculate", side_effect=benefits),
         ):
             for _ in range(2):
-                self.assertEqual("benefits", BattleReportAnalysisLoadService.load(history, request).marginal_benefits)
+                self.assertEqual("benefits", BattleReportAnalysisLoadService.load_legacy_for_differential(history, request).marginal_benefits)
         self.assertIsNot(request_memos[0], request_memos[1])

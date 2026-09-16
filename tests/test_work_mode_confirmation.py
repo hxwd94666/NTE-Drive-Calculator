@@ -58,3 +58,34 @@ def test_risk_confirmation_only_accepts_explicit_consent(monkeypatch, mode, acti
 def test_offline_does_not_show_risk_dialog(monkeypatch):
     monkeypatch.setattr(QDialog, "exec", lambda _dialog: pytest.fail("offline must not prompt"))
     assert confirm_mode(None, "offline")
+
+
+@pytest.mark.parametrize("installed", [False, True, None])
+def test_low_mode_report_offers_download_only_for_confirmed_missing_npcap(tmp_path, monkeypatch, installed):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QWidget
+    from src.domain.work_mode import WorkModeProbe
+    from src.services.work_mode_service import WorkModeService
+    from src.features.settings.work_mode_card import show_mode_report
+    application()
+    parent = QWidget()
+    parent._open_npcap_download = Mock()
+    parent._deploy_equipment_plugin = Mock()
+    controller = SimpleNamespace(detect_path=Mock(), check=Mock())
+    policy = WorkModeService(tmp_path / 'mode.json')
+    policy.select_mode('low', risk_confirmed=True)
+    report = policy.build_report(WorkModeProbe(npcap_available=installed, core_available=False, game_path_valid=False))
+    def interact(dialog):
+        buttons = {b.text(): b for b in dialog.findChildren(QPushButton)}
+        assert ('下载 Npcap' in buttons) == (installed is False)
+        if installed is False:
+            assert '安装完成后' in dialog.findChild(QLabel).text()
+            buttons['下载 Npcap'].click()
+            parent._open_npcap_download.assert_called_once()
+        else:
+            parent._open_npcap_download.assert_not_called()
+        return 0
+    monkeypatch.setattr(QDialog, 'exec', interact)
+    show_mode_report(parent, report, controller)
+    dispose(parent)

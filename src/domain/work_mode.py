@@ -36,7 +36,7 @@ class WorkModeSettings:
     risk_confirmed: bool = False
     paused: bool = False
     auto_sync_enabled: bool = True
-    pending_cleanup: bool = True
+    pending_cleanup: bool = True  # Reconciliation request, not proof of leftover files or a failed cleanup.
     game_executable: str = ""
     # JSON text keeps the frozen settings genuinely immutable across callers.
     deployment_json: str = "{}"
@@ -44,7 +44,7 @@ class WorkModeSettings:
 
 
 def allowed_capabilities(settings: WorkModeSettings) -> frozenset[Capability]:
-    result = {Capability.LOCAL}
+    result = {Capability.LOCAL, Capability.DIAGNOSTICS}
     if settings.mode == WorkMode.OFFLINE or not settings.risk_confirmed:
         return frozenset(result)
     result.add(Capability.INTERFACE_INPUT)
@@ -53,7 +53,7 @@ def allowed_capabilities(settings: WorkModeSettings) -> frozenset[Capability]:
     elif settings.mode == WorkMode.MEDIUM:
         result.update(NATIVE_CAPABILITIES)
     elif settings.mode == WorkMode.DEVELOPER:
-        result.update({Capability.DIAGNOSTICS, Capability.PACKET_CAPTURE, Capability.COMPARE_SOURCES})
+        result.update({Capability.PACKET_CAPTURE, Capability.COMPARE_SOURCES})
         result.update(NATIVE_CAPABILITIES)
     return frozenset(result)
 
@@ -104,6 +104,7 @@ class WorkModeProbe:
     native_equipment: NativeFeatureProbe = NativeFeatureProbe()
     native_load: NativeFeatureProbe = NativeFeatureProbe()
     cleanup_detail: str = ""
+    cleanup_state: CheckState | None = None
 
 
 @dataclass(frozen=True)

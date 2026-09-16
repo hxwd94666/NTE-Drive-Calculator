@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.integrations.legacy_game_proxy import legacy_game_proxy_present
 from src.integrations.native_plugin_bundle import (
     NATIVE_PLUGIN_DEPLOYMENT_PATHS, NATIVE_PLUGIN_LAYOUT, NativePluginBundleInspection, inspect_native_plugin_bundle,
 )
@@ -143,10 +144,11 @@ class NativePluginDeploymentInspection:
     bundle_ready: bool
     issues: tuple[str, ...]
     layout: str = NATIVE_PLUGIN_LAYOUT
+    legacy_proxy_present: bool = False
 
     @property
     def files_compatible(self) -> bool:
-        return self.bundle_ready and set(self.files) == set(NATIVE_PLUGIN_DEPLOYMENT_PATHS.values()) and all(
+        return not self.legacy_proxy_present and self.bundle_ready and set(self.files) == set(NATIVE_PLUGIN_DEPLOYMENT_PATHS.values()) and all(
             item.matches_bundle for item in self.files.values()
         )
 
@@ -156,7 +158,7 @@ def inspect_deployed_native_plugin(
     recorded_files: Mapping[str, str] | None = None,
     bundle_inspection: NativePluginBundleInspection | None = None,
 ) -> NativePluginDeploymentInspection:
-    """Inspect exactly the capture runtime and minimal D3D entry bytes, without registry or pipe probing."""
+    """Inspect native files and residual legacy entry, without registry or pipe probing."""
     bundle = bundle_inspection if bundle_inspection is not None else inspect_native_plugin_bundle(application_root)
     issues = list(bundle.issues)
     files = {}
@@ -192,4 +194,9 @@ def inspect_deployed_native_plugin(
             bool(actual) and isinstance(recorded, str) and actual == recorded.strip().casefold(),
             bundle.ready and present and bool(actual) and actual in bundle.upgrade_from.get(relative, ()),
         )
-    return NativePluginDeploymentInspection(game_directory, MappingProxyType(files), bundle.ready, tuple(issues))
+    legacy_present = game_directory is not None and legacy_game_proxy_present(game_directory)
+    if legacy_present:
+        issues.append('游戏目录仍有旧 dwmapi.dll，原生组件管理将在游戏退出后移除。')
+    return NativePluginDeploymentInspection(
+        game_directory, MappingProxyType(files), bundle.ready, tuple(issues), legacy_proxy_present=legacy_present,
+    )

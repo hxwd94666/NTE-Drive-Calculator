@@ -43,6 +43,7 @@ class BattleMarginalPanelResult:
 
 
 class BattleMarginalPanelService:
+    """DEPRECATED：旧面板计算，仅供离线差分；结果 DTO 继续用于原生解码。"""
     @staticmethod
     def calculate(
         *, analysis: BattleAnalysisSnapshot, character_id: int,

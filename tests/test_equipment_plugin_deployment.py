@@ -98,15 +98,14 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
         ):
             result = cleanup_managed_plugin(
                 game_executable_path=self.executable,
-                deployed_sha256=deployed.deployed_sha256,
                 game_running=lambda: False,
             )
         self.assertEqual(result.status, "cleaned")
         self.assertFalse(target.exists())
         self.assertEqual(deployed.backup_path.read_bytes(), b"original")
 
-    def test_cleanup_refuses_a_dll_modified_after_deployment(self) -> None:
-        deployed = deploy_plugin(
+    def test_cleanup_removes_a_different_version_of_legacy_proxy(self) -> None:
+        deploy_plugin(
             game_executable_path=self.executable,
             plugin_dll_path=self.source,
             application_root=self.root, operation_guard=lambda capability: None,
@@ -115,13 +114,15 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
         )
         (self.game / "dwmapi.dll").write_bytes(b"changed by another tool")
 
-        with patch("src.services.managed_plugin_cleanup.mod_workspace_registry_snapshot", return_value=(False, None)):
+        with patch("src.services.managed_plugin_cleanup.mod_workspace_registry_snapshot", return_value=(False, None)), patch(
+            "src.services.managed_plugin_cleanup.cleanup_mod_workspace", return_value=True,
+        ):
             result = cleanup_managed_plugin(
                 game_executable_path=self.executable,
-                deployed_sha256=deployed.deployed_sha256,
                 game_running=lambda: False,
             )
-        self.assertEqual(result.status, "conflict")
+        self.assertEqual(result.status, "cleaned")
+        self.assertFalse((self.game / "dwmapi.dll").exists())
 
     def test_detects_the_standard_nte_install_path(self) -> None:
         expected = (

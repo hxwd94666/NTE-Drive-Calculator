@@ -3,6 +3,7 @@ from copy import deepcopy
 from time import monotonic
 
 from src.services.native_battle_scopes import validate_first_hit
+from src.services.battle_capture_build_context import PANEL_DOMAINS
 
 
 class NativeBattlePreparation:
@@ -10,6 +11,7 @@ class NativeBattlePreparation:
         self.key = None
         self.snapshot = None
         self.retry_at = 0.0
+        self.prior_character = None
 
     def prepare(self, record, attempts, read):
         # Maintain the shared live baseline even after the current scope has frozen.
@@ -20,15 +22,20 @@ class NativeBattlePreparation:
         if context is None or not all((context.get("roots") or {}).get(k) for k in ("world", "controller", "ps")):
             return
         key = (native.get("providerId"), deepcopy(context.get("roots")),
-               deepcopy(context.get("snapshotChanges")), deepcopy(native.get("cloneAttempt")))
+               {domain: deepcopy((context.get("snapshotChanges") or {}).get(domain))
+                for domain in PANEL_DOMAINS}, deepcopy(native.get("cloneAttempt")))
         if key == self.key and (self.snapshot is not None or monotonic() < self.retry_at):
             return
+        previous = (self.snapshot or {}).get("domains", {}).get("character") or self.prior_character
+        self.prior_character = previous
         self.key, self.snapshot = key, None
         frozen = read()
         self.retry_at = monotonic() + 2.0
         domains = frozen.get("domains") or {}
         if (frozen.get("state") == "observed" and len(domains) == 4
                 and "inventory_projection" in frozen and "character_projection" in frozen):
+            if previous and previous.get("revision") != domains["character"].get("revision"):
+                frozen["prior_character_observation"] = deepcopy(previous)
             self.snapshot = frozen
         return frozen
 

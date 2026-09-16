@@ -542,7 +542,11 @@ class NativeBattleLease:
         self._scope_snapshots.clear()
         from src.services.native_battle_preparation import NativeBattlePreparation
         self._preparation = NativeBattlePreparation()
-        return self._client.start_capture(**kwargs)
+        result = self._client.start_capture(**kwargs)
+        # The UI startup token must not cancel accepted hits during normal stop.
+        # Snapshot reads retain their own stop check; account and mode checks remain active.
+        self._external_check = None
+        return result
 
     def observe_battle_scopes(self, record, *, final=False, stop_requested=None):
         from src.services.native_battle_scopes import scope_attempts

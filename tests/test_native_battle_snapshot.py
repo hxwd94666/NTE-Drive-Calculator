@@ -37,6 +37,33 @@ class Core:
         return result
 
 
+def test_entry_refresh_retains_prior_character_evidence_from_shared_baseline():
+    from src.integrations.native_snapshot_baseline import NativeSnapshotBaseline
+    core = Core()
+    baseline = NativeSnapshotBaseline()
+    previous = {**core.header("character"), "records": [{"ItemID": "1072"}]}
+    baseline.put("character", previous)
+    core.revision = "2"
+    result = freeze_native_battle_snapshot(core, lambda: None, baseline=baseline)
+    assert result["domains"]["character"]["revision"] == "2"
+    assert result["prior_character_observation"] == previous
+    previous["records"].clear()
+    assert result["prior_character_observation"]["records"] == [{"ItemID": "1072"}]
+
+
+def test_prior_character_evidence_uses_same_team_subset_as_current_observation():
+    from src.services.native_battle_team_snapshot import select_native_team_snapshot
+    snapshot = {"domains": {"character": {"records": [{"ItemID": "1072"}, {"ItemID": "1004"}]},
+        "team": {"records": [{"CharacterItems": [{"ItemID": "1072"}]}]}},
+        "prior_character_observation": {"revision": "1", "recordCount": 2,
+            "records": [{"ItemID": "1072"}, {"ItemID": "1004"}]}}
+    selected = select_native_team_snapshot(snapshot)
+    prior = selected["prior_character_observation"]
+    assert prior["records"] == selected["domains"]["character"]["records"] == [{"ItemID": "1072"}]
+    assert prior["recordCount"] == 2
+    assert len(snapshot["prior_character_observation"]["records"]) == 2
+
+
 def test_freezes_trial_raw_without_promoting_unknown_or_mutating_source():
     core = Core()
     result = freeze_native_battle_snapshot(core, lambda: None)

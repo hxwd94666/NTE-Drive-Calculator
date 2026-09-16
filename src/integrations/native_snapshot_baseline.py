@@ -30,6 +30,11 @@ class NativeSnapshotBaseline:
             return None
         return deepcopy(entry)
 
+    def previous_observation(self, domain):
+        """Return historical evidence for comparison, never as a current cache hit."""
+        entry = self._entries.get(domain)
+        return deepcopy(entry["snapshot"]) if entry is not None else None
+
     def put(self, domain, snapshot, projection=None):
         if not snapshot.get("revision") or snapshot.get("dirty") is not False:
             return

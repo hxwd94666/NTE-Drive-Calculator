@@ -25,6 +25,16 @@ def test_old_native_provider_gives_actionable_restart_error() -> None:
     assert not client.is_running
 
 
+def test_missing_core_resources_gives_component_error() -> None:
+    script = ('import sys; '
+              'sys.stderr.write("error: native capture native_resources_unavailable\\n"); '
+              'sys.stderr.flush(); sys.exit(1)')
+    client = NteCoreClient(command=[sys.executable, '-c', script])
+    with pytest.raises(NteCoreProcessError, match='内置资源'):
+        client.start()
+    assert not client.is_running
+
+
 def test_auto_capture_selects_dll_only_when_endpoint_exists() -> None:
     client = NteCoreClient(command=["test-core"], required_source="native")
     with patch("src.integrations.nte_core.native_capture_game_pid", return_value=42):

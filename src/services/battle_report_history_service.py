@@ -171,7 +171,7 @@ class BattleReportHistoryService(
         projection_memo: BattleBuffProjectionMemo | None = None,
         frozen_inputs: BattleReportAnalysisInputs | None = None,
     ) -> BattleAnalysisSnapshot | None:
-        """Load and project all long-page sections from one evidence snapshot."""
+        """DEPRECATED：旧 Python 分析，仅供离线差分；正式页面使用原生 load。"""
         projection_memo = projection_memo if projection_memo is not None else BattleBuffProjectionMemo()
         projection_memo.bind_backend(self._direct_formula_backend, progress_callback)
         report_battle_analysis_progress(

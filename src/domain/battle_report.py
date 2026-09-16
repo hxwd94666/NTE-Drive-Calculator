@@ -491,6 +491,7 @@ class BattleInferredBuffInterval:
     stack_limit_count: int = 1
     target_id: str = ""
     native_window_end_us: int | None = None
+    scope_half: str = ""
 
 
 @dataclass(frozen=True, slots=True)

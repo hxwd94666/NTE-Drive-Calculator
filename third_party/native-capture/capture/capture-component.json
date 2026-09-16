@@ -3,9 +3,9 @@
   "component": "nte-capture",
   "layout": "headless-capture-v1",
   "protocol_version": 1,
-  "source_base_commit": "1beefcc09c57cbd3872decc666c3c5d5960e9028",
+  "source_base_commit": "ef0a350c5253c25d93b6577e131b654e643921c5",
   "source_modified": true,
-  "input_digest": "4a44bb9bf0b9bd8b1e29219b821fb4ab7a4122176c35804173e6ac0110cf82b3",
+  "input_digest": "666f1dcd0aa336bb58831b161eeef7e8e19aa3cbd4bb2b302e0e3b1f98d14f8a",
   "roles": {
     "proxy": "d3d12.dll",
     "capture_runtime": "NTE_Capture.dll",
@@ -14,22 +14,26 @@
     "source": "SOURCE.md"
   },
   "files": {
-    "d3d12.dll": "30d79dca9e944d21c7170f327d326fce3ea4e26762948bcfd7dd37321cc58cf6",
-    "NTE_Capture.dll": "85d857ee5001f7c8d28f56b24ef458a27a756268feeb25a92f77c1932a026b22",
+    "d3d12.dll": "8974a4a3490edadb64d383ceb568d9b7f055f6f32ede61e9ef001a50d2af87d0",
+    "NTE_Capture.dll": "22c0ebcaa89ea2977aa67ee4b80361944de0168e95d01461060c3476f6273246",
     "LICENSE.txt": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
     "Detours-LICENSE.md": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef",
-    "SOURCE.md": "6d60b6aa0b7398af0c321cacf61d69fdc5b74f99c43245dd948d6789cda2d467"
+    "SOURCE.md": "3bacb06028e0a85ecae419586c4022bf12fbb464a1ee7b90a8fa718d9398ca0c"
   },
   "file_sizes": {
     "d3d12.dll": 15360,
-    "NTE_Capture.dll": 2098688,
+    "NTE_Capture.dll": 3187200,
     "LICENSE.txt": 35823,
     "Detours-LICENSE.md": 1122,
-    "SOURCE.md": 3659
+    "SOURCE.md": 1417
   },
   "capabilities": [
     "combat.hit_buff.v1",
+    "combat.effects.v1",
     "combat.context.v1",
+    "combat.hit_attributes.v1",
+    "combat.applied_modifiers.v1",
+    "combat.formula_reads.v1",
     "combat.raw_evidence.v1",
     "character.snapshot.v1",
     "inventory.snapshot.v1",
@@ -48,7 +52,10 @@
     "d3d": "same_directory_proxy_and_runtime"
   },
   "validation": {
-    "non_game_protocol": "passed",
-    "game_runtime": "not_run"
+    "game_runtime": "pending_exact_headless_binary",
+    "formula_evidence": "developer plugin gameplay verified; server formula inputs remain partial",
+    "non_game": "Read-proof equivalence, invalidation and local benchmark passed; direct and proxy protocol smoke passed. Gameplay performance pending.",
+    "build": "Release x64 single-job raw evidence",
+    "attribute_replication": "compiled; gameplay callbacks pending; does not establish server per-hit inputs"
   }
 }

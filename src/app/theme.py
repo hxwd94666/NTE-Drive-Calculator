@@ -54,6 +54,7 @@ QLabel#statusBadge[tone="neutral"]{color:#8b949e;background:#21262d;border:1px s
 QPushButton{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:7px 16px;font-weight:500}
 QPushButton:hover{background:#30363d}
 QPushButton:pressed{background:#161b22}
+QPushButton:disabled{background:#161b22;color:#6e7681;border-color:#21262d}
 QPushButton#btnPrimary{background:#238636;color:#fff;border:1px solid #2ea043;font-weight:600}
 QPushButton#btnPrimary:hover{background:#2ea043}
 QPushButton#btnPrimary:disabled{background:#1b3a24;color:#6e7681}
