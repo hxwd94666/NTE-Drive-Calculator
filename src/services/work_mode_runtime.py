@@ -160,23 +160,22 @@ class WorkModeRuntime:
         self.policy.set_cleanup_pending(True)
         self._record_cleanup(CheckState.CLEANUP_PENDING, str(error), notify=True)
 
-    def prepare_manual_native_deployment(self, *, expected_revision: int) -> int:
+    def prepare_manual_native_deployment(self, *, expected_operation_revision: int) -> int:
         """Finish old cleanup before replacing its ownership with a new deployment."""
         with self._lock:
             frozen = self.policy.settings
             self.policy.require("native_load")
-            if self._closed or frozen.revision != expected_revision or self.native_session.battle_active:
+            if (self._closed or self.policy.operation_revision != expected_operation_revision
+                    or self.native_session.battle_active):
                 raise PermissionError("原生组件部署上下文已改变，已停止操作。")
             if frozen.pending_cleanup:
                 self.cleanup()
                 if self.policy.settings.pending_cleanup:
                     raise EquipmentPluginDeploymentError(self.cleanup_detail)
-                current = self.policy.settings
-                if (replace(current, revision=0, deployment_json="{}", pending_cleanup=False)
-                        != replace(frozen, revision=0, deployment_json="{}", pending_cleanup=False)):
+                if self.policy.operation_revision != expected_operation_revision:
                     raise PermissionError("清理期间原生组件部署上下文已改变，已停止操作。")
             self.policy.require("native_load")
-            return self.policy.settings.revision
+            return self.policy.operation_revision
 
     def _current_cleanup_observation(self) -> _CleanupObservation | None:
         settings = self.policy.settings
@@ -425,7 +424,6 @@ class WorkModeRuntime:
             self.native_session.close()
             deployed = deploy_native_plugin(
                 application_root=self.root, game_executable_path=executable,
-                backup_directory=self.config_dir / "component-backups",
                 operation_guard=guard, game_running=self._game_running,
                 expected_existing_files={name: item.sha256 if item.present else None
                                          for name, item in self._native_deployed.files.items()}

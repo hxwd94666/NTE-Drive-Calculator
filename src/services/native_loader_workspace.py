@@ -47,7 +47,7 @@ def inspect_native_loader_workspace(*, application_root, workspace_path) -> Nati
     return NativeLoaderWorkspaceInspection(directory, expected, tuple(issues))
 
 
-def prepare_native_loader_workspace(*, application_root, workspace_path, backup_directory, operation_guard, game_running):
+def prepare_native_loader_workspace(*, application_root, workspace_path, operation_guard, game_running):
     require_operation(operation_guard, 'native_load')
     if (game_running or game_process_running)():
         raise EquipmentPluginDeploymentError('游戏未关闭，暂时不能更新 Loader 运行组件。请完全退出游戏后重试。')
@@ -56,6 +56,6 @@ def prepare_native_loader_workspace(*, application_root, workspace_path, backup_
         return NativeComponentFilesDeployment(current.workspace_path, None, current.managed_files)
     return deploy_native_component_files(
         application_root=application_root, directory_path=workspace_path,
-        backup_directory=backup_directory, operation_guard=operation_guard, game_running=game_running,
+        operation_guard=operation_guard, game_running=game_running,
         component_roles=NATIVE_LOADER_COMPONENT_ROLES,
     )

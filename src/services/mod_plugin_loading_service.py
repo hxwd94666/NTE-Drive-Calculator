@@ -199,7 +199,7 @@ class ModPluginLoadingService:
                        for value in managed_files.values())):
             raise ModPluginLoadingError('Loader 运行目录记录包含无效文件或摘要。')
         self._native_workspace = NativeComponentFilesDeployment(
-            directory, Path(backup_path).resolve() if backup_path else directory.parent / 'native-loader-backups',
+            directory, Path(backup_path).resolve() if backup_path else None,
             dict(managed_files),
         )
 
@@ -219,7 +219,7 @@ class ModPluginLoadingService:
         previous = self._native_workspace
         managed = {}
         if previous is not None and previous.directory == record.directory:
-            # Ownership is a recorded fact; cleanup separately verifies current hashes.
+            # Keep the managed filenames across upgrades; cleanup does not pin old hashes.
             managed.update(previous.managed_files)
         managed.update(record.managed_files)
         self._native_workspace = NativeComponentFilesDeployment(record.directory, record.backup_path, managed)
@@ -274,7 +274,7 @@ class ModPluginLoadingService:
         if bundle.layout == NATIVE_PLUGIN_LAYOUT:
             return self._start_native_loader(
                 game_executable_path=game_executable_path, writable_workspace_path=writable_workspace_path,
-                backup_directory=proxy_backup_directory, scoped_guard=scoped_guard,
+                scoped_guard=scoped_guard,
             )
 
         def operation_guard(capability: str) -> None:
@@ -404,7 +404,7 @@ class ModPluginLoadingService:
             ),
         )
 
-    def _start_native_loader(self, *, game_executable_path, writable_workspace_path, backup_directory, scoped_guard):
+    def _start_native_loader(self, *, game_executable_path, writable_workspace_path, scoped_guard):
         if Path(writable_workspace_path).expanduser().resolve() != self._native_workspace_root:
             raise ModPluginLoadingError('原生 Loader 必须使用本机配置的专用运行目录。')
         self.require_native_loader_supported()
@@ -431,7 +431,7 @@ class ModPluginLoadingService:
                 return ModPluginLoaderStartResult(current, self._native_workspace_root, native_workspace=self._native_workspace)
             prepared = prepare_native_loader_workspace(
                 application_root=self._application_root, workspace_path=self._native_workspace_root,
-                backup_directory=backup_directory, operation_guard=guard, game_running=self._game_running,
+                operation_guard=guard, game_running=self._game_running,
             )
             self._retain_native_workspace(prepared)
             remove_legacy_game_proxy(game_directory=executable.parent, require_idle=require_idle)

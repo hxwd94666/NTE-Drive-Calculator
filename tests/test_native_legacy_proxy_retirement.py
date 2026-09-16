@@ -18,7 +18,7 @@ def test_manual_deploy_removes_proxy_without_backup(tmp_path):
     target.write_bytes(b'old proxy without ownership record')
     result = deploy_native_plugin(
         application_root=root, game_executable_path=game,
-        backup_directory=tmp_path / 'backups', operation_guard=lambda _: None,
+        operation_guard=lambda _: None,
         game_running=lambda: False,
     )
     assert not target.exists()
@@ -56,7 +56,7 @@ def test_proxy_delete_failure_blocks_new_component_writes(tmp_path):
             with pytest.raises(PermissionError):
                 deploy_native_plugin(
                     application_root=root, game_executable_path=game,
-                    backup_directory=tmp_path / 'backups', operation_guard=lambda _: None,
+                    operation_guard=lambda _: None,
                     game_running=lambda: False,
                 )
             replace.assert_not_called()
@@ -72,7 +72,7 @@ def test_failed_native_write_does_not_restore_removed_proxy(tmp_path):
         with pytest.raises(EquipmentPluginDeploymentError):
             deploy_native_plugin(
                 application_root=root, game_executable_path=game,
-                backup_directory=tmp_path / 'backups', operation_guard=lambda _: None,
+                operation_guard=lambda _: None,
                 game_running=lambda: False,
             )
     assert not target.exists()

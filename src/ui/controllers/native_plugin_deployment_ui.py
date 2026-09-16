@@ -77,7 +77,7 @@ def deploy_native_plugin_from_settings(window) -> None:
     generation = window.operation_generation()
     if QMessageBox.question(
         window, "确认部署原生组件",
-        "将部署无界面采集 DLL 与 D3D 采集入口。已有同名文件会自动备份，"
+        "将部署无界面采集 DLL 与 D3D 采集入口。已有同名组件会直接替换，不保留备份，"
         "游戏目录的旧 dwmapi.dll 会直接删除。\n"
         "请保持游戏关闭；完成后启动游戏并重新检测。\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
@@ -96,13 +96,12 @@ def deploy_native_plugin_from_settings(window) -> None:
         window._stop_inventory_sync()
         window.character_profile_sync_controller.request_stop()
         window.native_game_session.close()
-        revision = window.work_mode_runtime.prepare_manual_native_deployment(expected_revision=generation[0])
+        revision = window.work_mode_runtime.prepare_manual_native_deployment(expected_operation_revision=generation[0])
         generation = (revision, generation[1])
         guard("native_load")
         deployed = deploy_native_plugin(
             application_root=window.app_context.paths.root,
             game_executable_path=executable,
-            backup_directory=window.app_context.paths.config_dir / "component-backups",
             operation_guard=guard,
         )
         window.work_mode_runtime.save_deployment(deployed)

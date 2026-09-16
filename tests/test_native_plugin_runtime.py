@@ -67,13 +67,15 @@ def test_manual_native_deployment_rejects_unresolved_cleanup_before_replacing_re
     runtime, policy, game, _ = setup_runtime(tmp_path, monkeypatch, deployed=False)
     runtime.tick()
     record = policy.deployment_record
-    (game.parent / "NTE_Capture.dll").write_bytes(b"externally changed")
+    target = game.parent / "NTE_Capture.dll"
+    target.unlink()
+    target.mkdir()
     policy.set_paused(True)
     policy.set_cleanup_pending(True)
     with pytest.raises(module.EquipmentPluginDeploymentError):
-        runtime.prepare_manual_native_deployment(expected_revision=policy.settings.revision)
+        runtime.prepare_manual_native_deployment(expected_operation_revision=policy.operation_revision)
     assert policy.settings.pending_cleanup and policy.deployment_record == record
-    assert (game.parent / "NTE_Capture.dll").read_bytes() == b"externally changed"
+    assert target.is_dir()
 
 
 def test_manual_native_redeploy_consumes_finished_cleanup_and_survives_next_tick(tmp_path, monkeypatch):
@@ -81,10 +83,10 @@ def test_manual_native_redeploy_consumes_finished_cleanup_and_survives_next_tick
     runtime.tick()
     policy.set_paused(True)
     policy.set_cleanup_pending(True)
-    revision = runtime.prepare_manual_native_deployment(expected_revision=policy.settings.revision)
-    assert revision == policy.settings.revision and not policy.settings.pending_cleanup
+    revision = runtime.prepare_manual_native_deployment(expected_operation_revision=policy.operation_revision)
+    assert revision == policy.operation_revision and not policy.settings.pending_cleanup
     deployed = module.deploy_native_plugin(application_root=runtime.root, game_executable_path=game,
-        backup_directory=runtime.config_dir / "backups", operation_guard=policy.require, game_running=lambda: False)
+        operation_guard=policy.require, game_running=lambda: False)
     runtime.save_deployment(deployed)
     runtime.tick()
     assert not policy.settings.pending_cleanup
@@ -104,6 +106,53 @@ def test_loader_choice_never_runs_d3d_automatic_deployment(tmp_path, monkeypatch
     assert not (game.parent / "d3d12.dll").exists()
     native_deploy.assert_not_called()
     old_deploy.assert_not_called()
+
+
+def test_manual_deployment_ui_ignores_config_saves_and_cleans_old_pending_record(tmp_path, monkeypatch):
+    from src.ui.controllers import native_plugin_deployment_ui as ui
+    runtime, policy, game, _ = setup_runtime(tmp_path, monkeypatch, deployed=False)
+    runtime.tick()
+    policy.set_cleanup_pending(True)
+    original_revision = policy.operation_revision
+    assert policy.settings.revision != original_revision
+    window = SimpleNamespace(
+        app_context=SimpleNamespace(paths=SimpleNamespace(root=runtime.root)),
+        native_game_session=runtime.native_session, _mod_plugin_loading_service=runtime.loader,
+        work_mode_service=policy, work_mode_runtime=runtime,
+        operation_generation=lambda: (policy.operation_revision, 1),
+        _stop_inventory_sync=Mock(), character_profile_sync_controller=SimpleNamespace(request_stop=Mock()),
+        _refresh_equipment_plugin_status=Mock(), operation_unavailable=Mock(),
+    )
+    def confirm(*_args):
+        policy.update_deployment(policy.deployment_record)
+        policy.set_auto_sync_enabled(False)
+        return ui.QMessageBox.Yes
+    monkeypatch.setattr(ui.QMessageBox, 'question', confirm)
+    information = Mock()
+    monkeypatch.setattr(ui.QMessageBox, 'information', information)
+    monkeypatch.setattr(ui, 'deploy_native_plugin',
+                        lambda **kwargs: module.deploy_native_plugin(**kwargs, game_running=lambda: False))
+    ui.deploy_native_plugin_from_settings(window)
+    information.assert_called_once()
+    window.operation_unavailable.assert_not_called()
+    assert not policy.settings.pending_cleanup
+    assert policy.operation_revision == original_revision
+    assert (game.parent / 'NTE_Capture.dll').is_file()
+    assert (game.parent / 'd3d12.dll').is_file()
+
+
+@pytest.mark.parametrize('change', ['mode', 'path', 'pause'])
+def test_manual_deployment_still_rejects_changed_operation_authority(tmp_path, monkeypatch, change):
+    runtime, policy, game, _ = setup_runtime(tmp_path, monkeypatch)
+    revision = policy.operation_revision
+    if change == 'mode':
+        policy.select_mode('low', risk_confirmed=True)
+    elif change == 'path':
+        policy.set_game_executable(str(game.parent / 'other' / 'HTGame.exe'))
+    else:
+        policy.set_paused(True)
+    with pytest.raises(PermissionError):
+        runtime.prepare_manual_native_deployment(expected_operation_revision=revision)
 
 
 def test_invalid_native_bundle_is_not_usable_even_with_previously_matching_files(tmp_path, monkeypatch):
@@ -151,7 +200,7 @@ def test_selecting_loader_after_d3d_deployment_does_not_change_cleanup_ownership
     legacy_cleanup.assert_not_called()
 
 
-def test_loader_selection_and_native_cleanup_failure_keep_full_deployment_record(tmp_path, monkeypatch):
+def test_offline_cleans_upgraded_native_files_despite_old_deployment_hash(tmp_path, monkeypatch):
     from src.ui.controllers.mod_loader_controller import equipment_plugin_loading_method_changed
     runtime, policy, game, _old_deploy = setup_runtime(tmp_path, monkeypatch, deployed=False)
     runtime.tick()
@@ -161,15 +210,13 @@ def test_loader_selection_and_native_cleanup_failure_keep_full_deployment_record
         work_mode_runtime=runtime, _refresh_equipment_plugin_status=Mock(),
     )
     equipment_plugin_loading_method_changed(window, 1)
-    record = policy.deployment_record
     policy.select_mode("offline")
     (game.parent / "NTE_Capture.dll").write_bytes(b"changed outside application")
     runtime.cleanup(running=False)
-    assert policy.settings.pending_cleanup
-    assert policy.deployment_record == record
-    assert (game.parent / "d3d12.dll").is_file()
-    assert "组件文件已变化" in runtime.cleanup_detail
-    assert "NTE_Capture.dll" in runtime.cleanup_detail
+    assert not policy.settings.pending_cleanup
+    assert policy.deployment_record == {"loading_method": "loader"}
+    assert not (game.parent / "d3d12.dll").exists()
+    assert not (game.parent / "NTE_Capture.dll").exists()
 
 
 def test_d3d_autodeploy_does_not_require_optional_loader_binary(tmp_path, monkeypatch):

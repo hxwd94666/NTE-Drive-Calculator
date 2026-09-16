@@ -83,7 +83,7 @@ class PluginsPage(QWidget):
             status.setText(detail)
         self.notice.setText(self.service.load_error or (
             "退出 Calc 后停止显示；下次启动时按已保存的开关恢复。" if allowed else
-            "插件需要中风险或开发模式。可以编辑显示选项，切换模式后再启用。"))
+            "插件需要中风险或开发模式。降为低风险或离线会关闭启用开关；切回后需手动开启。"))
 
     def _update(self, **changes):
         try:

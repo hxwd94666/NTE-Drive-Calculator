@@ -146,7 +146,7 @@ def test_revoke_preserves_actual_written_and_previous_unchanged_owned_files(load
     assert len(runtime.calls) == int(previous)
 
 
-def test_stop_preserves_record_until_explicit_hash_checked_cleanup(loading):
+def test_stop_preserves_record_until_explicit_filename_cleanup(loading):
     service, _runtime, state, args, _root, _payload = loading
     service.start_loader(**args)
     record = service.native_workspace_record
@@ -162,14 +162,13 @@ def test_stop_preserves_record_until_explicit_hash_checked_cleanup(loading):
     assert service.native_workspace_record is None and extra.read_text(encoding='utf-8') == 'keep'
 
 
-def test_modified_owned_file_prevents_cleanup_and_keeps_record(loading):
+def test_upgraded_owned_file_is_cleaned_by_filename(loading):
     service, _runtime, _state, args, _root, _payload = loading
     service.start_loader(**args)
-    record = service.native_workspace_record
     (service.native_workspace_path / 'NTE_Capture.dll').write_bytes(b'external replacement')
-    assert service.cleanup_native_workspace().status == 'conflict'
-    assert service.native_workspace_record == record
-    assert (service.native_workspace_path / 'NTE_Capture.dll').exists()
+    assert service.cleanup_native_workspace().status == 'cleaned'
+    assert service.native_workspace_record is None
+    assert not (service.native_workspace_path / 'NTE_Capture.dll').exists()
 
 
 def test_restore_rejects_outside_layout_record(loading):
@@ -202,8 +201,8 @@ def test_retaining_new_writes_never_loses_old_cleanup_facts_on_read_failure(load
     expected = dict(previous.managed_files)
     expected[relative] = new_hash
     assert service.native_workspace_record.managed_files == expected
-    assert service.cleanup_native_workspace().status == 'conflict'
-    assert service.native_workspace_record.managed_files == expected
+    assert service.cleanup_native_workspace().status == 'cleaned'
+    assert service.native_workspace_record is None
 
 
 def test_native_start_passes_live_revocation_guard_into_runtime(loading):

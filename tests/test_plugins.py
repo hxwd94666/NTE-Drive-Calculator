@@ -45,17 +45,77 @@ def test_global_preferences_and_independent_switches(tmp_path):
     assert service.status == "等待游戏"
 
 
-def test_low_mode_disables_live_hud_but_keeps_preferences(tmp_path):
+def test_low_mode_disables_live_hud_and_persists_switches_without_losing_options(tmp_path):
     service, _, core, policy = make_service(tmp_path)
-    service.update(cooldown=True)
+    service.update(cooldown=True, enemy_bars=True, ready_cue=False, hp=False)
     service.observe(SimpleNamespace(game_running=True))
     assert core.calls[-1][1]["cooldown"]
     policy.enabled = False
     service.observe(SimpleNamespace(game_running=True))
     assert not core.calls[-1][1]["cooldown"]
-    assert service.settings.cooldown
+    assert service.settings == PluginSettings(ready_cue=False, hp=False)
+    assert service.store.load() == service.settings
     with pytest.raises(PermissionError):
         service.update(enemy_bars=True)
+    policy.enabled = True
+    service.observe(SimpleNamespace(game_running=True))
+    assert not core.calls[-1][1]["cooldown"]
+    assert not core.calls[-1][1]["enemy_bars"]
+
+
+def test_pause_does_not_clear_saved_plugin_switches(tmp_path):
+    service, _, core, policy = make_service(tmp_path)
+    service.update(cooldown=True)
+    service.observe(SimpleNamespace(game_running=True))
+    policy.settings.paused = True
+    service.observe(SimpleNamespace(game_running=True))
+    assert not core.calls[-1][1]["cooldown"]
+    assert service.store.load().cooldown
+
+
+@pytest.mark.parametrize('mode', ['offline', 'low'])
+def test_downgrade_disables_even_enemy_bars_with_no_selected_content(tmp_path, mode):
+    from src.services.work_mode_service import WorkModeService
+    service, _, core, _ = make_service(tmp_path)
+    policy = WorkModeService(tmp_path / 'mode.json')
+    policy.select_mode('medium', risk_confirmed=True)
+    service.policy = policy
+    service.update(enemy_bars=True, hp=False, unbalance=False)
+    policy.select_mode(mode, risk_confirmed=mode == 'low')
+    service.apply_mode_policy()
+    assert service.store.load() == PluginSettings(hp=False, unbalance=False)
+    assert not core.calls
+
+
+@pytest.mark.parametrize('mode', ['offline', 'low', 'medium', 'developer'])
+def test_plugins_menu_uses_shared_guidance_before_navigation(tmp_path, monkeypatch, mode):
+    from unittest.mock import Mock
+    from src.services.work_mode_service import WorkModeService
+    from src.ui import operation_guidance
+    from src.ui.main_window_navigation_mixin import MainWindowNavigationMixin
+    from src.ui.navigation import nav_index_map
+    policy = WorkModeService(tmp_path / 'mode.json')
+    policy.select_mode(mode, risk_confirmed=mode != 'offline')
+    prompts = []
+    monkeypatch.setattr(operation_guidance, 'prompt_operation_settings',
+                        lambda *args, **kwargs: prompts.append(kwargs))
+    window = SimpleNamespace(
+        stack=SimpleNamespace(currentIndex=lambda: 0, setCurrentIndex=Mock()),
+        _nav_key_for_index=lambda _: 'home', topbar_title=Mock(), topbar_catalog_return=Mock(),
+        topbar_source_label=Mock(), topbar_equipment_modes=Mock(), _nav_buttons={},
+        _refresh_navigation_item=Mock(),
+    )
+    window.operation_entry = lambda cap, feature: operation_guidance.allow_operation_entry(
+        None, policy, cap, feature, lambda _: None)
+    MainWindowNavigationMixin._go(window, 'plugins')
+    if mode in {'offline', 'low'}:
+        assert len(prompts) == 1 and prompts[0]['target'] == 'mode'
+        assert '中风险' in prompts[0]['detail']
+        window.stack.setCurrentIndex.assert_not_called()
+        window._refresh_navigation_item.assert_not_called()
+    else:
+        assert not prompts
+        window.stack.setCurrentIndex.assert_called_once_with(nav_index_map()['plugins'])
 
 
 def test_display_changes_reuse_capture_client_without_start_or_stop(tmp_path):

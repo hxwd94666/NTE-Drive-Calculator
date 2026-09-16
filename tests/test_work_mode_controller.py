@@ -56,7 +56,12 @@ def qt_app():
 def controller(tmp_path, monkeypatch, qt_app):
     monkeypatch.setattr(module, "GameObservationService", QueuedObserver)
     popups, events = [], []
-    monkeypatch.setattr(module, "show_mode_report", lambda *args: popups.append("report"))
+    original_report = module.ModeReportDialog.set_report
+    original_error = module.ModeReportDialog.set_error
+    monkeypatch.setattr(module.ModeReportDialog, "set_report",
+                        lambda self, report: (popups.append("report"), original_report(self, report)))
+    monkeypatch.setattr(module.ModeReportDialog, "set_error",
+                        lambda self, detail: (popups.append("warning"), original_error(self, detail)))
     monkeypatch.setattr(module.QMessageBox, "warning", lambda *args: popups.append("warning"))
     monkeypatch.setattr(module.QMessageBox, "information", lambda *args: popups.append("info"))
     monkeypatch.setattr(module, "confirm_mode", lambda *args: True)
@@ -150,18 +155,24 @@ def test_stale_revision_generation_and_fault_do_not_start_or_show(controller):
 def test_one_manual_check_one_popup_background_cannot_consume_it(controller):
     c, _window, policy, _events, popups, probe = controller
     c.check(show=True)
+    dialog = c._report_dialog
+    assert dialog.isVisible() and dialog.progress.isVisible()
+    assert "正在" in dialog.label.text()
     request_id = c._show_request_id
     c._apply((policy.settings.revision, 1, probe, 0))
     assert popups == []
     c._observer.run_jobs()
     c._apply((policy.settings.revision, 1, probe, request_id))
     assert popups == ["report"]
+    assert c._report_dialog is dialog and not dialog.progress.isVisible()
 
 
 def test_coalesced_checks_do_not_duplicate_dialogs(controller):
     c, *_rest, popups, _probe = controller
     c.check(show=True)
+    dialog = c._report_dialog
     c.check(show=True)
+    assert c._report_dialog is dialog
     assert len(c._observer.jobs) == 1
     c._observer.run_jobs()
     assert popups == ["report"]
@@ -174,6 +185,37 @@ def test_manual_failure_popup_is_consumed_once(controller):
     result = ObservationResult("fault", "failed", policy.settings.revision, 1, request_id)
     c._apply(result)
     c._apply(result)
+    assert popups == ["warning"]
+    assert not c._report_dialog.progress.isVisible()
+    assert c._report_dialog.label.text() == "failed"
+
+
+def test_closed_loading_dialog_does_not_reopen_when_check_finishes(controller):
+    c, _window, _policy, _events, popups, _probe = controller
+    c.check(show=True)
+    c._report_dialog.reject()
+    c._observer.run_jobs()
+    assert c._report_dialog is None and c._show_request_id is None
+    assert popups == []
+
+
+def test_changed_revision_before_queued_check_retries_in_same_dialog(controller):
+    c, _window, policy, _events, popups, _probe = controller
+    c.check(show=True)
+    dialog = c._report_dialog
+    policy.set_paused(True)
+    c._observer.run_jobs()
+    assert c._report_dialog is dialog and not dialog.progress.isVisible()
+    assert popups == ["report"]
+
+
+def test_account_change_finishes_loading_without_showing_old_report(controller):
+    c, window, _policy, _events, popups, _probe = controller
+    c.check(show=True)
+    window.app_context.generation += 1
+    c._observer.run_jobs()
+    assert not c._report_dialog.progress.isVisible()
+    assert "账号已切换" in c._report_dialog.label.text()
     assert popups == ["warning"]
 
 
@@ -199,6 +241,29 @@ def test_offline_revokes_capture_and_queues_teardown_before_next_observation(con
     assert "packet_start" not in events
     assert window.observed_sync_probes
     assert events.index("battle_stop") < events.index("loader_close") < events.index("native_close")
+
+
+@pytest.mark.parametrize('mode', ['offline', 'low'])
+def test_mode_downgrade_applies_plugin_policy_before_background_teardown(controller, mode):
+    c, _window, policy, events, _popups, _probe = controller
+    policy.select_mode('medium', risk_confirmed=True)
+    observed = []
+    c._apply_plugin_policy = lambda: observed.append(policy.allowed('native_load'))
+    c.select_mode(mode)
+    assert observed == [False]
+    assert 'native_close' not in events
+    assert c._report_dialog.progress.isVisible()
+
+
+def test_plugin_preference_save_failure_still_requests_native_shutdown(controller):
+    c, _window, policy, events, popups, _probe = controller
+    policy.select_mode('medium', risk_confirmed=True)
+    def fail():
+        raise OSError('插件关闭状态保存失败')
+    c._apply_plugin_policy = fail
+    c.select_mode('offline')
+    assert not policy.allowed('native_load')
+    assert 'native_request' in events and popups == ['warning']
 
 
 def test_explicit_cleanup_disables_auto_redeployment(controller):
@@ -362,12 +427,13 @@ def test_previous_pending_teardown_does_not_skip_new_failed_revocation(controlle
     assert popups == ["warning"]
 
 
-@pytest.mark.parametrize("target", ["low", "medium", "developer"])
+@pytest.mark.parametrize("target", ["offline", "low", "medium", "developer"])
 def test_cancel_then_reselect_survives_background_and_can_confirm(controller, monkeypatch, target):
-    from PySide6.QtWidgets import QVBoxLayout
+    from PySide6.QtWidgets import QVBoxLayout, QPushButton
     from src.features.settings.work_mode_card import build_work_mode_card
     c, window, policy, events, _popups, probe = controller
-    policy.select_mode("offline")
+    initial = "medium" if target == "offline" else "offline"
+    policy.select_mode(initial, risk_confirmed=initial != "offline")
     window.work_mode_controller, window.work_mode_service = c, policy
 
     def make_card(_title):
@@ -376,6 +442,7 @@ def test_cancel_then_reselect_survives_background_and_can_confirm(controller, mo
         return card
     window._card = make_card
     card = build_work_mode_card(window)
+    assert all(b.text() != "选择并检测" for b in card.findChildren(QPushButton))
     combo, *_rest = c._controls
     combo.setCurrentIndex(combo.findData(target))
     policy.set_cleanup_pending(False)  # An unrelated persisted revision must not replace the draft.
@@ -383,20 +450,22 @@ def test_cancel_then_reselect_survives_background_and_can_confirm(controller, mo
         c._apply((policy.settings.revision, 1, probe, 0))
     assert combo.currentData() == target
     monkeypatch.setattr(module, "confirm_mode", lambda *args: False)
-    c.select_mode(target)
-    assert policy.settings.mode.value == "offline"
-    assert combo.currentData() == "offline"
+    combo.activated.emit(combo.currentIndex())
+    assert policy.settings.mode.value == initial
+    assert combo.currentData() == initial
     assert events == []
     combo.setCurrentIndex(combo.findData(target))
     c._apply((policy.settings.revision, 1, probe, 0))
     assert combo.currentData() == target
     monkeypatch.setattr(module, "confirm_mode", lambda *args: True)
-    c.select_mode(combo.currentData())
+    combo.activated.emit(combo.currentIndex())
     assert policy.settings.mode.value == target
     assert combo.currentData() == target
     assert policy.allowed("compare_sources") == (target == "developer")
     reopened = WorkModeService(policy._store.path)
-    assert reopened.settings.mode.value == target and reopened.settings.risk_confirmed
+    assert reopened.settings.mode.value == target
+    assert reopened.settings.risk_confirmed == (target != "offline")
+    assert c._report_dialog.progress.isVisible()
     card.close()
 
 

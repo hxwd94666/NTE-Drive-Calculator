@@ -176,6 +176,8 @@ class MainWindowNavigationMixin:
 
     def _go(self, page):
         item = nav_item_by_key(page) or NAV_ITEMS[0]
+        if item.required_capability and not self.operation_entry(item.required_capability, item.label.strip()):
+            return
         indexes = nav_index_map()
         if (
             self._nav_key_for_index(self.stack.currentIndex()) == "config"

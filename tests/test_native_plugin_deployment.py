@@ -43,7 +43,7 @@ class NativePluginDeploymentTests(unittest.TestCase):
     def deploy(self):
         return module.deploy_native_plugin(
             application_root=self.package, game_executable_path=self.executable,
-            backup_directory=self.root / 'backups', operation_guard=self.guard,
+            operation_guard=self.guard,
             game_running=lambda: self.running,
         )
 
@@ -63,7 +63,7 @@ class NativePluginDeploymentTests(unittest.TestCase):
         for role, relative in module.NATIVE_PLUGIN_DEPLOYMENT_PATHS.items():
             self.assertEqual(('old-' + role).encode(), (self.game / relative).read_bytes())
 
-    def test_deploys_fixed_two_files_host_last_and_records_backups(self):
+    def test_deploys_fixed_two_files_host_last_without_backups(self):
         self.populate_old()
         actual_replace = module.os.replace
         order = []
@@ -77,12 +77,13 @@ class NativePluginDeploymentTests(unittest.TestCase):
         ], order)
         self.assertEqual(set(order), set(result.managed_files))
         self.assertEqual('native-capture', asdict(result)['loading_method'])
-        self.assertEqual(2, len(list(result.backup_path.glob('*.bak'))))
+        self.assertIsNone(result.backup_path)
+        self.assertFalse((self.root/'backups').exists())
         self.assertEqual(self.game / 'd3d12.dll', result.target_path)
         self.assertEqual(self.game, result.workspace_path)
         self.assertEqual('native-capture-v1', result.deployment_layout)
 
-    def test_all_replaces_and_rollback_are_in_target_directory(self):
+    def test_replaces_use_target_directory_and_failure_does_not_restore_old_files(self):
         self.populate_old()
         actual_replace = module.os.replace
         replacements = []
@@ -96,8 +97,9 @@ class NativePluginDeploymentTests(unittest.TestCase):
         with patch.object(module.os, 'replace', side_effect=same_directory_replace):
             with self.assertRaises(EquipmentPluginDeploymentError):
                 self.deploy()
-        self.assertIn('.rollback', replacements)
-        self.assert_old()
+        self.assertNotIn('.rollback', replacements)
+        self.assertFalse((self.game/'NTE_Capture.dll').exists())
+        self.assertEqual(b'old-host', (self.game/'d3d12.dll').read_bytes())
         self.assertEqual([], list(self.game.rglob('.nte-deploy-*')))
         def successful_replace(source, target):
             self.assertEqual(Path(target).parent, Path(source).parent)
@@ -123,11 +125,11 @@ class NativePluginDeploymentTests(unittest.TestCase):
         self.running = False
         with self.assertRaises(PermissionError):
             module.deploy_native_plugin(application_root=self.package,
-                game_executable_path=self.executable, backup_directory=self.root/'backups',
+                game_executable_path=self.executable,
                 operation_guard=None, game_running=lambda: False)
         self.assertFalse((self.root / 'backups').exists())
 
-    def test_write_failure_restores_old_files_and_retry_succeeds(self):
+    def test_write_failure_removes_new_files_and_retry_succeeds(self):
         self.populate_old()
         actual_replace = module.os.replace
         def fail_host(source, target):
@@ -137,7 +139,8 @@ class NativePluginDeploymentTests(unittest.TestCase):
         with patch.object(module.os, 'replace', side_effect=fail_host):
             with self.assertRaises(EquipmentPluginDeploymentError):
                 self.deploy()
-        self.assert_old()
+        self.assertFalse((self.game/'NTE_Capture.dll').exists())
+        self.assertEqual(b'old-host', (self.game/'d3d12.dll').read_bytes())
         result = self.deploy()
         self.assertEqual(2, len(result.managed_files))
 
@@ -182,12 +185,13 @@ class NativePluginDeploymentTests(unittest.TestCase):
         self.allowed = False
         self.assertEqual('cleaned', self.cleanup(result.managed_files).status)
         self.assertEqual(b'other tool', unrelated.read_bytes())
-        self.assertEqual(2, len(list(result.backup_path.glob('*.bak'))))
+        self.assertIsNone(result.backup_path)
+        self.assertFalse((self.root/'backups').exists())
         for relative in result.managed_files:
             self.assertFalse((self.game/relative).exists())
         self.assertEqual('cleaned', self.cleanup(result.managed_files).status)
 
-    def test_cleanup_waits_or_refuses_changed_and_unlisted_targets(self):
+    def test_cleanup_waits_and_rejects_unlisted_paths_but_removes_upgraded_files(self):
         result = self.deploy()
         self.running = True
         self.assertEqual('waiting_game_exit', self.cleanup(result.managed_files).status)
@@ -195,9 +199,10 @@ class NativePluginDeploymentTests(unittest.TestCase):
         self.assertEqual('conflict', self.cleanup({'../outside.dll': 'wrong'}).status)
         target = self.game/'NTE_Capture.dll'
         target.write_bytes(b'user change')
-        self.assertEqual('conflict', self.cleanup(result.managed_files).status)
-        self.assertTrue((self.game/'d3d12.dll').exists())
-        self.assertEqual(b'user change', target.read_bytes())
+        with patch.object(module, '_digest', side_effect=AssertionError('cleanup must not hash')):
+            self.assertEqual('cleaned', self.cleanup(result.managed_files).status)
+        self.assertFalse((self.game/'d3d12.dll').exists())
+        self.assertFalse(target.exists())
 
 
     def test_target_changed_during_final_copy_is_preserved(self):
@@ -217,25 +222,21 @@ class NativePluginDeploymentTests(unittest.TestCase):
         self.assertEqual(b'old-host', (self.game / 'd3d12.dll').read_bytes())
         self.assertEqual([], list(self.game.rglob('.nte-deploy-*')))
 
-    def test_target_changed_during_rollback_copy_is_preserved_and_keeps_cleanup_record(self):
+    def test_changed_new_file_on_failure_keeps_pending_cleanup_record(self):
         self.populate_old()
-        actual_copy, actual_replace = module.shutil.copy2, module.os.replace
-        target = self.game / module.NATIVE_PLUGIN_DEPLOYMENT_PATHS['capture_plugin']
+        actual_replace = module.os.replace
+        target = self.game / 'NTE_Capture.dll'
         def replace(source, destination):
-            if Path(destination).name == 'd3d12.dll' and Path(source).suffix == '.new':
+            if Path(destination).name == 'd3d12.dll':
+                target.write_bytes(b'external change')
                 raise OSError('later target failed')
             return actual_replace(source, destination)
-        def copy(source, destination, *args, **kwargs):
-            value = actual_copy(source, destination, *args, **kwargs)
-            path = Path(destination)
-            if path.parent == target.parent and path.suffix == '.rollback':
-                target.write_bytes(b'new external rollback contents')
-            return value
-        with patch.object(module.os, 'replace', side_effect=replace), patch.object(module.shutil, 'copy2', side_effect=copy):
+        with patch.object(module.os, 'replace', side_effect=replace):
             with self.assertRaises(PluginDeploymentPendingCleanup) as failure:
                 self.deploy()
-        self.assertEqual(b'new external rollback contents', target.read_bytes())
-        self.assertIn(module.NATIVE_PLUGIN_DEPLOYMENT_PATHS['capture_plugin'], failure.exception.deployment.managed_files)
+        self.assertEqual(b'external change', target.read_bytes())
+        self.assertIn('NTE_Capture.dll', failure.exception.deployment.managed_files)
+        self.assertIsNone(failure.exception.deployment.backup_path)
         self.assertEqual([], list(self.game.rglob('.nte-deploy-*')))
 
     def test_capture_only_selection_never_writes_or_cleans_host(self):
@@ -244,12 +245,12 @@ class NativePluginDeploymentTests(unittest.TestCase):
         unrelated.write_bytes(b'other tool platform')
         result = module.deploy_native_component_files(
             application_root=self.package, directory_path=self.game,
-            backup_directory=self.root/'backups', operation_guard=self.guard,
+            operation_guard=self.guard,
             game_running=lambda: False, component_roles=('capture_plugin',),
         )
         self.assertEqual({'NTE_Capture.dll'}, set(result.managed_files))
         self.assertEqual(b'old-host', (self.game/'d3d12.dll').read_bytes())
-        self.assertEqual(1, len(list(result.backup_path.glob('*.bak'))))
+        self.assertIsNone(result.backup_path)
         self.assertEqual('cleaned', module.cleanup_native_component_files(
             directory_path=self.game, managed_files=result.managed_files,
             game_running=lambda: False,
@@ -268,7 +269,7 @@ class NativePluginDeploymentTests(unittest.TestCase):
             with self.assertRaises(module.NativeComponentFilesPendingCleanup) as failure:
                 module.deploy_native_component_files(
                     application_root=self.package, directory_path=self.game,
-                    backup_directory=self.root/'backups', operation_guard=self.guard,
+                    operation_guard=self.guard,
                     game_running=lambda: False, component_roles=('capture_plugin',),
                 )
         self.assertEqual({'NTE_Capture.dll'}, set(failure.exception.deployment.managed_files))
@@ -284,7 +285,7 @@ class NativePluginDeploymentTests(unittest.TestCase):
         with patch.object(module.os, 'replace', side_effect=replace):
             module.deploy_native_component_files(
                 application_root=self.package, directory_path=self.game,
-                backup_directory=self.root/'backups', operation_guard=self.guard,
+                operation_guard=self.guard,
                 game_running=lambda: False, component_roles=('host', 'capture_plugin'),
             )
         self.assertEqual(['NTE_Capture.dll', 'd3d12.dll'], order)
@@ -293,7 +294,7 @@ class NativePluginDeploymentTests(unittest.TestCase):
         with self.assertRaises(EquipmentPluginDeploymentError):
             module.deploy_native_component_files(
                 application_root=self.package, directory_path=self.game,
-                backup_directory=self.root/'backups', operation_guard=self.guard,
+                operation_guard=self.guard,
                 game_running=lambda: False, component_roles=('platform',),
             )
         self.assertFalse((self.root/'backups').exists())

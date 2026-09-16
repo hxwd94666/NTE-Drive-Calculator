@@ -54,7 +54,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.installed_paths = self.stub("find_game_executables", return_value=[])
         self.stub("create_bundled_analysis_client", return_value=SimpleNamespace(supports_battle_page=True))
         self.clean = self.stub("cleanup_managed_plugin", return_value=SimpleNamespace(status="cleaned", detail="cleaned"))
-        self.deploy = self.stub("deploy_plugin")
+        self.deploy = self.stub("deploy_plugin", autospec=True)
         self.clock = self.stub("monotonic", return_value=100.0)
 
     def stub(self, name, **kwargs):

@@ -9,7 +9,7 @@ from src.domain.work_mode import allowed_capabilities
 from src.app.theme import theme_color
 from src.ui.operation_guidance import allow_operation_entry, explain_operation_unavailable
 from src.features.settings.work_mode_card import (
-    MODE_LABELS, confirm_mode, report_summary, show_mode_report,
+    MODE_LABELS, ModeReportDialog, confirm_mode, report_summary,
 )
 from src.services.game_observation_service import GameObservationService, ObservationResult
 
@@ -32,11 +32,13 @@ class _PathResult:
 class WorkModeController(QObject):
     observed = Signal(object)
 
-    def __init__(self, *, window, policy, runtime, navigate=None, observe_plugins=None) -> None:
+    def __init__(self, *, window, policy, runtime, navigate=None, observe_plugins=None,
+                 apply_plugin_policy=None) -> None:
         super().__init__(window)
         self.window, self.policy, self.runtime = window, policy, runtime
         self._navigate = navigate
         self._observe_plugins = observe_plugins
+        self._apply_plugin_policy = apply_plugin_policy
         self._settings_scroll = None
         self._settings_targets = {}
         self._highlighted_card = None
@@ -48,6 +50,7 @@ class WorkModeController(QObject):
         self._controls = None
         self._selector_settings = None
         self._show_request_id = None
+        self._report_dialog = None
         self._request_serial = 0
         self._closed = False
         self._teardown_pending = 0
@@ -212,7 +215,11 @@ class WorkModeController(QObject):
         try:
             # Revoke at the policy boundary before stopping owners; finish calls remain legal.
             self.policy.select_mode(mode, risk_confirmed=mode != "offline")
-            self._stop_live_work()
+            try:
+                if self._apply_plugin_policy is not None:
+                    self._apply_plugin_policy()
+            finally:
+                self._stop_live_work()
             self.refresh_controls(reset_selection=True)
             self.check(show=True)
         except Exception as error:
@@ -239,14 +246,27 @@ class WorkModeController(QObject):
         request_id = self._request_serial
         if show or self._show_request_id is not None:
             self._show_request_id = request_id
+            if self._report_dialog is None:
+                self._report_dialog = ModeReportDialog(self.window, self)
+                self._report_dialog.finished.connect(self._dismiss_report)
+            self._report_dialog.begin(self.policy.settings.mode.value)
+            if self._controls:
+                self._controls[1].setText("正在检测并处理组件…")
         expected = self.policy.settings.revision, self.window.app_context.generation
 
         def perform():
             if self._closed:
                 return None
             self.runtime.invalidate()
-            return self._observe(allow_connect=True, request_id=request_id, expected=expected)
+            result = self._observe(allow_connect=True, request_id=request_id, expected=expected)
+            return result or ObservationResult("superseded", "检测上下文已改变，请重新检测。", *expected, request_id)
         self._observer.submit(perform, key="check")
+
+    def _dismiss_report(self, _result=0) -> None:
+        dialog, self._report_dialog = self._report_dialog, None
+        self._show_request_id = None
+        if dialog is not None:
+            dialog.deleteLater()
 
     def detect_path(self) -> None:
         if self._closed:
@@ -347,12 +367,19 @@ class WorkModeController(QObject):
             if (result.revision, result.generation) != (
                 self.policy.settings.revision, self.window.app_context.generation,
             ):
+                if result.request_id == self._show_request_id and self._report_dialog is not None:
+                    if result.generation == self.window.app_context.generation:
+                        self.check(show=True)
+                    else:
+                        self._show_request_id = None
+                        self._report_dialog.set_error("账号已切换，请重新检测当前账号环境。")
                 return
             if self._controls:
                 self._controls[1].setText("检测失败，请查看检测详情。")
             if result.request_id == self._show_request_id:
                 self._show_request_id = None
-                QMessageBox.warning(self.window, "模式检测", result.detail)
+                if self._report_dialog is not None:
+                    self._report_dialog.set_error(result.detail)
             return
         if result is None:
             return
@@ -360,6 +387,9 @@ class WorkModeController(QObject):
         if generation != self.window.app_context.generation or revision != self.policy.settings.revision:
             if generation == self.window.app_context.generation and request_id == self._show_request_id:
                 self.check(show=True)
+            elif request_id == self._show_request_id and self._report_dialog is not None:
+                self._show_request_id = None
+                self._report_dialog.set_error("账号已切换，请重新检测当前账号环境。")
             return
         service = self.window._inventory_sync_service
         if service is not None and getattr(service.state, "capture_source", "packet") == "packet":
@@ -377,16 +407,19 @@ class WorkModeController(QObject):
             auto_sync.observe_probe(probe)
         self.refresh_controls()
         report = self.policy.build_report(probe)
-        if self._controls:
+        if self._controls and (self._show_request_id is None or request_id == self._show_request_id):
             self._controls[1].setText(report_summary(report))
         if request_id == self._show_request_id:
             self._show_request_id = None
-            show_mode_report(self.window, report, self)
+            if self._report_dialog is not None:
+                self._report_dialog.set_report(report)
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        if self._report_dialog is not None:
+            self._report_dialog.close()
         self._clear_settings_highlight()
         self._show_request_id = None
         self.window.global_hotkey_manager.request_stop()

@@ -1,4 +1,4 @@
-# 按正式布局部署原生采集组件，并按本次写入记录回滚或清理。
+# 按正式布局直接替换原生采集组件，不保留旧文件备份，按固定文件名清理。
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -89,7 +89,7 @@ def _replace_file(source: Path, target: Path, digest: str, require_idle, *, suff
 
 def deploy_native_component_files(
     *, application_root: str | Path, directory_path: str | Path,
-    backup_directory: str | Path, operation_guard: Callable[[str], None] | None,
+    operation_guard: Callable[[str], None] | None,
     game_running: Callable[[], bool] | None = None,
     component_roles: tuple[str, ...] = ('capture_plugin', 'host'),
     expected_existing_files: Mapping[str, str | None] | None = None,
@@ -128,45 +128,32 @@ def deploy_native_component_files(
             if previous != expected_existing_files[relative]:
                 raise EquipmentPluginDeploymentError('组件目标在自动检测后发生变化，未覆盖现场文件。')
     require_idle()
-    backup_root = Path(backup_directory).expanduser().resolve()
-    backup_root.mkdir(parents=True, exist_ok=True)
-    transaction = Path(tempfile.mkdtemp(prefix='native-capture-', dir=backup_root))
-    originals: dict[str, tuple[str | None, Path | None]] = {}
-    staged: dict[str, Path] = {}
+    originals: dict[str, str | None] = {}
     written: dict[str, str] = {}
 
     def result() -> NativeComponentFilesDeployment:
-        return NativeComponentFilesDeployment(directory, transaction, dict(written))
+        return NativeComponentFilesDeployment(directory, None, dict(written))
 
     try:
-        for index, (relative, source) in enumerate(sources.items()):
+        for relative, source in sources.items():
             require_idle()
-            stage = transaction / f'{index}.new'
-            shutil.copy2(source, stage)
-            if _digest(stage) != expected[relative]:
+            if _digest(source) != expected[relative]:
                 raise EquipmentPluginDeploymentError('随附组件在部署前发生变化，已停止部署。')
-            staged[relative] = stage
             target = targets[relative]
             previous = _digest(target) if target.exists() else None
             if expected_existing_files is not None and previous != expected_existing_files[relative]:
                 raise EquipmentPluginDeploymentError('组件目标在自动检测后发生变化，未覆盖现场文件。')
-            backup = transaction / f'{index}.bak' if previous is not None else None
-            if backup is not None:
-                require_idle()
-                shutil.copy2(target, backup)
-                if _digest(backup) != previous:
-                    raise EquipmentPluginDeploymentError('游戏目录组件在备份时发生变化，已停止部署。')
-            originals[relative] = previous, backup
+            originals[relative] = previous
         if 'host' in order:
             remove_legacy_game_proxy(game_directory=directory, require_idle=require_idle)
         for relative, target in targets.items():
             require_idle()
             target = _target(directory, relative)
-            previous, _backup = originals[relative]
+            previous = originals[relative]
             if (_digest(target) if target.exists() else None) != previous:
                 raise EquipmentPluginDeploymentError('游戏目录组件在部署前发生变化，已停止部署。')
             target.parent.mkdir(parents=True, exist_ok=True)
-            _replace_file(staged[relative], target, expected[relative], require_idle, suffix='.new', expected_target=previous)
+            _replace_file(sources[relative], target, expected[relative], require_idle, suffix='.new', expected_target=previous)
             written[relative] = expected[relative]
             if _digest(target) != expected[relative]:
                 raise EquipmentPluginDeploymentError('组件写入后校验失败。')
@@ -181,14 +168,8 @@ def deploy_native_component_files(
                     target = _target(directory, relative)
                     if not target.is_file() or _digest(target) != written[relative]:
                         raise EquipmentPluginDeploymentError('本次写入的组件已经变化，未覆盖现场文件。')
-                    previous, backup = originals[relative]
-                    if backup is None:
-                        require_idle()
-                        target.unlink()
-                    else:
-                        if _digest(backup) != previous:
-                            raise EquipmentPluginDeploymentError('事务备份已经变化，未恢复历史文件。')
-                        _replace_file(backup, target, previous, require_idle, suffix='.rollback', expected_target=written[relative])
+                    require_idle()
+                    target.unlink()
                     written.pop(relative)
             except Exception as rollback_error:
                 raise NativeComponentFilesPendingCleanup(
@@ -197,12 +178,12 @@ def deploy_native_component_files(
                 ) from rollback_error
         if isinstance(error, (EquipmentPluginDeploymentError, PermissionError)):
             raise
-        raise EquipmentPluginDeploymentError('原生组件部署失败，本次游戏目录写入已回滚。') from error
+        raise EquipmentPluginDeploymentError('原生组件部署失败，本次已写入的新组件已移除；未恢复旧组件，请重新部署。') from error
 
 
 def deploy_native_plugin(
     *, application_root: str | Path, game_executable_path: str | Path,
-    backup_directory: str | Path, operation_guard: Callable[[str], None] | None,
+    operation_guard: Callable[[str], None] | None,
     game_running: Callable[[], bool] | None = None,
     expected_existing_files: Mapping[str, str | None] | None = None,
 ) -> NativePluginDeployment:
@@ -219,7 +200,7 @@ def deploy_native_plugin(
     try:
         return wrap(deploy_native_component_files(
             application_root=application_root, directory_path=executable.parent,
-            backup_directory=backup_directory, operation_guard=operation_guard,
+            operation_guard=operation_guard,
             game_running=game_running,
             expected_existing_files=expected_existing_files,
         ))
@@ -240,10 +221,10 @@ def cleanup_native_component_files(
     directory = directory.resolve()
     files = dict(managed_files)
     try:
-        for relative, digest in files.items():
-            target = _target(directory, relative)
-            if target.exists() and _digest(target) != digest:
-                return NativePluginCleanupResult('conflict', f'组件文件已变化：{relative} 与部署记录不一致。未删除文件，请核对该组件。')
+        # Upgrades may replace a managed DLL without updating an older ownership record.
+        # Validate the fixed filenames and paths, not the historical contents.
+        for relative in files:
+            _target(directory, relative)
         # Remove the automatic loading entry first; never restore transaction backups.
         ordered = sorted(files, key=lambda relative: relative != NATIVE_PLUGIN_DEPLOYMENT_PATHS['host'])
         for relative in ordered:
@@ -251,8 +232,6 @@ def cleanup_native_component_files(
                 return NativePluginCleanupResult('waiting_game_exit', '游戏在清理过程中启动，剩余组件尚未清理。请完全退出游戏后重新检测。')
             target = _target(directory, relative)
             if target.exists():
-                if _digest(target) != files[relative]:
-                    return NativePluginCleanupResult('conflict', f'组件文件已变化：{relative} 在清理前被修改。已停止清理，请核对该组件。')
                 target.unlink()
     except EquipmentPluginDeploymentError as error:
         return NativePluginCleanupResult('conflict', str(error))
@@ -260,7 +239,7 @@ def cleanup_native_component_files(
         raise EquipmentPluginDeploymentError('无法清理已记录组件，请保持游戏关闭并重试。') from error
     if probe():
         return NativePluginCleanupResult('waiting_game_exit', '组件文件已清理，游戏仍需退出以结束已加载会话。')
-    return NativePluginCleanupResult('cleaned', '已清理本程序记录且哈希匹配的原生组件。')
+    return NativePluginCleanupResult('cleaned', '已按固定文件名清理本程序记录的原生组件。')
 
 
 def cleanup_native_plugin(

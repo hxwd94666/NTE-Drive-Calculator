@@ -32,6 +32,7 @@ class PluginService:
             self.status = "设置已保存，等待应用"
 
     def observe(self, probe):
+        self.apply_mode_policy()
         with self._lock:
             settings = self.settings
         allowed = self.policy.allowed("native_load") and not self.policy.settings.paused
@@ -53,3 +54,19 @@ class PluginService:
         with self._lock:
             if settings == self.settings:
                 self.status = status
+
+    def apply_mode_policy(self):
+        """Revoke saved switches on downgrade, while retaining display options."""
+        with self._lock:
+            if self.policy.allowed("native_load"):
+                return
+            if not (self.settings.cooldown or self.settings.enemy_bars):
+                return
+            self.settings = replace(self.settings, cooldown=False, enemy_bars=False)
+            self.status = "当前模式不可启用"
+            try:
+                self.store.save(self.settings)
+            except OSError:
+                self.load_error = "插件已关闭，但关闭状态保存失败，请检查配置目录权限。"
+                raise
+            self.load_error = ""
