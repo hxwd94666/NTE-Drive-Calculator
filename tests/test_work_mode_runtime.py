@@ -29,6 +29,10 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.loader = SimpleNamespace(
             pending_workspace_cleanup_path=None, active_payload_sha256="",
             stop_loader=MagicMock(), cleanup_workspace_registration=MagicMock(return_value=True),
+            restore_native_workspace_record=MagicMock(),
+            cleanup_native_workspace=MagicMock(
+                return_value=SimpleNamespace(status="cleaned", detail="workspace cleaned")
+            ),
             snapshot=MagicMock(return_value=SimpleNamespace(phase="stopped")),
             start_loader=MagicMock(),
         )
@@ -279,16 +283,44 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.assertEqual(self.clean.call_args.kwargs["game_executable_path"], str(self.game))
         self.assertFalse(self.policy.settings.pending_cleanup)
 
-    def test_invalid_recorded_cleanup_path_never_uses_new_game_directory(self):
+    def test_removed_recorded_game_executable_cleans_exact_old_directory(self):
         record = {"game_executable": str(self.root / "removed" / "HTGame.exe"), "deployed_sha256": "a" * 64}
         self.policy.update_deployment(record)
         self.policy.set_cleanup_pending(True)
         self.runtime.cleanup()
+        self.clean.assert_called_once_with(
+            game_executable_path=record["game_executable"],
+            mod_workspace_path=None,
+            game_running=self.process,
+            allow_unrecorded_workspace_adoption=False,
+        )
+        self.assertEqual(self.policy.deployment_record, {"loading_method": "native-capture"})
+        self.assertFalse(self.policy.settings.pending_cleanup)
+
+    def test_tick_cleans_recorded_old_directory_without_a_current_game_path(self):
+        old_path = self.root / "removed" / "HTGame.exe"
+        self.policy.set_game_executable("")
+        self.policy.update_deployment({"game_executable": str(old_path), "deployed_sha256": "a" * 64})
+        self.policy.set_cleanup_pending(True)
+        probe = self.runtime.tick()
+        self.clean.assert_called_once_with(
+            game_executable_path=str(old_path),
+            mod_workspace_path=None,
+            game_running=self.process,
+            allow_unrecorded_workspace_adoption=False,
+        )
+        self.assertFalse(probe.game_path_valid)
+        self.assertFalse(self.policy.settings.pending_cleanup)
+
+    def test_malformed_recorded_cleanup_path_stays_pending(self):
+        record = {"game_executable": "removed/HTGame.exe", "deployed_sha256": "a" * 64}
+        self.policy.update_deployment(record)
+        self.policy.set_cleanup_pending(True)
+        self.runtime.cleanup()
         self.clean.assert_not_called()
-        self.process.assert_not_called()
         self.assertEqual(self.policy.deployment_record, record)
         self.assertTrue(self.policy.settings.pending_cleanup)
-        self.assertIn("不改用", self.runtime.cleanup_detail)
+        self.assertIn("无效", self.runtime.cleanup_detail)
 
     def test_discovery_cannot_overwrite_path_selected_during_scan(self):
         self.policy.set_game_executable("")
@@ -303,7 +335,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.discover(), (str(self.game),))
         self.assertEqual(self.policy.settings.game_executable, str(self.game))
 
-    def test_native_cleanup_with_invalid_record_preserves_files_and_workspace(self):
+    def test_native_cleanup_with_removed_executable_cleans_recorded_files_and_workspace(self):
         record = {
             "deployment_layout": "native-capture-v1",
             "game_executable": str(self.root / "removed" / "HTGame.exe"),
@@ -312,12 +344,20 @@ class WorkModeRuntimeTests(unittest.TestCase):
         }
         self.policy.update_deployment(record)
         self.policy.set_cleanup_pending(True)
-        native_cleanup = self.stub("cleanup_native_plugin")
+        native_cleanup = self.stub(
+            "cleanup_native_plugin",
+            return_value=SimpleNamespace(status="cleaned", detail="native cleaned"),
+        )
         self.runtime.cleanup()
-        native_cleanup.assert_not_called()
-        self.loader.stop_loader.assert_not_called()
-        self.assertEqual(self.policy.deployment_record, record)
-        self.assertTrue(self.policy.settings.pending_cleanup)
+        native_cleanup.assert_called_once_with(
+            game_executable_path=record["game_executable"],
+            managed_files=record["managed_files"],
+            game_running=self.process,
+        )
+        self.loader.restore_native_workspace_record.assert_called_once()
+        self.loader.cleanup_native_workspace.assert_called_once()
+        self.assertEqual(self.policy.deployment_record, {"loading_method": "native-capture"})
+        self.assertFalse(self.policy.settings.pending_cleanup)
 
     def test_shutdown_during_discovery_never_saves_candidate(self):
         self.policy.set_game_executable("")

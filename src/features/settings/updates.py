@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout,
 
 from src.app.constants import NETDISK_DOWNLOAD_LINKS
 from src.app.theme import themed_style
+from src.app.window_geometry import fit_dialog_to_available_screen
 
 UPDATE_FAILURE_MESSAGE = "Mirror 酱更新服务请求失败，请稍后重试。"
 UPDATE_CHECK_TIMEOUT_SECONDS = 5
@@ -243,6 +244,9 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -
     layout.addWidget(never_cb)
     layout.addWidget(ignore_cb)
     footer = QHBoxLayout()
+    discord_button = QPushButton("加入Discord群组")
+    discord_button.clicked.connect(getattr(parent, "_open_discord_group"))
+    footer.addWidget(discord_button)
     footer.addStretch()
     netdisk_button = QPushButton("网盘下载")
     mirror_button = QPushButton("Mirror 下载")
@@ -262,6 +266,7 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str) -
     footer.addWidget(mirror_button)
     footer.addWidget(buttons)
     layout.addLayout(footer)
+    fit_dialog_to_available_screen(dialog)
     dialog.exec()
     result = {"changed": False}
     if never_cb.isChecked():

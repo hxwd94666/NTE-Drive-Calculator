@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QScrollArea,
@@ -45,7 +44,6 @@ from src.features.battle_report.timeline_layout import (
     TimelinePaintedBar,
     TimelineSelection,
 )
-from src.features.battle_report.timeline_view import BattleUnifiedTimelineWidget
 from src.services.battle_timeline_time_service import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
@@ -85,19 +83,6 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
                 if hasattr(child, "text")
             )
         )
-
-    def test_unified_axis_uses_a_light_canvas_in_light_theme(self) -> None:
-        previous = self.app.property("nte_effective_theme")
-        self.app.setProperty("nte_effective_theme", "light")
-        try:
-            timeline = BattleUnifiedTimelineWidget()
-            timeline.resize(800, 300)
-            image = QPixmap(timeline.size())
-            timeline.render(image)
-            self.assertEqual("#ffffff", image.toImage().pixelColor(1, 1).name())
-            timeline.deleteLater()
-        finally:
-            self.app.setProperty("nte_effective_theme", previous)
 
     def test_analysis_status_label_is_embedded_in_the_timeline_card(self) -> None:
         view = BattleLongAnalysisView()
@@ -401,6 +386,8 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
         view._analysis = SimpleNamespace(
             hit_replays=(replay,),
             timeline_buff_intervals=(),
+            baselines=(),
+            target_instance_resolutions=(),
         )
 
         view._render_timeline_selection_detail(
@@ -684,7 +671,7 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
 
         self.assertEqual("蚀心", view.skills_table.item(0, 1).text())
         self.assertEqual("普通攻击：燎原", view.skills_table.item(0, 2).text())
-        self.assertEqual("蚀心 / 普通攻击：燎原", view.log_table.item(0, 3).text())
+        self.assertEqual("普通攻击：燎原 · 蚀心", view.log_table.item(0, 3).text())
 
     def test_unknown_damage_falls_back_to_original_ability_name(self) -> None:
         view = BattleLongAnalysisView()

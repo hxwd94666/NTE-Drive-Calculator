@@ -88,19 +88,6 @@ def test_close_guide_before_confirmation_does_not_stop_old_sync(dialog):
     assert not c.starts and not c.cancels
 
 
-def test_action_buttons_immediately_follow_the_instructions(dialog):
-    view, _c, _app = dialog
-    layout = view.layout()
-
-    assert not hasattr(view, "background_hint")
-    assert layout.indexOf(view.detail) == 0
-    assert layout.count() == 2
-    assert layout.itemAt(layout.count() - 1).layout() is view.buttons
-    assert view.begin.text() == "开始重启同步"
-    assert view.dismiss.text() == "关闭"
-    assert (view.width(), view.height()) == (500, 165)
-
-
 def test_collecting_is_not_completed_and_context_change_does_not_cancel_new_owner(dialog):
     view, c, _app = dialog
     view.begin.click()

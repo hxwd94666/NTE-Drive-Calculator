@@ -20,6 +20,11 @@
 
 `inventory.get_latest` 读取最近捕获结果，不等于强制刷新。完整库存事件进入快照稳定化；残缺状态事件只
 更新固定完整快照中的已知 UID。RPC 接受只代表已提交，最终状态由后续稳定快照或正式范围事件确认。
+仓库状态写回在批次开始时一次性核对提供方、对象域与接口就绪，逐件直接派发，不重复做预检。
+逐件调用不主动查询装备修订、不等待背包变化；每次只保留一个在途请求，Core 返回派发结果后立即提交下一条。
+`source_changed` 与 `EQUIPMENT_PLUGIN_BUSY` 均表示本次指令尚未派发，只对当前指令按 10–640ms 的短退避重试；
+`source_changed` 重试前仅在异常路径核对提供方和对象域仍属于本批次。超时、结果未知、上下文变化及其他失败不重试。
+同一装备的多步状态严格串行；全部指令完成后，只通过新的完整背包快照统一核对最终状态。
 
 设置页的 nte-core 抓包诊断只调用 `capture.detect`，并以 Windows 只读探测补充 Npcap 驱动服务、已启用
 适配器、Npcap 安装痕迹和常见 `wpcap.dll`/`Packet.dll` 位置的摘要。它不创建抓包会话，不读写网络配置，
@@ -281,6 +286,11 @@ Rust 不写账号库；自动目标推断以完整版本化 `derived_snapshot` �
 [Windows 验证](validation/windows.md)与组件升级、回滚检查。
 
 ## 2. 视觉、OCR 与游戏输入
+
+OpenVINO 与 ONNX Runtime 共用发行目录 `assets/ocr/models` 下同一套检测、识别和方向分类模型。构建只从已锁定依赖中
+选取一套模型，并按文件大小与 SHA-256 校验；两个 RapidOCR 包自身的 `models/` 不进入发行目录。运行时在创建任一后端前
+解析并复核共享模型，再通过 `det_model_path`、`rec_model_path`、`cls_model_path` 显式注入。模型缺失或内容漂移属于组件
+故障，不回退到包内未知副本；源码环境可读取已安装依赖中通过同一清单校验的模型。
 
 `src/integrations/vision` 独占窗口坐标、截图、格位检测、鼠标动作和扫描后状态同步；`src/scanner` 与解析
 Service 负责 OCR、归一化和装备字段。Integration 返回截图、索引、解析结果或诊断，不写业务快照，

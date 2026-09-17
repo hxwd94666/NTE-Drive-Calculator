@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao
+from tests.user_data_migration_helpers import create_user_database_at_version
 
 
 class UserDataV39MigrationTests(unittest.TestCase):
@@ -34,19 +34,7 @@ class UserDataV39MigrationTests(unittest.TestCase):
     def test_v38_database_adds_column_without_rewriting_raw_intervals(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "legacy_v38.sqlite3"
-            with UserDataDao(
-                database,
-                account_id="migration-account",
-                account_name="迁移测试账号",
-            ):
-                pass
-            connection = sqlite3.connect(database)
-            connection.execute(
-                "ALTER TABLE battle_time_stop_interval DROP COLUMN pause_type_mask"
-            )
-            connection.execute("DELETE FROM schema_migration WHERE version = 39")
-            connection.commit()
-            connection.close()
+            create_user_database_at_version(database, 38)
 
             with UserDataDao(database) as migrated:
                 columns = {

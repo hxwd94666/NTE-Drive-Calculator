@@ -14,6 +14,10 @@ from src.storage.sqlite.user_data_dao import (
     UserDataDao,
     UserDataError,
 )
+from tests.user_data_migration_helpers import (
+    create_user_database_at_version,
+    migrate_user_database_to_version,
+)
 
 
 class UserDataV35MigrationTests(unittest.TestCase):
@@ -25,53 +29,43 @@ class UserDataV35MigrationTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def _create_v34_with_virtual_normal_resistance(self) -> None:
+        create_user_database_at_version(self.database, 31)
         connection = sqlite3.connect(self.database)
-        connection.executescript(
-            """
-            CREATE TABLE schema_migration (
-                version INTEGER PRIMARY KEY,
-                applied_at_utc TEXT NOT NULL
-            );
-            CREATE TABLE battle_record (
-                battle_record_id INTEGER PRIMARY KEY
-            );
-            CREATE TABLE character_profile (
-                character_id INTEGER PRIMARY KEY,
-                fork_id TEXT,
-                fork_level INTEGER
-            );
-            CREATE TABLE battle_character_build_snapshot (
-                battle_record_id INTEGER PRIMARY KEY
-            );
-            CREATE TABLE battle_character_build_edit (
-                battle_record_id INTEGER PRIMARY KEY
-            );
-            CREATE TABLE battle_time_stop_interval (
-                capture_id INTEGER NOT NULL,
-                ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
-                start_unix_us INTEGER,
-                end_unix_us INTEGER,
-                duration_us INTEGER CHECK (duration_us IS NULL OR duration_us >= 0),
-                raw_interval_json TEXT NOT NULL CHECK (json_valid(raw_interval_json)),
-                PRIMARY KEY (capture_id, ordinal)
-            );
-            CREATE TABLE battle_target_condition (
-                battle_record_id INTEGER PRIMARY KEY,
-                resistance_chaos REAL NOT NULL
-            );
-            INSERT INTO battle_target_condition(
-                battle_record_id, resistance_chaos
-            ) VALUES (1, 0.1);
-            """
-        )
-        v32_path = Path(__file__).resolve().parents[1] / (
-            "src/storage/sqlite/schema/033_user_data_v32.sql"
-        )
-        connection.executescript(v32_path.read_text(encoding="utf-8"))
         connection.execute(
-            "INSERT INTO schema_migration(version, applied_at_utc) VALUES (34, 'now')"
+            """INSERT INTO battle_record(
+                   battle_record_id, capture_operation_id, source_kind,
+                   capability_level, combat_context_kind, abyss_floor,
+                   has_first_half, has_second_half, captured_at_utc,
+                   finalized_at_utc, dps_time_mode, duration_seconds,
+                   total_damage, total_dps, total_damage_taken, total_hits,
+                   character_count, skill_count, character_ids_json,
+                   abyss_detected, abyss_success, payload_schema_version,
+                   raw_summary_json, raw_summary_sha256, created_at_utc
+               ) VALUES (
+                   1, 'migration-v35', 'nte_core_summary', 'summary_only',
+                   'non_abyss', NULL, 1, 0, 'now', 'now', 'active',
+                   1, 0, 0, 0, 0, 0, 0, '[]', 0, 0, 1, '{}',
+                   '0000000000000000000000000000000000000000000000000000000000000000',
+                   'now'
+               )"""
+        )
+        connection.execute(
+            """INSERT INTO battle_target_condition(
+                   battle_record_id, target_name, enemy_level, scene,
+                   defense_reduction, vulnerability,
+                   resistance_chaos, resistance_cosmos, resistance_incantation,
+                   resistance_lakshana, resistance_nature, resistance_psyche,
+                   resistance_psychically, updated_at_utc
+               ) VALUES (
+                   1, '迁移目标', 80, 'open_world', 0, 0,
+                   0.1, 0, 0, 0, 0, 0, 0, 'now'
+               )"""
         )
         connection.commit()
+        connection.close()
+
+        migrate_user_database_to_version(self.database, 34)
+        connection = sqlite3.connect(self.database)
         self.assertEqual(
             0.2,
             connection.execute(

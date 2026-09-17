@@ -154,7 +154,7 @@ class BattleReportPersistenceService:
                 character_ids=tuple(profiles), profiles=profiles, frozen_equipment=equipment, frozen_world_bonus=world_bonus,
             )
         return {
-            "schema_version": 1, "freeze_phase": "capture_start", "snapshot_id": None,
+            "schema_version": 1, "freeze_phase": "capture_start", "snapshot_id": snapshot_id,
             "dataset_id": str(dataset.get("dataset_id") or "") or None,
             "static_schema_version": int(static_summary["schema_version"]),
             "profiles": profiles, "stat_snapshots": stats, "equipment": equipment, "world_bonus": world_bonus,
@@ -504,6 +504,14 @@ class BattleReportPersistenceService:
                     post_battle_build, unavailable = select_scope_builds(post_battle_build, raw_record_payload or {})
                 elif isinstance((raw_record_payload or {}).get("native_capture"), Mapping):
                     unavailable = "native_first_hit_snapshot_missing"
+                    post_battle_build["profiles"] = {
+                        key: value
+                        for key, value in post_battle_build["profiles"].items()
+                        if key in character_ids
+                    }
+                    post_battle_build["stat_snapshots"] = {}
+                    post_battle_build["equipment"] = []
+                    post_battle_build["snapshot_id"] = None
                 else:
                     # Packet evidence only identifies the observed participants;
                     # retain their equipped items, never an account-wide pool.
@@ -513,9 +521,10 @@ class BattleReportPersistenceService:
                                                           if key in character_ids}
                     post_battle_build["equipment"] = [item for item in post_battle_build["equipment"]
                                                      if item.get("equipped_character_id") in character_ids]
-                post_battle_build["snapshot_id"] = None
                 if unavailable:
-                    post_battle_build.update(profiles={}, stat_snapshots={}, equipment=[])
+                    if unavailable != "native_first_hit_snapshot_missing":
+                        post_battle_build["profiles"] = {}
+                    post_battle_build.update(stat_snapshots={}, equipment=[], snapshot_id=None)
                     warning_message = NATIVE_BUILD_WARNING
                 if not self._context_is_current(dependencies):
                     return BattleSummaryPersistenceOutcome(status="discarded_stale")

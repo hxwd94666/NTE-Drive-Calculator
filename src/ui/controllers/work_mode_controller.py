@@ -127,7 +127,8 @@ class WorkModeController(QObject):
             return
         self._guidance_active = True
         try:
-            explain_operation_unavailable(self.window, feature, detail, self.open_settings, target)
+            navigate = self._navigate if target == "home" and self._navigate is not None else self.open_settings
+            explain_operation_unavailable(self.window, feature, detail, navigate, target)
         finally:
             self._guidance_active = False
 

@@ -1,13 +1,54 @@
 # 构建统一工作模式入口、逐功能检查结果与必要处理操作。
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
+    QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
     QLabel, QPushButton, QProgressBar, QScrollArea, QVBoxLayout,
 )
+from src.app.theme import theme_color
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.ui.widgets import NoWheelComboBox
 
 MODE_LABELS = {"offline": "离线", "low": "低风险", "medium": "中风险", "developer": "开发"}
+MODE_DESCRIPTIONS = {
+    "offline": "本地计算、配装、已保存数据与历史战报分析。",
+    "low": "以上功能 + 抓包同步/战报 + 鼠标或手柄扫描；不使用游戏组件。",
+    "medium": "以上功能 + 原生同步、原生战报、极速装配、锁定/弃置及插件。",
+    "developer": "抓包与原生双线对比，仅供开发人员使用。",
+}
+MODE_CONFIRMATIONS = {
+    "offline": {
+        "warning_title": "切换后将断开游戏连接",
+        "warning_detail": "停止采集与同步，并关闭两个插件开关。",
+        "available": "本地计算、配装、已保存数据、历史战报分析",
+        "unavailable": "数据同步、战报采集、游戏操作、插件",
+        "after": "停止后台连接；游戏退出后清理已部署组件。",
+        "note": "离线模式不会连接游戏。确认后会保存此模式。",
+    },
+    "low": {
+        "warning_title": "此模式存在风险",
+        "warning_detail": "抓包与模拟输入可能触发游戏保护或兼容问题。",
+        "available": "抓包同步、抓包战报、鼠标或手柄扫描",
+        "unavailable": "角色状态同步、原生同步、原生战报、极速装配、插件",
+        "after": "停止原生连接；游戏退出后清理已部署组件。",
+        "note": "自动同步仍由工作台开关控制。确认后会保存此模式，后续版本更新继续沿用。",
+    },
+    "medium": {
+        "warning_title": "此模式存在风险",
+        "warning_detail": "加载游戏组件并执行游戏内操作，可能触发游戏保护或兼容问题。",
+        "available": "原生同步、原生战报、极速装配、锁定/弃置、插件",
+        "unavailable": "抓包同步、抓包战报、双线战报对比",
+        "after": "游戏关闭后自动部署或更新所需组件。",
+        "note": "自动同步仍由工作台开关控制。确认后会保存此模式，后续版本更新继续沿用。",
+    },
+    "developer": {
+        "warning_title": "仅供开发人员使用",
+        "warning_detail": "抓包与原生双线同时运行，可能触发游戏保护或兼容问题。",
+        "available": "中风险全部功能、抓包与原生双线战报对比",
+        "unavailable": "不建议用于日常使用",
+        "after": "游戏关闭后自动部署或更新所需组件。",
+        "note": "自动同步仍由工作台开关控制。确认后会保存此模式，后续版本更新继续沿用。",
+    },
+}
 STATE_LABELS = {"available": "可用", "waiting": "正常等待", "missing": "缺少条件",
                 "fault": "故障", "cleanup_pending": "清理待完成"}
 
@@ -114,82 +155,166 @@ def build_work_mode_card(window):
     controller = window.work_mode_controller
     service = window.work_mode_service
     card = window._card("工作模式")
-    form = QFormLayout()
+    controls = QHBoxLayout()
+    controls.setSpacing(10)
+    current_label = QLabel("当前模式：")
+    controls.addWidget(current_label)
     combo = NoWheelComboBox()
     for key, label in MODE_LABELS.items():
         combo.addItem(label, key)
     combo.setCurrentIndex(combo.findData(service.settings.mode.value))
-    form.addRow("当前模式", combo)
-    hint = QLabel("工作模式决定数据来源和可用操作；自动同步在首页控制。")
-    hint.setWordWrap(True)
-    form.addRow(hint)
-    status = QLabel("正在核对当前模式…")
-    status.setWordWrap(True)
-    form.addRow(status)
-    buttons = QHBoxLayout()
+    combo.setFixedWidth(150)
+    controls.addWidget(combo)
     check = QPushButton("检测详情")
+    check.setFixedWidth(96)
     check.clicked.connect(lambda: controller.check(show=True))
-    buttons.addWidget(check)
-    form.addRow(buttons)
-    card.layout().addLayout(form)
+    controls.addWidget(check)
+    controls.addStretch()
+    card.layout().addLayout(controls)
+
+    mode_labels = {}
+    descriptions = QVBoxLayout()
+    descriptions.setSpacing(8)
+    for key, title in MODE_LABELS.items():
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        mode_label = QLabel(f"{title}：")
+        mode_label.setObjectName(f"workModeDescription_{key}")
+        mode_label.setFixedWidth(58)
+        detail = QLabel(MODE_DESCRIPTIONS[key])
+        detail.setWordWrap(False)
+        detail.setStyleSheet(f"color:{theme_color('#c9d1d9')}")
+        row.addWidget(mode_label)
+        row.addWidget(detail)
+        row.addStretch()
+        descriptions.addLayout(row)
+        mode_labels[key] = mode_label
+    card.layout().addLayout(descriptions)
+
+    def refresh_mode_emphasis(_index=None):
+        selected = service.settings.mode.value
+        for key, label in mode_labels.items():
+            label.setProperty("confirmedMode", key == selected)
+            color = theme_color("#58a6ff" if key == selected else "#f0f6fc")
+            label.setStyleSheet(f"color:{color};font-weight:700")
+
+    combo.currentIndexChanged.connect(refresh_mode_emphasis)
+    refresh_mode_emphasis()
+
+    # The detailed per-feature state now belongs to the explicit report dialog.
+    # Retain a hidden projection target so the controller contract stays narrow.
+    status = QLabel("正在核对当前模式…", card)
+    status.hide()
     controller.attach_controls(combo, status, check)
-    combo.activated.connect(lambda _index: controller.select_mode(combo.currentData()))
+
+    def select_mode(_index):
+        controller.select_mode(combo.currentData())
+        refresh_mode_emphasis()
+
+    combo.activated.connect(select_mode)
     return card
 
 
+def _confirmation_row(title: str, detail: str, tone: str, parent) -> QFrame:
+    frame = QFrame(parent)
+    frame.setObjectName("workModeConfirmationRow")
+    frame.setStyleSheet(
+        f"QFrame#workModeConfirmationRow{{background:{theme_color('#161b22')};"
+        f"border:1px solid {theme_color('#30363d')};border-radius:8px}}"
+    )
+    row = QHBoxLayout(frame)
+    row.setContentsMargins(14, 11, 14, 11)
+    row.setSpacing(12)
+    heading = QLabel(title, frame)
+    heading.setObjectName(f"workModeConfirmation_{tone}")
+    heading.setFixedWidth(76)
+    tone_color = {"available": "#3fb950", "unavailable": "#8b949e", "after": "#58a6ff"}[tone]
+    heading.setStyleSheet(
+        f"color:{theme_color(tone_color)};font-weight:700"
+    )
+    body = QLabel(detail, frame)
+    body.setWordWrap(True)
+    row.addWidget(heading)
+    row.addWidget(body, 1)
+    return frame
+
+
 def confirm_mode(parent, mode: str) -> bool:
-    description = {
-        "offline": (
-            "仅使用本地数据、已保存战报与离线计算，不连接游戏或采集新数据。\n\n"
-            "切换后会停止采集与同步，关闭两个插件开关，并清理已部署的游戏组件。"
-            "游戏仍在运行时，组件清理会等待游戏退出。"
-        ),
-        "low": (
-            "使用抓包同步背包和当前装备，并通过模拟输入执行游戏界面操作；"
-            "不读取游戏内存或调用游戏内部方法。\n\n"
-            "抓包和模拟输入可能触发游戏保护或兼容问题。角色养成需手动维护，"
-            "原生同步、战报和极速装配等功能不可用。"
-        ),
-        "medium": (
-            "加载游戏内组件，读取同步所需数据，并支持装配、锁定和弃置等操作。\n\n"
-            "这些操作会更新游戏中的对应状态；组件加载可能触发游戏保护或兼容问题。"
-        ),
-        "developer": "同时启用原生同步与抓包，用于双路对照和问题排查。",
-    }[mode]
-    if mode != "offline":
-        description += "\n\n自动同步开启时会连接游戏；可在首页随时关闭。"
-    if mode in {"medium", "developer"}:
-        description += "游戏关闭后会自动部署或更新所需组件。"
+    copy = MODE_CONFIRMATIONS[mode]
     dialog = QDialog(parent)
-    dialog.setWindowTitle("确认工作模式 · " + MODE_LABELS[mode])
+    dialog.setObjectName("workModeConfirmationDialog")
+    dialog.setWindowTitle("确认切换到" + MODE_LABELS[mode] + "模式")
     layout = QVBoxLayout(dialog)
-    label = QLabel(description, dialog)
-    label.setTextFormat(Qt.PlainText)
-    label.setWordWrap(True)
-    layout.addWidget(label)
-    layout.addStretch()
+    layout.setContentsMargins(22, 20, 22, 18)
+    layout.setSpacing(12)
+
+    warning = QFrame(dialog)
+    warning.setObjectName("workModeWarning")
+    warning.setStyleSheet(
+        f"QFrame#workModeWarning{{background:{theme_color('#2d1117')};"
+        f"border:1px solid {theme_color('#f85149')};border-radius:9px}}"
+    )
+    warning_row = QHBoxLayout(warning)
+    warning_row.setContentsMargins(16, 14, 16, 14)
+    warning_row.setSpacing(14)
+    icon = QLabel("⚠", warning)
+    icon.setObjectName("workModeWarningIcon")
+    icon.setStyleSheet(f"color:{theme_color('#f85149')};font-size:30px;font-weight:700")
+    warning_row.addWidget(icon)
+    warning_text = QVBoxLayout()
+    warning_text.setSpacing(3)
+    warning_title = QLabel(copy["warning_title"], warning)
+    warning_title.setObjectName("workModeWarningTitle")
+    warning_title.setStyleSheet(f"color:{theme_color('#f85149')};font-size:16px;font-weight:700")
+    warning_detail = QLabel(copy["warning_detail"], warning)
+    warning_detail.setObjectName("workModeWarningDetail")
+    warning_detail.setWordWrap(True)
+    warning_text.addWidget(warning_title)
+    warning_text.addWidget(warning_detail)
+    warning_row.addLayout(warning_text, 1)
+    layout.addWidget(warning)
+
+    layout.addWidget(_confirmation_row("可以使用", copy["available"], "available", dialog))
+    layout.addWidget(_confirmation_row("不可使用", copy["unavailable"], "unavailable", dialog))
+    layout.addWidget(_confirmation_row("切换后", copy["after"], "after", dialog))
+
+    note = QLabel(copy["note"], dialog)
+    note.setObjectName("workModeConfirmationNote")
+    note.setWordWrap(True)
+    note.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px")
+    layout.addWidget(note)
+
     buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=dialog)
     cancel = buttons.button(QDialogButtonBox.Cancel)
     cancel.setText("取消")
+    cancel.setFixedSize(88, 38)
     consent = buttons.addButton(
-        "切换到离线模式" if mode == "offline" else "自愿承担风险并使用此模式\n同时接受后续更新依旧使用此模式",
+        "确认切换" if mode == "offline" else "确认风险并切换",
         QDialogButtonBox.AcceptRole,
     )
     consent.setObjectName("workModeConfirm" if mode == "offline" else "workModeRiskConsent")
+    consent.setMinimumWidth(148)
+    consent.setFixedHeight(38)
     consent.setAutoDefault(False)
     consent.setDefault(False)
     if mode != "offline":
         consent.setStyleSheet(
-            "QPushButton { background-color:#b42318; color:#ffffff; border:1px solid #b42318;"
-            "border-radius:6px; padding:8px 16px; font-weight:600; }"
-            "QPushButton:hover { background-color:#912018; border-color:#912018; }"
-            "QPushButton:pressed { background-color:#7a1b14; border-color:#7a1b14; }"
-            "QPushButton:focus { border:2px solid #fda29b; padding:7px 15px; }"
+            f"QPushButton{{background:{theme_color('#da3633')};color:#ffffff;"
+            f"border:1px solid {theme_color('#f85149')};border-radius:6px;padding:7px 16px;font-weight:700}}"
+            f"QPushButton:hover{{background:{theme_color('#f85149')}}}"
+            f"QPushButton:pressed{{background:{theme_color('#b42318')}}}"
+            f"QPushButton:focus{{border:2px solid {theme_color('#fda29b')};padding:6px 15px}}"
         )
+    button_layout = buttons.layout()
+    button_layout.removeWidget(cancel)
+    button_layout.removeWidget(consent)
+    button_layout.addStretch()
+    button_layout.addWidget(cancel)
+    button_layout.addWidget(consent)
     cancel.setDefault(True)
     cancel.setFocus()
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
     layout.addWidget(buttons)
-    fit_dialog_to_available_screen(dialog, QSize(660, 390 if mode == "medium" else 310))
+    fit_dialog_to_available_screen(dialog, QSize(720, 440))
     return dialog.exec() == QDialog.Accepted

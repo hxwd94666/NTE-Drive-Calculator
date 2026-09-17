@@ -12,6 +12,7 @@ from unittest.mock import patch
 from src.integrations.bundled_resources import (
     bundled_config_dir,
     bundled_game_ui_asset_root,
+    bundled_ocr_model_dir,
     bundled_root,
 )
 
@@ -34,6 +35,10 @@ class BundledResourcesTests(TestCase):
             self.assertEqual(
                 bundled_game_ui_asset_root(),
                 package_dir.resolve().parent / "assets" / "game_ui",
+            )
+            self.assertEqual(
+                bundled_ocr_model_dir(),
+                package_dir.resolve().parent / "assets" / "ocr" / "models",
             )
 
     def test_resolution_does_not_depend_on_current_directory(self) -> None:

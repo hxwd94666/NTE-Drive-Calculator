@@ -355,6 +355,8 @@ class BattleReportAnalysisControllerMixin:
         ):
             return
         self._page.end_analysis_details()
+        if message == "任务已取消":
+            return
         if request.load.detail_level != "marginal":
             self._page.clear_analysis(f"读取战报逐击分析失败：{message}")
         log_event(
@@ -374,8 +376,6 @@ class BattleReportAnalysisControllerMixin:
         self._active_analysis_load = None
         self._active_analysis_load_invalidated = False
         worker.deleteLater()
-        if self._pending_analysis_load is None:
-            self._page.end_analysis_details()
         self._start_pending_analysis_load()
 
     def _load_analysis_details(self, kind: str, payload: object = None) -> None:

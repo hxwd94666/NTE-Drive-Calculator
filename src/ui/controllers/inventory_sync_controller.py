@@ -167,7 +167,6 @@ def _save_capture_diagnostics(self):
             }
         )
         settings=self._account_settings.save("sync",values)
-        QMessageBox.information(self,"采集排错","排错设置已保存，下次连接或同步启动时生效。")
         return settings
     except Exception as exc:
         QMessageBox.warning(self,"采集排错",f"保存失败：{exc}")

@@ -166,7 +166,7 @@ class SqliteAllocationInventory:
                 "尚无稳定背包快照，请先在首页启动背包同步并进入游戏"
             )
         try:
-            _summary, snapshot_items = self.user_dao.export_inventory_snapshot(
+            summary, snapshot_items = self.user_dao.export_inventory_snapshot(
                 pinned_snapshot_id
             )
         except Exception as exc:
@@ -233,6 +233,8 @@ class SqliteAllocationInventory:
                         f"静态数据库缺少核心套装 {suit_id or '<empty>'}"
                     )
                 main_stats = _stats(item.get("main_stats") or [])
+                if not main_stats and str(summary.get("source") or "") == "vision":
+                    continue
                 if len(main_stats) != 1:
                     raise AllocationInventoryProjectionError(
                         f"核心 {base['uid']} 必须且仅包含一个主词条"

@@ -84,7 +84,11 @@ class InventorySaveDiagnosticsTests(unittest.TestCase):
                 )
             core = FakeCoreClient()
             service = InventorySyncService(
-                path, client_factory=lambda: core, settle_seconds=0.05, poll_seconds=0.005,
+                path,
+                client_factory=lambda: core,
+                settle_seconds=0.05,
+                poll_seconds=0.005,
+                operation_guard=lambda _capability: None,
             )
             with patch("src.services.inventory_sync_runtime.log_event") as log:
                 try:

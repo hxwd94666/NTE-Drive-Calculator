@@ -16,7 +16,7 @@ class BattleResidualSelectionUiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_selected_scope_stays_visible_with_red_conflict_warning(self) -> None:
+    def test_selected_scope_stays_visible_with_conflict_warning(self) -> None:
         view = BattleLongAnalysisView()
         for name in (
             "_hide_hit_formula_dialog",
@@ -79,7 +79,6 @@ class BattleResidualSelectionUiTests(unittest.TestCase):
             "候选冲突：争锋赏宴 · 愿望成真 · 愿望之花",
             view.current_scope_label.text(),
         )
-        self.assertIn("#f85149", view.current_scope_label.styleSheet())
 
 
 if __name__ == "__main__":

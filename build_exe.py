@@ -30,6 +30,10 @@ from tools.release.pyinstaller_native_dependencies import declared_native_proxie
 from tools.release.game_component_bundle_build import (
     prepare_component_bundle, validate_packaged_component_bundle,
 )
+from src.integrations.ocr_model_resources import (
+    build_source_ocr_models,
+    validate_packaged_ocr_models,
+)
 
 ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
@@ -360,15 +364,18 @@ excludes = [
 for exc in excludes:
     args.append(f"--exclude-module={exc}")
 
-# rapidocr 数据文件（模型和配置）— 优先 openvino，兼容 onnxruntime
+# RapidOCR 包只收集配置和字典；两个后端共用一套经哈希校验的模型。
 for ocr_pkg_name in ("rapidocr_openvino", "rapidocr_onnxruntime"):
     try:
-        for src, dst in collect_data_files(ocr_pkg_name):
+        for src, dst in collect_data_files(ocr_pkg_name, excludes=["models/*"]):
             _append_add_data(src, dst)
         for src, dst in copy_metadata(ocr_pkg_name):
             _append_add_data(src, dst)
     except Exception:
         build_cli.warn(f"收集 {ocr_pkg_name} 数据文件失败，OCR 包可能未安装，继续打包: {ocr_pkg_name}")
+
+for model_path in build_source_ocr_models().values():
+    _append_add_data(model_path, "assets/ocr/models")
 
 # OpenVINO runtime: complete libs, cache.json, and package metadata.
 # A hand-written DLL list is fragile and can miss plugin/data files.
@@ -422,6 +429,7 @@ if onefile:
 if output.exists():
     if not onefile:
         validate_packaged_component_bundle(output / "_internal")
+        validate_packaged_ocr_models(output / "_internal")
     _validate_no_ambient_icu_dlls(output)
     _validate_no_runtime_caches(output)
     size_mb = sum(

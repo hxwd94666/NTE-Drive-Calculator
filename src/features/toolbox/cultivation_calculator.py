@@ -143,7 +143,7 @@ class CultivationCalculatorDialog(QDialog):
         input_scroll.setObjectName("cultivationCalculatorInputScroll")
         input_scroll.setWidgetResizable(True)
         input_scroll.setFrameShape(QFrame.NoFrame)
-        input_scroll.setMinimumWidth(410)
+        input_scroll.setMinimumWidth(470)
         input_body = QWidget(input_scroll)
         input_layout = QVBoxLayout(input_body)
         input_layout.setContentsMargins(2, 2, 2, 2)
@@ -176,8 +176,8 @@ class CultivationCalculatorDialog(QDialog):
         grid.addWidget(self._character_toggle, 0, 3)
         self._current_level = _level_spinbox(controls)
         self._target_level = _level_spinbox(controls)
-        self._current_stage = QComboBox(controls)
-        self._target_stage = QComboBox(controls)
+        self._current_stage = _stage_combobox(controls)
+        self._target_stage = _stage_combobox(controls)
         self._current_level.valueChanged.connect(self._refresh_current_stages)
         self._target_level.valueChanged.connect(self._refresh_target_stages)
         grid.addWidget(QLabel("当前等级", controls), 1, 0)
@@ -209,8 +209,8 @@ class CultivationCalculatorDialog(QDialog):
         fork_grid.addWidget(self._fork_toggle, 0, 3)
         self._fork_current_level = _level_spinbox(self._fork_controls)
         self._fork_target_level = _level_spinbox(self._fork_controls)
-        self._fork_current_stage = QComboBox(self._fork_controls)
-        self._fork_target_stage = QComboBox(self._fork_controls)
+        self._fork_current_stage = _stage_combobox(self._fork_controls)
+        self._fork_target_stage = _stage_combobox(self._fork_controls)
         self._fork_current_level.valueChanged.connect(self._refresh_fork_current_stages)
         self._fork_target_level.valueChanged.connect(self._refresh_fork_target_stages)
         fork_grid.addWidget(QLabel("当前等级", self._fork_controls), 1, 0)
@@ -618,6 +618,13 @@ def _level_spinbox(parent: QWidget) -> QSpinBox:
     control = _CultivationSpinBox(parent)
     control.setRange(1, 80)
     control.setSuffix(" 级")
+    control.setFixedWidth(132)
+    return control
+
+
+def _stage_combobox(parent: QWidget) -> QComboBox:
+    control = QComboBox(parent)
+    control.setMinimumWidth(188)
     return control
 
 

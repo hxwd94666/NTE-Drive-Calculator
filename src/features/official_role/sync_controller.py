@@ -30,6 +30,7 @@ class CharacterProfileSyncController(QObject):
         hotkey_manager, refresh,
         profile_service_factory=OfficialRoleProfileService,
         thread_factory=threading.Thread, connection_paused=None,
+        sync_ready=None,
     ) -> None:
         super().__init__(parent)
         self._dependencies_factory = dependencies_factory
@@ -43,6 +44,7 @@ class CharacterProfileSyncController(QObject):
         self._service_factory = profile_service_factory
         self._thread_factory = thread_factory
         self._connection_paused = connection_paused
+        self._sync_ready = sync_ready
         self._job: _SyncJob | None = None
         self._thread = None
         self._closed = False
@@ -54,6 +56,7 @@ class CharacterProfileSyncController(QObject):
     def attach_controls(self, button, edit_controls=()) -> None:
         self._button = button
         self._edit_controls = tuple(edit_controls)
+        button.setText('同步状态')
         button.setToolTip('从游戏同步已确认的等级、突破、技能、好感度和弧盘；未知字段保留原值。')
         button.clicked.connect(self.start)
 
@@ -82,7 +85,7 @@ class CharacterProfileSyncController(QObject):
 
     def _set_busy(self, busy: bool) -> None:
         if self._button is not None:
-            self._button.setText('取消同步角色状态' if busy else '同步角色状态')
+            self._button.setText('取消同步' if busy else '同步状态')
         if busy:
             self._enabled_states = tuple(control.isEnabled() for control in self._edit_controls)
             for control in self._edit_controls:
@@ -99,17 +102,30 @@ class CharacterProfileSyncController(QObject):
         if self._job is not None:
             self.request_stop()
             return
-        if not self._operation_entry('native_sync', '同步角色状态'):
+        if not self._operation_entry('native_sync', '同步状态'):
             return
         if self._connection_paused is not None and self._connection_paused():
             self._operation_unavailable(
-                '同步角色状态', '当前已暂停游戏连接，请在设置中继续连接后再同步角色状态。',
+                '同步状态',
+                '游戏连接已暂停，程序暂时无法读取角色状态。\n\n'
+                '请先在设置中重新确认工作模式，再到工作台开启“自动同步”并登录游戏。',
                 'detection',
+            )
+            return
+        if self._sync_ready is not None and not self._sync_ready():
+            self._operation_unavailable(
+                '同步状态',
+                '当前没有正在运行的游戏数据同步，程序暂时无法读取角色状态。\n\n'
+                '请先：\n'
+                '1. 在工作台开启“自动同步”；\n'
+                '2. 启动并登录游戏；\n'
+                '3. 等待工作台显示“同步中”，再返回点击“同步状态”。',
+                'home',
             )
             return
         if self._hotkeys.active_owner is not None:
             QMessageBox.information(
-                self.parent(), '同步角色状态',
+                self.parent(), '同步状态',
                 '另一个游戏操作正在运行，请先结束该操作，再同步角色状态。',
             )
             return
@@ -152,7 +168,7 @@ class CharacterProfileSyncController(QObject):
                 if not isinstance(error, (CancelledError, InventorySyncCancelled)):
                     code = getattr(error, 'domain_code', '')
                     target = 'deployment' if code in {'NATIVE_CAPABILITY_MISSING', 'NATIVE_MAPPING_UNSUPPORTED'} else 'detection'
-                    self._operation_unavailable('同步角色状态', str(error), target)
+                    self._operation_unavailable('同步状态', str(error), target)
                 return
             if not isinstance(payload, dict) or not isinstance(payload.get('profiles'), list):
                 raise ValueError('游戏组件未返回完整的角色状态列表。')
@@ -174,7 +190,7 @@ class CharacterProfileSyncController(QObject):
         except (CancelledError, InventorySyncCancelled):
             pass
         except Exception as exc:
-            self._operation_unavailable('同步角色状态', str(exc), 'detection')
+            self._operation_unavailable('同步状态', str(exc), 'detection')
         finally:
             self._job = None
             self._thread = None

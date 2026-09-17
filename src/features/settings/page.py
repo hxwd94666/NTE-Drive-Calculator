@@ -123,7 +123,24 @@ def _build_capture_diagnostics_card(window):
     window._sync_capture_device_edit = QLineEdit()
     window._sync_capture_device_edit.setPlaceholderText("仅在自动选择网卡失败时填写")
     window._sync_capture_device_edit.setText(settings.get("capture_device_id") or "")
+
+    def resize_capture_device_edit(text: str) -> None:
+        content = str(text or window._sync_capture_device_edit.placeholderText())
+        text_width = window._sync_capture_device_edit.fontMetrics().horizontalAdvance(content)
+        window._sync_capture_device_edit.setFixedWidth(
+            max(360, min(680, text_width + 36))
+        )
+
+    resize_capture_device_edit(window._sync_capture_device_edit.text())
+    window._sync_capture_device_edit.textChanged.connect(resize_capture_device_edit)
     form.addRow("抓取网卡:", window._sync_capture_device_edit)
+    save_handler = getattr(window, "_save_capture_diagnostics", None)
+
+    def save_capture_diagnostics() -> None:
+        if callable(save_handler):
+            save_handler()
+
+    window._sync_capture_device_edit.editingFinished.connect(save_capture_diagnostics)
 
     window._sync_raw_capture_toggle = QCheckBox("保存原始采集数据（排错）")
     window._sync_raw_capture_toggle.setChecked(
@@ -143,35 +160,23 @@ def _build_capture_diagnostics_card(window):
         raw_capture_open_button.setEnabled(False)
     raw_capture_row.addWidget(raw_capture_open_button)
     raw_capture_row.addStretch()
-    window._sync_raw_capture_toggle.clicked.connect(window.work_mode_controller.set_raw_capture_draft)
+    def save_raw_capture_diagnostics(enabled: bool) -> None:
+        window.work_mode_controller.set_raw_capture_draft(enabled)
+        if window._sync_raw_capture_toggle.isChecked() == enabled:
+            save_capture_diagnostics()
+
+    window._sync_raw_capture_toggle.clicked.connect(save_raw_capture_diagnostics)
     form.addRow("采集排错:", raw_capture_row)
     card.layout().addLayout(form)
-
-    save_button = QPushButton("保存排错设置")
-    save_button.setObjectName("btnPrimary")
-    save_handler = getattr(window, "_save_capture_diagnostics", None)
-    if callable(save_handler):
-        save_button.clicked.connect(save_handler)
-    else:
-        save_button.setEnabled(False)
-        save_button.setToolTip("当前页面宿主未启用采集排错设置")
-    card.layout().addWidget(save_button)
     return card
 
 
 def _build_environment_card(window):
     card = window._card("环境配置")
     window._environment_configuration_card = card
-    npcap_title = QLabel("Npcap · 抓包模式使用")
+    npcap_title = QLabel("Npcap · 数据同步、战报采集")
     npcap_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(npcap_title)
-    npcap_description = QLabel("用于抓包同步；是否可用以检测结果为准。")
-    npcap_description.setTextFormat(Qt.RichText)
-    npcap_description.setWordWrap(False)
-    npcap_description.setStyleSheet(
-        themed_style("color:#8b949e;font-size:12px")
-    )
-    card.layout().addWidget(npcap_description)
     npcap_row = QHBoxLayout()
     npcap_install_button = QPushButton("下载 Npcap 1.88")
     npcap_install_button.clicked.connect(window._open_npcap_download)
@@ -185,12 +190,11 @@ def _build_environment_card(window):
     npcap_row.addStretch()
     card.layout().addLayout(npcap_row)
 
-    equipment_title = QLabel("游戏内组件 · 原生同步、战报与极速装配")
+    equipment_title = QLabel("游戏内组件 · 极速装配、弃置锁定、插件、功能强化")
     equipment_title.setStyleSheet(themed_style("font-weight:700;font-size:14px"))
     card.layout().addWidget(equipment_title)
     equipment_description = QLabel(
-        "用于原生同步、战报和极速装配；更新前请完全退出游戏。"
-        "<br><span style='color:#d29922'><b>风险：</b>组件会加载到游戏进程，"
+        "<span style='color:#d29922'><b>风险提示：</b>组件会加载到游戏中，"
         "可能触发游戏保护或兼容问题。</span>"
     )
     equipment_description.setTextFormat(Qt.RichText)
@@ -217,6 +221,7 @@ def _build_environment_card(window):
     window._equipment_plugin_loading_method_combo.setCurrentIndex(
         max(0, method_index)
     )
+    window._equipment_plugin_loading_method_combo.setFixedWidth(180)
     window._equipment_plugin_loading_method_combo.currentIndexChanged.connect(
         window._equipment_plugin_loading_method_changed
     )
@@ -245,11 +250,11 @@ def _build_environment_card(window):
     form.addRow("游戏主程序:", game_row)
     card.layout().addLayout(form)
 
-    window._equipment_plugin_bundle_label = QLabel()
-    window._equipment_plugin_bundle_label.setWordWrap(True)
     window._equipment_plugin_status_label = QLabel()
-    window._equipment_plugin_status_label.setWordWrap(True)
-    card.layout().addWidget(window._equipment_plugin_bundle_label)
+    window._equipment_plugin_status_label.setWordWrap(False)
+    window._equipment_plugin_status_label.setStyleSheet(
+        themed_style("color:#8b949e;font-size:12px")
+    )
     card.layout().addWidget(window._equipment_plugin_status_label)
 
     actions = QHBoxLayout()

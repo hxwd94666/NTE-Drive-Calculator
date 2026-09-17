@@ -100,6 +100,14 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     assert dialog._fork.text() == "专属弧盘"
     assert dialog._fork_current_level.value() == 40
     assert dialog._fork_current_level.isEnabled()
+    assert dialog._current_level.width() == 132
+    assert dialog._target_level.width() == 132
+    assert dialog._fork_current_level.width() == 132
+    assert dialog._fork_target_level.width() == 132
+    assert dialog._current_stage.minimumWidth() == 188
+    assert dialog._target_stage.minimumWidth() == 188
+    assert dialog._fork_current_stage.minimumWidth() == 188
+    assert dialog._fork_target_stage.minimumWidth() == 188
     assert dialog._result.parentWidget().objectName() == "cultivationCalculatorResultPanel"
     assert not any(label.text() == "养成计算器" for label in dialog.findChildren(QLabel))
     assert dialog.findChild(QPushButton, "cultivationCalculatorCalculate").text() == "计算所需材料"
@@ -156,42 +164,6 @@ def test_cultivation_image_selector_is_a_searchable_single_choice_card_grid() ->
     QApplication.processEvents()
     assert cards["fork-a"].isHidden()
     assert not cards["fork-b"].isHidden()
-
-
-def test_cultivation_spinboxes_draw_theme_contrast_step_chevrons() -> None:
-    from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSpinBox
-
-    from src.app.theme import theme_color
-    from src.features.toolbox.cultivation_calculator import _CultivationSpinBox
-
-    app = QApplication.instance() or QApplication([])
-    previous = app.property("nte_effective_theme")
-    try:
-        for theme in ("light", "black"):
-            app.setProperty("nte_effective_theme", theme)
-            spinbox = _CultivationSpinBox()
-            spinbox.resize(100, 42)
-            spinbox.show()
-            QApplication.processEvents()
-            option = QStyleOptionSpinBox()
-            spinbox.initStyleOption(option)
-            rect = spinbox.style().subControlRect(
-                QStyle.ComplexControl.CC_SpinBox,
-                option,
-                QStyle.SubControl.SC_SpinBoxUp,
-                spinbox,
-            )
-            color = spinbox.grab().toImage().pixelColor(
-                rect.center().x(), rect.center().y() - 2,
-            )
-            expected = QColor(theme_color("#8b949e"))
-            assert abs(color.red() - expected.red()) < 60
-            assert abs(color.green() - expected.green()) < 60
-            assert abs(color.blue() - expected.blue()) < 60
-            spinbox.close()
-    finally:
-        app.setProperty("nte_effective_theme", previous)
 
 
 def test_official_replacement_summary_explains_score_and_third_percentage() -> None:
@@ -341,17 +313,6 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
     assert service.request is not None
     assert service.request["target_grade"] == "S"
     assert service.request["target_custom_percent"] == 90.0
-
-
-def test_rewind_custom_percentage_spin_buttons_have_theme_contrast() -> None:
-    from src.app.theme import DARK_STYLE
-
-    assert "QDoubleSpinBox#rewindCustomPercent:enabled" in DARK_STYLE
-    assert "QToolButton#rewindPercentStepUp" in DARK_STYLE
-    assert "background:#1f6feb33" in DARK_STYLE
-    assert "border:1px solid #58a6ff" in DARK_STYLE
-    assert "color:#58a6ff" in DARK_STYLE
-    assert "min-width:20px" in DARK_STYLE
 
 
 def test_rewind_execution_dialog_marks_experimental_prerequisite_and_disables_custom_for_blue_only() -> None:

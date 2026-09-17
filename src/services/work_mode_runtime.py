@@ -99,6 +99,18 @@ class WorkModeRuntime:
         except (EquipmentPluginDeploymentError, OSError, ValueError):
             return ""
 
+    @staticmethod
+    def _recorded_cleanup_path(raw: str | Path) -> str:
+        """Validate identity without requiring the old executable to still exist."""
+        try:
+            candidate = Path(str(raw).strip().strip('"')).expanduser()
+            if (not candidate.is_absolute()
+                    or candidate.name.casefold() != "htgame.exe"):
+                return ""
+            return str(candidate.resolve())
+        except (OSError, ValueError):
+            return ""
+
     def discover(self, *, force: bool = True) -> tuple[str, ...]:
         with self._lock:
             if self._closed:
@@ -225,12 +237,15 @@ class WorkModeRuntime:
         self.discover(force=False)
         record = self.policy.deployment_record
         recorded_path = str(record.get("game_executable") or "")
-        path = self._validated_game_path(recorded_path or self.policy.settings.game_executable)
+        path = (
+            self._recorded_cleanup_path(recorded_path)
+            if recorded_path else self._validated_game_path(self.policy.settings.game_executable)
+        )
         workspace_only = (record.get("deployment_layout") == "native-capture-v1"
                           and not record.get("managed_files") and bool(record.get("native_workspace_root")))
         if not path and not workspace_only:
             detail = (
-                "原组件部署记录中的游戏路径已失效，无法确认原清理目录；保留记录，不改用其他游戏目录。"
+                "原组件部署记录中的游戏路径无效，无法确认原清理目录；保留记录，不改用其他游戏目录。"
                 if recorded_path else self.path_detail
             )
             self._record_cleanup(CheckState.WAITING, detail, notify=has_deployment)
@@ -505,13 +520,37 @@ class WorkModeRuntime:
             )
             if not path_valid:
                 self._file_key = None
-                if self.policy.settings.pending_cleanup:
+                record = self.policy.deployment_record
+                recorded_cleanup_path = self._recorded_cleanup_path(record.get("game_executable") or "")
+                workspace_only = (
+                    record.get("deployment_layout") == "native-capture-v1"
+                    and not record.get("managed_files")
+                    and bool(record.get("native_workspace_root"))
+                )
+                if self.policy.settings.pending_cleanup and (recorded_cleanup_path or workspace_only):
+                    running = self._game_running()
+                    if not self.native_session.battle_active:
+                        self.native_session.close()
+                    try:
+                        self.cleanup(
+                            running=running,
+                            allow_unrecorded_legacy_workspace=allow_unrecorded_legacy_cleanup,
+                        )
+                    except (EquipmentPluginDeploymentError, ModPluginLoadingError, OSError):
+                        return replace(
+                            local_probe, game_path_valid=False, game_running=running,
+                            cleanup_state=self.cleanup_state, cleanup_detail=self.cleanup_detail,
+                            component_update_state=CheckState.FAULT,
+                            component_update_detail=self.cleanup_detail,
+                        )
+                if self.policy.settings.pending_cleanup and self.cleanup_state is None:
                     self._record_cleanup(CheckState.WAITING, self.path_detail,
                                          notify=_has_cleanup_record(self.policy.deployment_record))
                 return replace(local_probe,
                     game_path_valid=False,
                     component_update_state=CheckState.WAITING, component_update_detail=self.path_detail,
-                    cleanup_detail=self.path_detail, cleanup_state=self.cleanup_state,
+                    cleanup_detail=self.cleanup_detail if self.cleanup_state is not None else self.path_detail,
+                    cleanup_state=self.cleanup_state,
                 )
             running = self._game_running()
             settings = self.policy.settings

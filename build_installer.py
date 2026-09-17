@@ -25,6 +25,7 @@ from pathlib import Path
 
 from tools import build_cli
 from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.integrations.ocr_model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 
 
@@ -192,6 +193,7 @@ def _validate_app_bundle() -> None:
     validate_packaged_component_bundle(
         APP_INTERNAL, source_manifest_path=source_component_manifest(ROOT),
     )
+    validate_packaged_ocr_models(APP_INTERNAL)
 
 
 def _ensure_app_bundle(skip_app_build: bool) -> None:

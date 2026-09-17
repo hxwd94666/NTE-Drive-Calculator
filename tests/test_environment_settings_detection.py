@@ -6,7 +6,7 @@ from unittest.mock import Mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from src.features.settings.page import _build_environment_card
 from src.services.work_mode_service import WorkModeService
@@ -52,9 +52,16 @@ def settings_card(tmp_path, monkeypatch):
 def test_existing_proxy_preference_refreshes_actual_native_controls(settings_card):
     window, _worker = settings_card
     assert window._equipment_plugin_loading_method_combo.currentData() == "native-capture"
+    assert window._equipment_plugin_loading_method_combo.width() == 180
     assert window._equipment_plugin_primary_button.text() == "部署原生组件"
-    assert window._equipment_plugin_status_label.text()
-    assert window._equipment_plugin_bundle_label.text() == "原生组件整包已核对"
+    assert window._equipment_plugin_status_label.text() == "组件已准备好，启动游戏后会自动检查连接和可用功能。"
+    assert not hasattr(window, "_equipment_plugin_bundle_label")
+    labels = {label.text() for label in window.findChildren(QLabel)}
+    assert {
+        "Npcap · 数据同步、战报采集",
+        "游戏内组件 · 极速装配、弃置锁定、插件、功能强化",
+    } <= labels
+    assert not any("用于抓包同步" in text or "用于原生同步" in text for text in labels)
     # Display adaptation does not rewrite the user's deployment ownership record.
     assert window.work_mode_service.deployment_record == {"loading_method": "proxy"}
 

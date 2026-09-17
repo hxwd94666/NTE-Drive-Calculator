@@ -1,5 +1,6 @@
 # 覆盖更新检查、Mirror 响应与安装包下载行为。
 
+import os
 import tempfile
 import unittest
 import urllib.error
@@ -7,12 +8,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QWidget
+
 
 
 class UpdateWorkflowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
     def test_public_project_links_and_group_notice(self):
         from src.app.constants import (
             BILIBILI_HOME_URL,
+            DISCORD_GROUP_URL,
             GITHUB_HOME_URL,
             GITHUB_LATEST_RELEASE_URL,
             GROUP_CHAT_NOTICE,
@@ -27,6 +37,7 @@ class UpdateWorkflowTests(unittest.TestCase):
         update_controller._open_bilibili_homepage(window)
         update_controller._open_project_homepage(window)
         update_controller._open_support_homepage(window)
+        update_controller._open_discord_group(window)
 
         self.assertEqual(
             [
@@ -34,6 +45,7 @@ class UpdateWorkflowTests(unittest.TestCase):
                 BILIBILI_HOME_URL,
                 GITHUB_HOME_URL,
                 SUPPORT_US_URL,
+                DISCORD_GROUP_URL,
             ],
             opened,
         )
@@ -47,12 +59,71 @@ class UpdateWorkflowTests(unittest.TestCase):
             MIRROR_PROJECT_URL,
         )
         self.assertEqual(
-            "QQ交流群：1029030672\n开发交流群请入群私聊群主。",
+            "QQ交流群：1029030672\n"
+            "开发交流群请入群私聊群主。\n"
+            "Discord群组中会更新开发动态。",
             GROUP_CHAT_NOTICE,
         )
-        with patch.object(update_controller.QMessageBox, "information") as information:
-            update_controller._show_group_chat_notice(window)
-        information.assert_called_once_with(window, "加入群聊", GROUP_CHAT_NOTICE)
+        self.assertEqual("https://discord.gg/P3ZvMN7Hwj", DISCORD_GROUP_URL)
+
+    def test_group_notice_and_update_dialog_offer_discord_button(self):
+        from src.features.settings import updates
+        from src.ui.controllers import update_controller
+
+        opened = []
+
+        class Window(QWidget):
+            def _open_discord_group(self):
+                opened.append("discord")
+
+            @staticmethod
+            def _current_style_sheet():
+                return ""
+
+            @staticmethod
+            def _show_netdisk_download_dialog(_links):
+                return None
+
+            @staticmethod
+            def _start_mirror_download():
+                return None
+
+        window = Window()
+        captured = []
+
+        def capture_dialog(dialog):
+            captured.append(dialog)
+            return 0
+
+        with patch.object(QDialog, "exec", capture_dialog):
+            group_dialog = update_controller._show_group_chat_notice(window)
+            updates.show_update_dialog(
+                window,
+                "",
+                {"latest": "2.4.0", "message": "测试更新说明"},
+                "2.3.0",
+            )
+
+        self.assertIn("Discord群组中会更新开发动态。", group_dialog.findChild(QLabel).text())
+        self.assertEqual(2, len(captured))
+        self.assertEqual(280, group_dialog.minimumWidth())
+        self.assertFalse(group_dialog.findChild(QLabel).wordWrap())
+        group_footer = group_dialog.layout().itemAt(1).layout()
+        group_discord = group_footer.itemAt(0).widget()
+        group_close = group_footer.itemAt(1).widget()
+        self.assertEqual("加入Discord群组", group_discord.text())
+        self.assertEqual("关闭", group_close.text())
+        self.assertEqual(group_close.styleSheet(), group_discord.styleSheet())
+        self.assertNotEqual("btnPrimary", group_discord.objectName())
+        self.assertTrue(group_footer.itemAt(2).spacerItem())
+        for dialog in captured:
+            discord = next(
+                button
+                for button in dialog.findChildren(QPushButton)
+                if button.text() == "加入Discord群组"
+            )
+            discord.click()
+        self.assertEqual(["discord", "discord"], opened)
 
     def test_mirror_download_failure_link_opens_the_project_page(self):
         from src.app.constants import MIRROR_PROJECT_URL

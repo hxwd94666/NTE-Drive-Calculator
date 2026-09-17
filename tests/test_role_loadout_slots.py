@@ -4,13 +4,14 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+import json
 from copy import deepcopy
 from pathlib import Path
 
 from src.services.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.storage.sqlite.loadout_slot_dao import PRIMARY_LOADOUT_SLOT_KEY
 from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao, UserDataValidationError
-from tests.user_data_migration_helpers import drop_battle_axis_v23
+from tests.user_data_migration_helpers import create_user_database_at_version
 
 
 def inventory_snapshot() -> dict:
@@ -311,42 +312,29 @@ class RoleLoadoutSlotTests(unittest.TestCase):
         self.assertFalse(self.dao.get_loadout_plan(plan_id)["is_active"])
 
     def test_v14_active_plan_migrates_to_primary_slot_without_payload_loss(self) -> None:
-        plan_id = self.dao.save_loadout_plan(
-            name="主力方案",
-            character_id=1003,
-            assignments=[assignment()],
-            source_snapshot_id=self.snapshot_id,
-            status="ready",
-            is_active=True,
-            payload={
-                "schema": "allocation-official-snapshot-v1",
-                "source_role_name": "测试",
-                "assignment_scores": {"nte-module-22-11": 20.0},
-                "tape_main_values": {"nte-core-99-98": 123.0},
-            },
-        )
         self.dao.close()
-        connection = sqlite3.connect(self.database)
-        drop_battle_axis_v23(connection)
-        connection.execute("DROP INDEX idx_loadout_plan_active_slot")
-        connection.execute("DROP INDEX idx_loadout_plan_slot")
-        connection.execute("DROP INDEX idx_role_loadout_slot_character")
-        connection.execute("ALTER TABLE loadout_plan DROP COLUMN slot_id")
-        connection.execute("DROP TABLE role_loadout_slot")
-        connection.execute("DROP TABLE inventory_item_runtime_state")
+        legacy_database = Path(self.temp_dir.name) / "legacy_v14.sqlite3"
+        create_user_database_at_version(legacy_database, 14, account_id="slot-test")
+        payload = {
+            "schema": "allocation-official-snapshot-v1",
+            "source_role_name": "测试",
+            "assignment_scores": {"nte-module-22-11": 20.0},
+            "tape_main_values": {"nte-core-99-98": 123.0},
+        }
+        connection = sqlite3.connect(legacy_database)
         connection.execute(
-            "ALTER TABLE optimization_preference_substat_behavior "
-            "DROP COLUMN blacklist_zero_weight"
+            """INSERT INTO loadout_plan(
+                   name, character_id, source_snapshot_id, status, score,
+                   payload_json, is_active, created_at_utc, updated_at_utc,
+                   allocation_locked
+               ) VALUES ('主力方案', 1003, NULL, 'ready', NULL, ?, 1, 'now', 'now', 0)""",
+            (json.dumps(payload, ensure_ascii=False),),
         )
-        connection.execute(
-            "CREATE UNIQUE INDEX idx_loadout_plan_active_character "
-            "ON loadout_plan(character_id) WHERE is_active = 1"
-        )
-        connection.execute("DELETE FROM schema_migration WHERE version >= 15")
+        plan_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
         connection.commit()
         connection.close()
 
-        self.dao = UserDataDao(self.database)
+        self.dao = UserDataDao(legacy_database)
         slots = self.dao.list_loadout_slots(1003)
         migrated_plan = self.dao.get_loadout_plan(plan_id)
 

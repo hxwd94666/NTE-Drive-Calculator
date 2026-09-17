@@ -20,6 +20,33 @@ class IncompleteVisionScanError(RuntimeError):
         self.failed_count = failed_count
 
 
+def _unknown_tape_main_numbers(items: Sequence[Mapping[str, Any]]) -> tuple[int, ...]:
+    numbers: list[int] = []
+    for fallback_number, item in enumerate(items, start=1):
+        if str(item.get("item_type") or "") != "tape":
+            continue
+        if str(item.get("main_stats") or "").strip() != "未知主词条":
+            continue
+        try:
+            number = int(item.get("_scan_number") or fallback_number)
+        except (TypeError, ValueError):
+            number = fallback_number
+        if number not in numbers:
+            numbers.append(number)
+    return tuple(sorted(numbers))
+
+
+def append_tape_main_warning(summary: str, items: Sequence[Mapping[str, Any]]) -> str:
+    """Append one bounded warning only when a scanned card main stat is unknown."""
+
+    numbers = _unknown_tape_main_numbers(items)
+    if not numbers:
+        return summary
+    listed = "、".join(f"{number}号" for number in numbers[:2])
+    suffix = "……" if len(numbers) > 2 else ""
+    return f"{summary}\n卡带主词条解析失败：{len(numbers)}个（{listed}{suffix}）。"
+
+
 def commit_completed_vision_inventory(
     database_path: str | Path,
     stats: Mapping[str, Any],

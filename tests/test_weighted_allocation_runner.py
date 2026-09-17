@@ -1,5 +1,5 @@
-# 验证加权分配会冻结包含弧盘属性的官方角色边际权重。
-"""Pinned allocation must freeze fork-aware official marginal weights."""
+# 验证加权分配冻结角色详情但保留工坊基础权重。
+"""Pinned allocation keeps workshop weights while freezing role details."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from src.features.weighted_allocation.role_weight_freeze import (
-    freeze_official_role_final_weights,
+    freeze_official_role_details,
 )
 from src.services.allocation_context import (
     AllocationContext,
@@ -19,7 +19,7 @@ from src.services.allocation_context import (
 
 
 class WeightedAllocationRunnerTests(unittest.TestCase):
-    def test_freezes_official_final_weights_before_solver(self) -> None:
+    def test_freezes_role_details_without_replacing_base_weights(self) -> None:
         role = AllocationRolePreference(
             character_id=1001,
             ordinal=0,
@@ -47,32 +47,25 @@ class WeightedAllocationRunnerTests(unittest.TestCase):
             solver_version="test", roles=(role,), candidates=(), shapes=(), suits=(),
         )
         detail = {"profile": {"fork_refinement_level": 5}}
-        final = {
-            "property_weights": {"AtkUp": 0.3, "CritBase": 1.0},
-            "main_property_weights": {"AtkUp": 0.2, "CritBase": 0.9},
-        }
         with patch(
             "src.features.weighted_allocation.role_weight_freeze.load_official_role_detail",
             return_value=detail,
-        ), patch(
-            "src.features.weighted_allocation.role_weight_freeze.calculate_official_role_final_weights",
-            return_value=final,
-        ) as calculation:
-            frozen, details = freeze_official_role_final_weights(
+        ):
+            frozen, details = freeze_official_role_details(
                 context,
                 user_database_path=Path("account.sqlite3"),
                 shared_database_path=None,
                 static_database_path=None,
             )
 
-        calculation.assert_called_once()
+        self.assertIs(context, frozen)
         self.assertEqual(detail, details[1001])
         self.assertEqual(
-            (("AtkUp", 0.3), ("CritBase", 1.0)),
+            (("AtkUp", 0.4),),
             frozen.roles[0].effective_property_weights,
         )
         self.assertEqual(
-            (("AtkUp", 0.2), ("CritBase", 0.9)),
+            (("AtkUp", 0.4),),
             frozen.roles[0].effective_main_property_weights,
         )
 

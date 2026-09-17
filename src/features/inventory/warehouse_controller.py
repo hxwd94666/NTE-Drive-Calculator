@@ -607,6 +607,7 @@ def _open_warehouse_state_manager(self):
         self.app_context.paths.config_dir,
         user_database_path=account.user_database_path,
         window_title="仓库弃置/锁定管理",
+        show_server_region_option=False,
     ):
         return
     config = load_scan_post_action_config(

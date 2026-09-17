@@ -43,7 +43,7 @@ from src.services.weighted_loadout_comparison_service import (
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
-from .role_weight_freeze import freeze_official_role_final_weights
+from .role_weight_freeze import freeze_official_role_details
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,7 +449,7 @@ def _run_weighted_allocation(
             shared_database_path=request.shared_database_path,
         )
         static_database_path = static_dao.database_path
-    context, role_details = freeze_official_role_final_weights(
+    context, role_details = freeze_official_role_details(
         context,
         user_database_path=request.user_database_path,
         shared_database_path=request.shared_database_path,

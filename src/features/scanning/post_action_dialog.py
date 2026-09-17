@@ -199,11 +199,13 @@ class ScanPostActionDialog(QDialog):
         *,
         user_database_path: Path | None = None,
         window_title: str = "全量扫描管理",
+        show_server_region_option: bool = True,
     ):
         super().__init__(parent)
         self.user_config_dir = Path(user_config_dir)
         self.config_dir = Path(config_dir)
         self.user_database_path = user_database_path
+        self._show_server_region_option = show_server_region_option
         self.setWindowTitle(window_title)
         self.setMinimumWidth(560)
         self.config = load_scan_post_action_config(
@@ -247,10 +249,12 @@ class ScanPostActionDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(12)
         footer = QHBoxLayout()
-        self.hmt_region_check = QCheckBox("港澳台服")
+        self.hmt_region_check = QCheckBox("港澳台服", self)
         self.hmt_region_check.setChecked(self.config.get("server_region") == "hmt")
         self.hmt_region_check.setToolTip("开启后，扫描后弃置/锁定使用港澳台服的十字键左右直控方式。")
-        footer.addWidget(self.hmt_region_check)
+        self.hmt_region_check.setVisible(self._show_server_region_option)
+        if self._show_server_region_option:
+            footer.addWidget(self.hmt_region_check)
         footer.addStretch()
         self._scoring_footer = footer
 
@@ -634,6 +638,7 @@ def show_scan_post_action_dialog(
     *,
     user_database_path: Path | None = None,
     window_title: str = "全量扫描管理",
+    show_server_region_option: bool = True,
 ) -> bool:
     dialog = ScanPostActionDialog(
         parent,
@@ -641,5 +646,6 @@ def show_scan_post_action_dialog(
         config_dir,
         user_database_path=user_database_path,
         window_title=window_title,
+        show_server_region_option=show_server_region_option,
     )
     return dialog.exec() == QDialog.Accepted

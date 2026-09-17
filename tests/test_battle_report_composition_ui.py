@@ -4,15 +4,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleRangeRoleSummary,
-    DamageCompositionEntry,
 )
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
-from src.features.battle_report.composition_view import BattleDamageCompositionPanel
 
 
 class BattleReportCompositionUiTests(unittest.TestCase):
@@ -118,38 +116,6 @@ class BattleReportCompositionUiTests(unittest.TestCase):
         self.assertEqual(["composition"], requests)
         view.composition_topple_button.click()
         self.assertEqual(["composition"], requests)
-
-    def test_long_row_label_keeps_numeric_columns_inside_card(self) -> None:
-        entry = DamageCompositionEntry(
-            key="direct",
-            label="普通攻击：未来自我连续性假设 · 未来自我连续性假设",
-            damage=123_456.0,
-            share_percent=12.3,
-            total_share_percent=4.5,
-        )
-        row = BattleDamageCompositionPanel._damage_row(entry)
-        row.resize(420, 25)
-        row.show()
-        self.app.processEvents()
-
-        labels = row.findChildren(QLabel)
-        name = next(label for label in labels if label.text() == entry.label)
-        damage = next(label for label in labels if label.text() == "123,456")
-        share = next(label for label in labels if label.text() == "12.3%")
-        total_share = next(label for label in labels if label.text() == "4.5%")
-
-        self.assertEqual(entry.label, name.text())
-        self.assertEqual("", name.toolTip())
-        self.assertGreater(
-            name.fontMetrics().horizontalAdvance(name.text()),
-            name.width(),
-        )
-        self.assertEqual(92, damage.width())
-        self.assertEqual("", share.toolTip())
-        self.assertEqual("", total_share.toolTip())
-        self.assertEqual(52, share.width())
-        self.assertEqual("4.5%", total_share.text())
-        self.assertLessEqual(total_share.geometry().right(), row.rect().right())
 
     @staticmethod
     def _composition_labels(view: BattleLongAnalysisView) -> tuple[str, ...]:

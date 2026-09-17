@@ -14,7 +14,10 @@ from src.storage.sqlite.user_data_dao import (
     UserDataError,
     UserDataValidationError,
 )
-from tests.user_data_migration_helpers import drop_battle_axis_v23
+from tests.user_data_migration_helpers import (
+    create_user_database_at_version,
+    insert_optimization_profile,
+)
 
 
 def stat(property_id: str, value: float, percent: bool = False) -> dict:
@@ -167,39 +170,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_migrates_v4_database_to_versioned_optimization_preferences(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v4.sqlite3"
-        with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            self.assertEqual(SCHEMA_VERSION, initialized.summary()["schema_version"])
-
-        connection = sqlite3.connect(legacy_path)
-        drop_battle_axis_v23(connection)
-        drop_role_loadout_slots_v15(connection)
-        drop_battle_report_v13(connection)
-        drop_inventory_runtime_state_v21(connection)
-        for table in (
-            "character_shape_bonus_preference_property",
-            "character_shape_bonus_preference",
-            "ui_item_order",
-            "application_setting_migration",
-            "application_setting_copy",
-            "character_weight_preference_property",
-            "character_weight_preference_seed",
-            "character_profile_skill",
-            "character_profile",
-            "optimization_preference_substat_behavior",
-            "optimization_preference_substat_blacklist",
-            "optimization_preference_property_limit",
-            "optimization_preference_substat_priority",
-            "optimization_preference_property_weight",
-            "optimization_preference_character",
-            "optimization_preference_version",
-            "optimization_preference_profile",
-        ):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 5")
-        connection.execute("DROP INDEX IF EXISTS idx_loadout_plan_active_allocation_locked")
-        connection.execute("ALTER TABLE loadout_plan DROP COLUMN allocation_locked")
-        connection.commit()
-        connection.close()
+        create_user_database_at_version(legacy_path, 4, account_id="legacy")
 
         with UserDataDao(legacy_path) as migrated:
             self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
@@ -213,42 +184,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_failed_v5_migration_rolls_back_ddl_and_can_retry(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "failed_v5_migration.sqlite3"
-        with UserDataDao(legacy_path, account_id="legacy"):
-            pass
-
-        connection = sqlite3.connect(legacy_path)
-        drop_battle_axis_v23(connection)
-        drop_role_loadout_slots_v15(connection)
-        drop_battle_report_v13(connection)
-        drop_inventory_runtime_state_v21(connection)
-        for table in (
-            "character_shape_bonus_preference_property",
-            "character_shape_bonus_preference",
-            "ui_item_order",
-            "application_setting_migration",
-            "application_setting_copy",
-        ):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("DROP TABLE character_weight_preference_property")
-        connection.execute("DROP TABLE character_weight_preference_seed")
-        for table in (
-            "character_profile_skill",
-            "character_profile",
-            "optimization_preference_substat_behavior",
-            "optimization_preference_substat_blacklist",
-            "optimization_preference_property_limit",
-            "optimization_preference_substat_priority",
-            "optimization_preference_property_weight",
-            "optimization_preference_character",
-            "optimization_preference_version",
-            "optimization_preference_profile",
-        ):
-            connection.execute(f"DROP TABLE {table}")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 5")
-        connection.execute("DROP INDEX IF EXISTS idx_loadout_plan_active_allocation_locked")
-        connection.execute("ALTER TABLE loadout_plan DROP COLUMN allocation_locked")
-        connection.commit()
-        connection.close()
+        create_user_database_at_version(legacy_path, 4, account_id="legacy")
 
         original_migration = user_data_dao_module.USER_MIGRATIONS[5]
         user_data_dao_module.USER_MIGRATIONS[5] = SimpleNamespace(
@@ -440,33 +376,8 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_migrates_v5_database_to_character_profile_pointers(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v5.sqlite3"
-        with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            initialized.create_optimization_profile(
-                "existing-v5",
-                allocation_strategy="role_priority",
-                characters=[],
-            )
-        connection = sqlite3.connect(legacy_path)
-        drop_battle_axis_v23(connection)
-        drop_role_loadout_slots_v15(connection)
-        drop_battle_report_v13(connection)
-        drop_inventory_runtime_state_v21(connection)
-        connection.execute("DROP TABLE character_weight_preference_property")
-        connection.execute("DROP TABLE character_weight_preference_seed")
-        connection.execute("DROP TABLE character_shape_bonus_preference_property")
-        connection.execute("DROP TABLE character_shape_bonus_preference")
-        connection.execute("DROP TABLE ui_item_order")
-        connection.execute("DROP TABLE application_setting_migration")
-        connection.execute("DROP TABLE application_setting_copy")
-        connection.execute("DROP TABLE character_profile_skill")
-        connection.execute("DROP TABLE character_profile")
-        connection.execute("DROP TABLE optimization_preference_substat_behavior")
-        connection.execute("DROP TABLE optimization_preference_substat_blacklist")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 6")
-        connection.execute("DROP INDEX IF EXISTS idx_loadout_plan_active_allocation_locked")
-        connection.execute("ALTER TABLE loadout_plan DROP COLUMN allocation_locked")
-        connection.commit()
-        connection.close()
+        create_user_database_at_version(legacy_path, 5, account_id="legacy")
+        insert_optimization_profile(legacy_path, name="existing-v5")
 
         with UserDataDao(legacy_path) as migrated:
             self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
@@ -475,34 +386,15 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_migrates_v10_database_to_substat_blacklist_preferences(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v10.sqlite3"
-        with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            initialized.create_optimization_profile(
-                "existing-v10",
-                allocation_strategy="role_priority",
-                characters=[
-                    {
-                        "character_id": 1003,
-                        "ordinal": 0,
-                        "priority_group": 0,
-                        "suit_requirement_mode": "none",
-                        "property_weights": {},
-                        "substat_priorities": ["CritDamageBase"],
-                        "property_limits": {},
-                    }
-                ],
-            )
-        connection = sqlite3.connect(legacy_path)
-        drop_battle_axis_v23(connection)
-        drop_role_loadout_slots_v15(connection)
-        drop_battle_report_v13(connection)
-        drop_inventory_runtime_state_v21(connection)
-        connection.execute("DROP TABLE optimization_preference_substat_behavior")
-        connection.execute("DROP TABLE optimization_preference_substat_blacklist")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 11")
-        connection.execute("DROP INDEX IF EXISTS idx_loadout_plan_active_allocation_locked")
-        connection.execute("ALTER TABLE loadout_plan DROP COLUMN allocation_locked")
-        connection.commit()
-        connection.close()
+        create_user_database_at_version(legacy_path, 10, account_id="legacy")
+        insert_optimization_profile(
+            legacy_path,
+            name="existing-v10",
+            character={
+                "character_id": 1003,
+                "substat_priorities": ["CritDamageBase"],
+            },
+        )
 
         with UserDataDao(legacy_path) as migrated:
             self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
@@ -530,32 +422,12 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_migrates_v21_database_to_blacklist_zero_weight(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v21.sqlite3"
-        with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            initialized.create_optimization_profile(
-                "existing-v21",
-                allocation_strategy="role_priority",
-                characters=[
-                    {
-                        "character_id": 1003,
-                        "ordinal": 0,
-                        "priority_group": 0,
-                        "suit_requirement_mode": "none",
-                        "property_weights": {},
-                        "substat_priorities": [],
-                        "substat_blacklist": ["AtkAdd"],
-                        "property_limits": {},
-                    }
-                ],
-            )
-        connection = sqlite3.connect(legacy_path)
-        drop_battle_axis_v23(connection)
-        connection.execute(
-            "ALTER TABLE optimization_preference_substat_behavior "
-            "DROP COLUMN blacklist_zero_weight"
+        create_user_database_at_version(legacy_path, 21, account_id="legacy")
+        insert_optimization_profile(
+            legacy_path,
+            name="existing-v21",
+            character={"character_id": 1003, "substat_blacklist": ["AtkAdd"]},
         )
-        connection.execute("DELETE FROM schema_migration WHERE version >= 22")
-        connection.commit()
-        connection.close()
 
         with UserDataDao(legacy_path) as migrated:
             self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])
@@ -564,12 +436,9 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_migrates_v21_database_missing_substat_behavior_table(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v21_missing_behavior.sqlite3"
-        with UserDataDao(legacy_path, account_id="legacy"):
-            pass
+        create_user_database_at_version(legacy_path, 21, account_id="legacy")
         connection = sqlite3.connect(legacy_path)
-        drop_battle_axis_v23(connection)
         connection.execute("DROP TABLE optimization_preference_substat_behavior")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 22")
         connection.commit()
         connection.close()
 
@@ -585,19 +454,7 @@ class UserDataDaoSettingsTests(unittest.TestCase):
 
     def test_migrates_v11_database_to_allocation_plan_lock(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_v11.sqlite3"
-        with UserDataDao(legacy_path, account_id="legacy") as initialized:
-            self.assertEqual(SCHEMA_VERSION, initialized.summary()["schema_version"])
-        connection = sqlite3.connect(legacy_path)
-        drop_battle_axis_v23(connection)
-        drop_role_loadout_slots_v15(connection)
-        drop_battle_report_v13(connection)
-        drop_inventory_runtime_state_v21(connection)
-        drop_blacklist_zero_weight_v22(connection)
-        connection.execute("DROP INDEX idx_loadout_plan_active_allocation_locked")
-        connection.execute("ALTER TABLE loadout_plan DROP COLUMN allocation_locked")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 12")
-        connection.commit()
-        connection.close()
+        create_user_database_at_version(legacy_path, 11, account_id="legacy")
 
         with UserDataDao(legacy_path) as migrated:
             self.assertEqual(SCHEMA_VERSION, migrated.summary()["schema_version"])

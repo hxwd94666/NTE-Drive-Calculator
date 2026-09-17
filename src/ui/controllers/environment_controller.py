@@ -390,10 +390,13 @@ def _show_nte_core_diagnostic_report(
                 )
                 return
             capture_device_edit.setText(selected)
+            save_diagnostics = getattr(self, "_save_capture_diagnostics", None)
+            if callable(save_diagnostics):
+                save_diagnostics()
             QMessageBox.information(
                 self,
                 "高级排障",
-                "已填入抓取网卡。请点击“保存同步设置”后重新启动同步。",
+                "已保存抓取网卡；重新启动同步后生效。",
             )
 
         select_device_button.clicked.connect(select_capture_device)

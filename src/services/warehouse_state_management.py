@@ -9,7 +9,6 @@ running nte-core inventory session.  It never relies on screenshot ordering.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 import time
@@ -53,6 +52,11 @@ class WarehouseStateManagementResult:
     verified: bool = False
     verification_error: str | None = None
     inventory_reduction_observed: bool = False
+    dispatch_rpc_count: int = 0
+    dispatch_duration_ms: float = 0.0
+    dispatch_rpc_duration_ms: float = 0.0
+    dispatch_retry_count: int = 0
+    confirmation_duration_ms: float = 0.0
 
 
 def _compat_uid(row: Mapping[str, Any]) -> str:
@@ -247,6 +251,15 @@ class WarehouseStateManagementService:
                 after_snapshot_id=result.after_snapshot_id,
                 verified=result.verified,
                 verification_error=result.verification_error,
+                dispatch_rpc_count=result.dispatch_rpc_count,
+                dispatch_duration_ms=result.dispatch_duration_ms,
+                dispatch_rpc_duration_ms=result.dispatch_rpc_duration_ms,
+                dispatch_retry_count=result.dispatch_retry_count,
+                dispatch_average_rpc_ms=round(
+                    result.dispatch_rpc_duration_ms / result.dispatch_rpc_count,
+                    3,
+                ) if result.dispatch_rpc_count else 0.0,
+                confirmation_duration_ms=result.confirmation_duration_ms,
             )
             return result
 
@@ -301,31 +314,36 @@ class WarehouseStateManagementService:
                     action_snapshot_cursor = int(cursor_reader())
             applied_changes: list[dict[str, Any]] = []
             total_changes = len(plan.changes)
+            prepared_changes: list[tuple[Mapping[str, Any], str, Mapping[str, int]]] = []
+            dispatch_metrics = None
             try:
-                with self.state_writer.batch() if plan.changes else nullcontext():
-                    for index, change in enumerate(plan.changes, 1):
-                        equipment = dict(change["equipment"])
-                        row = current_rows.get((equipment["slot"], equipment["serial"]))
-                        if row is None:
-                            raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
+                for change in plan.changes:
+                    equipment = dict(change["equipment"])
+                    row = current_rows.get((equipment["slot"], equipment["serial"]))
+                    if row is None:
+                        raise WarehouseStateManagementError("目标装备已不在当前稳定快照中")
+                    prepared_changes.append((row, str(change["target_state"]), equipment))
+                    applied_change = dict(change)
+                    applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
+                    applied_changes.append(applied_change)
+                if prepared_changes:
+                    self._report_progress(
+                        progress_callback,
+                        f"正在连续提交 {total_changes} 件装备状态…",
+                    )
+                    def report_completed(completed: int, total: int) -> None:
                         self._report_progress(
                             progress_callback,
-                            f"正在向游戏提交第 {index}/{total_changes} 件装备状态…",
+                            f"正在向游戏提交装备状态：{completed}/{total}",
                         )
-                        try:
-                            self.state_writer.apply_one(
-                                row,
-                                str(change["target_state"]),
-                                equipment,
-                            )
-                        except WarehouseStateWriteError as exc:
-                            raise WarehouseStateManagementError(str(exc)) from exc
-                        # Rule-generated changes already have the presentation UID,
-                        # while manually-created plans do not.  Return one consistent
-                        # form so the warehouse can update the affected card at once.
-                        applied_change = dict(change)
-                        applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
-                        applied_changes.append(applied_change)
+
+                    try:
+                        dispatch_metrics = self.state_writer.apply_many(
+                            prepared_changes,
+                            group_completed=report_completed,
+                        )
+                    except WarehouseStateWriteError as exc:
+                        raise WarehouseStateManagementError(str(exc)) from exc
                 if plan.command_projection_allowed and applied_changes:
                     projector = getattr(
                         user_dao, "apply_inventory_command_state_projection", None,
@@ -364,7 +382,9 @@ class WarehouseStateManagementService:
                 after_snapshot_id=plan.snapshot_id,
                 verified=True,
             )
+        assert dispatch_metrics is not None
         try:
+            confirmation_started = time.monotonic()
             self._report_progress(
                 progress_callback,
                 "修改指令已全部提交，正在等待游戏产生新的完整背包快照…",
@@ -394,6 +414,7 @@ class WarehouseStateManagementService:
                     verified = self._count_state_mismatches(rows, tuple(applied_changes)) == 0
                     verification_error = None if verified else verification_error
         finally:
+            confirmation_duration_ms = round((time.monotonic() - confirmation_started) * 1000.0, 3)
             reduction_reader = getattr(
                 self.sync_service, "guard_observed_inventory_reduction", None,
             )
@@ -414,6 +435,11 @@ class WarehouseStateManagementService:
             verified=verified,
             verification_error=verification_error,
             inventory_reduction_observed=inventory_reduction_observed,
+            dispatch_rpc_count=dispatch_metrics.rpc_count,
+            dispatch_duration_ms=dispatch_metrics.wall_duration_ms,
+            dispatch_rpc_duration_ms=dispatch_metrics.rpc_duration_ms,
+            dispatch_retry_count=dispatch_metrics.retry_count,
+            confirmation_duration_ms=confirmation_duration_ms,
         )
 
     def _wait_for_confirmation(

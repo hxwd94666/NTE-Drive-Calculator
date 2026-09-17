@@ -14,6 +14,7 @@ from src.storage.sqlite.user_data_dao import (
     UserDataDao,
     UserDataError,
 )
+from tests.user_data_migration_helpers import create_user_database_at_version
 
 
 class UserDataV38MigrationTests(unittest.TestCase):
@@ -55,20 +56,7 @@ class UserDataV38MigrationTests(unittest.TestCase):
     def test_v37_database_upgrades_without_rewriting_battle_facts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "legacy_v37.sqlite3"
-            with UserDataDao(
-                database,
-                account_id="migration-account",
-                account_name="迁移测试账号",
-            ):
-                pass
-            connection = sqlite3.connect(database)
-            connection.execute("DROP TABLE battle_inferred_target_snapshot")
-            connection.execute(
-                "ALTER TABLE battle_time_stop_interval DROP COLUMN pause_type_mask"
-            )
-            connection.execute("DELETE FROM schema_migration WHERE version >= 38")
-            connection.commit()
-            connection.close()
+            create_user_database_at_version(database, 37)
 
             with UserDataDao(
                 database,
@@ -89,20 +77,7 @@ class UserDataV38MigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             database = root / "retry_v37.sqlite3"
-            with UserDataDao(
-                database,
-                account_id="migration-account",
-                account_name="迁移测试账号",
-            ):
-                pass
-            connection = sqlite3.connect(database)
-            connection.execute("DROP TABLE battle_inferred_target_snapshot")
-            connection.execute(
-                "ALTER TABLE battle_time_stop_interval DROP COLUMN pause_type_mask"
-            )
-            connection.execute("DELETE FROM schema_migration WHERE version >= 38")
-            connection.commit()
-            connection.close()
+            create_user_database_at_version(database, 37)
             invalid = root / "invalid_v38.sql"
             invalid.write_text(
                 "CREATE TABLE migration_should_rollback(id INTEGER); INVALID SQL;",

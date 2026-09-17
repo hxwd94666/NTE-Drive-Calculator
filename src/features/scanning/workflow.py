@@ -32,7 +32,7 @@ from src.features.scanning.scan_source_warning import confirm_scan_mode_after_wo
 from src.features.scanning.post_action_summary import append_state_mismatch_summary
 from src.domain.post_actions import post_actions_enabled, validate_post_action_config
 from src.features.scanning.vision_worker import VisionWorkerThread
-from src.services.full_visual_snapshot_commit import IncompleteVisionScanError, commit_completed_vision_inventory
+from src.services.full_visual_snapshot_commit import IncompleteVisionScanError, append_tape_main_warning, commit_completed_vision_inventory
 from src.utils.logger import logger
 
 def _page_execute(self):
@@ -373,6 +373,7 @@ def _on_vision_done(self, stats):
     failed_count = int(stats.get("failed_count", 0) or 0)
     duplicate_count = int(stats.get("duplicate_count", 0) or 0) + int(post.get("probe_duplicates", 0) or 0)
     summary = f"解析成功 {success_count} 张，解析失败 {failed_count} 张，过滤重复 {duplicate_count} 张。"
+    summary = append_tape_main_warning(summary, [*list(stats.get("vision_items") or []), *manual_items])
     vision_snapshot_id = None
     try:
         vision_snapshot_id = commit_completed_vision_inventory(

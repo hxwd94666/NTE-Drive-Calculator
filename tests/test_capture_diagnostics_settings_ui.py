@@ -18,10 +18,11 @@ def test_settings_card_removes_manual_sync_policy_controls():
         widget = QWidget()
         widget.setLayout(QVBoxLayout())
         return widget
+    saves = []
     host = SimpleNamespace(
         _card=make_card,
         _get_sync_settings=lambda: {"raw_capture_enabled": True, "capture_device_id": ""},
-        _save_capture_diagnostics=lambda: None,
+        _save_capture_diagnostics=lambda: saves.append(True),
         work_mode_controller=SimpleNamespace(set_raw_capture_draft=lambda _enabled: None),
     )
     card = _build_capture_diagnostics_card(host)
@@ -29,10 +30,16 @@ def test_settings_card_removes_manual_sync_policy_controls():
         labels = [label.text() for label in card.findChildren(QLabel)]
         buttons = [button.text() for button in card.findChildren(QPushButton)]
         assert titles == ["采集排错"]
-        assert "保存排错设置" in buttons and "打开原始数据目录" in buttons
+        assert "保存排错设置" not in buttons and "打开原始数据目录" in buttons
         assert not {"背包获取方式:", "内容稳定等待:", "历史快照保留:"}.intersection(labels)
         assert "清理历史快照" not in buttons
         assert host._sync_raw_capture_toggle.isChecked()
+        assert host._sync_capture_device_edit.width() == 360
+        host._sync_capture_device_edit.setText("fixture-device")
+        host._sync_capture_device_edit.editingFinished.emit()
+        assert saves == [True]
+        host._sync_raw_capture_toggle.click()
+        assert saves == [True, True]
     finally:
         card.close()
         app.processEvents()

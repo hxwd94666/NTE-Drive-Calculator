@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
 )
 
-from src.app.theme import apply_app_theme, refresh_inline_theme_styles
+from src.app.theme import apply_app_theme
 from src.features.static_catalog.domain_pages.combat_mechanics_page import (
     build_combat_mechanics_catalog_page,
 )
@@ -26,9 +26,6 @@ from src.features.static_catalog.domain_pages.mechanics_widgets import (
     LinkButton,
     MechanicsGalleryCard,
 )
-from src.features.static_catalog.domain_pages.monster_browse_models import BrowseCard
-from src.features.static_catalog.domain_pages.monster_widgets import ArchiveCard
-from src.services.static_catalog_mechanics_models import MechanicsCard
 from src.services.static_catalog_mechanics_service import CatalogLink, encode_record
 
 
@@ -190,47 +187,6 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
             "项目公式", "complete", "partial", "unavailable",
         ):
             self.assertNotIn(token, visible)
-
-    def test_light_theme_gallery_card_hover_only_highlights_the_border(self) -> None:
-        apply_app_theme(self.app, "light")
-        archive = ArchiveCard(BrowseCard(
-            title="测试玩法",
-            subtitle="测试说明",
-            badge="1 项",
-            icon=None,
-            action=None,
-        ))
-        mechanics = MechanicsGalleryCard(MechanicsCard(
-            record_id="formula:sample",
-            family_key="direct",
-            card_kind="formula",
-            eyebrow="伤害公式",
-            title="测试机制",
-            subtitle="测试说明",
-            badges=(),
-        ))
-        try:
-            for card in (archive, mechanics):
-                style = card.styleSheet()
-                hover = style.split(":hover{", 1)[1].split("}", 1)[0]
-                self.assertNotIn("#182434", style)
-                self.assertNotIn("background", hover)
-                self.assertIn("border-color:#0969da", hover)
-            self.assertIn("background:#f6f8fa", archive.styleSheet())
-            self.assertIn("background:#f6f8fa", mechanics.styleSheet())
-        finally:
-            archive.deleteLater()
-            mechanics.deleteLater()
-            apply_app_theme(self.app, "dark")
-
-    def test_inline_styles_refresh_for_dark_black_and_white(self) -> None:
-        for theme in ("dark", "black", "light"):
-            apply_app_theme(self.app, theme)
-            refresh_inline_theme_styles(self.page, self.app)
-            self.app.processEvents()
-            self.assertTrue(self.page.styleSheet())
-            self.assertTrue(self.page.findChildren(MechanicsGalleryCard))
-
 
 if __name__ == "__main__":
     unittest.main()

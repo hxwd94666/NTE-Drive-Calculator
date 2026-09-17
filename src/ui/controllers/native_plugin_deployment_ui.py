@@ -36,19 +36,16 @@ def refresh_native_plugin_status(window) -> None:
     primary = getattr(window, "_equipment_plugin_primary_button", None)
     if primary is not None:
         primary.setText("启动原生 Loader" if combo is not None and combo.currentData() == "loader" else "部署原生组件")
-    bundle_label = getattr(window, "_equipment_plugin_bundle_label", None)
-    if bundle_label is not None:
-        bundle_label.setText("原生组件整包已核对" if bundle.ready else "；".join(bundle.issues))
     label = getattr(window, "_equipment_plugin_status_label", None)
     if label is not None:
         if not bundle.ready:
-            label.setText("原生配套文件尚未齐备，暂不能部署；修复组件包后重新检测。")
+            label.setText("组件未准备好：" + "；".join(bundle.issues))
         elif combo is not None and combo.currentData() == "loader":
             try:
                 service = window._mod_plugin_loading_service
                 workspace = service.inspect_native_workspace()
-                label.setText("Loader 运行目录文件已核对；启动游戏后检测连接和各项能力。"
-                              if workspace.files_compatible else "；".join(workspace.issues))
+                label.setText("组件已准备好，启动游戏后会自动检查连接和可用功能。"
+                              if workspace.files_compatible else "组件未准备好：" + "；".join(workspace.issues))
             except (EquipmentPluginDeploymentError, ModPluginLoadingError) as error:
                 label.setText(str(error))
         else:
@@ -58,8 +55,8 @@ def refresh_native_plugin_status(window) -> None:
                 recorded_files=window.work_mode_service.deployment_record.get("managed_files", {}),
                 bundle_inspection=bundle,
             )
-            label.setText("原生组件文件已核对；启动游戏后检测连接和各项能力。"
-                          if result.files_compatible else "；".join(result.issues))
+            label.setText("组件已准备好，启动游戏后会自动检查连接和可用功能。"
+                          if result.files_compatible else "组件未准备好：" + "；".join(result.issues))
 
 
 def deploy_native_plugin_from_settings(window) -> None:

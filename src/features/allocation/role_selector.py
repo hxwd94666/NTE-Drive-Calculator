@@ -472,11 +472,22 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
     def _automatic_crit_rate_cap(self, name: str, weapon_name: str) -> float | None:
         """Leave room for the selected fork and enabled level-10 affinity."""
 
-        fork_crit = self._weapon_crit_rate(weapon_name) or 0.0
+        fork_crit = self._active_fork_crit_rate(name, weapon_name) or 0.0
         affinity_crit = self._likeability_crit_rate(name)
         if fork_crit <= 0.0 and affinity_crit <= 0.0:
             return None
         return round(max(0.0, 100.0 - fork_crit - affinity_crit * 100.0), 4)
+
+    def _active_fork_crit_rate(self, name: str, weapon_name: str) -> float | None:
+        role = self.all_roles.get(name) or {}
+        if weapon_name == str(role.get("default_weapon") or ""):
+            value = role.get("active_fork_crit_rate_bonus")
+            if value is not None:
+                try:
+                    return max(0.0, float(value))
+                except (TypeError, ValueError):
+                    pass
+        return self._weapon_crit_rate(weapon_name)
 
     def _weapon_crit_rate(self, weapon_name):
         info = self.weapons_db.get(weapon_name)
@@ -508,7 +519,11 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         return {
             name: crit_rate
             for name in self.selected
-            if (crit_rate := self._weapon_crit_rate(self._effective_weapon_for_role(name))) is not None
+            if (
+                crit_rate := self._active_fork_crit_rate(
+                    name, self._effective_weapon_for_role(name)
+                )
+            ) is not None
         }
 
     def _set_tape_main_filter(self, name, values):

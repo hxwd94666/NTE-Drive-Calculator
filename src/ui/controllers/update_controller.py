@@ -10,11 +10,22 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
-from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QMessageBox, QProgressDialog, QVBoxLayout
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from src.app.constants import (
     APP_VERSION,
     BILIBILI_HOME_URL,
+    DISCORD_GROUP_URL,
     GROUP_CHAT_NOTICE,
     GITHUB_HOME_URL,
     GITHUB_LATEST_RELEASE_URL,
@@ -23,6 +34,7 @@ from src.app.constants import (
     MIRROR_UPDATE_API,
     SUPPORT_US_URL,
 )
+from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.workers import WorkerThread
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
@@ -501,8 +513,40 @@ def _open_support_homepage(self):
     self._open_url(SUPPORT_US_URL)
 
 
+def _open_discord_group(self):
+    self._open_url(DISCORD_GROUP_URL)
+
+
 def _show_group_chat_notice(self):
-    QMessageBox.information(self, "加入群聊", GROUP_CHAT_NOTICE)
+    dialog = QDialog(self)
+    dialog.setWindowTitle("加入群聊")
+    dialog.setMinimumWidth(280)
+    if hasattr(self, "_current_style_sheet"):
+        dialog.setStyleSheet(self._current_style_sheet())
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(18, 16, 18, 16)
+    layout.setSpacing(14)
+    message = QLabel(GROUP_CHAT_NOTICE)
+    message.setWordWrap(False)
+    layout.addWidget(message)
+    footer = QHBoxLayout()
+    discord_button = QPushButton("加入Discord群组")
+    close_button = QPushButton("关闭")
+    close_button.clicked.connect(dialog.reject)
+
+    def open_discord_group():
+        self._open_discord_group()
+        dialog.accept()
+
+    discord_button.clicked.connect(open_discord_group)
+    footer.addWidget(discord_button)
+    footer.addWidget(close_button)
+    footer.addStretch()
+    layout.addLayout(footer)
+    dialog.adjustSize()
+    fit_dialog_to_available_screen(dialog)
+    dialog.exec()
+    return dialog
 
 
 def _show_netdisk_download_dialog(self, links):
@@ -549,6 +593,7 @@ class UpdateControllerMixin:
     _open_bilibili_homepage = _open_bilibili_homepage
     _open_project_homepage = _open_project_homepage
     _open_support_homepage = _open_support_homepage
+    _open_discord_group = _open_discord_group
     _show_group_chat_notice = _show_group_chat_notice
     _show_netdisk_download_dialog = _show_netdisk_download_dialog
     _open_url = _open_url

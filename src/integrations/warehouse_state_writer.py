@@ -5,10 +5,23 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, ExitStack, contextmanager
-import time
+from dataclasses import dataclass
+from time import perf_counter, sleep
 from typing import Any, Protocol
 
-from src.integrations.nte_core_protocol import is_mods_plugin_busy_error
+from src.integrations.nte_core_protocol import NteCoreRpcError, is_mods_plugin_busy_error
+
+
+_TRANSIENT_RETRY_DELAYS = (0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64)
+
+
+@dataclass(frozen=True)
+class EquipmentStateBatchMetrics:
+    group_count: int
+    rpc_count: int
+    wall_duration_ms: float
+    rpc_duration_ms: float
+    retry_count: int
 
 
 class WarehouseStateWriteError(RuntimeError):
@@ -71,21 +84,105 @@ class WarehouseStateWriter:
     def __init__(self, sync_service: LiveInventorySync) -> None:
         self.sync_service = sync_service
 
-    @staticmethod
-    def _dispatch(dispatch, **kwargs):
-        for attempt in range(6):
-            try:
-                return dispatch(**kwargs)
-            except Exception as error:
-                if not is_mods_plugin_busy_error(error) or attempt == 5:
-                    raise
-                time.sleep(0.6)
-
     @contextmanager
     def batch(self):
         with ExitStack() as scope:
-            self._dispatch(lambda: scope.enter_context(self.sync_service.equipment_batch()))
-            yield
+            dispatcher = scope.enter_context(self.sync_service.equipment_batch())
+            yield dispatcher
+
+    @staticmethod
+    def _operations(
+        row: Mapping[str, Any],
+        target_state: str,
+        equipment: Mapping[str, int],
+    ) -> tuple[dict[str, Any], ...]:
+        if target_state not in {"normal", "locked", "discarded"}:
+            raise WarehouseStateWriteError(f"未知目标状态：{target_state}")
+        discarded = bool(row.get("discarded"))
+        locked = bool(row.get("locked"))
+        operations: list[dict[str, Any]] = []
+
+        def add(method: str, state_name: str, value: bool) -> None:
+            operations.append({
+                "method": method,
+                "kwargs": {"equipment": dict(equipment), state_name: value},
+            })
+
+        if target_state == "normal":
+            if discarded:
+                add("set_item_discarded", "discarded", False)
+            if locked:
+                add("set_item_locked", "locked", False)
+        elif target_state == "locked":
+            if discarded:
+                add("set_item_discarded", "discarded", False)
+            if not locked:
+                add("set_item_locked", "locked", True)
+        else:
+            if locked:
+                add("set_item_locked", "locked", False)
+            if not discarded:
+                add("set_item_discarded", "discarded", True)
+        return tuple(operations)
+
+    def apply_many(
+        self,
+        changes: list[tuple[Mapping[str, Any], str, Mapping[str, int]]],
+        *,
+        group_completed=None,
+    ) -> EquipmentStateBatchMetrics:
+        groups = tuple(
+            self._operations(row, target_state, equipment)
+            for row, target_state, equipment in changes
+        )
+        with self.batch():
+            started = perf_counter()
+            rpc_count = 0
+            rpc_duration = 0.0
+            retry_count = 0
+            for index, group in enumerate(groups, 1):
+                for operation in group:
+                    elapsed, attempts, retries = self._dispatch_operation(operation)
+                    rpc_duration += elapsed
+                    rpc_count += attempts
+                    retry_count += retries
+                if group_completed is not None:
+                    group_completed(index, len(groups))
+            return EquipmentStateBatchMetrics(
+                group_count=len(groups),
+                rpc_count=rpc_count,
+                wall_duration_ms=round((perf_counter() - started) * 1000.0, 3),
+                rpc_duration_ms=round(rpc_duration * 1000.0, 3),
+                retry_count=retry_count,
+            )
+
+    @staticmethod
+    def _is_pre_dispatch_transient(error: BaseException) -> bool:
+        return is_mods_plugin_busy_error(error) or (
+            isinstance(error, NteCoreRpcError)
+            and error.code == -32001
+            and error.message == "source_changed"
+            and error.domain_code is None
+        )
+
+    def _dispatch_operation(self, operation: Mapping[str, Any]) -> tuple[float, int, int]:
+        started = perf_counter()
+        attempts = 0
+        retries = 0
+        while True:
+            attempts += 1
+            try:
+                getattr(self.sync_service, operation["method"])(**operation["kwargs"])
+                return perf_counter() - started, attempts, retries
+            except Exception as error:
+                if not self._is_pre_dispatch_transient(error):
+                    raise
+                if retries >= len(_TRANSIENT_RETRY_DELAYS):
+                    raise WarehouseStateWriteError(
+                        "组件状态持续刷新，当前指令多次未派发；已停止本批次，等待背包刷新后可继续处理剩余装备"
+                    ) from error
+                sleep(_TRANSIENT_RETRY_DELAYS[retries])
+                retries += 1
 
     def ensure_ready(self) -> None:
         state = self.sync_service.state
@@ -111,40 +208,5 @@ class WarehouseStateWriter:
         target_state: str,
         equipment: Mapping[str, int],
     ) -> None:
-        if target_state not in {"normal", "locked", "discarded"}:
-            raise WarehouseStateWriteError(f"未知目标状态：{target_state}")
-        discarded = bool(row.get("discarded"))
-        locked = bool(row.get("locked"))
-        if target_state == "normal":
-            if discarded:
-                self._dispatch(self.sync_service.set_item_discarded,
-                    equipment=equipment,
-                    discarded=False,
-                )
-            if locked:
-                self._dispatch(self.sync_service.set_item_locked,
-                    equipment=equipment,
-                    locked=False,
-                )
-        elif target_state == "locked":
-            if discarded:
-                self._dispatch(self.sync_service.set_item_discarded,
-                    equipment=equipment,
-                    discarded=False,
-                )
-            if not locked:
-                self._dispatch(self.sync_service.set_item_locked,
-                    equipment=equipment,
-                    locked=True,
-                )
-        else:
-            if locked:
-                self._dispatch(self.sync_service.set_item_locked,
-                    equipment=equipment,
-                    locked=False,
-                )
-            if not discarded:
-                self._dispatch(self.sync_service.set_item_discarded,
-                    equipment=equipment,
-                    discarded=True,
-                )
+        for operation in self._operations(row, target_state, equipment):
+            self._dispatch_operation(operation)

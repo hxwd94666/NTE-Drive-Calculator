@@ -29,6 +29,7 @@ from tools.game_data.promote_static_release import (
 from src.app.version import __version__
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.integrations.ocr_model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.native_component_bundle_build import native_component_build_inputs
 
@@ -253,6 +254,7 @@ def validate_packaged_release_artifacts(
     )
     if sha256(BUNDLED_GAME_UI_ASSET_MANIFEST) != sha256(GAME_UI_ASSET_MANIFEST):
         raise RuntimeError("安装包输入目录中的游戏 UI 资源 manifest 与 assets/ 不一致")
+    validate_packaged_ocr_models(APP_INTERNAL)
 
 
 def validate_static_dataset_against_local_config(
@@ -294,7 +296,7 @@ def write_checksum(path: Path) -> Path:
     return checksum_path
 
 
-def print_manual_commands(tag: str, installer: Path, notes_file: Path) -> None:
+def print_manual_commands(tag: str, installer: Path) -> None:
     relative_installer = installer.relative_to(ROOT)
     relative_checksum = installer.with_suffix(installer.suffix + ".sha256").relative_to(ROOT)
     print("\n本地准备完成。确认产物后，由维护者手工执行：")
@@ -303,7 +305,7 @@ def print_manual_commands(tag: str, installer: Path, notes_file: Path) -> None:
     print(
         "gh release create "
         f'{tag} "{relative_installer}" "{relative_checksum}" '
-        f'--title {tag} --notes-file "{notes_file}"'
+        f"--title {tag}"
     )
     print("Mirror 的分发与下载风险由 Mirror 发布链负责，本工具不会上传 Mirror。")
 
@@ -311,12 +313,6 @@ def print_manual_commands(tag: str, installer: Path, notes_file: Path) -> None:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", default=__version__, help="必须与应用版本完全一致。")
-    parser.add_argument(
-        "--notes-file",
-        type=Path,
-        default=Path("RELEASE_NOTES.md"),
-        help="仅用于输出 gh release create 命令；本工具不读取或上传它。",
-    )
     parser.add_argument(
         "--allow-dirty",
         action="store_true",
@@ -399,7 +395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         checksum_path = write_checksum(INSTALLER_PATH)
         print(f"[通过] 安装包：{INSTALLER_PATH}")
         print(f"[通过] SHA-256：{checksum_path}")
-        print_manual_commands(args.tag, INSTALLER_PATH, args.notes_file)
+        print_manual_commands(args.tag, INSTALLER_PATH)
         return 0
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"[失败] {exc}", file=sys.stderr)

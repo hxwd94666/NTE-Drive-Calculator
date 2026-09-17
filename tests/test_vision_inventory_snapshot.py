@@ -10,6 +10,7 @@ from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
 from src.services.inventory_snapshot_export import export_inventory_snapshot
 from src.services.full_visual_snapshot_commit import (
     IncompleteVisionScanError,
+    append_tape_main_warning,
     commit_completed_vision_inventory,
 )
 from src.services.vision_inventory_snapshot import import_vision_inventory
@@ -254,6 +255,48 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         # SQLite stores percentage values as fractions.  The visual importer
         # must store the configured 30% max-level value, not its old 1% stub.
         self.assertAlmostEqual(0.30, core["main_stats"][0]["value"])
+
+    def test_unknown_visual_tape_main_is_saved_but_excluded_from_solver(self) -> None:
+        snapshot_id = import_vision_inventory(
+            self.database_path,
+            [
+                {
+                    "uid": "drive_known", "item_type": "drive", "quality": "Gold", "area": 2,
+                    "shape_id": "H_2", "main_stats": {"攻击力": 42},
+                    "sub_stats": {"暴击率%": 2.0}, "_scan_number": 1,
+                },
+                {
+                    "uid": "tape_unknown", "item_type": "tape", "quality": "Gold", "area": 15,
+                    "set_name": "失落光芒", "main_stats": "未知主词条",
+                    "sub_stats": {"攻击力%": 10.0}, "_scan_number": 7,
+                },
+            ],
+        )
+
+        saved = self.user_dao.list_inventory_items(snapshot_id)
+        unknown_tape = next(row for row in saved if row["kind"] == "core")
+        self.assertEqual([], unknown_tape["main_stats"])
+        self.assertEqual(
+            {"unknown_tape_main_count": 1, "unknown_tape_main_numbers": [7]},
+            self.user_dao.raw_snapshot(snapshot_id)["vision_diagnostics"],
+        )
+        projection = SqliteAllocationInventory(self.user_dao, self.static_dao).build(snapshot_id)
+        self.assertEqual(["drive"], [row["item_type"] for row in projection.items])
+
+    def test_unknown_tape_main_warning_is_conditional_and_lists_at_most_two(self) -> None:
+        self.assertEqual("扫描完成。", append_tape_main_warning("扫描完成。", []))
+        self.assertEqual(
+            "扫描完成。\n卡带主词条解析失败：3个（2号、9号……）。",
+            append_tape_main_warning(
+                "扫描完成。",
+                [
+                    {"item_type": "tape", "main_stats": "未知主词条", "_scan_number": 9},
+                    {"item_type": "drive", "main_stats": {}, "_scan_number": 3},
+                    {"item_type": "tape", "main_stats": "未知主词条", "_scan_number": 2},
+                    {"item_type": "tape", "main_stats": "未知主词条", "_scan_number": 12},
+                ],
+            ),
+        )
 
 
 if __name__ == "__main__":

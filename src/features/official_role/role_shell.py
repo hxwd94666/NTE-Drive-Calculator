@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QHBoxLayout,
     QFrame,
     QLabel,
@@ -89,8 +90,8 @@ def _build_world_bonus_card(window) -> QFrame:
     card.setObjectName("officialRoleWorldBonusCard")
     card.setFixedHeight(35)
     layout = QHBoxLayout(card)
-    layout.setContentsMargins(10, 0, 10, 0)
-    layout.setSpacing(6)
+    layout.setContentsMargins(8, 0, 8, 0)
+    layout.setSpacing(3)
     title = QLabel("家具加成")
     title.setObjectName("officialRoleWorldBonusTitle")
     layout.addWidget(title)
@@ -99,25 +100,29 @@ def _build_world_bonus_card(window) -> QFrame:
     attack.setObjectName("officialRoleWorldAttack")
     attack.setRange(0, 20)
     attack.setSingleStep(2)
-    attack.setSuffix(" 攻")
+    attack.setButtonSymbols(QAbstractSpinBox.NoButtons)
     attack.setToolTip("妖刀家具加成：每级攻击力 +2，满级 +20")
-    attack.setFixedWidth(72)
+    attack.setFixedWidth(50)
     attack.setFixedHeight(29)
-    attack.setStyleSheet("padding:1px 6px")
+    attack.setStyleSheet("padding:1px 4px")
     crit_damage = NoWheelDoubleSpinBox()
     crit_damage.setObjectName("officialRoleWorldCritDamage")
     crit_damage.setRange(0.0, 4.0)
     crit_damage.setDecimals(1)
     crit_damage.setSingleStep(0.4)
-    crit_damage.setSuffix("% 爆伤")
+    crit_damage.setButtonSymbols(QAbstractSpinBox.NoButtons)
     crit_damage.setToolTip("拳套家具加成：每级暴击伤害 +0.4%，满级 +4%")
-    crit_damage.setFixedWidth(96)
+    crit_damage.setFixedWidth(50)
     crit_damage.setFixedHeight(29)
-    crit_damage.setStyleSheet("padding:1px 6px")
-    layout.addWidget(QLabel("妖刀"))
+    crit_damage.setStyleSheet("padding:1px 4px")
     layout.addWidget(attack)
-    layout.addWidget(QLabel("拳套"))
+    attack_unit = QLabel("攻")
+    attack_unit.setObjectName("officialRoleWorldAttackUnit")
+    layout.addWidget(attack_unit)
     layout.addWidget(crit_damage)
+    crit_damage_unit = QLabel("%爆伤")
+    crit_damage_unit.setObjectName("officialRoleWorldCritDamageUnit")
+    layout.addWidget(crit_damage_unit)
     window.official_role_world_attack = attack
     window.official_role_world_crit_damage = crit_damage
     _set_world_bonus_controls(window, settings)
@@ -375,10 +380,20 @@ def _page_my_role(window) -> QWidget:
     header.addWidget(base_weights)
     header.addWidget(reset_current)
     header.addWidget(reset_all)
-    header.addWidget(save)
-    sync = QPushButton("同步角色状态")
-    sync.setObjectName("officialRoleSync")
+    sync = QPushButton("同步状态")
+    sync.setObjectName("officialRoleSyncPrimary")
+    sync.setStyleSheet(themed_style(
+        "QPushButton#officialRoleSyncPrimary{background:#1f6feb;color:#fff;"
+        "border:1px solid #58a6ff;font-weight:600}"
+        "QPushButton#officialRoleSyncPrimary:hover{background:#388bfd}"
+        "QPushButton#officialRoleSyncPrimary:disabled{background:#1f3f6e;"
+        "color:#8b949e;border-color:#315f9e}"
+    ))
+    header_button_height = save.sizeHint().height()
+    save.setFixedHeight(header_button_height)
+    sync.setFixedHeight(header_button_height)
     header.addWidget(sync)
+    header.addWidget(save)
     root.addLayout(header)
 
     area = QScrollArea()

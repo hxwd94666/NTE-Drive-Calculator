@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import build_installer
 from src.app.constants import APP_VERSION
+from src.integrations.game_component_bundle import inspect_game_component_bundle
 
 
 class PackagingScriptTests(unittest.TestCase):
@@ -97,6 +98,9 @@ class PackagingScriptTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()  # Preserve the synthetic component bytes and manifest hashes.
                 stack.enter_context(patch.object(build_installer, field, path))
+            stack.enter_context(
+                patch.object(build_installer, "validate_packaged_ocr_models")
+            )
             build_installer._validate_app_bundle()
             for field, message in (("APP_STATIC_DATABASE", "静态数据库"), ("APP_NTE_CORE", "nte-core")):
                 path = required[field]
@@ -107,27 +111,23 @@ class PackagingScriptTests(unittest.TestCase):
                 path.write_bytes(contents)
                 build_installer._validate_app_bundle()
 
-    def test_pyinstaller_collects_core_schema_and_required_static_database(self):
+    def test_pyinstaller_collects_component_bundle_schema_and_static_database(self):
         source = Path("build_exe.py").read_text(encoding="utf-8")
 
-        self.assertIn('NTE_CORE_ENV = "NTE_CORE_EXE"', source)
-        self.assertIn('THIRD_PARTY_DIR / "nte-core" / "bin" / "nte-core.exe"', source)
+        self.assertIn(
+            "from tools.release.native_component_bundle_build import "
+            "native_component_build_inputs",
+            source,
+        )
+        self.assertIn("component_bundle = prepare_component_bundle(", source)
+        self.assertIn("inputs=native_component_build_inputs(ROOT)", source)
+        self.assertIn("_append_add_data(component_bundle.manifest_path, \".\")", source)
+        self.assertIn(
+            'validate_packaged_component_bundle(output / "_internal")',
+            source,
+        )
         self.assertIn('ANALYSIS_CORE_PATH = THIRD_PARTY_DIR / "analysis-core"', source)
         self.assertIn('"battle_page_v1" not in capabilities', source)
-        self.assertIn('MODS_PLUGIN_ENV = "NTE_MODS_PLUGIN_DLL"', source)
-        self.assertIn('MOD_LOADER_ENV = "NTE_MOD_LOADER_EXE"', source)
-        self.assertIn('LEGACY_EQUIPMENT_PLUGIN_ENV = "NTE_EQUIPMENT_PLUGIN_DLL"', source)
-        self.assertIn('THIRD_PARTY_DIR / "mods-plugin" / "bin" / "dwmapi.dll"', source)
-        self.assertIn(
-            'MOD_LOADER_PATH = THIRD_PARTY_DIR / "mod-loader" '
-            '/ "bin" / "nte-mod-loader.exe"',
-            source,
-        )
-        self.assertIn(
-            'MODS_PLUGIN_WORKSPACE_DIR = THIRD_PARTY_DIR / "mods-plugin" '
-            '/ "workspace"',
-            source,
-        )
         self.assertIn('_append_add_data(SQLITE_SCHEMA_DIR, "src/storage/sqlite/schema")', source)
         self.assertIn('"SOURCE.md"', source)
         self.assertIn('ROOT / "NOTICE"', source)
@@ -164,6 +164,18 @@ class PackagingScriptTests(unittest.TestCase):
             with self.subTest(hidden_import=hidden_import):
                 self.assertIn(hidden_import, build_source)
 
+    def test_rapidocr_models_are_bundled_once_and_validated(self):
+        build_source = Path("build_exe.py").read_text(encoding="utf-8")
+        installer_source = Path("build_installer.py").read_text(encoding="utf-8")
+        release_source = Path("tools/release/prepare_release.py").read_text(encoding="utf-8")
+
+        self.assertIn('excludes=["models/*"]', build_source)
+        self.assertIn('"assets/ocr/models"', build_source)
+        self.assertIn("build_source_ocr_models().values()", build_source)
+        self.assertIn("validate_packaged_ocr_models", build_source)
+        self.assertIn("validate_packaged_ocr_models(APP_INTERNAL)", installer_source)
+        self.assertIn("validate_packaged_ocr_models(APP_INTERNAL)", release_source)
+
     def test_windows_validator_is_not_part_of_runtime_packaging(self):
         packaging_sources = (
             Path("build_exe.py").read_text(encoding="utf-8"),
@@ -180,32 +192,34 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn('THIRD_PARTY_DIR / "vigembus" / "bin"', source)
         self.assertIn("LEGACY_VIGEM_BUNDLE_EXE", source)
 
-    def test_committed_nte_core_binary_has_redistribution_records(self):
-        component_dir = Path("third_party/nte-core")
+    def test_committed_native_bundle_has_verified_files_and_redistribution_records(self):
+        inspection = inspect_game_component_bundle(Path.cwd())
 
-        self.assertTrue((component_dir / "bin" / "nte-core.exe").is_file())
-        self.assertTrue((component_dir / "LICENSE").is_file())
-        self.assertTrue((component_dir / "SOURCE.md").is_file())
-
-        mods_component_dir = Path("third_party/mods-plugin")
-        self.assertTrue((mods_component_dir / "bin" / "dwmapi.dll").is_file())
-        self.assertTrue((mods_component_dir / "workspace" / "nte-mods.enabled").is_file())
-        self.assertTrue((mods_component_dir / "workspace" / "nte-mods" / "equipment.nte").is_file())
-        self.assertTrue((mods_component_dir / "workspace" / "nte-mods" / "combat-clock.nte").is_file())
-        self.assertTrue((mods_component_dir / "LICENSE").is_file())
-        self.assertTrue((mods_component_dir / "SOURCE.md").is_file())
-
-        loader_component_dir = Path("third_party/mod-loader")
-        self.assertTrue((loader_component_dir / "bin" / "nte-mod-loader.exe").is_file())
-        self.assertTrue((loader_component_dir / "LICENSE").is_file())
-        self.assertTrue((loader_component_dir / "SOURCE.md").is_file())
-        self.assertTrue((loader_component_dir / "THIRD_PARTY_LICENSES.md").is_file())
-        self.assertTrue(
-            (loader_component_dir / "licenses" / "MinHook-LICENSE.txt").is_file()
+        self.assertTrue(inspection.ready, inspection.issues)
+        self.assertEqual("native-capture-v1", inspection.layout)
+        self.assertEqual(
+            "third_party/native-capture/capture/d3d12.dll",
+            inspection.roles["host"],
         )
-        self.assertTrue(
-            (loader_component_dir / "licenses" / "ManualMap-LICENSE.txt").is_file()
+        self.assertEqual(
+            "third_party/native-capture/capture/NTE_Capture.dll",
+            inspection.roles["capture_plugin"],
         )
+        self.assertEqual(
+            "third_party/native-capture/core/nte-core.exe",
+            inspection.roles["core"],
+        )
+        for role in (
+            "capture_license",
+            "capture_source",
+            "core_license",
+            "core_source",
+            "loader_license",
+            "loader_source",
+        ):
+            with self.subTest(role=role):
+                self.assertIn(role, inspection.roles)
+                self.assertTrue(Path(inspection.roles[role]).is_file())
 
 if __name__ == "__main__":
     unittest.main()

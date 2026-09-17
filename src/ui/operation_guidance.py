@@ -38,14 +38,17 @@ def _belongs_to(widget, owner) -> bool:
     return False
 
 
-def prompt_operation_settings(parent, *, title: str, feature: str, detail: str, navigate, target: str) -> None:
+def prompt_operation_settings(
+    parent, *, title: str, feature: str, detail: str, navigate, target: str,
+    action_text: str = "前往设置",
+) -> None:
     """Only an explicit navigation click leaves the current feature dialog."""
     origin = QApplication.activeModalWidget()
     dialog = QDialog(parent)
     dialog.setWindowTitle(title)
     layout = QVBoxLayout(dialog)
     text = QLabel(
-        feature + "\n\n" + detail + "\n\n设置完成后，请返回并重新点击此功能；本次操作不会自动继续。",
+        feature + "\n\n" + detail + "\n\n完成后，请返回并重新点击此功能；本次操作不会自动继续。",
         dialog,
     )
     text.setTextFormat(Qt.PlainText)
@@ -54,7 +57,7 @@ def prompt_operation_settings(parent, *, title: str, feature: str, detail: str, 
     buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=dialog)
     cancel = buttons.button(QDialogButtonBox.Cancel)
     cancel.setText("取消")
-    go = buttons.addButton("前往设置", QDialogButtonBox.AcceptRole)
+    go = buttons.addButton(action_text, QDialogButtonBox.AcceptRole)
     go.setAutoDefault(False)
     cancel.setDefault(True)
     cancel.setFocus()
@@ -80,7 +83,13 @@ def allow_operation_entry(parent, policy, capability: str, feature: str, navigat
 
 
 def explain_operation_unavailable(parent, feature: str, detail: str, navigate, target: str = "detection") -> None:
-    target = "deployment" if target == "deployment" else "detection"
+    target = target if target in {"deployment", "home"} else "detection"
+    if target == "home":
+        prompt_operation_settings(
+            parent, title="暂时无法同步", feature=feature, detail=detail,
+            navigate=navigate, target=target, action_text="前往工作台",
+        )
+        return
     destination = "组件部署设置" if target == "deployment" else "当前检测信息；需要时请点击重新检测"
     prompt_operation_settings(
         parent, title="功能暂不可用", feature=feature,

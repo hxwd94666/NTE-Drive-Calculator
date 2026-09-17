@@ -4,10 +4,19 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import src.features.inventory.equipment_assembly_controller as page_module
 import src.features.inventory.equipment_automatic_assembly_controller as automatic_module
+
+
+class _EquipmentBatchSync:
+    """Provide the native session scope required by bulk-apply fixtures."""
+
+    @staticmethod
+    def equipment_batch():
+        return nullcontext()
 
 
 def _current_slot_plan(role_name: str, plan: dict) -> dict:
@@ -101,7 +110,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         class ApplyService:
             last_instance = None
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 self.apply_calls = []
                 ApplyService.last_instance = self
 
@@ -132,7 +141,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     already_applied=False,
                 )
 
-        class Sync:
+        class Sync(_EquipmentBatchSync):
             def wait_for_snapshot(self, **_kwargs):
                 raise TimeoutError("测试中未产生新快照")
 
@@ -146,6 +155,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 SimpleNamespace(
                     _inventory_sync_service=Sync(),
                     user_database_path="unused.sqlite3",
+                    operation_guard=lambda _capability: None,
                 ),
                 ["可装配", "实例缺失"],
             )
@@ -230,7 +240,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 return True
 
         class ApplyService:
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 pass
 
             def validate_plan_for_fast_apply(self, *_args, **_kwargs):
@@ -267,7 +277,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 assert plan_id == 1002
                 return None
 
-        class Sync:
+        class Sync(_EquipmentBatchSync):
             def __init__(self):
                 self.wait_calls = []
 
@@ -286,6 +296,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 SimpleNamespace(
                     _inventory_sync_service=sync,
                     user_database_path="unused.sqlite3",
+                    operation_guard=lambda _capability: None,
                 ),
                 ["甲", "乙"],
             )
@@ -366,7 +377,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         class ApplyService:
             last_instance = None
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 self.apply_calls = []
                 ApplyService.last_instance = self
 
@@ -402,7 +413,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     else "驱动 UID (11, 11) 的位置不一致"
                 )
 
-        class Sync:
+        class Sync(_EquipmentBatchSync):
             def __init__(self):
                 self.wait_calls = []
 
@@ -421,6 +432,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 SimpleNamespace(
                     _inventory_sync_service=sync,
                     user_database_path="unused.sqlite3",
+                    operation_guard=lambda _capability: None,
                 ),
                 ["甲"],
             )
@@ -494,7 +506,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         class ApplyService:
             last_instance = None
 
-            def __init__(self, *_args):
+            def __init__(self, *_args, **_kwargs):
                 self.apply_calls = 0
                 ApplyService.last_instance = self
 
@@ -523,7 +535,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     already_applied=False,
                 )
 
-        class Sync:
+        class Sync(_EquipmentBatchSync):
             def wait_for_snapshot(self, **_kwargs):
                 raise TimeoutError("等待新的稳定背包快照超时")
 
@@ -537,6 +549,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 SimpleNamespace(
                     _inventory_sync_service=Sync(),
                     user_database_path="unused.sqlite3",
+                    operation_guard=lambda _capability: None,
                 ),
                 ["甲"],
             )
@@ -623,7 +636,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         calls = []
 
         class FakeWindow:
-            pass
+            operation_entry = staticmethod(lambda _capability, _label: True)
 
         original_warning = automatic_module._confirm_automatic_assembly_duplicate_warning
         original_start = automatic_module._start_automatic_equipment_assembly
@@ -722,7 +735,10 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     (role_name, slot_id, confirmed)
                 )
             )
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            window = SimpleNamespace(
+                user_database_path="unused.sqlite3",
+                operation_entry=lambda _capability, _label: True,
+            )
             page_module._preview_nte_core_assemble_role(
                 window,
                 "视觉角色",
@@ -759,7 +775,10 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module._confirm_automatic_assembly_fallback = lambda *_args: False
             page_module._preview_automatic_assemble_role = lambda *_args, **_kwargs: calls.append("started")
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            window = SimpleNamespace(
+                user_database_path="unused.sqlite3",
+                operation_entry=lambda _capability, _label: True,
+            )
             page_module._preview_nte_core_assemble_role(window, "视觉角色", confirmed=True)
         finally:
             page_module.UserDataDao = old_dao

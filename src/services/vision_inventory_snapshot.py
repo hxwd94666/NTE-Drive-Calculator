@@ -98,9 +98,7 @@ def _stats(
         catalog = stat_catalog or StatCatalog.from_config_dir(bundled_config_dir())
         main_name = catalog.normalize_tape_main_stat(value)
         if main_name == "未知主词条" or main_name not in catalog.tape_main_values:
-            raise VisionInventorySnapshotError(
-                f"视觉扫描卡带主词条无法匹配：{str(value or '').strip() or '<empty>'}"
-            )
+            return []
         quality_coef = {"orange": 1.0, "purple": 0.8, "blue": 0.6}.get(str(quality).casefold(), 1.0)
         return [_stat(main_name, float(catalog.tape_main_values[main_name]) * quality_coef)]
     if not isinstance(value, Mapping):
@@ -124,9 +122,10 @@ def build_vision_snapshot(
         raise VisionInventorySnapshotError("视觉扫描 capture_driver 必须是 mouse 或 gamepad")
     suits = {_compact_set_name(row.get("name_zh")): str(row["suit_id"]) for row in static_dao.list_suits()}
     stat_catalog = StatCatalog.from_config_dir(bundled_config_dir())
+    source_items = [dict(source) for source in items]
+    unknown_tape_main_numbers: list[int] = []
     normalized: list[dict[str, Any]] = []
-    for ordinal, source in enumerate(items, start=1):
-        item = dict(source)
+    for ordinal, item in enumerate(source_items, start=1):
         item_type = str(item.get("item_type") or "").strip()
         kind = "module" if item_type == "drive" else "core" if item_type == "tape" else ""
         if not kind:
@@ -183,12 +182,23 @@ def build_vision_snapshot(
                 stat_catalog=stat_catalog,
                 quality=quality,
             )
+            if not row["main_stats"]:
+                try:
+                    scan_number = int(item.get("_scan_number") or ordinal)
+                except (TypeError, ValueError):
+                    scan_number = ordinal
+                row["vision_scan_number"] = scan_number
+                unknown_tape_main_numbers.append(scan_number)
         normalized.append(row)
     return {
         "complete": True,
         "capture_driver": driver,
         "item_count": len(normalized),
         "items": normalized,
+        "vision_diagnostics": {
+            "unknown_tape_main_count": len(unknown_tape_main_numbers),
+            "unknown_tape_main_numbers": unknown_tape_main_numbers,
+        },
     }
 
 

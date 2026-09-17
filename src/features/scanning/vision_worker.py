@@ -16,7 +16,7 @@ from PySide6.QtCore import QThread, Signal
 
 from src.integrations.bundled_resources import bundled_config_dir
 from src.scanner.batch_processor import BatchProcessor
-from src.integrations.vision.duplicate_filter import RecoverableParseError
+from src.integrations.vision.duplicate_filter import RecoverableParseError, filename_sequence_key
 from src.features.scanning.file_lifecycle import is_allowed_filename
 from src.utils.logger import logger
 from src.utils.perf import log_perf
@@ -92,6 +92,7 @@ class VisionWorkerThread(QThread):
             duplicate_paths = []
             failed_paths = []
             pending_manual_items = []
+            scan_number_by_uid = {}
             filter_adjacent_duplicates = self.parse_scope in INCREMENTAL_PARSE_SCOPES
             parse_start = time.perf_counter()
             for idx, filename in enumerate(image_files, 1):
@@ -99,6 +100,8 @@ class VisionWorkerThread(QThread):
                     break
                 self.progress.emit(idx, total, filename)
                 file_path = os.path.join(self.input_dir, filename)
+                sequence_key = filename_sequence_key(filename)
+                scan_number = sequence_key[1] if sequence_key else idx
                 item_start = time.perf_counter()
                 try:
                     _item_obj, added = processor.process_image_file(
@@ -121,9 +124,12 @@ class VisionWorkerThread(QThread):
                         logger.info(f"增量重复截图已过滤: {filename}")
                     else:
                         added_paths.append(file_path)
+                        scan_number_by_uid[str(getattr(_item_obj, "uid", ""))] = scan_number
                 except RecoverableParseError as exc:
                     item_ms = (time.perf_counter() - item_start) * 1000.0
-                    pending_manual_items.append(exc.to_record(file_path, filename))
+                    record = exc.to_record(file_path, filename)
+                    record["item"]["_scan_number"] = scan_number
+                    pending_manual_items.append(record)
                     log_perf(
                         logger,
                         "vision.item",
@@ -168,7 +174,11 @@ class VisionWorkerThread(QThread):
                 self.canceled.emit(processed_count)
                 return
 
-            vision_items = [item.model_dump() for item in processor.inventory]
+            vision_items = []
+            for item in processor.inventory:
+                data = item.model_dump()
+                data["_scan_number"] = scan_number_by_uid.get(str(item.uid))
+                vision_items.append(data)
             del processor
             log_perf(
                 logger,

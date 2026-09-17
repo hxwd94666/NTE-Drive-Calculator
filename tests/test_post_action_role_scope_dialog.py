@@ -16,6 +16,7 @@ from src.features.scanning.post_action_dialog import (
     ScanPostActionDialog,
     _load_role_options,
 )
+from src.domain.post_actions import default_post_action_config
 
 
 class PostActionRoleScopeDialogTests(unittest.TestCase):
@@ -64,6 +65,39 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
 
         self.assertEqual("开启中", enabled.text())
         self.assertEqual("关闭中", disabled.text())
+
+    def test_warehouse_context_hides_region_option_without_resetting_it(self):
+        config = default_post_action_config()
+        config["server_region"] = "hmt"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch(
+                    "src.features.scanning.post_action_dialog.load_scan_post_action_config",
+                    return_value=config,
+                ),
+                patch(
+                    "src.features.scanning.post_action_dialog._load_drive_shape_options",
+                    return_value=[],
+                ),
+                patch(
+                    "src.features.scanning.post_action_dialog._load_set_name_options",
+                    return_value=[],
+                ),
+                patch(
+                    "src.features.scanning.post_action_dialog._load_role_options",
+                    return_value=[],
+                ),
+            ):
+                dialog = ScanPostActionDialog(
+                    None,
+                    Path(temp_dir),
+                    Path(temp_dir),
+                    show_server_region_option=False,
+                )
+
+        self.assertTrue(dialog.hmt_region_check.isHidden())
+        self.assertEqual("hmt", dialog._collect_config()["server_region"])
+        dialog.close()
 
     def test_custom_role_is_rendered_as_a_text_only_card(self):
         dialog = RoleScopeDialog(None, [(900001, "自建角色", "")], [900001])

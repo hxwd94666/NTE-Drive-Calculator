@@ -93,6 +93,10 @@ def initialize_character_profile_sync(window):
         operation_unavailable=window.operation_unavailable,
         hotkey_manager=window.global_hotkey_manager,
         connection_paused=lambda: window.work_mode_service.settings.paused,
+        sync_ready=lambda: (
+            window.work_mode_service.settings.auto_sync_enabled
+            and bool(window._inventory_sync_service and window._inventory_sync_service.is_running)
+        ),
         refresh=lambda: refresh_official_role_page(window, discard_pending=True),
     )
     window.character_profile_sync_controller = controller

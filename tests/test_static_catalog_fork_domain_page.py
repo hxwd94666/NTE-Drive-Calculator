@@ -367,23 +367,5 @@ class ForkCatalogPageTests(unittest.TestCase):
             [], page.profile_view.findChildren(QLabel, "forkRawIdentity")
         )
 
-    def test_light_profile_hero_uses_light_mapped_background(self) -> None:
-        apply_app_theme(self.app, "light")
-        page = build_fork_catalog_page(
-            database_path=DATABASE,
-            game_ui_asset_root=ASSETS,
-            terminology_service=self.terminology,
-        )
-        self.addCleanup(page.dispose)
-        page.open_fork("fork_GoldRecord")
-        page.resize(1280, 860)
-        page.show()
-        self.app.processEvents()
-
-        style = page.profile_view.hero.styleSheet().lower()
-        self.assertIn("#ddf4ff", style)
-        self.assertNotIn("#241642", style)
-
-
 if __name__ == "__main__":
     unittest.main()

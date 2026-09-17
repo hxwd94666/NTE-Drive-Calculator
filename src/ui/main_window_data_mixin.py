@@ -228,7 +228,7 @@ class MainWindowDataMixin:
         from src.features.plugins.page import PluginsPage
         self.plugins_page = PluginsPage(
             service=self.plugin_service, request_apply=self.work_mode_controller.refresh_plugins,
-            open_settings=lambda: self.work_mode_controller.open_settings("deployment"), parent=self,
+            open_settings=self.work_mode_controller.open_settings, parent=self,
         )
         self.work_mode_controller.observed.connect(self.plugins_page.refresh)
         return self.plugins_page

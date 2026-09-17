@@ -76,6 +76,24 @@ def test_missing_component_keeps_true_reason_and_opens_deployment(tmp_path, monk
     assert routes == ["deployment"] and (tmp_path / "mode.json").read_bytes() == snapshot
 
 
+def test_sync_guidance_opens_workbench_with_specific_button(monkeypatch, app):
+    routes = []
+
+    def interact(dialog):
+        text = dialog.findChild(QLabel).text()
+        assert "开启“自动同步”" in text and "启动并登录游戏" in text
+        buttons = dialog.findChild(QDialogButtonBox)
+        go = next(button for button in buttons.buttons() if button.text() == "前往工作台")
+        go.click()
+        return dialog.result()
+
+    monkeypatch.setattr(QDialog, "exec", interact)
+    explain_operation_unavailable(
+        None, "同步状态", "请先开启“自动同步”，再启动并登录游戏。", routes.append, "home",
+    )
+    assert routes == ["home"]
+
+
 @pytest.mark.parametrize("navigate", [False, True])
 def test_only_explicit_navigation_closes_origin_feature_dialog(tmp_path, monkeypatch, app, navigate):
     parent = QWidget()

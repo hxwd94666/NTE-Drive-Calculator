@@ -29,6 +29,27 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
+
+def _calculation_comparison_slots(
+    saved_states: dict[str, dict[str, Any]],
+    character_id: int | None,
+) -> list[dict[str, Any]]:
+    """Return this character's calculation slots in their display order."""
+
+    if character_id is None:
+        return []
+    target_character_id = int(character_id)
+    return [
+        candidate
+        for candidate in saved_states.values()
+        if isinstance(candidate, dict)
+        and int(candidate.get("_character_id") or 0) == target_character_id
+        and candidate.get("_loadout_slot_id") is not None
+        and not candidate.get("_empty_slot")
+        and candidate.get("strategy_mode") != "game_inventory"
+    ]
+
+
 def _load_sqlite_equipment_display_states(
     database_path,
     *,
@@ -323,6 +344,10 @@ def _load_game_equipment_display_states(
         inventory_by_snapshot = {
             int(projection.snapshot_id): inventory
         } if projection.snapshot_id is not None else {}
+        resolved_static_path = Path(
+            getattr(static_dao, "database_path", static_database_path or "")
+        )
+        summary_cache: dict[object, Any] = {}
         states = {}
         for role in projection.roles:
             if role.importable:
@@ -383,21 +408,27 @@ def _load_game_equipment_display_states(
                 "_game_existing_plan_name": role.existing_plan_name,
                 "_game_existing_plan_locked": role.existing_plan_locked,
             })
-            comparison_slots = [
-                candidate
-                for candidate in saved_states.values()
-                if isinstance(candidate, dict)
-                and candidate.get("_role_name") == role.role_name
-            ]
-            state["_game_compare_slot_states"] = comparison_slots
-            saved_state = next(
-                (
-                    candidate
-                    for candidate in comparison_slots
-                    if candidate.get("_loadout_slot_key") == "primary"
-                ),
-                None,
+            if role.character_id is not None and role.items:
+                try:
+                    state["_official_attribute_summaries"] = (
+                        load_saved_loadout_attribute_summaries(
+                            database_path,
+                            resolved_static_path,
+                            int(role.character_id),
+                            role.items,
+                            request_cache=summary_cache,
+                        )
+                    )
+                except (OSError, RuntimeError, ValueError):
+                    logger.warning(
+                        "游戏配装的当前养成属性汇总加载失败，本次保留空幕汇总"
+                    )
+            comparison_slots = _calculation_comparison_slots(
+                saved_states,
+                role.character_id,
             )
+            state["_game_compare_slot_states"] = comparison_slots
+            saved_state = comparison_slots[0] if comparison_slots else None
             if isinstance(saved_state, dict):
                 state["_game_saved_state"] = saved_state
             states[role.role_name] = state

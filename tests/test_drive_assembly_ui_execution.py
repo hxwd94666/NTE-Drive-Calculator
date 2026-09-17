@@ -8,6 +8,16 @@ from pathlib import Path
 import numpy as np
 
 
+def _operation_enabled_window(**attributes):
+    """Build a controller fixture with the current explicit operation contract."""
+
+    return SimpleNamespace(
+        operation_entry=lambda _capability, _label: True,
+        operation_guard=lambda _capability: None,
+        **attributes,
+    )
+
+
 
 class DriveAssemblyUiExecutionTests(unittest.TestCase):
     def test_single_role_button_executes_confirmed_plan(self):
@@ -68,7 +78,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module._start_nte_core_equipment_apply = lambda *_args, **_kwargs: calls.append(True)
             page_module.UserDataDao = lambda *_args, **_kwargs: EmptyPlansDao()
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            window = _operation_enabled_window(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
         finally:
             page_module._start_nte_core_equipment_apply = old_start
@@ -127,7 +137,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module._start_nte_core_equipment_apply = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            window = _operation_enabled_window(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
         finally:
             page_module.UserDataDao = old_dao
@@ -193,7 +203,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module._start_nte_core_equipment_apply = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            window = _operation_enabled_window(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_all_roles(
                 window,
                 confirmed=True,
@@ -262,7 +272,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Yes
             page_module._confirm_automatic_assembly_duplicate_warning = lambda _window: True
             page_module._start_automatic_equipment_assembly = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            window = _operation_enabled_window(user_database_path="unused.sqlite3")
             page_module._preview_automatic_assemble_all_roles(
                 window,
                 role_names=["当前角色"],
@@ -299,6 +309,8 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         class Window:
             def __init__(self):
                 self.calls = []
+                self.operation_entry = lambda _capability, _label: True
+                self.operation_guard = lambda _capability: None
 
             def showMinimized(self):
                 self.calls.append("minimized")
@@ -399,7 +411,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.execute_selected_role_from_current_game_page = lambda *_args, **kwargs: calls.append(kwargs)
             page_module._assembly_runtime_paths = lambda _window: (Path("templates"), Path("record"))
 
-            window = SimpleNamespace(user_database_path="unused.sqlite3")
+            window = _operation_enabled_window(user_database_path="unused.sqlite3")
             page_module._start_automatic_equipment_assembly(window, ["角色"])
             window._automatic_equipment_apply_worker.target()
         finally:
@@ -414,6 +426,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual(1, len(calls))
         self.assertEqual(
             {
+                "backend",
                 "template_dir",
                 "record_root",
                 "role_name_aliases",
@@ -471,7 +484,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module._assembly_runtime_paths = lambda _window: (Path("templates"), Path("record"))
 
             hotkeys = Hotkeys()
-            window = SimpleNamespace(
+            window = _operation_enabled_window(
                 user_database_path="unused.sqlite3",
                 global_hotkey_manager=hotkeys,
             )

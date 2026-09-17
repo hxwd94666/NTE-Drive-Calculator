@@ -115,6 +115,19 @@ def test_close_with_unverified_path_does_not_report_cleanup_failure(controller, 
     assert policy.settings.pending_cleanup
 
 
+def test_home_guidance_navigates_to_workbench_instead_of_settings(controller, monkeypatch):
+    c, _window, _policy, _events, _popups, _probe = controller
+    routes = []
+    c._navigate = routes.append
+
+    def explain(_parent, _feature, _detail, navigate, target):
+        navigate(target)
+
+    monkeypatch.setattr(module, "explain_operation_unavailable", explain)
+    c.operation_unavailable("同步状态", "请开启自动同步", "home")
+    assert routes == ["home"]
+
+
 @pytest.mark.parametrize("detail", [
     "已停止后续加载；等待游戏退出后清理，当前 DLL 尚未卸载。",
     "组件文件或加载配置归属未知或已修改，请手动核对；尚未清理。",
@@ -620,10 +633,29 @@ def test_settings_card_keeps_only_compact_status_and_explicit_details(controller
         return card
     window._card = make_card
     card = build_work_mode_card(window)
-    assert len(card.findChildren(QComboBox)) == 1
+    combos = card.findChildren(QComboBox)
+    assert len(combos) == 1
     assert card.findChildren(QCheckBox) == []
     assert all("开发采集来源" not in label.text() for label in card.findChildren(QLabel))
-    _combo, status, check = c._controls
+    combo, status, check = c._controls
+    assert combo.maximumWidth() == 150
+    assert check.maximumWidth() == 96
+    assert status.isHidden()
+    labels = {label.text() for label in card.findChildren(QLabel)}
+    assert {
+        "离线：", "低风险：", "中风险：", "开发：",
+        "本地计算、配装、已保存数据与历史战报分析。",
+        "以上功能 + 抓包同步/战报 + 鼠标或手柄扫描；不使用游戏组件。",
+        "以上功能 + 原生同步、原生战报、极速装配、锁定/弃置及插件。",
+        "抓包与原生双线对比，仅供开发人员使用。",
+    } <= labels
+    low_label = card.findChild(QLabel, "workModeDescription_low")
+    developer_label = card.findChild(QLabel, "workModeDescription_developer")
+    assert developer_label.property("confirmedMode") is True
+    combo.setCurrentIndex(combo.findData("low"))
+    assert policy.settings.mode.value == "developer"
+    assert developer_label.property("confirmedMode") is True
+    assert low_label.property("confirmedMode") is False
     c._apply((policy.settings.revision, 1, probe, 0))
     assert "\n" not in status.text()
     assert status.text() != report_text(policy.build_report(probe))

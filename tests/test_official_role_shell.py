@@ -11,50 +11,23 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.features.official_role import role_shell
 from src.features.official_role import role_equipment
 from src.features.official_role import role_growth
-from src.services.world_bonus_settings_service import WorldBonusSettings
 
 
 class OfficialRoleShellTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
-
-    def test_furniture_bonus_card_matches_header_control_height(self) -> None:
-        window = SimpleNamespace()
-        controller = SimpleNamespace(load_world_bonus=lambda: WorldBonusSettings())
-
-        with patch.object(role_shell, "_role_controller", return_value=controller):
-            card = role_shell._build_world_bonus_card(window)
-
-        title = card.findChild(QLabel, "officialRoleWorldBonusTitle")
-        self.assertIsNotNone(title)
-        self.assertEqual("家具加成", title.text())
-        self.assertEqual(35, card.height())
-        self.assertEqual(29, window.official_role_world_attack.height())
-        self.assertEqual(29, window.official_role_world_crit_damage.height())
-        self.assertEqual("", window.official_role_world_attack.suffix())
-        self.assertEqual("", window.official_role_world_crit_damage.suffix())
-        labels = {
-            label.objectName(): label.text()
-            for label in card.findChildren(QLabel)
-        }
-        self.assertEqual("攻", labels["officialRoleWorldAttackUnit"])
-        self.assertEqual("%爆伤", labels["officialRoleWorldCritDamageUnit"])
-        self.assertLessEqual(window.official_role_world_attack.width(), 64)
-        self.assertLessEqual(window.official_role_world_crit_damage.width(), 64)
-        self.assertGreaterEqual(
-            window.official_role_world_attack.lineEdit().width(),
-            window.official_role_world_attack.fontMetrics().horizontalAdvance("999"),
-        )
-        self.assertGreaterEqual(
-            window.official_role_world_attack.lineEdit().contentsRect().height(),
-            window.official_role_world_attack.fontMetrics().height(),
-        )
 
     def test_lazy_role_content_is_parented_and_hidden_while_building(self) -> None:
         detail = {

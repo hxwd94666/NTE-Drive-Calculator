@@ -2,6 +2,89 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
+from unittest.mock import patch
+
+from src.storage.sqlite import user_data_base
+from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+def create_user_database_at_version(
+    database: Path,
+    version: int,
+    *,
+    account_id: str = "migration-account",
+    account_name: str = "迁移测试账号",
+) -> None:
+    """从基础 schema 顺序迁移到指定版本，避免制造新旧结构混杂的假历史库。"""
+
+    with patch.object(user_data_base, "SCHEMA_VERSION", version):
+        with UserDataDao(
+            database,
+            account_id=account_id,
+            account_name=account_name,
+        ):
+            pass
+
+
+def migrate_user_database_to_version(database: Path, version: int) -> None:
+    """把已有真实旧版夹具顺序迁移到另一个历史版本。"""
+
+    with patch.object(user_data_base, "SCHEMA_VERSION", version):
+        with UserDataDao(database):
+            pass
+
+
+def insert_optimization_profile(
+    database: Path,
+    *,
+    name: str,
+    character: dict[str, object] | None = None,
+) -> None:
+    """向真实旧版结构写入迁移所需的最小优化配置事实。"""
+
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute(
+            """INSERT INTO optimization_preference_profile(
+                   name, is_active, created_at_utc, updated_at_utc
+               ) VALUES (?, 1, 'now', 'now')""",
+            (name,),
+        )
+        profile_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+        connection.execute(
+            """INSERT INTO optimization_preference_version(
+                   profile_id, version_number, allocation_strategy, created_at_utc
+               ) VALUES (?, 1, 'role_priority', 'now')""",
+            (profile_id,),
+        )
+        version_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+        if character is not None:
+            character_id = int(character["character_id"])
+            connection.execute(
+                """INSERT INTO optimization_preference_character(
+                       profile_version_id, character_id, ordinal, priority_group,
+                       target_suit_id, suit_requirement_mode, core_main_property_id
+                   ) VALUES (?, ?, 0, 0, NULL, 'none', NULL)""",
+                (version_id, character_id),
+            )
+            for ordinal, property_id in enumerate(character.get("substat_priorities", ())):
+                connection.execute(
+                    """INSERT INTO optimization_preference_substat_priority(
+                           profile_version_id, character_id, property_id, ordinal
+                       ) VALUES (?, ?, ?, ?)""",
+                    (version_id, character_id, str(property_id), ordinal),
+                )
+            for ordinal, property_id in enumerate(character.get("substat_blacklist", ())):
+                connection.execute(
+                    """INSERT INTO optimization_preference_substat_blacklist(
+                           profile_version_id, character_id, property_id, ordinal
+                       ) VALUES (?, ?, ?, ?)""",
+                    (version_id, character_id, str(property_id), ordinal),
+                )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def drop_battle_axis_v23(connection: sqlite3.Connection) -> None:

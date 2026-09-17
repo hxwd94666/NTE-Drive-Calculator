@@ -208,7 +208,7 @@ class NativeInventoryLease:
 
         with self._owner._snapshot_scope(check):
             if self._equipment_context is not None:
-                yield
+                yield self
                 return
             if not self.snapshot_ready and self._has_inventory_baseline:
                 self._status()
@@ -220,46 +220,39 @@ class NativeInventoryLease:
             if status.get("ready") is not True:
                 raise NteCoreRpcError({"code": -32001, "message": "请等待装备接口就绪后重试。",
                                        "data": {"domain_code": "NATIVE_SNAPSHOT_INCOMPLETE"}})
-            # epoch is the inventory invalidation revision: our own clear/lock/
-            # discard RPCs advance it. Core freezes it separately for EACH RPC.
             self._equipment_context = tuple(status.get(key) for key in ("providerId", "domainKey"))
             try:
                 check()
-                yield
+                yield self
             finally:
                 self._equipment_context = None
                 self._snapshot_ready = False
 
     def _equipment(self, method, **kwargs):
+        if self._equipment_context is not None:
+            return self._equipment_direct(method, **kwargs)
         with self.equipment_batch():
-            status = self._owner.equipment_status(self._client)
-            context = tuple(status.get(key) for key in ("providerId", "domainKey"))
-            if status.get("ready") is not True or context != self._equipment_context:
-                raise NteCoreRpcError({"code": -32001, "message": "source_changed",
-                                       "data": {"domain_code": "EQUIPMENT_REQUEST_REJECTED"}})
-            self._check()
-            self._owner._guard("native_equipment")
-            try:
-                return getattr(self._client, method)(**kwargs)
-            except NteCoreRpcError as error:
-                # NativeServices returns this exact provider rejection only BEFORE
-                # Invoke. A previous command's notification may race Core's status
-                # query; retry only after proving the same live domain and a newer
-                # inventory revision. Never reinterpret timeouts/unknown outcomes.
-                if error.code != -32001 or error.message != "source_changed" or error.domain_code is not None:
-                    raise
-                self._check()
-                current = self._owner.equipment_status(self._client)
-                current_context = tuple(current.get(key) for key in ("providerId", "domainKey"))
-                previous_epoch, current_epoch = status.get("epoch"), current.get("epoch")
-                epochs_valid = all(isinstance(value, str) and value.isascii() and value.isdecimal()
-                                   and 0 < len(value) <= 20 for value in (previous_epoch, current_epoch))
-                self._check()
-                if (current.get("ready") is True and current_context == self._equipment_context
-                        and epochs_valid and int(current_epoch) > int(previous_epoch)):
-                    raise NteCoreRpcError({"code": -32001, "message": "equipment_revision_changed_before_dispatch",
-                                           "data": {"domain_code": "EQUIPMENT_PLUGIN_BUSY"}}) from error
+            return self._equipment_direct(method, **kwargs)
+
+    def _equipment_direct(self, method, **kwargs):
+        self._check()
+        self._owner._guard("native_equipment")
+        try:
+            return getattr(self._client, method)(**kwargs)
+        except NteCoreRpcError as error:
+            if error.code != -32001 or error.message != "source_changed" or error.domain_code is not None:
                 raise
+            self._check()
+            current = self._owner.equipment_status(self._client)
+            current_context = tuple(current.get(key) for key in ("providerId", "domainKey"))
+            self._check()
+            if current.get("ready") is True and current_context == self._equipment_context:
+                raise
+            raise NteCoreRpcError({
+                "code": -32001,
+                "message": "source_changed",
+                "data": {"domain_code": "EQUIPMENT_REQUEST_REJECTED"},
+            }) from error
 
     def equip_one_key(self, **kwargs):
         return self._equipment("equip_one_key", **kwargs)

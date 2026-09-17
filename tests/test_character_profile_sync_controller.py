@@ -31,6 +31,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         self.service.patch_native_profiles.return_value = 1
         self.entry = Mock(return_value=True)
         self.unavailable = Mock()
+        self.sync_ready = Mock(return_value=True)
         self.hotkeys = SimpleNamespace(active_owner=None, start=Mock(), stop=Mock())
         self.refresh = Mock()
         self.controller = CharacterProfileSyncController(
@@ -39,6 +40,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
             operation_guard=lambda _cap: None, operation_entry=self.entry,
             operation_unavailable=self.unavailable, hotkey_manager=self.hotkeys,
             refresh=self.refresh,
+            sync_ready=self.sync_ready,
             profile_service_factory=lambda _path, **_kwargs: self.service, thread_factory=DeferredThread,
         )
         self.button, self.editor = QPushButton(), QWidget()
@@ -51,7 +53,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
     def finish_read(self):
         self.controller._thread.target()
 
-    def test_real_role_page_exposes_independent_sync_button(self):
+    def test_real_role_page_runs_independent_sync(self):
         from src.features.official_role import role_shell
         from src.services.world_bonus_settings_service import WorldBonusSettings
         window = SimpleNamespace(character_profile_sync_controller=self.controller)
@@ -63,12 +65,6 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
             if item.text() == '同步状态'
         )
         self.assertIsNotNone(button)
-        self.assertEqual('btnAction', button.objectName())
-        save = next(
-            item for item in page.findChildren(QPushButton)
-            if item.text() == '保存'
-        )
-        self.assertEqual(save.height(), button.height())
         button.click()
         self.assertFalse(window.my_role_form_area.isEnabled())
         self.finish_read()
@@ -83,6 +79,22 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         self.assertFalse(self.controller.is_running())
         self.unavailable.assert_called_once()
         self.assertEqual('detection', self.unavailable.call_args.args[2])
+
+    def test_inactive_data_sync_guides_to_workbench_before_worker(self):
+        self.sync_ready.return_value = False
+        self.controller.start()
+        self.reader.assert_not_called()
+        self.assertFalse(self.controller.is_running())
+        self.unavailable.assert_called_once_with(
+            '同步状态',
+            '当前没有正在运行的游戏数据同步，程序暂时无法读取角色状态。\n\n'
+            '请先：\n'
+            '1. 在工作台开启“自动同步”；\n'
+            '2. 启动并登录游戏；\n'
+            '3. 等待工作台显示“同步中”，再返回点击“同步状态”。',
+            'home',
+        )
+        self.entry.assert_called_once_with('native_sync', '同步状态')
 
     def test_component_capability_errors_target_deployment(self):
         for code in ('NATIVE_CAPABILITY_MISSING', 'NATIVE_MAPPING_UNSUPPORTED'):
@@ -115,7 +127,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
     def test_mode_decline_precedes_worker_and_ui_mutation(self):
         self.entry.return_value = False
         self.controller.start()
-        self.entry.assert_called_once_with('native_sync', '同步角色状态')
+        self.entry.assert_called_once_with('native_sync', '同步状态')
         self.assertFalse(self.controller.is_running())
         self.assertTrue(self.editor.isEnabled())
         self.reader.assert_not_called()
@@ -165,7 +177,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         self.controller.start()
         self.finish_read()
         self.service.patch_native_profiles.assert_not_called()
-        self.unavailable.assert_called_once_with('同步角色状态', '原生组件不支持角色快照', 'detection')
+        self.unavailable.assert_called_once_with('同步状态', '原生组件不支持角色快照', 'detection')
 
     def test_close_and_hotkey_cancel_keep_final_results_from_writing(self):
         self.controller.start()

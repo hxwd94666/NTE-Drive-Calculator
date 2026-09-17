@@ -56,8 +56,7 @@ NAV_ITEMS = (
         parent_key="my_role",
     ),
     NavItem("toolbox", "🧰  工具", "btn_toolbox", "_page_toolbox", "_refresh_toolbox"),
-    NavItem("plugins", "🧩  插件", "btn_plugins", "_page_plugins", "_refresh_plugins",
-            required_capability="native_load"),
+    NavItem("plugins", "🧩  插件", "btn_plugins", "_page_plugins", "_refresh_plugins"),
     NavItem(
         "static_catalog",
         "游戏资料库",

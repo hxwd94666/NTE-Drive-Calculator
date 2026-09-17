@@ -34,6 +34,8 @@ class BattleMarginalTimelineDetailTests(unittest.TestCase):
             timeline_hits=(hit,),
             hit_replays=(replay,),
             buff_intervals=(),
+            baselines=(),
+            target_instance_resolutions=(),
         )
         page._analysis = analysis
         page._candidate_analysis = analysis
@@ -54,7 +56,10 @@ class BattleMarginalTimelineDetailTests(unittest.TestCase):
             counterfactual=None,
             related_counterfactuals=(),
             related_analysis=page._candidate_analysis,
-            projection=None, related_hit_details=None,
+            projection=None,
+            related_hit_details=None,
+            participant_names={},
+            target_resolutions=(),
         )
 
     def test_missing_candidate_row_does_not_make_visible_hit_inert(self) -> None:

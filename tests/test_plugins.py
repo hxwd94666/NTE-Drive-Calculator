@@ -45,6 +45,17 @@ def test_global_preferences_and_independent_switches(tmp_path):
     assert service.status == "等待游戏"
 
 
+def test_plugin_apply_status_only_changes_the_affected_card(tmp_path):
+    service, _, _, _ = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True)
+    service.observe(SimpleNamespace(game_running=False))
+    assert service.status_for("cooldown") == "等待游戏"
+    assert service.status_for("enemy_bars") == "等待游戏"
+    service.update(hp=False)
+    assert service.status_for("cooldown") == "等待游戏"
+    assert service.status_for("enemy_bars") == "设置已保存，等待应用"
+
+
 def test_low_mode_disables_live_hud_and_persists_switches_without_losing_options(tmp_path):
     service, _, core, policy = make_service(tmp_path)
     service.update(cooldown=True, enemy_bars=True, ready_cue=False, hp=False)
@@ -88,7 +99,7 @@ def test_downgrade_disables_even_enemy_bars_with_no_selected_content(tmp_path, m
 
 
 @pytest.mark.parametrize('mode', ['offline', 'low', 'medium', 'developer'])
-def test_plugins_menu_uses_shared_guidance_before_navigation(tmp_path, monkeypatch, mode):
+def test_plugins_page_is_viewable_in_every_mode(tmp_path, monkeypatch, mode):
     from unittest.mock import Mock
     from src.services.work_mode_service import WorkModeService
     from src.ui import operation_guidance
@@ -108,14 +119,8 @@ def test_plugins_menu_uses_shared_guidance_before_navigation(tmp_path, monkeypat
     window.operation_entry = lambda cap, feature: operation_guidance.allow_operation_entry(
         None, policy, cap, feature, lambda _: None)
     MainWindowNavigationMixin._go(window, 'plugins')
-    if mode in {'offline', 'low'}:
-        assert len(prompts) == 1 and prompts[0]['target'] == 'mode'
-        assert '中风险' in prompts[0]['detail']
-        window.stack.setCurrentIndex.assert_not_called()
-        window._refresh_navigation_item.assert_not_called()
-    else:
-        assert not prompts
-        window.stack.setCurrentIndex.assert_called_once_with(nav_index_map()['plugins'])
+    assert not prompts
+    window.stack.setCurrentIndex.assert_called_once_with(nav_index_map()['plugins'])
 
 
 def test_display_changes_reuse_capture_client_without_start_or_stop(tmp_path):
@@ -148,7 +153,11 @@ def test_plugin_cards_remain_editable_across_modes_and_themes(tmp_path, monkeypa
     app = QApplication.instance() or QApplication([])
     service, _, _, policy = make_service(tmp_path)
     applied = []
-    page = PluginsPage(service=service, request_apply=lambda: applied.append(True), open_settings=lambda: None)
+    routes = []
+    page = PluginsPage(
+        service=service, request_apply=lambda: applied.append(True),
+        open_settings=routes.append,
+    )
     page.resize(820, 540)
     for theme in ("black", "dark", "light"):
         apply_app_theme(app, theme)
@@ -162,4 +171,72 @@ def test_plugin_cards_remain_editable_across_modes_and_themes(tmp_path, monkeypa
     page.refresh()
     assert page.cards["cooldown"][0].isEnabled()  # Can still turn the saved selection off.
     assert not page.cards["enemy_bars"][0].isEnabled()
+    page.environment_button.click()
+    assert routes == ["mode"]
+    page.close()
+
+
+def test_plugin_page_uses_inline_options_and_clear_status_labels(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+    from src.features.plugins.page import PluginsPage
+    app = QApplication.instance() or QApplication([])
+    service, _, _, _ = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True)
+    service.observe(SimpleNamespace(game_running=False))
+    applied = []
+    page = PluginsPage(
+        service=service, request_apply=lambda: applied.append(True),
+        open_settings=lambda _target: None,
+    )
+    labels = {label.text() for label in page.findChildren(QLabel)}
+    buttons = {button.text() for button in page.findChildren(QPushButton)}
+    assert {"技能冷却", "敌人状态", "等待启动游戏"} <= labels
+    assert {"刷新状态", "检测与部署"} <= buttons
+    assert "设置" not in buttons
+    assert set(page.option_boxes["cooldown"]) == {"ready_cue"}
+    assert set(page.option_boxes["enemy_bars"]) == {"hp", "unbalance"}
+    page.option_boxes["enemy_bars"]["hp"].click()
+    assert not service.settings.hp and applied
+    assert page.cards["cooldown"][1].text() == "等待启动游戏"
+    assert page.cards["enemy_bars"][1].text() == "正在应用"
+    page.close()
+
+
+def test_refresh_button_reports_progress_until_observation_arrives(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.features.plugins.page import PluginsPage
+    app = QApplication.instance() or QApplication([])
+    service, _, _, _ = make_service(tmp_path)
+    requested = []
+    page = PluginsPage(
+        service=service, request_apply=lambda: requested.append(True),
+        open_settings=lambda _target: None,
+    )
+    page.refresh_button.click()
+    assert requested == [True]
+    assert page.refresh_button.text() == "正在刷新…"
+    assert not page.refresh_button.isEnabled()
+    page.refresh(SimpleNamespace())
+    assert page.refresh_button.text() == "刷新状态"
+    assert page.refresh_button.isEnabled()
+    page.close()
+
+
+def test_enemy_display_never_stays_enabled_without_content(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.features.plugins.page import PluginsPage
+    app = QApplication.instance() or QApplication([])
+    service, _, _, _ = make_service(tmp_path)
+    service.update(hp=False, unbalance=False)
+    page = PluginsPage(
+        service=service, request_apply=lambda: None,
+        open_settings=lambda _target: None,
+    )
+    page.cards["enemy_bars"][0].click()
+    assert service.settings.enemy_bars and service.settings.hp
+    page.option_boxes["enemy_bars"]["hp"].click()
+    assert not service.settings.enemy_bars
     page.close()

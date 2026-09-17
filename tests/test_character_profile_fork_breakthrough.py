@@ -11,6 +11,7 @@ from src.storage.sqlite.user_data_dao import (
     UserDataDao,
     UserDataValidationError,
 )
+from tests.user_data_migration_helpers import create_user_database_at_version
 
 
 class CharacterProfileForkBreakthroughTests(unittest.TestCase):
@@ -76,40 +77,28 @@ class CharacterProfileForkBreakthroughTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "legacy_v36.sqlite3"
-            with UserDataDao(database, account_id="legacy") as dao:
-                for character_id, (level, stage) in enumerate(
-                    expected_by_level.items(), start=2001
-                ):
-                    self._save_profile(
-                        dao,
-                        character_id=character_id,
-                        fork_level=level,
-                        fork_breakthrough_stage=stage,
-                    )
-                self._save_profile(
-                    dao,
-                    character_id=2099,
-                    fork_level=None,
-                    fork_breakthrough_stage=None,
-                )
-
+            create_user_database_at_version(database, 36, account_id="legacy")
             connection = sqlite3.connect(database)
+            for ordinal, (character_id, (level, _stage)) in enumerate(
+                enumerate(expected_by_level.items(), start=2001)
+            ):
+                connection.execute(
+                    """INSERT INTO character_profile(
+                           character_id, character_level, breakthrough_stage,
+                           awakening_level, fork_id, fork_level,
+                           fork_refinement_level, selected_skill_id, ordinal,
+                           is_active, created_at_utc, updated_at_utc
+                       ) VALUES (?, 80, 6, 0, 'fork_example', ?, 1, NULL, ?, 1, 'now', 'now')""",
+                    (character_id, level, ordinal),
+                )
             connection.execute(
-                "ALTER TABLE character_profile DROP COLUMN fork_breakthrough_stage"
+                """INSERT INTO character_profile(
+                       character_id, character_level, breakthrough_stage,
+                       awakening_level, fork_id, fork_level,
+                       fork_refinement_level, selected_skill_id, ordinal,
+                       is_active, created_at_utc, updated_at_utc
+                   ) VALUES (2099, 80, 6, 0, NULL, NULL, NULL, NULL, 99, 1, 'now', 'now')"""
             )
-            connection.execute(
-                "ALTER TABLE battle_character_build_snapshot "
-                "DROP COLUMN fork_breakthrough_stage"
-            )
-            connection.execute(
-                "ALTER TABLE battle_character_build_edit "
-                "DROP COLUMN fork_breakthrough_stage"
-            )
-            connection.execute("DROP TABLE battle_inferred_target_snapshot")
-            connection.execute(
-                "ALTER TABLE battle_time_stop_interval DROP COLUMN pause_type_mask"
-            )
-            connection.execute("DELETE FROM schema_migration WHERE version >= 37")
             connection.commit()
             connection.close()
 

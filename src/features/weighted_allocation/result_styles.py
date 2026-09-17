@@ -6,6 +6,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QLabel
 
 from src.app.theme import theme_color, themed_style
+from src.ui.attribute_summary_panel import attribute_summary_weight_color
 
 
 def clear_layout(layout) -> None:
@@ -30,14 +31,4 @@ def section_label(text: str) -> QLabel:
 
 
 def weight_color(weight: float) -> str:
-    value = max(0.0, min(1.0, float(weight)))
-    if value < 0.3:
-        return theme_color("#8b949e")
-    if value < 0.5:
-        return "#58a6ff"
-    if value < 0.7:
-        return "#56d364"
-    if value < 0.85:
-        return "#d2991d"
-    return "#f0883e"
-
+    return attribute_summary_weight_color(weight)

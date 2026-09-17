@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPushButton
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFrame, QLabel, QPushButton
 from auto_sync_ui_fixture import application, dispose
 from src.features.settings.work_mode_card import confirm_mode
 
@@ -23,26 +23,36 @@ def test_risk_confirmation_only_accepts_explicit_consent(monkeypatch, mode, acti
         cancel = buttons.button(QDialogButtonBox.Cancel)
         consent = dialog.findChild(QPushButton, "workModeConfirm" if mode == "offline" else "workModeRiskConsent")
         if mode == "offline":
-            assert consent.text() == "切换到离线模式"
+            assert consent.text() == "确认切换"
             assert not consent.styleSheet()
         else:
-            assert consent.text() == "自愿承担风险并使用此模式\n同时接受后续更新依旧使用此模式"
-            assert "#b42318" in consent.styleSheet() and "#ffffff" in consent.styleSheet()
+            assert consent.text() == "确认风险并切换"
+            assert "#ffffff" in consent.styleSheet()
+        assert dialog.windowTitle() == "确认切换到" + {
+            "offline": "离线", "low": "低风险", "medium": "中风险", "developer": "开发",
+        }[mode] + "模式"
+        assert dialog.findChild(QFrame, "workModeWarning") is not None
+        assert consent.height() == 38 and consent.minimumWidth() == 148
+        assert cancel.size().width() == 88 and cancel.height() == 38
+        assert buttons.layout().indexOf(cancel) < buttons.layout().indexOf(consent)
         assert cancel.isDefault() and not consent.isDefault()
         assert not consent.autoDefault()
-        text = dialog.findChild(QLabel).text()
-        assert ("模拟输入" in text and "极速装配等功能不可用" in text) if mode == "low" else True
-        assert ("更新游戏中的对应状态" in text and "兼容问题" in text) if mode == "medium" else True
-        assert "问题排查" in text if mode == "developer" else True
+        text = "\n".join(label.text() for label in dialog.findChildren(QLabel))
+        assert {"可以使用", "不可使用", "切换后"} <= {
+            label.text() for label in dialog.findChildren(QLabel)
+        }
+        assert ("鼠标或手柄扫描" in text and "极速装配" in text) if mode == "low" else True
+        assert ("加载游戏组件" in text and "兼容问题" in text) if mode == "medium" else True
+        assert "仅供开发人员使用" in text if mode == "developer" else True
         if mode == "offline":
-            assert "停止采集与同步" in text and "清理已部署" in text
-            assert "自动同步开启时会连接游戏" not in text
+            assert "停止采集与同步" in text and "清理已部署组件" in text
+            assert "工作台开关控制" not in text
         else:
-            assert "自动同步开启时会连接游戏" in text and "可在首页随时关闭" in text
+            assert "自动同步仍由工作台开关控制" in text and "后续版本更新继续沿用" in text
         assert "推荐使用" not in text and "暂未发现" not in text and "极低" not in text
         assert "暂停自动管理" not in text
         assert ("自动部署或更新" in text) == (mode in {"medium", "developer"})
-        assert "双路对照" in text if mode == "developer" else True
+        assert "双线战报对比" in text if mode == "developer" else True
         if action == "consent":
             consent.click()
         elif action == "cancel":

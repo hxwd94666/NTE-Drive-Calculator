@@ -98,26 +98,6 @@ class PostActionEvaluator:
             f"类型范围 {filter_summary.get('post_action_type_range_filtered_count', 0)} 件，"
             f"预留规则命中 {filter_summary.get('preserve_rule_matched_count', 0)} 件"
         )
-        for change in state_changes:
-            decision = change.get("decision", {}) or {}
-            lock_detail = decision.get("lock", {}) or {}
-            discard_detail = decision.get("discard", {}) or {}
-            preserve_detail = decision.get("preserve", {}) or {}
-            chosen = lock_detail if change.get("target_state") == "locked" else discard_detail
-            if preserve_detail.get("action"):
-                chosen = preserve_detail
-            if change.get("target_state") == "normal" and not preserve_detail.get("action"):
-                chosen = lock_detail if change.get("current_state") == "locked" else discard_detail
-            logger.info(
-                f"[状态管理] 目标 raw_drive_{int(change.get('index', 0)):04d} "
-                f"{change.get('current_state')} -> {change.get('target_state')} "
-                f"type={change.get('item_type')} quality={change.get('quality')} "
-                f"shape={change.get('shape_id')} set={change.get('set_name')} "
-                f"best_role={chosen.get('role', '')} score={float(chosen.get('score', 0.0) or 0.0):.2f} "
-                f"grade={chosen.get('grade', '')} threshold={chosen.get('threshold', '')} "
-                f"eligible_roles={chosen.get('eligible_roles', 0)} mode={chosen.get('match_mode', '')} "
-                f"reason={chosen.get('reason', '')} sub_stats={change.get('sub_stats')}"
-            )
         return PostActionEvaluation(
             config=effective_config,
             enabled=True,
