@@ -1,11 +1,7 @@
-# NTE Capture component source
+# capture component source
 
-Capture runtime and minimal D3D12 proxy derived from UETools-NTE. Included GPL v3 and Microsoft Detours MIT notices retain their terms.
+Source base: 5d9c0269f60abc968b932e78d0cf1f91c01ea240; modified working-tree input SHA-256: 07ada62614ec3b3760b5fd89d3a2a532a7f0ac91427c69c0abaff8c65460b08b. The base alone does not reproduce this build. Release x64. Existing licenses and notices retain their terms.
 
-Source base: 22c9d03670aee7dba93c5fa05f57faacbe6ce7fb; modified working-tree input SHA-256: 619349c2a706a76365e6157431c2a0335a111e6b5f55c8fcd8653f42aaba92aa. The base alone does not reproduce this build. Release x64, raw evidence enabled, single compiler job.
+Minimal D3D12 proxy and NTE_Capture runtime, raw evidence enabled; no developer UI or MCP. Character awakening level and selected saved effects are separate observations. Unknown selection remains unknown. HUD and capture retain their independent controls.
 
-Optional game Canvas plugins provide independent team cooldown and enemy health/unbalance displays. Ready E/Q use brighter halos; cooldown masks drain vertically against the current observed peak, a display-only estimate independent of recorded evidence. Production defaults are disabled. The existing pipe controls the options; disconnect clears the controlling connection's options. Disabled HUD paths perform no discovery, attribute reads or drawing. No developer UI, MCP, private source or debug symbols is shipped. Production hot unload is unsupported.
-
-Per-hit dynamic attributes, applied modifiers and client formula observations remain available. Attribute RepNotify observations are client replication evidence, not certified server per-hit operands. No periodic Buff scan or actor effect-presence list is added. Current-byte read proofs and existing capture behavior are retained.
-
-Paired direct/proxy protocol and HUD control tests passed. This exact binary requires gameplay verification of independent switches, closing Calc and recording while toggling displays.
+This exact component set requires in-game end-to-end acceptance.

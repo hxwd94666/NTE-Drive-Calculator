@@ -3,13 +3,13 @@
   "capture_protocol_version": 1,
   "layout": "native-capture-v1",
   "source_commits": {
-    "capture": "22c9d03670aee7dba93c5fa05f57faacbe6ce7fb",
-    "core": "77a775ad7639d17ae63b2a6c15c7cb6f49c01917",
+    "capture": "5d9c0269f60abc968b932e78d0cf1f91c01ea240",
+    "core": "cfa384983304e8a8e20dc4ad050a2f6ce6f348e7",
     "loader": "3e3bcd05583c369cfecc477aaa0adc933591841b"
   },
   "input_digests": {
-    "capture": "619349c2a706a76365e6157431c2a0335a111e6b5f55c8fcd8653f42aaba92aa",
-    "core": "673eb4ccec24eb4a18a01539a9c11fb6b59a334519653b57c1f7fcbc5cf16f42"
+    "capture": "07ada62614ec3b3760b5fd89d3a2a532a7f0ac91427c69c0abaff8c65460b08b",
+    "core": "0cf19a8d6a4001aa3052f5e9e901d60366c079c3309b2cc77d4da67c9628829e"
   },
   "capabilities": [
     "hud.configure.v1",
@@ -46,13 +46,13 @@
     "loader_source": "third_party/mod-loader/SOURCE.md"
   },
   "files": {
-    "third_party/native-capture/capture/capture-component.json": "c804b3849228ade226b4c653c6e3d13d3a4e16995784a3d298031f2ef7536cfd",
+    "third_party/native-capture/capture/capture-component.json": "841879bb6c5752c071ee3671937191cb733149d52ed07f05e084797737b6c89a",
     "third_party/native-capture/capture/d3d12.dll": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
     "third_party/native-capture/capture/Detours-LICENSE.md": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef",
     "third_party/native-capture/capture/LICENSE.txt": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-    "third_party/native-capture/capture/NTE_Capture.dll": "5fa57cbaa1b1be281d51ab5d6281ed5a83a496f64fccebb4986632a42c2951b8",
-    "third_party/native-capture/capture/SOURCE.md": "9498e890b53fed19cd046f1780a717bb9ecbd11bcf4840b66444e8e011fa2954",
-    "third_party/native-capture/compatibility.json": "3b5a91d07c634760c326b65c6e2b4ea460f7ce8c56fb1102220d51156cbb02a9",
+    "third_party/native-capture/capture/NTE_Capture.dll": "00475c16d421dfb8bfbfa895aecad0368cdff233daf155b0942365847307ccd5",
+    "third_party/native-capture/capture/SOURCE.md": "ed23d2473a24477fe5663bd63741c5af0619878d05b00c03e2d484f51f74b534",
+    "third_party/native-capture/compatibility.json": "8246660bd51ec25e08fec6165d4c1ad68d9a58fa5b1a2dbc25990bf0364b6f90",
     "third_party/native-capture/core/LICENSE": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e",
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-APACHE": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-MIT": "f7e8ab639afef15573680c97f796166835cbeb3865175882fea41c60d106b733",
@@ -153,8 +153,8 @@
     "third_party/native-capture/core/licenses/zmij-1.0.21/LICENSE-MIT": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
     "third_party/native-capture/core/LICENSING.md": "7e83c455171b2136f989916e0ad51c9dcb5362903b174a54b70859cf6f1654b8",
     "third_party/native-capture/core/NOTICE.md": "ff43855bc4c61098c737b38e6b22d5b53f4461984ac96daccfd4883e0eb049e4",
-    "third_party/native-capture/core/nte-core.exe": "aab46c3a5927576e531062195171b57b21cb5e0173b7e73c54b441bc8cf8b7c2",
-    "third_party/native-capture/core/SOURCE.md": "90bccbd1db0709f5f9f68d2260ac6d1d251e94fa9ca8737ff4ffeda187f1c8ce",
+    "third_party/native-capture/core/nte-core.exe": "4cec5c82eeed16d1520c4ee9eca72d785bc461bc91b5211b93f7f15f6eac44e0",
+    "third_party/native-capture/core/SOURCE.md": "694246f9f32b0aeb5fae7f248ff3c43304f4fa4cb3a848c60ae3ce1328434669",
     "third_party/native-capture/core/THIRD_PARTY_LICENSES.md": "8252a00678a0991dd08e5e7249f3248740879598de595950f69363835d22b345",
     "third_party/mod-loader/bin/nte-mod-loader.exe": "cd7254b3f4ecc168dccbf113a950011309dbf4d902008b45c58a24ab0f16d536",
     "third_party/mod-loader/LICENSE": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e",
@@ -165,13 +165,13 @@
     "third_party/mod-loader/licenses/ManualMap-LICENSE.txt": "9c87c453a4de71dd3370aabc698d00bb6c83ea95bbecee49c4574117777a70b1"
   },
   "file_sizes": {
-    "third_party/native-capture/capture/capture-component.json": 2356,
+    "third_party/native-capture/capture/capture-component.json": 1623,
     "third_party/native-capture/capture/d3d12.dll": 15360,
     "third_party/native-capture/capture/Detours-LICENSE.md": 1122,
     "third_party/native-capture/capture/LICENSE.txt": 35823,
-    "third_party/native-capture/capture/NTE_Capture.dll": 3380736,
-    "third_party/native-capture/capture/SOURCE.md": 1518,
-    "third_party/native-capture/compatibility.json": 2272,
+    "third_party/native-capture/capture/NTE_Capture.dll": 3381760,
+    "third_party/native-capture/capture/SOURCE.md": 626,
+    "third_party/native-capture/compatibility.json": 1933,
     "third_party/native-capture/core/LICENSE": 35184,
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-APACHE": 10849,
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-MIT": 1057,
@@ -272,8 +272,8 @@
     "third_party/native-capture/core/licenses/zmij-1.0.21/LICENSE-MIT": 1023,
     "third_party/native-capture/core/LICENSING.md": 3650,
     "third_party/native-capture/core/NOTICE.md": 1733,
-    "third_party/native-capture/core/nte-core.exe": 1658368,
-    "third_party/native-capture/core/SOURCE.md": 1170,
+    "third_party/native-capture/core/nte-core.exe": 1659904,
+    "third_party/native-capture/core/SOURCE.md": 619,
     "third_party/native-capture/core/THIRD_PARTY_LICENSES.md": 2840,
     "third_party/mod-loader/bin/nte-mod-loader.exe": 426496,
     "third_party/mod-loader/LICENSE": 35184,

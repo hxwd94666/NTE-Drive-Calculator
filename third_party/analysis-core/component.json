@@ -19,8 +19,8 @@
     "battle_parallel_v1",
     "engine_report_v2"
   ],
-  "sha256": "eb943d72f406e16f159a0e7a90f365d57a7633007f283369abfb414deb00b8fa",
-  "size_bytes": 17248256,
+  "sha256": "da9308be3a863f36af2be83aba1eeff939f53ee0b356128aa86fe5399e06f894",
+  "size_bytes": 17247744,
   "source_files": {
     "Cargo.toml": "20960ffc72ce9ce0f0489f93a5717aa9600050f727839556c2db909700880d63",
     "Cargo.lock": "be70f09542253705b7a6f6bc5b8beda0aa9990155bb804438e7eea942e8576bd",
@@ -63,7 +63,7 @@
     "src/battle_build_timeline.rs": "40471961500e0c477a1acf93ae9ac94d044f61f02f4c272eaba8e252a038c7b5",
     "src/battle_build_vital.rs": "001ad777bc48ccec28f8f10f1c32e0dacee1721a0f66f728ec9557136e32fd03",
     "src/battle_build_weave.rs": "4786d944a44ae5a78677fcded637cd2316432b74ed4a5b4f9416ef978c5def37",
-    "src/battle_candidate.rs": "66dcc23c49f6389538fb29ab5938156883a1187d9b1054e8dc610b868421d9b5",
+    "src/battle_candidate.rs": "468299f28c80b410536728c1334bd72223e5fdfbe0557f71a393fd7f1b558b59",
     "src/battle_character_facts.rs": "1ce35e85a1ab07b979d8cc6633212546553f6fa4f34be4f3c43aefb89f7338aa",
     "src/battle_character_state.rs": "52856408fa8e8d7fce39a1fae66b1e8fc1ce4185ee024a140dc579f103a4e1ab",
     "src/battle_clock_projection.rs": "9a484949253332a4e68df2aeca491aa02de883bee651ae71ff2fc1b88a49dac1",
@@ -159,7 +159,7 @@
     "src/bin/weave-comparison-probe.rs": "3462a60e919f1d1f7e9a8b0100c8c453e11f2385052155406d4c139e359b7be6",
     "src/bin/weave-residual-audit.rs": "130673f7842374e481b522160364b7ca68cdc472c553c118b32792e0a4b6e8b2",
     "src/buff_interval_catalog.rs": "f94cd413a14fd65f19fcdc612a881377aa3d478bca60c9412d442a02bfe763f0",
-    "src/buff_rule_catalog.rs": "9a95a6623520688f4923c9fafe9a6da320410c4b8505eb0ebc60be4e573d11a4",
+    "src/buff_rule_catalog.rs": "d44710b1fa0754c01edf5bc8a003bd19831fd1362cc76cb72a43a31b0a626810",
     "src/buff_state_compute.rs": "b7309cd4c0b3aa8a86a263e5902e9799ed827d6a4e7265f1df440f8d4eb6bc4e",
     "src/build_baseline.rs": "564bd619f6067e8ac54513f922b13e2a6308f60dcdeebea5af14a999bad3632c",
     "src/character_state_compute.rs": "aa8ca81e6d3c65d2899aabafc9f108566c5aac862287fb8367bd639878686c89",
@@ -226,7 +226,7 @@
     "src/skill_evidence.rs": "a0e7b660259cd3d3d944f9941bded98de0dee07392e8daf7b7f0c4bec73af228",
     "src/skill_state.rs": "d611fd2617bdf8048d6a93bb2cf677091ec7b7ae65ea42fdeec423c3d5a77316",
     "src/special_compute.rs": "9407be5ee758c02e141b0092238b76914b6102f7dab6d8dec1c192317df46816",
-    "src/static_catalog_reader.rs": "9a135b97072b913f916a15e6e6ad97bbe670c6660c2c5e2f90c0d8d1c3e5b552",
+    "src/static_catalog_reader.rs": "e6e443b42643549d59638167d5be90ef788bcd4f2286bbe30f1973fa2fbf8c09",
     "src/team_state_compute.rs": "aa634fbc8210e32213bd19f632e812f0f17dc1a37ba5c83c37b0e1a2bb2fff8e",
     "src/treatment_compute.rs": "caeb96d1ac1c3bd626ee602e0e9aadbb05ba4ad98f33a4341bff7e6f6b630cd9",
     "src/weave_compute.rs": "ffcae90bfb97f5a30d350678016085fdd2fa85975b152802cdc7f1cc61a0248d",
@@ -259,11 +259,11 @@
     "resources/battle_target_catalog.json": "4b8948134e26288bce49079c8469af15c3e4e23c2a10117a172b7cd970e0898d",
     "tests/fixtures/buff_remove_parallel.json": "7d9465b51b185e49f8b3315f5c46e2d2672c64c6dd64c229ddd963c49223d6ad"
   },
-  "source_base_commit": "3e3bcd05583c369cfecc477aaa0adc933591841b",
+  "source_base_commit": "cfa384983304e8a8e20dc4ad050a2f6ce6f348e7",
   "source_worktree_modified": true,
   "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
   "license_sha256": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e",
   "dependency_notices_sha256": "858430801d3f43372aa38978d40951fbeb9fd24a80021675b7e50cf420e4f9e6",
   "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel; Python owns user input, process lifecycle and rendering",
-  "source_input_sha256": "c7b60db617fdfad1ccbbd8d82c9e503762e72024bac874e29201f1b2d29ad3ea"
+  "source_input_sha256": "b41df34f05633d3313c041d1773b3bec9419e269da3dc2fd18126a56034474bc"
 }
