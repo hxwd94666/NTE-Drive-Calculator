@@ -260,24 +260,7 @@ def _selected_effects(
             else ()
         ) or ()
         resonance_effects = []
-        selection_initialized = (
-            bool(profile.get("awakening_selection_initialized"))
-            if isinstance(profile, Mapping)
-            else False
-        )
-        awakening_level = (
-            len(awakenings)
-            if selection_initialized
-            else int(
-                character.get("awakening_level")
-                or (
-                    profile.get("awakening_level")
-                    if isinstance(profile, Mapping)
-                    else 0
-                )
-                or 0
-            )
-        )
+        awakening_level = int(profile.get("awakening_level", character.get("awakening_level", 0)) or 0)
         if awakening_level >= 3:
             resonance_effects.append("resonance_3")
         if awakening_level >= 6:

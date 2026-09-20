@@ -630,7 +630,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             self.change_summary.setText("当前候选尚未完整")
             self.change_summary.setToolTip("请完成角色养成与可冻结配装选择。")
             return
-        awakening_count = len(profile.get("selected_awaken_effect_ids") or ())
+        awakening_count = int(profile.get("awakening_level") or 0)
         skill_levels = tuple(
             int(value) for value in (profile.get("skill_levels") or {}).values()
         )

@@ -1,6 +1,7 @@
 # 验证采集开始冻结、原生副本独立落库、场中失效与失败重试边界。
 from copy import deepcopy
 from dataclasses import replace
+from pathlib import Path
 import json
 from unittest.mock import patch
 
@@ -103,6 +104,27 @@ def test_native_projection_freezes_actual_equipment_without_importing_inventory_
         assert dao.latest_native_inventory_snapshot_id() == snapshot_id
         assert dao.list_character_profiles(include_inactive=True) == []
         assert dao.load_battle_capture_build("capture")["native_runtime_snapshot"]["scopes"]["combat"]["snapshot"]["domains"]["inventory"]["revision"] == "1"
+
+
+def test_native_awakening_selection_is_frozen_separately_from_level(capture):
+    _, deps, _, _ = capture
+    deps = replace(deps, static_database_path=Path('data/game_static.sqlite3').resolve())
+    service = BattleReportPersistenceService(dependencies=deps, context_is_current=lambda _: True,
+                                            operation_context=OperationContext.create('battle_report'))
+    native = native_snapshot()
+    native['character_projection']['profiles'][0].update(
+        awakening_level=6, awakening_selection_initialized=True, selected_awaken_effect_ids=['Effect1'])
+    with patch.object(service, '_resolve_character_stat_snapshots', return_value={}):
+        service.bind_runtime_snapshot(capture_operation_id='capture', snapshot=scoped(native))
+    native['character_projection']['profiles'][0]['selected_awaken_effect_ids'].clear()
+    outcome = finish(service)
+    with UserDataDao(deps.user_database_path) as dao:
+        build = dao.load_battle_build_snapshot(outcome.battle_record_id)
+        character = build['characters'][0]
+        assert character['awakening_level'] == 6
+        assert character['profile']['selected_awaken_effect_ids'] == ['Effect1']
+        assert character['profile']['awakening_selection_initialized'] is True
+        assert dao.get_native_character_profile_observation(1072) is None
 
 
 @pytest.mark.parametrize("flag", [{"bIsTemporary": True}, {"source": "TrialCharacterItems"}, {"containerType": 24}])

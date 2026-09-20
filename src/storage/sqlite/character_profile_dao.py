@@ -621,8 +621,8 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 raise UserDataValidationError("selected_awaken_effect_ids 不能重复")
             normalized_awaken_effects.append(normalized)
         selection_initialized = bool(awakening_selection_initialized)
-        if selection_initialized and len(normalized_awaken_effects) != raw_awakening:
-            raise UserDataValidationError("觉醒等级必须等于已选择的普通觉醒数量")
+        if selection_initialized and len(normalized_awaken_effects) > raw_awakening:
+            raise UserDataValidationError("已选择的普通觉醒数量不能超过觉醒等级")
 
         connection = self._db()
         now = _utc_now()

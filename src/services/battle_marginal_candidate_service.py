@@ -281,9 +281,7 @@ class BattleMarginalCandidateService:
                             profile.get("skill_levels") or {}
                         ).items()
                     ],
-                    "awakening_level": len(
-                        profile.get("selected_awaken_effect_ids") or ()
-                    ),
+                    "awakening_level": int(profile.get("awakening_level") or 0),
                 }
                 for profile in profiles
             ],

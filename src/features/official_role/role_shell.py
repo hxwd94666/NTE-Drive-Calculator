@@ -40,8 +40,8 @@ from .role_calculation import (
     _selected_growth,
 )
 from .role_equipment import _build_drive_summary_group
+from .role_awakening import _build_awakening_group
 from .role_growth import (
-    _build_awakening_group,
     _build_base_group,
     _build_fork_group,
     _build_skill_group,
@@ -214,7 +214,7 @@ def _save_profiles(window, *, show_message: bool = True) -> bool:
                     character_id=character_id,
                     character_level=int(growth[0]),
                     breakthrough_stage=int(growth[1]),
-                    awakening_level=len(selected_awaken_effect_ids),
+                    awakening_level=editor["awakening_level"].value(),
                     selected_awaken_effect_ids=selected_awaken_effect_ids,
                     likeability_level_10_enabled=editor[
                         "likeability_level_10"

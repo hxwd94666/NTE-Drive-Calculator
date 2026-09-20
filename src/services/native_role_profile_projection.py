@@ -39,6 +39,14 @@ def project_native_role_profile(
             profile[name] = value
             sources[name] = "native_observed"
     observation = observation or {}
+    if observation.get("awakening_level") is not None:
+        profile["awakening_level"] = observation["awakening_level"]
+        sources["awakening_level"] = "native_observed"
+    if observation.get("awakening_selection_initialized") is True:
+        profile["selected_awaken_effect_ids"] = list(observation["selected_awaken_effect_ids"])
+        profile["awakening_selection_initialized"] = True
+        sources["selected_awaken_effect_ids"] = "native_observed"
+        sources["awakening_selection_initialized"] = "native_observed"
     for name in ("likeability_level_10_enabled", "fork_id", "fork_level", "fork_breakthrough_stage", "fork_refinement_level"):
         if name in observation and (not name.startswith("fork_") or observation.get("fork_observed") is True):
             profile[name] = observation[name]
@@ -55,12 +63,17 @@ def project_native_role_profile(
 def validate_native_cultivation(patches, *, static_database_path):
     """Verify formal identities against the frozen shipped catalog before writes."""
     if not any(patch.get("skill_levels") or patch.get("fork_observed") or "likeability_levels" in patch
-               or "likeability_level_10_enabled" in patch for patch in patches):
+               or "likeability_level_10_enabled" in patch or patch.get("awakening_selection_initialized") for patch in patches):
         return
     with StaticGameDataDao(static_database_path) as dao:
         fork_ids = {row["fork_id"] for row in dao.list_forks()} if any(patch.get("fork_id") for patch in patches) else set()
         for patch in patches:
             resolve_native_likeability(patch, dao)
+            if patch.get("awakening_selection_initialized"):
+                effects = {row["effect_id"] for row in dao.list_character_awaken_effects(patch["character_id"])
+                           if row["awaken_type"] == "Awaken_Effect"}
+                if any(value not in effects for value in patch["selected_awaken_effect_ids"]):
+                    raise UserDataValidationError("原生觉醒效果不在当前角色的官方目录中")
             # Each static row is the cost of advancing from that level to the
             # next one, as in the role editor; the last attainable level is +1.
             skills = {row["skill_id"]: max((int(level["level"]) for level in row["levels"]), default=0) + 1

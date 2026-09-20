@@ -357,8 +357,9 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
                 if str(effect_id).strip()
             )
         )
-        if len(selected_awakenings) > 6:
-            raise UserDataValidationError("觉醒选择不能超过 6 项")
+        awakening_level = _integer(profile.get("awakening_level"), "awakening_level", minimum=0)
+        if awakening_level > 6 or len(selected_awakenings) > awakening_level:
+            raise UserDataValidationError("觉醒选择不能超过觉醒等级，觉醒等级不能超过 6")
         character_level = _integer(profile.get("character_level"), "character_level", minimum=1)
         breakthrough_stage = _integer(
             profile.get("breakthrough_stage"), "breakthrough_stage", minimum=0
@@ -401,7 +402,7 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
             "profile_source": "user_edited_snapshot",
             "character_level": character_level,
             "breakthrough_stage": breakthrough_stage,
-            "awakening_level": len(selected_awakenings),
+            "awakening_level": awakening_level,
             "selected_awaken_effect_ids": list(selected_awakenings),
             "awakening_selection_initialized": True,
             "likeability_level_10_enabled": bool(

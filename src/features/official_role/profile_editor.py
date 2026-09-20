@@ -21,8 +21,8 @@ from .role_calculation import (
     _calculation_detail,
 )
 from .role_equipment import _build_drive_summary_group
+from .role_awakening import _build_awakening_group
 from .role_growth import (
-    _build_awakening_group,
     _build_base_group,
     _build_fork_group,
     _build_skill_group,

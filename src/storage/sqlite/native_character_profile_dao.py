@@ -33,6 +33,22 @@ def normalize_native_profile_patches(profiles: Sequence[Mapping[str, Any]]) -> t
             if type(value) is not int or not low <= value <= high:
                 raise UserDataValidationError(f"角色状态 {name} 超出合法范围")
             patch[name] = value
+        awakening = row.get("awakening_level")
+        if awakening is not None:
+            if type(awakening) is not int or not 0 <= awakening <= 6:
+                raise UserDataValidationError("原生觉醒等级超出合法范围")
+            patch["awakening_level"] = awakening
+        selection_known = row.get("awakening_selection_initialized")
+        if selection_known is not None and type(selection_known) is not bool:
+            raise UserDataValidationError("原生觉醒选择完整性必须是布尔值")
+        if selection_known is True:
+            effects = row.get("selected_awaken_effect_ids")
+            if (not isinstance(effects, (list, tuple)) or len(effects) > 6
+                or any(not isinstance(value, str) or not value or len(value) > 128 for value in effects)
+                or len(set(effects)) != len(effects)
+                or awakening is None or len(effects) > awakening):
+                raise UserDataValidationError("原生觉醒选择不完整或超过已解锁槽位")
+            patch.update(awakening_selection_initialized=True, selected_awaken_effect_ids=list(effects))
         if "likeability_levels" in row:
             levels = row["likeability_levels"]
             if not isinstance(levels, Mapping) or len(levels) > 512 or any(
@@ -129,11 +145,15 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                 cultivation = {key: observation[key] for key in (
                     "skill_levels", "likeability_level_10_enabled", "fork_observed", "fork_id",
                     "fork_level", "fork_breakthrough_stage", "fork_refinement_level",
+                    "awakening_level", "awakening_selection_initialized", "selected_awaken_effect_ids",
                 ) if key in observation}
                 for key, value in patch.items():
                     if key in GROWTH_FIELDS or key == "character_id":
                         continue
                     cultivation[key] = ({**cultivation.get(key, {}), **value} if key == "skill_levels" else value)
+                if (cultivation.get("awakening_selection_initialized") is True
+                        and len(cultivation["selected_awaken_effect_ids"]) > cultivation["awakening_level"]):
+                    raise UserDataValidationError("原生觉醒等级与已保存选择冲突，等待完整选择后重试")
                 if cultivation.get("fork_observed") and cultivation.get("fork_id") is None:
                     for key in ("fork_level", "fork_breakthrough_stage", "fork_refinement_level"):
                         cultivation[key] = None

@@ -137,7 +137,7 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
         for effect_id, check in awakening_checks.items()
         if check.isChecked()
     ]
-    profile["awakening_level"] = len(selected_awaken_effect_ids)
+    profile["awakening_level"] = editor["awakening_level"].value()
     profile["selected_awaken_effect_ids"] = selected_awaken_effect_ids
     profile["awakening_selection_initialized"] = True
     likeability = editor.get("likeability_level_10")

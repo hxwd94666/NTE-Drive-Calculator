@@ -70,6 +70,7 @@ class OfficialRoleAwakeningTests(unittest.TestCase):
         }
         profile = {
             "skill_levels": {"Skill": 10},
+            "awakening_level": 3,
             "awakening_selection_initialized": True,
             "selected_awaken_effect_ids": ["Effect1", "Effect4", "Effect6"],
         }

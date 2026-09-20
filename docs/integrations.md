@@ -333,8 +333,11 @@ Toolkit 负责与 Core 成套核对后交付，Calc 不引入开发工具 UI、M
 `character.snapshot.v1` 和 `native_character_profile_v1`。读取先请求 `native.snapshot.refresh(domain)`，
 再以同一快照调用 `native.inventory.page` 或 `native.character.page`，逐页核对冻结元数据和游标。
 背包只接受完整 EQUIP 集合、完整角色引用与正式投影证明，复用既有稳定器及库存事务；原始 `complete`、
-来源覆盖和变化覆盖原样保留，不将业务集合完整改写为原始全域完整。角色只提交已知等级和突破字段，
+来源覆盖和变化覆盖原样保留，不将业务集合完整改写为原始全域完整。角色提交可靠的稀疏养成观测，包括独立的觉醒等级和具体效果选择，
 全批校验与最终取消检查在账号事务内完成；首次观测使用稀疏覆盖，不创建猜测的完整养成配置。
+觉醒选择使用 `awakening_selection_initialized=true` 与 `selected_awaken_effect_ids` 表达完整观察，
+并附独立的 `awakening_level`（0～6）。完整空数组表示未选择，缺字段不表示零；已选数量不得超过等级，
+但允许小于等级。原始槽位证据留在原始页，正式效果须经角色静态目录校验，技能基础等级不包含觉醒加级。
 产品刷新及失败行为见[背包与角色状态同步](reference/work-modes.md#背包与角色状态同步)。
 这些接口须由核对过的配套 Core 与 DLL 共同提供；源码、合成分页响应测试通过不能替代匹配二进制与实机验收。
 
