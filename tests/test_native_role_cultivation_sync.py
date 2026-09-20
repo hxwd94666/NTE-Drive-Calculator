@@ -3,7 +3,7 @@ import pytest
 import sqlite3
 
 from src.services.native_role_profile_projection import project_native_role_profile
-from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
+from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.test_native_role_profile_patch import setup, seed
 
 
@@ -48,12 +48,14 @@ def test_saved_profile_updates_and_explicit_unequip_clears_fork(tmp_path):
     {'skill_levels': {'skill_fixture': True}}, {'likeability_level_10_enabled': 0},
     {'fork_observed': True, 'fork_id': 'fork_fixture', 'fork_level': 40},
 ])
-def test_invalid_cultivation_does_not_partially_save(tmp_path, fields):
+def test_invalid_cultivation_does_not_block_valid_growth(tmp_path, fields):
     database, service = setup(tmp_path)
-    with pytest.raises(UserDataValidationError):
-        service.patch_native_profiles([{'character_id': 1003, 'character_level': 61, **fields}], check=lambda: None)
+    result = service.patch_native_profiles([{'character_id': 1003, 'character_level': 70, **fields}], check=lambda: None)
+    assert result.saved_count == 1 and result.warnings
     with UserDataDao(database) as dao:
-        assert dao.get_native_character_profile_observation(1003) is None
+        observed = dao.get_native_character_profile_observation(1003)
+        assert observed['character_level'] == 70
+        assert not any(key in observed for key in fields)
 
 
 def test_v41_upgrade_keeps_observed_growth_and_failed_v42_can_retry(tmp_path):
@@ -127,10 +129,11 @@ def test_maximum_base_skill_level_is_one_above_last_upgrade_cost(tmp_path):
     with UserDataDao(database) as dao:
         assert dao.get_native_character_profile_observation(1004)['skill_levels']['GA_Lacrimosa_Melee'] == 10
         assert dao.get_native_character_profile_observation(1023)['skill_levels']['GA_Cang_QTE'] == 4
-    with pytest.raises(UserDataValidationError, match='基础等级'):
-        service.patch_native_profiles([
-            {'character_id': 1023, 'skill_levels': {'GA_Cang_QTE': 5}},
-            {'character_id': 1004, 'skill_levels': {'GA_Lacrimosa_Melee': 11}},
-        ], check=lambda: None)
+    result = service.patch_native_profiles([
+        {'character_id': 1023, 'skill_levels': {'GA_Cang_QTE': 5}},
+        {'character_id': 1004, 'skill_levels': {'GA_Lacrimosa_Melee': 11}},
+    ], check=lambda: None)
+    assert result.saved_count == 1 and '基础等级' in result.message
     with UserDataDao(database) as dao:
-        assert dao.get_native_character_profile_observation(1023)['skill_levels']['GA_Cang_QTE'] == 4
+        assert dao.get_native_character_profile_observation(1023)['skill_levels']['GA_Cang_QTE'] == 5
+        assert dao.get_native_character_profile_observation(1004)['skill_levels']['GA_Lacrimosa_Melee'] == 10

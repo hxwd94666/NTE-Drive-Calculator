@@ -49,12 +49,14 @@ class CharacterProfileSyncController(QObject):
         self._thread = None
         self._closed = False
         self._button = None
+        self._result_text = None
         self._edit_controls = ()
         self._enabled_states = ()
         self.completed.connect(self._finish)
 
-    def attach_controls(self, button, edit_controls=()) -> None:
+    def attach_controls(self, button, edit_controls=(), *, result_text=None) -> None:
         self._button = button
+        self._result_text = result_text
         self._edit_controls = tuple(edit_controls)
         button.setText('同步状态')
         button.setToolTip('从游戏同步已确认的等级、突破、技能、好感度和弧盘；未知字段保留原值。')
@@ -64,6 +66,7 @@ class CharacterProfileSyncController(QObject):
         return self._job is not None
 
     def request_stop(self) -> None:
+        self._show_result('')
         job = self._job
         if job is not None:
             job.cancelled.set()
@@ -72,6 +75,13 @@ class CharacterProfileSyncController(QObject):
         self._closed = True
         self.request_stop()
         self._hotkeys.stop(owner='character_profile_sync')
+
+    def _show_result(self, message: str) -> None:
+        if self._result_text is not None:
+            self._result_text.setPlainText(message)
+            self._result_text.setVisible(bool(message))
+        if self._button is not None:
+            self._button.setToolTip(message)
 
     def _check(self, job: _SyncJob) -> None:
         if (self._closed or job.cancelled.is_set() or self._job is not job
@@ -133,6 +143,7 @@ class CharacterProfileSyncController(QObject):
         self._job = job
         try:
             self._check(job)
+            self._show_result('')
             self._set_busy(True)
             self._hotkeys.start(owner='character_profile_sync', on_stop=self.request_stop)
             self._thread = self._thread_factory(
@@ -177,16 +188,16 @@ class CharacterProfileSyncController(QObject):
                     job.dependencies.user_database_path,
                     static_database_path=job.dependencies.static_database_path,
                 )
-                count = service.patch_native_profiles(payload['profiles'], check=lambda: self._check(job))
+                result = service.patch_native_profiles(payload['profiles'], check=lambda: self._check(job))
             except (CancelledError, InventorySyncCancelled):
                 return
             except Exception as exc:
                 QMessageBox.warning(self.parent(), '角色状态未保存', str(exc))
                 return
             self._check(job)
-            self._refresh()
-            if self._button is not None:
-                self._button.setToolTip(f'已同步 {count} 个角色的已确认字段；其余养成配置保持原值。')
+            if result.saved_count:
+                self._refresh()
+            self._show_result(result.message)
         except (CancelledError, InventorySyncCancelled):
             pass
         except Exception as exc:

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.integrations.nte_core import NteCoreClient
+from src.domain.native_role_sync import NativeRoleSyncResult
 from src.integrations.operation_guard import OperationGuard, require_operation
 from src.observability import OperationContext, log_event
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -101,7 +102,7 @@ class InventorySyncService:
         operation_context: OperationContext | None = None,
         operation_guard: OperationGuard | None = None,
         context_is_current: Callable[[], bool] | None = None,
-        native_profiles_apply: Callable[..., int] | None = None,
+        native_profiles_apply: Callable[..., NativeRoleSyncResult] | None = None,
     ) -> None:
         if settle_seconds is not None and settle_seconds <= 0:
             raise ValueError("settle_seconds 必须大于 0")

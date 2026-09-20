@@ -68,28 +68,33 @@ def validate_native_cultivation(patches, *, static_database_path):
     with StaticGameDataDao(static_database_path) as dao:
         fork_ids = {row["fork_id"] for row in dao.list_forks()} if any(patch.get("fork_id") for patch in patches) else set()
         for patch in patches:
-            resolve_native_likeability(patch, dao)
-            if patch.get("awakening_selection_initialized"):
-                effects = {row["effect_id"] for row in dao.list_character_awaken_effects(patch["character_id"])
-                           if row["awaken_type"] == "Awaken_Effect"}
-                if any(value not in effects for value in patch["selected_awaken_effect_ids"]):
-                    raise UserDataValidationError("原生觉醒效果不在当前角色的官方目录中")
-            # Each static row is the cost of advancing from that level to the
-            # next one, as in the role editor; the last attainable level is +1.
-            skills = {row["skill_id"]: max((int(level["level"]) for level in row["levels"]), default=0) + 1
-                      for row in dao.list_character_skills(patch["character_id"])} if patch.get("skill_levels") else {}
-            if any(key not in skills or not 1 <= level <= skills[key] for key, level in patch.get("skill_levels", {}).items()):
-                raise UserDataValidationError("原生技能身份或基础等级不在当前官方目录中")
-            fork_id = patch.get("fork_id")
-            if patch.get("fork_observed") and fork_id is not None:
-                if fork_id not in fork_ids:
-                    raise UserDataValidationError("原生弧盘身份不在当前官方目录中")
-            if "likeability_level_10_enabled" in patch:
-                bonus = dao.get_character_likeability_bonus(patch["character_id"])
-                if bonus is None:
-                    patch["likeability_level_10_enabled"] = False
-                elif int(bonus["required_level"]) != 10:
-                    raise UserDataValidationError("原生好感度门槛与当前官方目录不匹配")
+            validate_native_cultivation_patch(patch, dao, fork_ids)
+
+
+def validate_native_cultivation_patch(patch, dao, fork_ids):
+    """核对一个独立字段组；批量严格校验与角色稀疏同步共用此规则。"""
+    resolve_native_likeability(patch, dao)
+    if patch.get("awakening_selection_initialized"):
+        effects = {row["effect_id"] for row in dao.list_character_awaken_effects(patch["character_id"])
+                   if row["awaken_type"] == "Awaken_Effect"}
+        if any(value not in effects for value in patch["selected_awaken_effect_ids"]):
+            raise UserDataValidationError("原生觉醒效果不在当前角色的官方目录中")
+    # Each static row is the cost of advancing from that level to the
+    # next one, as in the role editor; the last attainable level is +1.
+    skills = {row["skill_id"]: max((int(level["level"]) for level in row["levels"]), default=0) + 1
+              for row in dao.list_character_skills(patch["character_id"])} if patch.get("skill_levels") else {}
+    if any(key not in skills or not 1 <= level <= skills[key] for key, level in patch.get("skill_levels", {}).items()):
+        raise UserDataValidationError("原生技能身份或基础等级不在当前官方目录中")
+    fork_id = patch.get("fork_id")
+    if patch.get("fork_observed") and fork_id is not None:
+        if fork_id not in fork_ids:
+            raise UserDataValidationError("原生弧盘身份不在当前官方目录中")
+    if "likeability_level_10_enabled" in patch:
+        bonus = dao.get_character_likeability_bonus(patch["character_id"])
+        if bonus is None:
+            patch["likeability_level_10_enabled"] = False
+        elif int(bonus["required_level"]) != 10:
+            raise UserDataValidationError("原生好感度门槛与当前官方目录不匹配")
 
 
 def resolve_native_likeability(profile, static_dao):

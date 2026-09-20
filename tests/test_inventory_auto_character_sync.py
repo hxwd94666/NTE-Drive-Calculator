@@ -56,21 +56,20 @@ def test_success_advances_ui_revision_only_after_committed_sparse_profile_update
         assert dao.get_native_character_profile_observation(1003)["character_level"] == 61
 
 
-def test_failed_batch_preserves_all_profiles_and_retry_clears_error(automatic):
+def test_invalid_growth_preserves_other_profiles_and_retry_clears_warning(automatic):
     value = automatic
     _apply_native_profiles(value.service, status(
         {"character_id": 1003, "character_level": 61},
         {"character_id": 1004, "character_level": 10},
     ))
-    assert value.service.state.character_sync_revision == 0
-    assert "已保留原养成" in value.service.state.character_sync_error
-    assert all(state.character_sync_revision == 0 for state in value.notices)
+    assert value.service.state.character_sync_revision == 1
+    assert "最终组合" in value.service.state.character_sync_error
     with UserDataDao(value.path) as dao:
-        assert dao.get_character_profile(1003) == value.original
-        assert dao.get_native_character_profile_observation(1003) is None
+        assert dao.get_character_profile(1003)['character_level'] == 61
+        assert dao.get_native_character_profile_observation(1003)['character_level'] == 61
         assert dao.get_native_character_profile_observation(1004) is None
     _apply_native_profiles(value.service, status({"character_id": 1003, "character_level": 61}))
-    assert value.service.state.character_sync_revision == 1
+    assert value.service.state.character_sync_revision == 2
     assert value.service.state.character_sync_error is None
 
 
@@ -131,3 +130,33 @@ def test_read_failure_is_visible_without_advancing_revision_or_touching_account(
     assert len(value.notices) == 1
     with UserDataDao(value.path) as dao:
         assert dao.get_character_profile(1003) == value.original
+
+
+def test_fork_warning_is_published_after_valid_fields_are_saved(automatic):
+    value = automatic
+    _apply_native_profiles(value.service, status({
+        'character_id': 1003, 'character_level': 61,
+        'fork_observed': True, 'fork_id': 'incomplete_fork',
+    }))
+    assert value.service.state.character_sync_revision == 1
+    assert 'incomplete_fork' in value.service.state.character_sync_error
+    assert '已同步 1 个角色' in value.service.state.character_sync_error
+    with UserDataDao(value.path) as dao:
+        profile = dao.get_character_profile(1003)
+        assert profile['character_level'] == 61
+        assert profile['fork_id'] == value.original['fork_id']
+
+
+def test_database_failure_does_not_publish_saved_revision(automatic):
+    import sqlite3
+
+    value = automatic
+    with sqlite3.connect(value.path) as connection:
+        connection.execute("""CREATE TRIGGER reject_profile BEFORE INSERT ON character_profile_observation
+                              BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END""")
+    _apply_native_profiles(value.service, status({'character_id': 1003, 'character_level': 61}))
+    assert value.service.state.character_sync_revision == 0
+    assert '未保存' in value.service.state.character_sync_error
+    with UserDataDao(value.path) as dao:
+        assert dao.get_character_profile(1003) == value.original
+        assert dao.list_native_character_profile_observations() == []

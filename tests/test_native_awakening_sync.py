@@ -6,7 +6,7 @@ import pytest
 from src.services.native_role_profile_projection import project_native_role_profile
 from src.services.official_role_awakening_service import active_awaken_effects, resolve_awakening_profile
 from src.services.official_role_profile_service import OfficialRoleProfileService
-from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
+from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.test_native_role_profile_patch import setup, seed
 from tests.test_official_role_awakening import _effects
 
@@ -49,20 +49,22 @@ def test_missing_and_incomplete_selection_preserve_previous_observation(tmp_path
 
 @pytest.mark.parametrize('patch', [selection(['Effect1', 'Effect1']), selection(['Effect1'], 0),
                                  selection(None), selection([], True)])
-def test_invalid_selection_rolls_back_batch(tmp_path, patch):
+def test_invalid_selection_preserves_valid_fields_in_batch(tmp_path, patch):
     database, service = setup(tmp_path)
-    with pytest.raises(UserDataValidationError):
-        service.patch_native_profiles([{'character_id': 1003, 'character_level': 60}, patch], check=lambda: None)
+    result = service.patch_native_profiles([{'character_id': 1003, 'character_level': 70}, patch], check=lambda: None)
+    assert result.warnings
     with UserDataDao(database) as dao:
-        assert dao.list_native_character_profile_observations() == []
+        assert dao.get_native_character_profile_observation(1003)['character_level'] == 70
+        observed = dao.get_native_character_profile_observation(1008) or {}
+        assert 'selected_awaken_effect_ids' not in observed
 
 
 def test_shipped_catalog_validates_effects_and_base_levels(tmp_path):
     database, _ = setup(tmp_path)
     service = OfficialRoleProfileService(database, static_database_path=Path('data/game_static.sqlite3'))
     service.patch_native_profiles([selection(['Effect1', 'Effect5'])], check=lambda: None)
-    with pytest.raises(UserDataValidationError, match='官方目录'):
-        service.patch_native_profiles([selection(['resonance_6'])], check=lambda: None)
+    result = service.patch_native_profiles([selection(['resonance_6'])], check=lambda: None)
+    assert '官方目录' in result.message
     with UserDataDao(database) as dao:
         assert dao.get_native_character_profile_observation(1008)['selected_awaken_effect_ids'] == ['Effect1', 'Effect5']
 

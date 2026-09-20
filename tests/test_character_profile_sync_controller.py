@@ -4,8 +4,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
 
+from src.domain.native_role_sync import NativeRoleSyncResult
 from src.features.official_role.dependencies import OfficialRoleDependencies
 from src.features.official_role.sync_controller import CharacterProfileSyncController
 
@@ -28,7 +29,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         self.dependencies = OfficialRoleDependencies('a', 1, Path('a.db'), Path('s.db'), Path('shared.db'))
         self.reader = Mock(return_value={'profiles': [{'character_id': 101, 'character_level': 20}]})
         self.service = Mock()
-        self.service.patch_native_profiles.return_value = 1
+        self.service.patch_native_profiles.return_value = NativeRoleSyncResult(1)
         self.entry = Mock(return_value=True)
         self.unavailable = Mock()
         self.sync_ready = Mock(return_value=True)
@@ -44,7 +45,8 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
             profile_service_factory=lambda _path, **_kwargs: self.service, thread_factory=DeferredThread,
         )
         self.button, self.editor = QPushButton(), QWidget()
-        self.controller.attach_controls(self.button, (self.editor,))
+        self.result_text = QPlainTextEdit(self.owner)
+        self.controller.attach_controls(self.button, (self.editor,), result_text=self.result_text)
 
     def tearDown(self):
         self.controller.close()
@@ -123,6 +125,30 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         warning.assert_called_once_with(self.owner, '角色状态未保存', '角色成长组合无效')
         self.unavailable.assert_not_called()
         self.refresh.assert_not_called()
+
+    def test_partial_success_displays_all_warnings_without_modal_dialog(self):
+        result = NativeRoleSyncResult(2, ('角色 101 · 弧盘 fork_unknown：不在当前官方目录中',
+                                         '角色 102 · 技能 unknown_skill：不在当前官方目录中'))
+        self.service.patch_native_profiles.return_value = result
+        with patch('src.features.official_role.sync_controller.QMessageBox.warning') as warning, patch(
+            'src.features.official_role.sync_controller.QMessageBox.information'
+        ) as information:
+            self.controller.start()
+            self.finish_read()
+        self.refresh.assert_called_once()
+        self.assertEqual(self.result_text.toPlainText(), result.message)
+        self.assertIn('fork_unknown', self.button.toolTip())
+        warning.assert_not_called()
+        information.assert_not_called()
+        self.controller.request_stop()
+        self.assertEqual(self.result_text.toPlainText(), '')
+
+    def test_no_valid_fields_keeps_drafts_and_reports_no_write(self):
+        self.service.patch_native_profiles.return_value = NativeRoleSyncResult(0, ('弧盘身份未知',))
+        self.controller.start()
+        self.finish_read()
+        self.refresh.assert_not_called()
+        self.assertIn('未写入新的角色状态', self.result_text.toPlainText())
 
     def test_mode_decline_precedes_worker_and_ui_mutation(self):
         self.entry.return_value = False
@@ -212,7 +238,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
             self.assertTrue(drafts._my_role_dirty)
             self.assertEqual({101, 999}, drafts._official_role_dirty_ids)
             events.append('persist')
-            return 1
+            return NativeRoleSyncResult(1)
         self.service.patch_native_profiles.side_effect = persist
         self.controller._refresh = lambda: page.refresh_official_role_page(drafts, discard_pending=True)
         factory = Mock(return_value=self.service)

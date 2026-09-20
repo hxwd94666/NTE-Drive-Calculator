@@ -6,6 +6,7 @@ import sqlite3
 import json
 from typing import Any
 
+from src.domain.native_role_sync import NativeRoleSyncResult
 from .protocols import UserDataDaoMixinHost
 from .user_data_support import UserDataError, UserDataValidationError, _utc_now, _valid_breakthrough_stage_for_level
 
@@ -117,12 +118,14 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
     def patch_native_character_profiles(
         self, profiles: Sequence[Mapping[str, Any]], *,
         growth_defaults: Mapping[int, Mapping[str, int]], check: Callable[[], None],
-    ) -> int:
+    ) -> NativeRoleSyncResult:
         patches = normalize_native_profile_patches(profiles)
         if any("likeability_levels" in patch for patch in patches):
             raise UserDataValidationError("好感度尚未通过正式角色目录关联")
         check()
         connection = self._db()
+        warnings = []
+        saved_count = 0
         try:
             connection.execute("BEGIN IMMEDIATE")
             for patch in patches:
@@ -140,7 +143,17 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                 baseline.update({name: patch[name] for name in GROWTH_FIELDS if name in patch})
                 level, stage = baseline.get("character_level"), baseline.get("breakthrough_stage")
                 if type(level) is not int or type(stage) is not int or not _valid_breakthrough_stage_for_level(level, stage):
-                    raise UserDataValidationError("角色等级与突破阶段的最终组合不匹配；未知阶段不会根据等级推测")
+                    warnings.append(f"角色 {character_id} · 等级与突破：最终组合不匹配，保留原成长；未知阶段不会根据等级推测。")
+                    for name in GROWTH_FIELDS:
+                        patch.pop(name, None)
+                if (observation.get("awakening_selection_initialized") is True
+                        and "awakening_level" in patch
+                        and "selected_awaken_effect_ids" not in patch
+                        and len(observation["selected_awaken_effect_ids"]) > patch["awakening_level"]):
+                    warnings.append(f"角色 {character_id} · 觉醒等级：与已保存选择冲突，保留原觉醒配置。")
+                    patch.pop("awakening_level")
+                if len(patch) == 1:
+                    continue
                 now = _utc_now()
                 cultivation = {key: observation[key] for key in (
                     "skill_levels", "likeability_level_10_enabled", "fork_observed", "fork_id",
@@ -151,9 +164,6 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                     if key in GROWTH_FIELDS or key == "character_id":
                         continue
                     cultivation[key] = ({**cultivation.get(key, {}), **value} if key == "skill_levels" else value)
-                if (cultivation.get("awakening_selection_initialized") is True
-                        and len(cultivation["selected_awaken_effect_ids"]) > cultivation["awakening_level"]):
-                    raise UserDataValidationError("原生觉醒等级与已保存选择冲突，等待完整选择后重试")
                 if cultivation.get("fork_observed") and cultivation.get("fork_id") is None:
                     for key in ("fork_level", "fork_breakthrough_stage", "fork_refinement_level"):
                         cultivation[key] = None
@@ -185,6 +195,7 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                             "ON CONFLICT(character_id, skill_id) DO UPDATE SET skill_level = excluded.skill_level",
                             (character_id, skill_id, level),
                         )
+                saved_count += 1
             check()
             connection.commit()
         except sqlite3.Error as exc:
@@ -193,4 +204,4 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
         except BaseException:
             connection.rollback()
             raise
-        return len(patches)
+        return NativeRoleSyncResult(saved_count, tuple(warnings))

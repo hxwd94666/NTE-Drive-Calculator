@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -396,6 +397,13 @@ def _page_my_role(window) -> QWidget:
     header.addWidget(save)
     root.addLayout(header)
 
+    sync_result = QPlainTextEdit()
+    sync_result.setReadOnly(True)
+    sync_result.setAccessibleName('角色同步结果')
+    sync_result.setMaximumHeight(110)
+    sync_result.hide()
+    root.addWidget(sync_result)
+
     area = QScrollArea()
     area.setWidgetResizable(True)
     content = QWidget()
@@ -410,7 +418,7 @@ def _page_my_role(window) -> QWidget:
     if sync_controller is not None:
         sync_controller.attach_controls(sync, (area, reset_current, reset_all, save,
                                                window.official_role_world_attack,
-                                               window.official_role_world_crit_damage))
+                                               window.official_role_world_crit_damage), result_text=sync_result)
     else:
         from src.features.input_operation_entry import show_input_unavailable
         sync.clicked.connect(lambda: show_input_unavailable(

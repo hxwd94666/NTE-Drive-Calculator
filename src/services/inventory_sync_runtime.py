@@ -569,7 +569,7 @@ def _apply_native_profiles(service, status):
     if snapshot is not None:
         try:
             require_inventory_operation(service)
-            apply(snapshot["profiles"], check=lambda: require_inventory_operation(service))
+            result = apply(snapshot["profiles"], check=lambda: require_inventory_operation(service))
             require_inventory_operation(service)
         except (InventorySyncCancelled, PermissionError):
             raise
@@ -578,9 +578,10 @@ def _apply_native_profiles(service, status):
                       service._operation_context, error_type=type(exc).__name__)
             error = "角色自动同步未保存，已保留原养成；稍后自动重试。"
         else:
+            error = result.message if result.warnings else None
             service._publish(service.state.phase, service.state.message,
-                             character_sync_revision=service.state.character_sync_revision + 1,
-                             character_sync_error=None)
+                             character_sync_revision=service.state.character_sync_revision + bool(result.saved_count),
+                             character_sync_error=error)
     if error and error != service.state.character_sync_error:
         service._publish(service.state.phase, service.state.message, character_sync_error=error)
 

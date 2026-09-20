@@ -8,7 +8,7 @@ import pytest
 
 from src.services.official_role_profile_service import OfficialRoleProfileService
 from src.services.native_role_profile_projection import project_native_role_profile
-from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError, UserDataError
+from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
 from src.storage.sqlite import user_data_base
 
 
@@ -35,7 +35,7 @@ def seed(dao, character_id=1003, **updates):
 
 def test_first_sparse_observation_preserves_template_sources_without_full_profile(tmp_path):
     database, service = setup(tmp_path)
-    assert service.patch_native_profiles([{"character_id": 1003, "character_level": 70}], check=lambda: None) == 1
+    assert service.patch_native_profiles([{"character_id": 1003, "character_level": 70}], check=lambda: None).saved_count == 1
     with UserDataDao(database) as dao:
         assert dao.get_character_profile(1003) is None
         observation = dao.get_native_character_profile_observation(1003)
@@ -68,19 +68,19 @@ def test_existing_role_only_changes_explicit_growth_fields_and_leaves_other_role
 def test_null_missing_and_unobserved_roles_do_not_clear_prior_observations(tmp_path):
     database, service = setup(tmp_path)
     service.patch_native_profiles([{"character_id": 1003, "character_level": 70}], check=lambda: None)
-    assert service.patch_native_profiles([{"character_id": 1003, "character_level": None}, {"character_id": 1004}], check=lambda: None) == 0
+    assert service.patch_native_profiles([{"character_id": 1003, "character_level": None}, {"character_id": 1004}], check=lambda: None).saved_count == 0
     with UserDataDao(database) as dao:
         assert dao.get_native_character_profile_observation(1003)["character_level"] == 70
         assert dao.get_native_character_profile_observation(1004) is None
 
 
-def test_final_combination_conflict_rolls_back_whole_batch_without_guessing_stage(tmp_path):
+def test_final_combination_conflict_preserves_valid_roles_without_guessing_stage(tmp_path):
     database, service = setup(tmp_path)
-    with pytest.raises(UserDataValidationError, match="最终组合"):
-        service.patch_native_profiles([{"character_id": 1003, "character_level": 70},
-                                       {"character_id": 1004, "character_level": 10}], check=lambda: None)
+    result = service.patch_native_profiles([{"character_id": 1003, "character_level": 70},
+                                            {"character_id": 1004, "character_level": 10}], check=lambda: None)
+    assert result.saved_count == 1 and '最终组合' in result.message
     with UserDataDao(database) as dao:
-        assert dao.get_native_character_profile_observation(1003) is None
+        assert dao.get_native_character_profile_observation(1003)['character_level'] == 70
         assert dao.get_native_character_profile_observation(1004) is None
 
 
@@ -105,7 +105,7 @@ def test_final_check_failure_rolls_back_existing_and_new_role_updates(tmp_path, 
         assert dao.get_character_profile(1003) == before
         assert dao.get_native_character_profile_observation(1003) is None
         assert dao.get_native_character_profile_observation(1004) is None
-    assert service.patch_native_profiles([{"character_id": 1004, "character_level": 70}], check=lambda: None) == 1
+    assert service.patch_native_profiles([{"character_id": 1004, "character_level": 70}], check=lambda: None).saved_count == 1
 
 
 def test_manual_full_save_clears_observation_in_same_transaction(tmp_path):
@@ -133,10 +133,10 @@ def test_single_and_all_reset_clear_sparse_only_roles(tmp_path):
 @pytest.mark.parametrize("profiles", [[{"character_id": True, "character_level": 70}],
     [{"character_id": 1003, "character_level": 81}],
     [{"character_id": 1003, "character_level": 70}, {"character_id": 1003, "breakthrough_stage": 6}]])
-def test_invalid_formal_fields_fail_without_partial_write(tmp_path, profiles):
+def test_invalid_formal_fields_are_reported_without_writing_them(tmp_path, profiles):
     database, service = setup(tmp_path)
-    with pytest.raises(UserDataValidationError):
-        service.patch_native_profiles(profiles, check=lambda: None)
+    result = service.patch_native_profiles(profiles, check=lambda: None)
+    assert result.saved_count == 0 and result.warnings
     with UserDataDao(database) as dao:
         assert dao.get_native_character_profile_observation(1003) is None
 
