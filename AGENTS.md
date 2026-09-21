@@ -109,6 +109,7 @@ UI Page/View → Controller → Application Service → Domain/Optimizer 或 DAO
 | 数据域 | 位置 | 所有权与规则 |
 | --- | --- | --- |
 | 发行静态 | `data/game_static.sqlite3` | 官方目录、成长、技能、公式、敌人、离线权重和毕业模板；运行时只读 |
+| 独立资料目录 | `data/role_catalog/` | 带用途身份、数据库和图片清单的角色/图鉴资源；不替换战报或计算默认 dataset |
 | 应用全局 | `config/` | 主题、工作模式、插件和本机 UI/环境偏好；不得随账号导入导出 |
 | 账号私有 | `accounts/<account_id>/user_data.sqlite3` | 快照、角色、权重、槽位、方案、锁、任务和战报；只由当前账号上下文访问 |
 | 公共共享 | `data/app_shared.sqlite3` | 仅保留明确允许的旧迁移数据；不得覆盖官方静态事实或账号显式配置 |
@@ -134,6 +135,11 @@ UI Page/View → Controller → Application Service → Domain/Optimizer 或 DAO
 `tools/game_data/promote_static_release.py` 读取仓库外本机配置，原子核对来源哈希、schema/importer、外键、完整性、
 数据库大小与 manifest 后晋升。不得直接覆盖 `data/`，不得用解包 Content 全量替代规范化输出；改变规范化结果的
 importer 必须递增版本。页面和计算在一次操作内冻结 dataset 身份，发现更新后要求重新发起，不混用新旧静态事实。
+
+缺少同版本战斗来源时可构建独立 `role_page` 角色目录或 `reference` 只读图鉴。图鉴构建可按明确的来源优先级
+补齐缺项，逐文件记录来源与哈希；运行时各领域只读冻结后的单一数据集，不生成完整战斗能力或毕业模板。
+图鉴轨外按赛季配置展示名称与规则，不以限时任务是否存在决定收录，也不自动成为战报的可计算 Buff。
+独立目录同样只经正式晋升入口成套安装到 `data/role_catalog/`，不得替换主战报库；详细边界见集成文档。
 
 库存快照不可变，当前指针只指向完整且稳定的快照。下游开始时只解析一次 `snapshot_id`；保存的方案始终读取自己的
 `source_snapshot_id`。稳定器以完整内容指纹、来源身份和安静窗口判稳，不以历史最大数量推测完整性。运行时增量只能

@@ -72,7 +72,8 @@ Domain / Optimizer       DAO / Integration
 
 | 数据域 | 路径 | 当前 schema | 所有权 |
 | --- | --- | ---: | --- |
-| 发行静态 | `data/game_static.sqlite3` | 29 | 官方目录、成长、好感度、觉醒、技能、伤害、效果、敌人、Boss 支援模板、活动副本、高危委托、轨外轮换、争锋赏宴、魔女赐福、离线推荐权重基线和毕业模板；运行时只读 |
+| 发行静态 | `data/game_static.sqlite3` | manifest | 官方目录、成长、好感度、觉醒、技能、伤害、效果、敌人、Boss 支援模板、活动副本、高危委托、轨外轮换、争锋赏宴、魔女赐福、离线推荐权重基线和毕业模板；运行时只读 |
+| 独立资料目录 | `data/role_catalog/` | manifest | `role_page` 提供角色和弧盘，`reference` 扩展只读图鉴；按领域冻结数据库和图片，不替换战报数据 |
 | 公共共享 | `data/app_shared.sqlite3` | 2 | 旧版官方额外形状覆盖与迁移记录；不参与当前有效值 |
 | 应用全局 | `config/global_ui_preferences.json` | JSON | 跨账号主题 |
 | 账号私有 | `accounts/<account_id>/user_data.sqlite3` | 37 | 快照、角色好感度/觉醒选择、权重、自建角色、偏好、配装槽位、锁、任务、逐击、战报配装、角色属性、单一修改副本、导入来源/装备锁与用户确认目标/环境条件 |
@@ -80,6 +81,11 @@ Domain / Optimizer       DAO / Integration
 读取优先级为账号显式配置、允许共享的公共数据、发行默认。静态库已收录的官方角色额外形状只读发行静态库，
 旧公共覆盖即使存在也不参与有效值；自建角色额外形状和基础权重、
 计算偏好、倒带偏好、方案、锁和任务只属于当前账号。schema 迁移只追加。
+
+`ApplicationPaths` 保持 `static_database_path` 为完整游戏库，并通过 Integration 一次校验可选角色包的
+用途、数据库身份、文件哈希和图片清单，冻结 `RoleCatalogRelease`。`OfficialRoleDependencies` 只为角色页
+选择该目录和配套图片；战报等默认工厂继续使用完整库。Service 返回 `catalog_scope`，页面据此展示已支持
+的养成功能。目录成套晋升与回滚由 Integration/构建工具负责，UI 不探测路径或合并跨版本数据。
 
 ## 5. 快照与来源能力
 

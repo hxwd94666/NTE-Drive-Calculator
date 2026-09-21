@@ -59,11 +59,12 @@ def is_core_case(case: unittest.TestCase) -> bool:
     return any(token in leaf for token in CORE_MODULE_TOKENS)
 
 
-def build_suite(tier: str) -> unittest.TestSuite:
+def build_suite(tier: str, *, pattern: str = "test*.py") -> unittest.TestSuite:
     discovered = unittest.defaultTestLoader.discover(
         str(ROOT / "tests"),
+        pattern=pattern,
     )
-    if tier == "full":
+    if tier == "full" or pattern != "test*.py":
         return discovered
     selected = [
         case for case in iter_test_cases(discovered)
@@ -134,6 +135,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="运行 NTE 核心或全量自动测试")
     parser.add_argument("tier", choices=("core", "full"))
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--pattern", default="test*.py", help="仅发现匹配文件名的专项测试")
     parser.add_argument(
         "-j",
         "--jobs",
@@ -146,7 +148,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    suite = build_suite(args.tier)
+    suite = build_suite(args.tier, pattern=args.pattern)
     jobs = args.jobs if args.jobs is not None else (3 if args.tier == "core" else 1)
     if jobs < 1:
         raise SystemExit("--jobs 必须大于等于 1")
