@@ -281,5 +281,8 @@ class NativeInventoryLease:
     def set_item_discarded(self, **kwargs):
         return self._equipment("set_item_discarded", **kwargs)
 
+    def set_item_states(self, **kwargs):
+        return self._equipment("set_item_states", **kwargs)
+
     def set_item_locked(self, **kwargs):
         return self._equipment("set_item_locked", **kwargs)

@@ -395,6 +395,8 @@ class InventorySyncService:
         """复用持续运行的核心进程更新单件装备的锁定状态。"""
         client = self._equipment_client()
         return client.set_item_locked(equipment=equipment, locked=locked)
+    def set_item_states(self, *, operations) -> Any:
+        return self._equipment_client().set_item_states(operations=operations)
     def _equipment_client(self) -> InventoryCoreClient:
         require_operation(self._operation_guard, "native_equipment")
         if self._stop_requested.is_set() or (

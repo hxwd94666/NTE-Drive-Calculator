@@ -10,6 +10,7 @@ from time import perf_counter, sleep
 from typing import Any, Protocol
 
 from src.integrations.nte_core_protocol import NteCoreRpcError, is_mods_plugin_busy_error
+from src.integrations.nte_core_equipment import MAX_STATE_OPERATIONS, STATE_BATCH_CAPABILITY
 
 
 _TRANSIENT_RETRY_DELAYS = (0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64)
@@ -29,6 +30,7 @@ class WarehouseStateWriteError(RuntimeError):
 
 
 class LiveInventorySync(Protocol):
+    def set_item_states(self, *, operations: list[Mapping[str, Any]]) -> Any: ...
     def equipment_batch(self) -> AbstractContextManager: ...
 
     @property
@@ -135,6 +137,9 @@ class WarehouseStateWriter:
             self._operations(row, target_state, equipment)
             for row, target_state, equipment in changes
         )
+        capabilities = (self.sync_service.core_hello_result or {}).get("capabilities", [])
+        if isinstance(capabilities, list) and STATE_BATCH_CAPABILITY in capabilities:
+            return self._apply_state_batches(groups, group_completed)
         with self.batch():
             started = perf_counter()
             rpc_count = 0
@@ -155,6 +160,40 @@ class WarehouseStateWriter:
                 rpc_duration_ms=round(rpc_duration * 1000.0, 3),
                 retry_count=retry_count,
             )
+
+    def _apply_state_batches(self, groups, group_completed):
+        started = perf_counter()
+        rpc_duration = 0.0
+        rpc_count = retry_count = 0
+        pending = []
+        completed_groups = 0
+        with self.batch():
+            for index, group in enumerate(groups, 1):
+                # Keep unlock/discard pairs together, including at chunk boundaries.
+                if pending and len(pending) + len(group) > MAX_STATE_OPERATIONS:
+                    elapsed, attempts, retries = self._dispatch_operation(
+                        {"method": "set_item_states", "kwargs": {"operations": pending}})
+                    rpc_duration += elapsed
+                    rpc_count += attempts
+                    retry_count += retries
+                    pending = []
+                    if group_completed is not None:
+                        group_completed(completed_groups, len(groups))
+                for operation in group:
+                    kwargs = operation["kwargs"]
+                    field = "locked" if operation["method"] == "set_item_locked" else "discarded"
+                    pending.append({"equipment": kwargs["equipment"], "field": field, "value": kwargs[field]})
+                completed_groups = index
+            if pending:
+                elapsed, attempts, retries = self._dispatch_operation(
+                    {"method": "set_item_states", "kwargs": {"operations": pending}})
+                rpc_duration += elapsed
+                rpc_count += attempts
+                retry_count += retries
+            if group_completed is not None:
+                group_completed(len(groups), len(groups))
+        return EquipmentStateBatchMetrics(len(groups), rpc_count,
+            round((perf_counter() - started) * 1000, 3), round(rpc_duration * 1000, 3), retry_count)
 
     @staticmethod
     def _is_pre_dispatch_transient(error: BaseException) -> bool:

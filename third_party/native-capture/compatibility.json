@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "core_rebuilt": true,
-  "core_sha256": "4cec5c82eeed16d1520c4ee9eca72d785bc461bc91b5211b93f7f15f6eac44e0",
-  "capture_sha256": "00475c16d421dfb8bfbfa895aecad0368cdff233daf155b0942365847307ccd5",
+  "core_rebuilt": false,
+  "core_sha256": "231ac64485d4794f65fcabdea36a504e794fc89e20487b83727bcc560c936776",
+  "capture_sha256": "0ce6ade560b6188803a0b5d9608db91c2135d3498f3b36e94513cec5b3794aa8",
   "proxy_sha256": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
   "protocol_version": 1,
   "provider_capabilities": [
@@ -19,6 +19,7 @@
     "team.snapshot.v1",
     "environment.snapshot.v1",
     "equipment.execute.v1",
+    "equipment.state_batch.v1",
     "combat.clock.v1",
     "snapshot.changes.v1"
   ],
@@ -41,14 +42,15 @@
     "snapshot.changes.v1",
     "equipment",
     "native_equipment_v1",
+    "native_equipment_state_batch_v1",
     "native_combat_clock_v1",
     "native_character_profile_v1",
     "native_inventory_dto_v1"
   ],
   "validation": {
     "build": "Release x64, frozen inputs verified",
-    "game": "pending_restart_and_sync",
-    "non_game": "bundle hashes and source identity verified; runtime handshake pending"
+    "non_game": "direct/proxy exact binaries: HUD configuration, four snapshot domains, ordered batch validation, not-ready rejection and shutdown passed",
+    "game": "not_run_for_exact_binaries"
   },
   "limits": [
     "Game acceptance pending.",

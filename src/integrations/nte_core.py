@@ -1,6 +1,10 @@
 # 封装 nte-core 的进程生命周期、JSON-RPC 请求和异步事件分发。
 
 from __future__ import annotations
+from src.integrations.nte_core_equipment import (
+    equipment_uid as _equipment_uid, equipment_grid_position as _equipment_grid_position,
+    equipment_state as _equipment_state, state_batch_params,
+)
 from src.integrations.nte_core_launch import core_serve_command
 from src.integrations.nte_core_response_wait import wait_core_response
 
@@ -61,45 +65,9 @@ __all__ = [
 PROTOCOL_VERSION = 1
 NTE_CORE_ENV = "NTE_CORE_EXE"
 _CALLBACK_STOP = object()
-_U32_MAX = (1 << 32) - 1
 _MAX_EQUIPMENT_PLACEMENTS = 64
 EventHandler = Callable[[JsonObject], None]
 StderrHandler = Callable[[str], None]
-
-
-def _equipment_uid(uid: object, field: str) -> JsonObject:
-    if not isinstance(uid, Mapping):
-        raise ValueError(f"{field} must be an item UID object")
-    slot = uid.get("slot")
-    serial = uid.get("serial")
-    for component, value in (("slot", slot), ("serial", serial)):
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < _U32_MAX:
-            raise ValueError(
-                f"{field}.{component} must be an integer in 1..4294967294"
-            )
-    return {"slot": slot, "serial": serial}
-
-
-def _equipment_grid_position(
-    row: object,
-    column: object,
-) -> tuple[int, int]:
-    if (
-        isinstance(row, bool)
-        or not isinstance(row, int)
-        or isinstance(column, bool)
-        or not isinstance(column, int)
-        or not 1 <= row <= 5
-        or not 1 <= column <= 5
-    ):
-        raise ValueError("row and column must be integers in 1..5")
-    return row, column
-
-
-def _equipment_state(value: bool, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
 
 
 def _deduplicated_paths(paths: Sequence[Path]) -> list[Path]:
@@ -716,6 +684,9 @@ class NteCoreClient(NteCoreBattleQueryMixin):
                 "locked": _equipment_state(locked, "locked"),
             },
         )
+
+    def set_item_states(self, *, operations: Sequence[Mapping[str, Any]]) -> JsonObject:
+        return self._equipment_request("set_item_states", state_batch_params(operations))
 
     def get_battle_summary(self, *, subtract_time_stop: bool = True) -> JsonObject | None:
         return self.call(

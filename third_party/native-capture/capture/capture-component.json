@@ -4,7 +4,7 @@
   "protocolVersion": 1,
   "sourceRepository": "https://github.com/kongbaiz/UETools-NTE",
   "sourceCommit": "5d9c0269f60abc968b932e78d0cf1f91c01ea240",
-  "sourceTreeSha256": "07ada62614ec3b3760b5fd89d3a2a532a7f0ac91427c69c0abaff8c65460b08b",
+  "sourceTreeSha256": "c81da392f422619d6f784861bf7be06b98fd73b762a419c951c07c2f768d5f21",
   "sourceState": "working-tree",
   "configuration": "Release",
   "architecture": "x64",
@@ -23,14 +23,15 @@
     "team.snapshot.v1",
     "environment.snapshot.v1",
     "equipment.execute.v1",
+    "equipment.state_batch.v1",
     "combat.clock.v1",
     "snapshot.changes.v1"
   ],
   "files": [
     {
       "name": "NTE_Capture.dll",
-      "size": 3381760,
-      "sha256": "00475c16d421dfb8bfbfa895aecad0368cdff233daf155b0942365847307ccd5"
+      "size": 4635648,
+      "sha256": "0ce6ade560b6188803a0b5d9608db91c2135d3498f3b36e94513cec5b3794aa8"
     },
     {
       "name": "d3d12.dll",
@@ -50,6 +51,8 @@
   ],
   "validation": {
     "gameRuntime": "not_run",
-    "gameDeployment": "not_performed"
-  }
+    "gameDeployment": "not_performed",
+    "nonGame": "direct/proxy exact-binary Core handshake, HUD configuration, batch not-ready rejection and shutdown passed"
+  },
+  "upstreamHudCommit": "1c3d65a5fa265ac4a176478fe4effd91955bce11"
 }

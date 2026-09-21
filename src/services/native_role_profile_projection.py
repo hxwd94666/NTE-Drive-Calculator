@@ -88,7 +88,13 @@ def validate_native_cultivation_patch(patch, dao, fork_ids):
     fork_id = patch.get("fork_id")
     if patch.get("fork_observed") and fork_id is not None:
         if fork_id not in fork_ids:
-            raise UserDataValidationError("原生弧盘身份不在当前官方目录中")
+            matches = [identity for identity in fork_ids if identity.casefold() == fork_id.casefold()]
+            if not matches:
+                raise UserDataValidationError("原生弧盘身份不在当前官方目录中")
+            if len(matches) != 1:
+                raise UserDataValidationError("原生弧盘身份存在大小写匹配冲突，未采用该弧盘状态")
+            # 仅纠正唯一正式身份的字母大小写，不补前缀或改写原始采集记录。
+            patch["fork_id"] = matches[0]
     if "likeability_level_10_enabled" in patch:
         bonus = dao.get_character_likeability_bonus(patch["character_id"])
         if bonus is None:
