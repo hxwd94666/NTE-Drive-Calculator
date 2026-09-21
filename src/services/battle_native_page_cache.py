@@ -57,6 +57,11 @@ class BattleNativePageCache:
         # Entries are exclusively produced here from validated native results.
         return json.loads(zlib.decompress(packed))
 
+    def discard(self, key: bytes) -> None:
+        packed = self._entries.pop(key, None)
+        if packed is not None:
+            self._size -= len(packed)
+
     def put(self, key: bytes, raw: dict) -> None:
         payload = json.dumps(raw, ensure_ascii=False, allow_nan=False,
                              separators=(',', ':')).encode('utf-8')

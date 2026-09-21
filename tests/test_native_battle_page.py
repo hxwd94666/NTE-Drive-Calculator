@@ -20,6 +20,28 @@ from tests.test_battle_marginal_benefit_service import _snapshot
 
 
 class NativeBattlePageTests(unittest.TestCase):
+    def test_topple_request_requires_explicit_component_capability(self):
+        client = Mock(supports_battle_page=True, supports_topple_composition=False)
+        dependencies = BattleReportPersistenceDependencies('fixture', Path('missing-user.sqlite3'), 8, self.static_path)
+        service = BattleNativePageService(client=client, dependencies=dependencies,
+            semantics_path=self.semantics_path, context_is_current=lambda _: True)
+        with self.assertRaisesRegex(NativeAnalysisError, '单独计算倾陷'):
+            service.load(BattleReportAnalysisLoadRequest(7, detail_level='composition'))
+        client.load_battle_page.assert_not_called()
+
+    def test_topple_request_is_not_upgraded_to_full_hit_analysis(self):
+        client = Mock(supports_battle_page=True, supports_topple_composition=True,
+                      supports_battle_page_identity=False, load_battle_page=Mock(return_value={}))
+        dependencies = BattleReportPersistenceDependencies('fixture', Path('missing-user.sqlite3'), 8, self.static_path)
+        service = BattleNativePageService(client=client, dependencies=dependencies,
+            semantics_path=self.semantics_path, context_is_current=lambda _: True)
+        request = BattleReportAnalysisLoadRequest(7, detail_level='composition', detail_scope='second')
+        with patch('src.services.battle_native_page_service.decode_page', return_value='rendered'):
+            self.assertEqual(service.load(request), 'rendered')
+        payload = client.load_battle_page.call_args.args[0]
+        self.assertEqual(('composition', 'second'), (payload['detail_level'], payload['detail_scope']))
+        self.assertIsNone(payload['marginal_candidate'])
+
     def test_timeline_evidence_reference_preserves_payload_and_cached_wire(self):
         raw = json.loads(json.dumps(asdict(_snapshot())))
         hit = asdict(BattleAnalysisHit(

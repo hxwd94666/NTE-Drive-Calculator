@@ -79,6 +79,50 @@ class PageCacheTests(unittest.TestCase):
         self.assertEqual(self.client.load_battle_page.call_count, 1)
         self.assertIsNone(self.client.load_battle_page.call_args.args[0]['selected_character_id'])
 
+    def test_topple_upgrades_its_half_without_evicting_the_other_half(self):
+        self.client.supports_topple_composition = True
+        def compute(payload, **_kwargs):
+            raw = _raw()
+            raw['target_catalog']['computed_level'] = payload['detail_level']
+            return raw
+        self.client.load_battle_page.side_effect = compute
+        upper = replace(self.request, detail_level='overview', detail_scope='first')
+        lower = replace(upper, detail_scope='second')
+        topple = replace(lower, detail_level='composition')
+        self.service.load(upper)
+        self.service.load(lower)
+        self.service.load(topple)
+        for _ in range(2):
+            self.service.load(upper)
+            result = self.service.load(lower)
+            self.assertEqual('composition', result.target_catalog['computed_level'])
+            self.service.load(topple)
+        self.assertEqual(self.client.load_battle_page.call_count, 3)
+        self.assertEqual(self.service._page_cache.entry_count, 2)
+        self.client.load_battle_page_identity.return_value = 'b' * 64
+        self.service.load(lower)
+        self.assertEqual(self.client.load_battle_page.call_count, 4)
+
+    def test_overview_cannot_satisfy_topple_and_topple_cannot_satisfy_hit(self):
+        self.client.supports_topple_composition = True
+        request = replace(self.request, detail_level='overview', detail_scope='second')
+        for level in ('overview', 'composition', 'hit'):
+            self.service.load(replace(request, detail_level=level))
+        self.assertEqual(self.client.load_battle_page.call_count, 3)
+
+    def test_failed_topple_keeps_both_overview_cache_entries(self):
+        self.client.supports_topple_composition = True
+        upper = replace(self.request, detail_level='overview', detail_scope='first')
+        lower = replace(upper, detail_scope='second')
+        self.service.load(upper)
+        self.service.load(lower)
+        self.client.load_battle_page.side_effect = NativeAnalysisError('topple failed')
+        with self.assertRaises(NativeAnalysisError):
+            self.service.load(replace(lower, detail_level='composition'))
+        self.service.load(upper)
+        self.service.load(lower)
+        self.assertEqual(self.client.load_battle_page.call_count, 3)
+
     def test_payload_candidate_range_scope_units_and_map_order_invalidate(self):
         profile = {'character_id': 1001, 'skill_levels': {'melee': 1, 'skill': 2}}
         candidate = BattleMarginalCandidate(7, (profile,), True)

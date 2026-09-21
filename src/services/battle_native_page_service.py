@@ -53,6 +53,9 @@ class BattleNativePageService:
     def load(self, request, *, progress_callback=None):
         if self._client is None or not self._client.supports_battle_page:
             raise NativeAnalysisError('战报页面需要支持数据库直读的分析组件，请部署配套版本后重试')
+        if (request.detail_level == 'composition'
+                and not getattr(self._client, 'supports_topple_composition', False)):
+            raise NativeAnalysisError('当前分析组件不支持单独计算倾陷归属，请更新配套分析组件')
         dependencies = self._dependencies
         if dependencies.static_database_path is None:
             raise ValueError('原生战报分析缺少静态数据路径')
@@ -89,9 +92,16 @@ class BattleNativePageService:
 
         def native_progress(event):
             checkpoint()
+            message = _PROGRESS_MESSAGES[event['phase']]
+            if request.detail_level == 'composition':
+                message = {
+                    'target': '正在读取倾陷目标证据…',
+                    'analyze': '正在计算当前时段的倾陷归属…',
+                    'details': '正在整理倾陷归属结果…',
+                }.get(event['phase'], message)
             report_battle_analysis_progress(
                 publish, phase=event['phase'],
-                message=_PROGRESS_MESSAGES[event['phase']],
+                message=message,
                 completed=event['completed'], total=event['total'],
             )
 
@@ -112,6 +122,7 @@ class BattleNativePageService:
             payload['selected_character_id'] = None
         raw = None
         cache_key = None
+        overview_key = None
         self._page_cache.select_record(request.battle_record_id)
         if cache_enabled:
             input_digest = self._client.load_battle_page_identity(payload, checkpoint=checkpoint)
@@ -120,7 +131,19 @@ class BattleNativePageService:
                 payload, input_digest=input_digest, files=frozen_identity,
                 engine_version=self._client.engine_version, dataset_version=self._client.dataset_version,
             )
-            raw = self._page_cache.get(cache_key)
+            if request.detail_level in {'overview', 'composition'}:
+                def detail_key(level):
+                    return page_cache_key(
+                        {**payload, 'detail_level': level}, input_digest=input_digest,
+                        files=frozen_identity, engine_version=self._client.engine_version,
+                        dataset_version=self._client.dataset_version,
+                    )
+                overview_key = detail_key('overview')
+                # A completed composition includes the same overview plus topple
+                # attribution. It can satisfy overview, never the reverse.
+                raw = self._page_cache.get(detail_key('composition'))
+            if raw is None:
+                raw = self._page_cache.get(cache_key)
             checkpoint()
         cache_hit = raw is not None
         if cache_hit:
@@ -149,6 +172,8 @@ class BattleNativePageService:
             persist_native_snapshot(snapshot, dependencies=dependencies, checkpoint=checkpoint)
         checkpoint()
         if cache_key is not None and not cache_hit:
+            if request.detail_level == 'composition' and overview_key is not None:
+                self._page_cache.discard(overview_key)
             self._page_cache.put(cache_key, raw)
         checkpoint()
         report_battle_analysis_progress(publish, phase='complete', message='战报计算完成')

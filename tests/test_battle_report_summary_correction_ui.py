@@ -6,6 +6,41 @@ from src.features.battle_report.page import BattleReportPage
 
 
 class BattleReportSummaryCorrectionUiTests(unittest.TestCase):
+    def test_half_metrics_follow_analysis_and_partial_axis_preserves_observations(self) -> None:
+        rendered = {}
+        page = SimpleNamespace(
+            _latest_summary=SimpleNamespace(total_damage=9000.0, duration_seconds=30.0),
+            _marginal_baseline_by_scope={},
+            metric_labels={key: SimpleNamespace(setText=lambda value, name=key: rendered.__setitem__(name, value))
+                           for key in ("damage", "dps", "duration", "taken")},
+            long_analysis_view=SimpleNamespace(set_analysis=lambda *_a, **_k: None),
+            marginal_page=SimpleNamespace(set_source_analysis=lambda *_a, **_k: None),
+        )
+        analysis = SimpleNamespace(
+            axis_complete=True, battle_start_us=0, battle_end_us=30_000_000,
+            range_start_us=0, range_end_us=10_000_000, effective_damage=1200.0,
+            hits=(SimpleNamespace(direction="incoming", damage=50.0),),
+            time_stop_intervals=((2_000_000, 4_000_000), (15_000_000, 17_000_000)),
+            time_stop_source_kind="nte_core",
+        )
+        BattleReportPage.set_analysis(page, analysis)
+        self.assertEqual({"damage": "1,200", "dps": "150", "duration": "8.0s（10.0s）", "taken": "50"}, rendered)
+        analysis.range_start_us, analysis.range_end_us = 10_000_000, 30_000_000
+        analysis.effective_damage = 5400.0
+        analysis.hits = ()
+        BattleReportPage.set_analysis(page, analysis)
+        self.assertEqual({"damage": "5,400", "dps": "300", "duration": "18.0s（20.0s）", "taken": "0"}, rendered)
+        analysis.time_stop_source_kind = "nte_core_partial"
+        BattleReportPage.set_analysis(page, analysis)
+        self.assertEqual("270", rendered["dps"])
+        self.assertEqual("20.0s（20.0s）", rendered["duration"])
+        analysis.axis_complete = False
+        BattleReportPage.set_analysis(page, analysis)
+        self.assertEqual(("5,400", "270", "—"), (rendered["damage"], rendered["dps"], rendered["taken"]))
+        analysis.effective_damage = 0.0
+        BattleReportPage.set_analysis(page, analysis)
+        self.assertEqual(("—", "—", "—"), (rendered["damage"], rendered["dps"], rendered["taken"]))
+
     def test_top_summary_reuses_active_clock_for_duration_and_dps(self) -> None:
         rendered: dict[str, str] = {}
         page = SimpleNamespace(

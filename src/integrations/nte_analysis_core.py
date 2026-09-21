@@ -100,6 +100,10 @@ class NteAnalysisCoreClient:
             self.supports_battle_page
             and capabilities is not None and "battle_page_identity_v1" in capabilities
         )
+        self.supports_topple_composition = (
+            self.supports_battle_page
+            and capabilities is not None and "battle_topple_composition_v1" in capabilities
+        )
         self.timeout = timeout
         self.cancelled = cancelled
         self._lock = threading.Lock()

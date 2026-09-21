@@ -39,11 +39,8 @@ from src.services.battle_buff_counterfactual_service import (
 from src.services.battle_passive_counterfactual_service import (
     PASSIVE_COUNTERFACTUAL_MODEL_VERSION,
 )
-from src.services.battle_timeline_time_service import (
-    ACTIVE_TIME_MODE,
-    projected_range_duration_us,
-    time_stop_overlap_us,
-)
+from src.services.battle_report_metrics import project_report_metrics
+
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 
 
@@ -470,75 +467,23 @@ class BattleReportPage(QWidget):
         self._source_analysis = analysis
         self._marginal_baseline_by_scope.clear()
         if self._latest_summary is not None:
-            raw_damage = max(0.0, float(self._latest_summary.total_damage))
-            overkill_correction = (
-                analysis.timeline_damage_correction_total
-                if analysis.axis_complete
-                else 0.0
-            )
-            max_hp_settlement = (
-                sum(
-                    max(0.0, float(event.effective_hp_loss))
-                    for event in getattr(analysis, "timeline_max_hp_events", ())
-                    if getattr(event, "included_in_effective_damage", True)
-                )
-            )
-            corrected_damage = max(
-                0.0,
-                raw_damage
-                - overkill_correction
-                + max_hp_settlement,
-            )
-            battle_start_us = int(getattr(analysis, "battle_start_us", 0))
-            intervals = tuple(getattr(analysis, "time_stop_intervals", ()))
-            partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
-            summary_duration_us = round(
-                self._latest_summary.duration_seconds * 1_000_000
-            )
-            observed_intervals = tuple(
-                getattr(analysis, "observed_time_stop_intervals", ())
-            )
-            if not observed_intervals and getattr(analysis, "time_stop_source_kind", "") == "nte_core":
-                observed_intervals = intervals
-            if (
-                observed_intervals
-                and getattr(
-                    self._latest_summary,
-                    "dps_time_mode",
-                    "subtract_time_stop",
-                )
-                == "subtract_time_stop"
-            ):
-                interval_end_us = max(
-                    (end_us or battle_start_us for _start_us, end_us in observed_intervals),
-                    default=battle_start_us,
-                )
-                summary_duration_us += time_stop_overlap_us(
-                    battle_start_us,
-                    max(int(analysis.battle_end_us), interval_end_us),
-                    observed_intervals,
-                )
-            raw_duration_us = max(
-                summary_duration_us,
-                int(analysis.battle_end_us) - battle_start_us,
-            )
-            active_duration_us = projected_range_duration_us(
-                battle_start_us,
-                battle_start_us + raw_duration_us,
-                intervals=() if partial_clock else intervals,
-                mode=ACTIVE_TIME_MODE,
-            )
-            duration = max(0.001, active_duration_us / 1_000_000.0)
-            real_duration = raw_duration_us / 1_000_000.0
-            self.metric_labels["damage"].setText(_format_number(corrected_damage))
-            self.metric_labels["dps"].setText(_format_number(corrected_damage / duration))
+            metrics = project_report_metrics(self._latest_summary, analysis)
+            for key, value in (("damage", metrics.damage), ("dps", metrics.dps),
+                               ("taken", metrics.damage_taken)):
+                if key in self.metric_labels:
+                    self.metric_labels[key].setText("—" if value is None else _format_number(value))
             self.metric_labels["duration"].setText(
-                f"{duration:.1f}s（{real_duration:.1f}s）"
+                f"{metrics.duration:.1f}s（{metrics.real_duration:.1f}s）"
             )
             subtitles = getattr(self, "metric_subtitles", {})
             if subtitles:
-                subtitles["dps"].setText("真实时间（时停证据不完整）" if partial_clock else "有效时间")
-                subtitles["duration"].setText("时停覆盖不完整，未扣时停" if partial_clock else "扣除停表（括号为真实时长）")
+                subtitles["dps"].setText("真实时间（时停证据不完整）" if metrics.partial_clock else "有效时间")
+                subtitles["duration"].setText("时停覆盖不完整，未扣时停" if metrics.partial_clock else "扣除停表（括号为真实时长）")
+                for key in ("damage", "taken"):
+                    if key in subtitles:
+                        subtitles[key].setText("当前范围已记录值（覆盖不完整）" if metrics.incomplete_scope else "当前分析范围")
+                if metrics.incomplete_scope:
+                    subtitles["dps"].setText("已记录伤害 / " + ("真实时间" if metrics.partial_clock else "有效时间"))
         self.long_analysis_view.set_analysis(
             analysis,
             selected_character_id=selected_character_id,
@@ -616,7 +561,13 @@ class BattleReportPage(QWidget):
         return self.marginal_page.disabled_inferred_fact_ids()
 
     def clear_analysis(self, message: str) -> None:
+        self._source_analysis = None
+        for label in self.metric_labels.values():
+            label.setText("—")
         self.long_analysis_view.clear(message)
+
+    def show_analysis_detail_error(self, message: str) -> None:
+        self.long_analysis_view.set_loading(message)
 
     def set_build_edit_state(
         self,
@@ -645,7 +596,7 @@ class BattleReportPage(QWidget):
             clock = summary_clock_label(summary.dps_time_mode)
             self.metric_subtitles["dps"].setText(clock)
             self.metric_subtitles["duration"].setText(clock)
-        self.metric_labels["taken"].setText(_format_number(summary.total_damage_taken))
+            self.metric_labels["taken"].setText(_format_number(summary.total_damage_taken))
         self.set_detail_scope(self._detail_scope)
         quality = summary.quality
         self.quality_label.setText(
@@ -654,4 +605,6 @@ class BattleReportPage(QWidget):
 
     def _select_detail_scope(self, mode: str) -> None:
         self._detail_scope = mode
+        for label in self.metric_labels.values():
+            label.setText("—")
         self.detail_scope_changed.emit(mode)

@@ -501,7 +501,7 @@ class BattleLongAnalysisView(
         if getattr(selected, "kind", None) != "hit":
             self._render_timeline_selection_detail(selected)
             return
-        if not analysis.hit_replays:
+        if not analysis.hit_replay_model_version:
             self.details_requested.emit("hit", selected)
             return
         self._render_timeline_selection_detail(selected)
@@ -513,7 +513,7 @@ class BattleLongAnalysisView(
         if kind == "buff" and analysis.buff_counterfactual_model_version:
             self.complete_analysis_details(kind, None)
             return
-        if kind == "hit" and analysis.hit_replays:
+        if kind == "hit" and analysis.hit_replay_model_version:
             self.complete_analysis_details(kind, None)
             return
         self.details_requested.emit(kind, None)

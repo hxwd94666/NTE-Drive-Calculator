@@ -14,6 +14,17 @@ from src.features.battle_report.analysis_view import BattleLongAnalysisView
 
 
 class BattleReportCompositionUiTests(unittest.TestCase):
+    def test_topple_only_results_do_not_claim_normal_hit_details_are_loaded(self) -> None:
+        view = BattleLongAnalysisView()
+        requests = []
+        view.details_requested.connect(lambda kind, payload: requests.append((kind, payload)))
+        view._analysis = SimpleNamespace(hit_replays=(object(),), hit_replay_model_version="")
+        selection = SimpleNamespace(kind="hit")
+        view._timeline_selection_activated(selection)
+        view._request_detailed_analysis("hit")
+        self.assertEqual([("hit", selection), ("hit", None)], requests)
+        view.close()
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])

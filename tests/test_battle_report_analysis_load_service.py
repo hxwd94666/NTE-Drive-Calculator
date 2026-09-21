@@ -432,7 +432,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         del host._latest_state
         self.assertTrue(host._analysis_request_is_current(request))
 
-    def test_composition_detail_reuses_hit_replay_load(self) -> None:
+    def test_composition_detail_requests_only_topple_replay(self) -> None:
         loop = QEventLoop()
         page = _AsyncPage(loop)
         host = self._host(page)
@@ -453,7 +453,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
             end_us=20,
             selected_character_id=None,
             detail_scope="first",
-            detail_level="hit",
+            detail_level="composition",
             completion_kind="composition",
             completion_payload=None,
         )
@@ -586,3 +586,17 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         host._analysis_load_failed(1, request, "boom")
 
         self.assertEqual([], page.cleared_messages)
+
+    def test_topple_failure_preserves_overview_and_reports_specific_error(self) -> None:
+        page = _AsyncPage(QEventLoop())
+        page.clear_analysis = Mock()
+        page.show_analysis_detail_error = Mock()
+        host = self._host(page)
+        request = SimpleNamespace(
+            load=BattleReportAnalysisLoadRequest(battle_record_id=12, detail_level="composition"),
+            account_id="test-account", generation=3,
+        )
+        host._desired_analysis_load_token = 1
+        host._analysis_load_failed(1, request, "组件能力缺失")
+        page.clear_analysis.assert_not_called()
+        page.show_analysis_detail_error.assert_called_once_with("倾陷归属未完成：组件能力缺失")
