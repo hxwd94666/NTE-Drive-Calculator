@@ -70,6 +70,8 @@ class AutoSyncController(QObject):
         if self.policy.allowed('native_sync'):
             if self._probe_context != self._context() or self._probe is None:
                 return 'checking_game'
+            if self._probe.native_load.files is False:
+                return 'waiting_game_exit' if self._probe.game_running else 'waiting_deployment'
             if not self._probe.game_running:
                 return 'waiting_game'
             if not (self._probe.core_available and self._probe.native_inventory.handshake):
@@ -193,6 +195,7 @@ class AutoSyncController(QObject):
         else:
             probe = self._probe
             ready = bool(self._probe_context == key and probe and probe.game_running
+                         and probe.native_load.files is not False
                          and probe.core_available and probe.native_inventory.handshake)
             identity = "native"
             if not ready:
@@ -351,6 +354,7 @@ class AutoSyncController(QObject):
         button.setToolTip(
             "停止当前同步连接并重新建立；用于同步异常或背包未更新。已保存数据不会删除。"
             if settings.auto_sync_enabled else
+            "开启后，进入游戏场景时自动读取并保存数据。" if native else
             "开启后，登录游戏时自动读取并保存数据。"
         )
         button.setEnabled(not self._stopping and (not battle or not settings.auto_sync_enabled))
@@ -370,15 +374,22 @@ class AutoSyncController(QObject):
             detail = "战报采集中，背包与角色刷新暂时等待，结束后自动恢复。"
         elif native and preparation == 'checking_game':
             detail = "正在检测游戏是否启动。已保存背包仍可用于计算。"
+        elif native and preparation == 'waiting_game_exit':
+            detail = "组件尚未完成部署或更新，请完全退出游戏，部署完成后再启动并进入游戏场景。"
+        elif native and preparation == 'waiting_deployment':
+            detail = "组件尚未完成部署或更新，请暂勿启动游戏；查看检测详情，完成部署后再启动并进入游戏场景。"
         elif native and preparation == 'waiting_game':
-            detail = "等待启动游戏；启动后自动同步背包与角色数据。"
+            detail = "等待启动游戏；请登录并进入游戏场景，等待背包与角色数据同步完成。"
         elif not native and self._process is None:
             detail = self._detail or "等待启动游戏；发现游戏后自动开始背包监听。"
         elif state is None or not service.is_running:
             detail = (state.message if state and state.phase == "error" else
-                      "等待游戏内组件就绪。" if native else self._detail or "正在准备背包监听。")
+                      "等待游戏内组件就绪；请进入游戏场景，等待同步完成。" if native else self._detail or "正在准备背包监听。")
         elif state.capturing and not state.source_snapshot_ready:
-            detail = "监听已就绪，等待登录背包数据；当前显示的仍是上次保存的背包。"
+            detail = (
+                state.message + "\n请进入游戏场景，等待同步完成；当前显示的仍是上次保存的背包。" if native else
+                "抓包监听已就绪，请登录游戏以获取完整背包；当前显示的仍是上次保存的背包。"
+            )
         if detail is not None:
             self.window.home_sync_detail.setText(detail)
         badge = getattr(self.window, "home_sync_badge", None)
@@ -395,6 +406,10 @@ class AutoSyncController(QObject):
                 title, tone = "等待战报结束", "warning"
             elif native and preparation == 'checking_game':
                 title, tone = "检测游戏", "active"
+            elif native and preparation == 'waiting_game_exit':
+                title, tone = "等待退出游戏", "warning"
+            elif native and preparation == 'waiting_deployment':
+                title, tone = "等待部署", "warning"
             elif native and preparation == 'waiting_game':
                 title, tone = "等待游戏", "warning"
             elif not native and self._process is None:

@@ -523,7 +523,7 @@ def _save_warehouse_state_changes(self):
         return
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None or not sync_service.is_running:
-        show_input_unavailable(self, "保存仓库状态", "尚未建立可用的游戏装备连接，请检测组件并等待游戏登录。")
+        show_input_unavailable(self, "保存仓库状态", "游戏装备连接尚未就绪，请查看检测详情；需部署组件时先完全退出游戏，部署完成后再启动并进入游戏场景。")
         return
     service = WarehouseStateManagementService(
         self.app_context.account.user_database_path,
@@ -620,7 +620,7 @@ def _open_warehouse_state_manager(self):
         return
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None or not sync_service.is_running:
-        show_input_unavailable(self, "仓库状态管理", "尚未建立可用的游戏装备连接，请检测组件并等待游戏登录。")
+        show_input_unavailable(self, "仓库状态管理", "游戏装备连接尚未就绪，请查看检测详情；需部署组件时先完全退出游戏，部署完成后再启动并进入游戏场景。")
         return
     service = WarehouseStateManagementService(
         account.user_database_path,
@@ -723,7 +723,7 @@ def _on_warehouse_state_applied(self, result):
     )
     if getattr(result, "inventory_reduction_observed", False):
         result_message += (
-            "\n\n检测到库存减少；如游戏内未分解库存，请重新在游戏登录页面背包同步。"
+            "\n\n检测到库存减少；如游戏内未分解库存，请在工作台点击“重启同步”，等待完整背包读取完成。"
         )
     if getattr(result, "verified", False) and not getattr(result, "inventory_reduction_observed", False):
         result_message += (

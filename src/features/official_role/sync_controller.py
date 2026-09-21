@@ -118,7 +118,7 @@ class CharacterProfileSyncController(QObject):
             self._operation_unavailable(
                 '同步状态',
                 '游戏连接已暂停，程序暂时无法读取角色状态。\n\n'
-                '请先在设置中重新确认工作模式，再到工作台开启“自动同步”并登录游戏。',
+                '请先在设置中重新确认工作模式，再到工作台开启“自动同步”，登录并进入游戏场景。',
                 'detection',
             )
             return
@@ -128,7 +128,7 @@ class CharacterProfileSyncController(QObject):
                 '当前没有正在运行的游戏数据同步，程序暂时无法读取角色状态。\n\n'
                 '请先：\n'
                 '1. 在工作台开启“自动同步”；\n'
-                '2. 启动并登录游戏；\n'
+                '2. 登录并进入游戏场景；\n'
                 '3. 等待工作台显示“同步中”，再返回点击“同步状态”。',
                 'home',
             )

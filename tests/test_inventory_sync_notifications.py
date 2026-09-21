@@ -334,3 +334,31 @@ def test_automatic_permission_is_rechecked_by_frozen_service_guard(notification_
     window.work_mode_service.allowed = lambda _cap, **kwargs: not kwargs.get("automatic")
     with pytest.raises(PermissionError):
         guard("packet_capture")
+
+
+@pytest.mark.parametrize("source", ["native", "packet"])
+def test_sync_error_source_reaches_both_manual_guidance_and_home(notification_window, source):
+    from PySide6.QtWidgets import QLabel
+    app, window, _accepted = notification_window
+    window._stop_inventory_sync()
+    window.work_mode_service.allowed = lambda cap, **kwargs: cap == (
+        "native_sync" if source == "native" else "packet_capture"
+    )
+    window.native_game_session = SimpleNamespace(inventory_client=lambda: object())
+    prompts = []
+    window.operation_unavailable = lambda *args, **kwargs: prompts.append(args)
+    window.auto_sync_controller = SimpleNamespace(inventory_state_changed=lambda _state: None, render=lambda: None)
+    window.home_sync_badge = QLabel(window)
+    window.home_sync_detail = QLabel(window)
+    window._start_inventory_sync()
+    window._inventory_sync_service.handlers[0](InventorySyncState(
+        phase="error", error="游戏未运行", error_code="GAME_PROCESS_NOT_FOUND", capture_source=source,
+    ))
+    app.processEvents()
+    assert len(prompts) == 1
+    for text in (prompts[0][1], window.home_sync_detail.text()):
+        if source == "native":
+            assert "完全退出游戏" in text
+            assert "登录页" not in text
+        else:
+            assert "待抓包监听就绪后再登录" in text

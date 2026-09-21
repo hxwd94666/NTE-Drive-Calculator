@@ -185,9 +185,9 @@ def test_native_retry_without_game_tracks_waiting_and_component_readiness(owner,
         setattr(window, name, QLabel(window))
     c.open_restart()
     view = c._dialog
-    assert '请先退回游戏登录界面' in view.detail.text()
+    assert '完全退出游戏' in view.detail.text()
     c.observe_probe(WorkModeProbe(game_running=False))
-    assert '请先退回游戏登录界面' in view.detail.text()
+    assert '完全退出游戏' in view.detail.text()
     view.begin.click()
     assert not starts
     assert '等待启动游戏' in view.detail.text()
@@ -211,6 +211,48 @@ def test_native_retry_without_game_tracks_waiting_and_component_readiness(owner,
     assert len(starts) == 1
     assert '等待启动游戏' not in view.detail.text()
     assert '等待同步组件就绪' not in view.detail.text()
+
+
+@pytest.mark.parametrize('mode', ['medium', 'developer'])
+def test_native_retry_requires_exit_before_deployment_then_waits_for_game(owner, mode):
+    from PySide6.QtWidgets import QCheckBox, QLabel, QPushButton
+    c, window, policy, starts, _jobs, _watchers, _app = owner
+    policy.select_mode(mode, risk_confirmed=True)
+    c.refresh()
+    window.home_auto_sync_toggle = QCheckBox(window)
+    window.home_restart_sync_button = QPushButton(window)
+    for name in ('home_sync_source_label', 'home_sync_action_hint', 'home_sync_detail', 'home_sync_badge'):
+        setattr(window, name, QLabel(window))
+    c.open_restart()
+    view = c._dialog
+    view.begin.click()
+    for running, expected in ((True, 'waiting_game_exit'), (False, 'waiting_deployment')):
+        c.observe_probe(WorkModeProbe(
+            game_running=running, core_available=True,
+            native_load=NativeFeatureProbe(files=False),
+            native_inventory=NativeFeatureProbe(handshake=True),
+        ))
+        assert c.preparation_state == expected
+        assert not starts
+        assert '登录界面' not in view.detail.text()
+        if running:
+            assert '完全退出游戏' in view.detail.text()
+            assert '完全退出游戏' in window.home_sync_detail.text()
+            assert window.home_sync_badge.text() == '等待退出游戏'
+        else:
+            assert '暂勿启动游戏' in view.detail.text()
+            assert '暂勿启动游戏' in window.home_sync_detail.text()
+    c.observe_probe(WorkModeProbe(
+        game_running=False, core_available=True, native_load=NativeFeatureProbe(files=True),
+    ))
+    assert c.preparation_state == 'waiting_game'
+    assert '等待启动游戏' in view.detail.text()
+    assert not starts
+    c.observe_probe(WorkModeProbe(
+        game_running=True, core_available=True, native_load=NativeFeatureProbe(files=True),
+        native_inventory=NativeFeatureProbe(handshake=True),
+    ))
+    assert len(starts) == 1
 
 
 def test_cancel_restart_prevents_queued_start_without_disabling_preference(owner):
@@ -379,9 +421,40 @@ def test_home_sync_help_keeps_usage_steps_and_mode_boundaries():
     expected = (
         "1. 开启“自动同步”。\n"
         "2. 启动并登录游戏，程序会自动读取并保存数据。\n"
-        "3. 游戏运行时无法同步，需要退回登录界面重新登录。\n\n"
+        "3. 若未收到完整背包，点击“重启同步”，按提示返回登录页，待抓包监听就绪后重新登录。\n\n"
         "同步功能使用后，无需再使用扫描模式获取数据！！！"
     )
     assert low == expected
-    assert native == expected
-    assert offline == expected
+    assert '完全退出游戏' in native
+    assert '部署完成后' in native
+    assert '游戏场景' in native
+    assert '退回登录界面' not in native
+    assert _home_sync_help_text('developer') == native
+    assert '离线模式不连接游戏' in offline
+    assert '登录界面' not in offline and '登录页' not in offline
+
+
+@pytest.mark.parametrize('mode', ['medium', 'developer'])
+def test_native_home_waiting_preserves_data_reason_without_login_instructions(owner, mode):
+    from PySide6.QtWidgets import QCheckBox, QLabel, QPushButton
+    from src.services.inventory_sync_service import InventorySyncState
+    c, window, policy, _starts, _jobs, _watchers, _app = owner
+    policy.select_mode(mode, risk_confirmed=True)
+    c.refresh()
+    c.observe_probe(WorkModeProbe(
+        game_running=True, core_available=True, native_load=NativeFeatureProbe(files=True),
+        native_inventory=NativeFeatureProbe(handshake=True),
+    ))
+    window.home_auto_sync_toggle = QCheckBox(window)
+    window.home_restart_sync_button = QPushButton(window)
+    for name in ('home_sync_source_label', 'home_sync_action_hint', 'home_sync_detail', 'home_sync_badge'):
+        setattr(window, name, QLabel(window))
+    message = '正在等待游戏提供完整的同步数据。'
+    window._inventory_sync_service.state = InventorySyncState(
+        phase='waiting', capturing=True, capture_source='native', message=message,
+    )
+    c.render()
+    assert message in window.home_sync_detail.text()
+    assert '游戏场景' in window.home_sync_detail.text()
+    assert '等待登录背包' not in window.home_sync_detail.text()
+    assert '登录界面' not in window.home_sync_detail.text()

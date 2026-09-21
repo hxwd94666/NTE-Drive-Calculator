@@ -175,7 +175,7 @@ def _start_nte_core_equipment_apply(
         return
     sync = getattr(self, "_inventory_sync_service", None)
     if sync is None or not sync.is_running:
-        show_input_unavailable(self, "极速装配", "尚未建立可用的游戏装备连接，请检测组件并等待游戏登录。")
+        show_input_unavailable(self, "极速装配", "游戏装备连接尚未就绪，请查看检测详情；需部署组件时先完全退出游戏，部署完成后再启动并进入游戏场景。")
         return
     current_worker = getattr(self, "_equipment_apply_worker", None)
     if current_worker is not None and current_worker.isRunning():
@@ -273,9 +273,9 @@ def _start_nte_core_equipment_apply(
                     f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n"
                     f"{reason}\n\n"
                     "请先确认：\n"
-                    "1. 已在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
+                    "1. 先完全退出游戏，再在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
                     "原生采集组件；\n"
-                    "2. 游戏保持登录，随后从首页重新启动背包同步并等待“后台监听”；\n"
+                    "2. 部署完成后启动游戏并进入游戏场景，从工作台重启同步，等待“持续监听”；\n"
                     "3. 完成上述检查后，再点击右上角“极速装配”重新执行。\n\n"
                     f"此前已确认 {len(applied)} 个角色；任务日志已保存。此次不会立即重试。",
                 )

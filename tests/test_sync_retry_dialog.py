@@ -104,13 +104,43 @@ def test_battle_started_after_opening_guide_prevents_restart(dialog):
     assert not c.starts and "先结束战报" in view.detail.text()
 
 
-def test_native_retry_uses_the_same_login_guidance(dialog):
+def test_native_retry_separates_deployment_from_login_guidance(dialog):
     _view, c, _app = dialog
     native = SyncRetryDialog(c.window, controller=c, native=True)
-    assert "登录界面" in native.detail.text()
+    assert "完全退出游戏" in native.detail.text()
+    assert "部署完成" in native.detail.text()
+    assert "游戏场景" in native.detail.text()
     native.begin.click()
     c.state_changed.emit(InventorySyncState(phase="waiting", capturing=True, message="等待组件"))
-    assert "登录界面" in native.detail.text()
+    assert "等待组件" in native.detail.text()
+    assert "游戏场景" in native.detail.text()
     c.state_changed.emit(InventorySyncState(phase="listening", source_snapshot_ready=True))
     assert "同步完成" in native.detail.text()
+    dispose(native)
+
+
+@pytest.mark.parametrize("preparation", ["checking_game", "waiting_game", "waiting_component"])
+def test_native_preparation_does_not_require_waiting_at_login(dialog, preparation):
+    _view, c, _app = dialog
+    native = SyncRetryDialog(c.window, controller=c, native=True)
+    native.begin.click()
+    c.preparation_state = preparation
+    c.preparation_changed.emit(preparation)
+    assert "登录界面" not in native.detail.text()
+    assert "登录页" not in native.detail.text()
+    dispose(native)
+
+
+@pytest.mark.parametrize('phase', ['starting', 'waiting'])
+def test_native_waiting_for_full_data_does_not_append_login_page_instruction(dialog, phase):
+    _view, c, _app = dialog
+    native = SyncRetryDialog(c.window, controller=c, native=True)
+    native.begin.click()
+    message = '正在等待游戏提供完整的同步数据。'
+    c.state_changed.emit(InventorySyncState(
+        phase=phase, capture_source='native', capturing=True, message=message,
+    ))
+    assert message in native.detail.text()
+    assert "游戏场景" in native.detail.text()
+    assert "保持在登录界面" not in native.detail.text()
     dispose(native)

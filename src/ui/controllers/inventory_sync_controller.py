@@ -225,7 +225,9 @@ def _on_inventory_sync_state(self, notification):
         callback = getattr(self, "operation_unavailable", None)
         if callback is not None:
             native_component_gap = state.error_code in {"NATIVE_MAPPING_UNSUPPORTED", "NATIVE_CAPABILITY_MISSING"}
-            detail = state.error if native_component_gap else inventory_sync_error_guidance(state.error_code, state.error)
+            detail = state.error if native_component_gap else inventory_sync_error_guidance(
+                state.error_code, state.error, capture_source=state.capture_source,
+            )
             callback("背包同步", detail, target="deployment" if native_component_gap else "detection")
     # Guidance may navigate and process queued account changes before returning.
     if (notification.service is not self._inventory_sync_service
@@ -245,7 +247,7 @@ def _on_inventory_sync_state(self, notification):
         "saving":"active","listening":"success","error":"error","stopped":"neutral",
     }.get(state.phase,"neutral")
     label={
-        "starting":"启动中","waiting":"等待进入游戏","collecting":"接收中",
+        "starting":"启动中","waiting":"等待同步数据" if state.capture_source == "native" else "等待进入游戏","collecting":"接收中",
         "saving":"保存中","listening":"后台监听","error":"同步异常","stopped":"已停止",
     }.get(state.phase,state.phase)
     set_status_badge(self.home_sync_badge,label,tone)
@@ -255,7 +257,7 @@ def _on_inventory_sync_state(self, notification):
     if state.pending_item_count is not None:
         detail+=f" · 当前 {state.pending_item_count} 件"
     if state.error:
-        detail+=f"\n\n{inventory_sync_error_guidance(state.error_code, state.error)}"
+        detail+=f"\n\n{inventory_sync_error_guidance(state.error_code, state.error, capture_source=state.capture_source)}"
         detail+=f"\n\n技术详情：{state.error}"
     self.home_sync_detail.setText(detail)
     self.auto_sync_controller.inventory_state_changed(state)

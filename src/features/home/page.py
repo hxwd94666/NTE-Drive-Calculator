@@ -33,7 +33,7 @@ _SYNC_ERROR_GUIDANCE = {
         "处理：点击“环境配置”，在 Npcap 区下载并安装 Npcap 1.88；安装完成后重新启动背包同步。"
     ),
     "GAME_PROCESS_NOT_FOUND": (
-        "原因：未检测到正在运行的游戏进程。\n处理：先启动游戏并停留在登录页，再重新启动背包同步。"
+        "原因：未检测到正在运行的游戏进程。\n处理：请查看检测详情，确认组件与游戏状态后重新同步。"
     ),
     "CAPTURE_DEVICE_NOT_FOUND": (
         "原因：设置的抓包网卡不存在，或当前没有可用于游戏连接的网卡。\n"
@@ -54,7 +54,7 @@ _SYNC_ERROR_GUIDANCE = {
         "原因：本程序与 nte-core 的初始化握手未完成。\n处理：重启本程序；仍失败时重新安装完整发布包。"
     ),
     "INVENTORY_NOT_READY": (
-        "原因：尚未捕获到完整背包数据。\n处理：请从游戏登录页启动同步后再进入游戏，并等待背包数量稳定。"
+        "原因：尚未收到完整背包数据。\n处理：请查看检测详情，按当前同步来源的提示完成准备。"
     ),
     "NteCoreNotFoundError": ("原因：程序目录中缺少 nte-core.exe。\n处理：重新安装完整发布包，不要单独复制主程序运行。"),
     "NteCoreTimeoutError": (
@@ -113,9 +113,26 @@ _SYNC_ERROR_GUIDANCE = {
 _WORKBENCH_VERSION = ".".join(APP_VERSION.split(".")[:2])
 
 
-def inventory_sync_error_guidance(error_code: str | None, error: str | None) -> str:
+def inventory_sync_error_guidance(error_code: str | None, error: str | None, *, capture_source: str) -> str:
     """Translate sync failures into concrete user actions while retaining diagnostics."""
     code = str(error_code or "").strip()
+    if code == "GAME_PROCESS_NOT_FOUND":
+        if capture_source == "native":
+            return (
+                "原因：未检测到正在运行的游戏进程。\n"
+                "处理：如需部署或更新组件，请完全退出游戏并完成部署，再启动游戏；"
+                "组件已部署后，请登录并进入游戏场景，等待同步完成。"
+            )
+        if capture_source == "packet":
+            return "原因：未检测到正在运行的游戏进程。\n处理：先启动游戏并停留在登录页，待抓包监听就绪后再登录。"
+    if code == "INVENTORY_NOT_READY":
+        if capture_source == "native":
+            return (
+                "原因：尚未读取到完整背包数据。\n"
+                "处理：请登录并进入游戏场景，等待完整数据同步；已进入时请稍候，长时间未恢复请查看检测详情或重启同步。"
+            )
+        if capture_source == "packet":
+            return "原因：尚未捕获到完整背包数据。\n处理：请返回登录页，待抓包监听就绪后重新登录，并等待背包数量稳定。"
     if code in _SYNC_ERROR_GUIDANCE:
         return _SYNC_ERROR_GUIDANCE[code]
     detail = str(error or "").lower()
@@ -154,11 +171,19 @@ def _section(title: str, description: str = "") -> tuple[QFrame, QVBoxLayout]:
 def _home_sync_help_text(mode: str) -> str:
     """Return the product-approved synchronization instructions."""
 
-    del mode
+    if mode == "offline":
+        return "离线模式不连接游戏，使用已保存数据。需要同步时，请先到设置中选择并确认工作模式。"
+    if mode in {"medium", "developer"}:
+        return (
+            "1. 如需部署或更新组件，请先完全退出游戏，等待部署完成后再启动。\n"
+            "2. 开启“自动同步”，登录并进入游戏场景，等待程序读取并保存背包与角色数据。\n"
+            "3. 同步异常或数据未更新时，点击“重启同步”；组件长时间未就绪时查看“检测详情”。\n\n"
+            "同步功能使用后，无需再使用扫描模式获取数据！！！"
+        )
     return (
         "1. 开启“自动同步”。\n"
         "2. 启动并登录游戏，程序会自动读取并保存数据。\n"
-        "3. 游戏运行时无法同步，需要退回登录界面重新登录。\n\n"
+        "3. 若未收到完整背包，点击“重启同步”，按提示返回登录页，待抓包监听就绪后重新登录。\n\n"
         "同步功能使用后，无需再使用扫描模式获取数据！！！"
     )
 

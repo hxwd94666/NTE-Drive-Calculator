@@ -1,4 +1,4 @@
-# 引导用户在登录前重新建立背包监听，区分准备、就绪与同步完成。
+# 按同步来源引导重连，区分组件部署、抓包准备、就绪与同步完成。
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
@@ -16,9 +16,15 @@ class SyncRetryDialog(QDialog):
         self.setWindowTitle("重启游戏数据同步" if native else "重启背包同步")
         layout = QVBoxLayout(self)
         self.detail = QLabel(
-            "同步异常或数据未更新时，可在这里重新建立同步连接。\n\n"
-            "请先退回游戏登录界面，再点击“开始重启同步”；"
-            "等待准备完成后，重新登录游戏。",
+            (
+                "同步异常或数据未更新时，可在这里重新建立同步连接。\n\n"
+                "如需部署或更新组件，请先完全退出游戏，部署完成后再启动游戏。"
+                "请登录并进入游戏场景，再点击“开始重启同步”，等待同步完成。"
+            ) if native else (
+                "同步异常或数据未更新时，可在这里重新建立同步连接。\n\n"
+                "请先退回游戏登录界面，再点击“开始重启同步”；"
+                "等待准备完成后，重新登录游戏。"
+            ),
             self,
         )
         self.detail.setWordWrap(True)
@@ -58,9 +64,17 @@ class SyncRetryDialog(QDialog):
             self.begin.setText("开始重启同步")
             return
         messages = {
-            'checking_game': "正在检查游戏状态，请保持在登录界面。",
-            'waiting_game': "等待启动游戏。启动后请先停留在登录界面，准备完成后再登录。",
-            'waiting_component': "已检测到游戏，正在等待同步组件就绪，请保持在登录界面。",
+            'checking_game': (
+                "正在检查游戏状态与组件部署情况。" if self.native
+                else "正在检查游戏状态，请保持在登录界面。"
+            ),
+            'waiting_game_exit': "组件尚未完成部署或更新。请完全退出游戏，部署完成后再启动，并进入游戏场景。",
+            'waiting_deployment': "组件尚未完成部署或更新，请暂勿启动游戏。请查看检测详情，完成部署后再启动，并进入游戏场景。",
+            'waiting_game': (
+                "等待启动游戏。请登录并进入游戏场景，程序将自动同步背包与角色数据。" if self.native
+                else "等待启动游戏。启动后请先停留在登录界面，准备完成后再登录。"
+            ),
+            'waiting_component': "已检测到游戏，正在等待同步组件就绪。请进入游戏场景；若长时间未就绪，请查看检测详情。",
             'stopping': "正在结束原同步连接，随后会自动重新建立。",
         }
         if preparation in messages:
@@ -74,7 +88,7 @@ class SyncRetryDialog(QDialog):
             if service is not None:
                 self.update_state(service.state)
             else:
-                self.detail.setText("正在准备读取背包与角色数据。" if self.native else "正在准备监听，请暂时停留在登录页。")
+                self.detail.setText("正在准备读取背包与角色数据。请进入游戏场景，等待同步完成。" if self.native else "正在准备监听，请暂时停留在登录页。")
 
     def update_state(self, state):
         if not self._begun or self._invalid:
@@ -102,7 +116,10 @@ class SyncRetryDialog(QDialog):
             self.detail.setText("同步连接已准备完成，现在请重新登录游戏。\n\n数据读取和保存完成后，会继续后台监听。")
             self.dismiss.setText("关闭")
         else:
-            self.detail.setText(state.message + "\n\n请保持在登录界面，等待准备完成。")
+            self.detail.setText(
+                state.message + "\n\n请进入游戏场景，等待同步完成。" if self.native
+                else state.message + "\n\n请保持在登录界面，等待准备完成。"
+            )
 
     def context_changed(self):
         self._invalid = True
