@@ -47,6 +47,7 @@ from src.storage.sqlite.static_catalog_character_queries import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.equipment_presentation import EquipmentPresentation
+from src.integrations.role_catalog_release import RoleCatalogRelease
 
 
 InventorySnapshotLoader = Callable[[], tuple[str, int, Mapping[str, Any]]]
@@ -71,22 +72,25 @@ def _close_owned_components(
 
 def build_static_catalog_providers(
     database_path: str | Path,
+    *, role_catalog: RoleCatalogRelease | None = None,
 ) -> tuple[StaticCatalogProvider, ...]:
     """Build each narrow provider against one immutable release database path."""
 
     path = Path(database_path).resolve()
-    manifest_path = path.with_name("manifest.json")
-    terminology_dao = StaticGameDataDao(path)
+    reference_path = role_catalog.database_path if role_catalog and role_catalog.scope == "reference" else path
+    terminology_dao = StaticGameDataDao(reference_path)
     terminology = StaticCatalogTerminologyService(terminology_dao)
     providers: list[StaticCatalogProvider] = []
     try:
-        overview = StaticCatalogOverviewProvider(str(path))
-        character = CharacterCatalogProvider(path)
-        fork = ForkCatalogProvider(path)
+        overview = StaticCatalogOverviewProvider(str(reference_path))
+        role_path = role_catalog.database_path if role_catalog else path
+        character = CharacterCatalogProvider(role_path)
+        fork = ForkCatalogProvider(role_path)
         providers.extend((overview, character, fork))
         misc_items: list[StaticCatalogProvider] = []
         for key in ("equipment", "skills", "effects", "assets", "sources"):
-            provider = StaticCatalogMiscProvider(path, manifest_path, domain_key=key)
+            domain_path = path if key == "effects" else reference_path
+            provider = StaticCatalogMiscProvider(domain_path, domain_path.with_name("manifest.json"), domain_key=key)
             misc_items.append(provider)
             providers.append(provider)
         misc = tuple(misc_items)
@@ -94,7 +98,7 @@ def build_static_catalog_providers(
         counterfactual = StaticCatalogCounterfactualProvider(path)
         providers.extend((formula, counterfactual))
         monster_provider = StaticCatalogMonsterProvider(
-            path,
+            reference_path,
             terminology_service=terminology,
             close_callbacks=(terminology_dao.close,),
         )
@@ -125,21 +129,26 @@ def build_static_catalog_domain_pages(
     equipment_presentation: EquipmentPresentation,
     equipment_inventory_loader: InventorySnapshotLoader | None = None,
     open_catalog_link: Callable[[Any], None] | None = None,
+    role_catalog: RoleCatalogRelease | None = None,
 ) -> tuple[StaticCatalogDomainPageSpec, ...]:
     """Build owned UI registrations without exposing DAO lifetime to MainWindow."""
 
     path = Path(database_path).resolve()
+    reference_path = role_catalog.database_path if role_catalog and role_catalog.scope == "reference" else path
     terminology_dao = StaticGameDataDao(path)
     terminology = StaticCatalogTerminologyService(terminology_dao)
+    role_path = role_catalog.database_path if role_catalog else path
+    role_terminology_dao = StaticGameDataDao(role_path) if role_catalog else None
+    role_terminology = StaticCatalogTerminologyService(role_terminology_dao) if role_terminology_dao else terminology
     queries: StaticCatalogCharacterQueries | None = None
     monster_service: StaticCatalogMonsterService | None = None
     try:
-        queries = StaticCatalogCharacterQueries(path)
+        queries = StaticCatalogCharacterQueries(role_path)
         service = StaticCatalogCharacterService(queries)
-        release_metadata = CharacterReleaseMetadataService(queries, terminology)
+        release_metadata = CharacterReleaseMetadataService(queries, role_terminology)
         monster_service = StaticCatalogMonsterService.from_database(
-            path,
-            terminology_service=terminology,
+            reference_path,
+            terminology_service=role_terminology if reference_path != path else terminology,
         )
     except Exception:
         if monster_service is not None:
@@ -147,6 +156,8 @@ def build_static_catalog_domain_pages(
         if queries is not None:
             queries.close()
         terminology_dao.close()
+        if role_terminology_dao is not None:
+            role_terminology_dao.close()
         raise
     assert queries is not None
     assert monster_service is not None
@@ -154,24 +165,28 @@ def build_static_catalog_domain_pages(
     equipment_pages: list[EquipmentCatalogPage] = []
     mechanics_pages: list[CombatMechanicsCatalogPage] = []
     asset_root = Path(game_ui_asset_root).resolve()
+    role_asset_root = role_catalog.asset_root if role_catalog else asset_root
+    reference_asset_root = role_asset_root if reference_path != path else asset_root
 
     def build_character_page(parent):
         return build_character_catalog_page(
             service=service,
             release_metadata_service=release_metadata,
-            game_ui_asset_root=asset_root,
-            terminology_service=terminology,
+            game_ui_asset_root=role_asset_root,
+            terminology_service=role_terminology,
             parent=parent,
         )
 
     def close_character_pages() -> None:
         queries.close()
+        if role_terminology_dao is not None:
+            role_terminology_dao.close()
 
     def build_fork_page(parent):
         page = build_fork_catalog_page(
-            database_path=path,
-            game_ui_asset_root=asset_root,
-            terminology_service=terminology,
+            database_path=role_path,
+            game_ui_asset_root=role_asset_root,
+            terminology_service=role_terminology,
             parent=parent,
         )
         fork_pages.append(page)
@@ -195,10 +210,10 @@ def build_static_catalog_domain_pages(
 
     def build_equipment_page(parent):
         page = build_equipment_catalog_page(
-            database_path=path,
-            game_ui_asset_root=asset_root,
+            database_path=reference_path,
+            game_ui_asset_root=reference_asset_root,
             presentation=equipment_presentation,
-            terminology_service=terminology,
+            terminology_service=role_terminology if reference_path != path else terminology,
             parent=parent,
         )
         try:
@@ -271,8 +286,8 @@ def build_static_catalog_domain_pages(
         title="怪物与玩法",
         build=lambda parent: build_monster_catalog_page(
             service=monster_service,
-            terminology_service=terminology,
-            game_ui_asset_root=asset_root,
+            terminology_service=role_terminology if reference_path != path else terminology,
+            game_ui_asset_root=reference_asset_root,
             parent=parent,
         ),
         close=monster_service.close,

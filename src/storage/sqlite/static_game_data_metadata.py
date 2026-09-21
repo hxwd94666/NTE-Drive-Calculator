@@ -1,8 +1,8 @@
 # 静态游戏数据库版本与摘要表清单。
 """Shared metadata for the normalized static game database."""
 
-SCHEMA_VERSION = 32
-MINIMUM_SUPPORTED_SCHEMA_VERSION = SCHEMA_VERSION - 1
+SCHEMA_VERSION = 35
+MINIMUM_SUPPORTED_SCHEMA_VERSION = 31
 
 SUMMARY_TABLES = (
     "source_file",
@@ -27,6 +27,7 @@ SUMMARY_TABLES = (
     "character_exp_material",
     "character_exp_material_cost",
     "character_skill",
+    "catalog_character_passive",
     "character_skill_level",
     "skill_damage",
     "skill_damage_modifier",
@@ -112,6 +113,7 @@ SUMMARY_TABLES = (
     "clone_spawn_member",
     "monster_template_binding",
     "outer_realm_rotation",
+    "catalog_outer_realm_season",
     "high_risk_commission",
     "high_risk_commission_difficulty",
     "high_risk_monster_pool_member",

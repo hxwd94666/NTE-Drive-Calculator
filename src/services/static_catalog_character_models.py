@@ -259,8 +259,9 @@ class CharacterSkill:
 class CharacterPassive:
     ability_id: str
     name_zh: str | None
-    unlock_stage: int
+    unlock_stage: int | None
     descriptions: tuple[SkillDescription, ...]
+    ability_type: str = "Passive"
 
 
 @dataclass(frozen=True, slots=True)

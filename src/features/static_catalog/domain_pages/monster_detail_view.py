@@ -189,14 +189,14 @@ class MonsterDetailView(QWidget):
             value for value in (options.values if options else ())
             if "路径" not in value.label and "资源" not in value.label
         )
-        if not values:
+        if options is None or (not values and not options.note):
             return
         heading = {
             "魔女赐福": "战前赐福选择",
             "轨外赛季 Buff": "本期赛季规则",
         }.get(options.title, "场景增益 / 限制")
         self.body.addWidget(section_title(
-            heading, f"{len(values)} 项规则，效果说明直接在当前页面展开",
+            heading, f"{len(values)} 项规则，效果说明直接在当前页面展开" if values else "正式效果说明",
         ))
         if options.note:
             description = QLabel(options.note, self.host)
@@ -206,6 +206,8 @@ class MonsterDetailView(QWidget):
                 "border-radius:10px;padding:9px;font-size:10px"
             ))
             self.body.addWidget(description)
+        if not values:
+            return
         preview = QWidget(self.host)
         preview_grid = QGridLayout(preview)
         preview_grid.setContentsMargins(0, 0, 0, 0)

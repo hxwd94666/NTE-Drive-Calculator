@@ -1,0 +1,17 @@
+{
+  "format_version": 1,
+  "catalog_scope": "reference",
+  "database": {
+    "filename": "game_static.sqlite3",
+    "dataset_id": "cn_1_4_2_catalog_skills_20260920_431223b",
+    "schema_version": 35,
+    "size_bytes": 29487104,
+    "sha256": "3156FE59EF9B627ED14A82A4CE76D814F45ECF6F18DBC894A5C512320338C15B",
+    "generated_at_utc": "2026-09-20T14:19:40+00:00",
+    "source_payloads_omitted": true
+  },
+  "build_tool": {
+    "path": "tools/game_data/build_reference_catalog.py",
+    "importer_version": 45
+  }
+}

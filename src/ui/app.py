@@ -351,7 +351,12 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             StaticCatalogService(
                 static_database_path=self.app_context.paths.static_database_path,
                 providers=build_static_catalog_providers(
-                    self.app_context.paths.static_database_path
+                    self.app_context.paths.static_database_path,
+                    role_catalog=self.app_context.paths.role_catalog,
+                ),
+                domain_database_paths=(
+                    {key: self.app_context.paths.role_catalog.database_path for key in self.app_context.paths.role_catalog.catalog_domains}
+                    if self.app_context.paths.role_catalog else None
                 ),
             )
         )
@@ -361,6 +366,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 self.app_context.paths.static_database_path,
                 self.app_context.paths.asset_dir / "game_ui",
                 equipment_presentation=self.equipment_presentation,
+                role_catalog=self.app_context.paths.role_catalog,
                 equipment_inventory_loader=self._load_static_catalog_inventory,
                 open_catalog_link=lambda link: (
                     self.static_catalog_page.open_catalog_link(link)

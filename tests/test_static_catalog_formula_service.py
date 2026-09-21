@@ -33,6 +33,19 @@ def evidence_snapshot() -> StaticFormulaEvidenceSnapshot:
 
 
 class StaticCatalogFormulaServiceTests(unittest.TestCase):
+    def test_weave_explains_copy_split_without_claiming_runtime_order(self) -> None:
+        domain = StaticCatalogFormulaService.from_snapshot(evidence_snapshot())
+        weave = next(row for row in domain.formulas if row.key == "weave_followup")
+        self.assertEqual(
+            "Weave = ActualDamage × [(C+L)×(1+P)×R + clamp(R-1,0,100)] × F",
+            weave.expression,
+        )
+        self.assertIn("(20% + 10%) × (1 + 10%) = 33%", str(weave.variables))
+        self.assertIn("否则各 0%", str(weave.variables))
+        self.assertIn("非已独立确认的游戏结算顺序", str(weave.limitations))
+        self.assertIn("P 只乘复制部分", str(weave.limitations))
+        self.assertEqual("project_rule", weave.boundary)
+
     def test_catalog_covers_every_required_formula_zone(self) -> None:
         domain = StaticCatalogFormulaService.from_snapshot(evidence_snapshot())
 

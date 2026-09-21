@@ -42,11 +42,7 @@ from src.services.static_catalog_terminology_service import (
 _MARKUP = re.compile(r"<[^>]+>")
 _PLACEHOLDER = re.compile(r"\{(\d+)\}")
 _HAN_CHARACTER = re.compile(r"[\u3400-\u9fff]")
-_PRIMARY_INPUTS = {
-    "Ability.Melee": "A",
-    "Ability.Skill": "E",
-    "Ability.UltraSkill": "Q",
-}
+_PRIMARY_ORDER = {1: "A", 2: "E", 3: "Q", 4: "QTE"}
 _SLOT_LABELS = {
     "A": "普通攻击",
     "E": "E 技能",
@@ -54,12 +50,20 @@ _SLOT_LABELS = {
     "QTE": "QTE 技能",
     "G": "G 技能",
     "PASSIVE": "被动技能",
+    "PECULIARITY": "固有能力",
+    "OTHER": "技能",
 }
 
 
 def _plain(value: str | None) -> str:
     text = _MARKUP.sub("", value or "")
     return " ".join(text.replace("</>", "").split())
+
+
+def _passive_unlock_text(passive: CharacterPassive) -> str:
+    if passive.unlock_stage is None:
+        return "解锁条件未提供"
+    return f"突破 {passive.unlock_stage} 解锁"
 
 
 def _number(value: float) -> str:
@@ -87,27 +91,11 @@ def build_action_cards(
 ) -> tuple[CharacterActionCard, ...]:
     """Project only the official A/E/Q/QTE order, plus a formal G action."""
 
-    by_slot = {
-        slot: skill
-        for skill in detail.skills
-        if (slot := _PRIMARY_INPUTS.get(skill.gameplay_tag or "")) is not None
-    }
     cards = [
-        _skill_card(detail.character.character_id, slot, by_slot[slot], terminology)
-        for slot in ("A", "E", "Q")
-        if slot in by_slot
+        _skill_card(detail.character.character_id,
+                    _PRIMARY_ORDER.get(skill.ability_index, "OTHER"), skill, terminology)
+        for skill in sorted(detail.skills, key=lambda item: (item.ability_index, item.skill_id))
     ]
-    qte = next(
-        (skill for skill in detail.skills if skill.skill_id.endswith("_QTE")),
-        None,
-    )
-    if qte is not None:
-        cards.append(_skill_card(
-            detail.character.character_id,
-            "QTE",
-            qte,
-            terminology,
-        ))
     active_links = tuple(
         link for link in combat_links if link.binding_kind == "active"
     )
@@ -134,7 +122,7 @@ def build_action_cards(
     for passive in detail.passives:
         cards.append(CharacterActionCard(
             character_id=detail.character.character_id,
-            slot="PASSIVE",
+            slot="PECULIARITY" if passive.ability_type == "Peculiarity" else "PASSIVE",
             title=passive.name_zh or project_character_term(
                 terminology,
                 entity_kind="gameplay_ability",
@@ -352,7 +340,7 @@ class SkillActionCard(QFrame):
         else:
             self.level.hide()
             status = (
-                f"突破 {action.passive.unlock_stage} 解锁"
+                _passive_unlock_text(action.passive)
                 if action.passive is not None else "等级未提供"
             )
             unavailable = QLabel(status, self)
@@ -451,7 +439,7 @@ class SkillActionCard(QFrame):
             self.drawer_layout.addWidget(row)
 
     def _render_passive(self, passive: CharacterPassive) -> None:
-        title = QLabel(f"突破 {passive.unlock_stage} 解锁", self.drawer)
+        title = QLabel(_passive_unlock_text(passive), self.drawer)
         title.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:14px;font-weight:900"
         ))

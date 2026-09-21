@@ -99,13 +99,18 @@ class StaticDatabaseBuilder(
         self.connection.execute("INSERT INTO schema_migration VALUES (30, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (31, ?)", (now,))
         self.connection.execute("INSERT INTO schema_migration VALUES (32, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (33, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (34, ?)", (now,))
+        self.connection.execute("INSERT INTO schema_migration VALUES (35, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),
         )
+        self.connection.execute("INSERT INTO dataset_scope VALUES (?, 'game')", (self.dataset_id,))
         self._mirror_sources()
         self._mirror_awaken_sources()
         self._mirror_character_effect_curve_sources()
+        self._select_role_rows()
         self._import_characters()
         self._import_character_awakens()
         self._import_character_panel_growth()
@@ -195,6 +200,8 @@ def build_database(
     backup_existing_to: Path | None = None,
     include_source_payloads: bool = True,
     manifest_path: Path | None = None,
+    builder_type: type[StaticDatabaseBuilder] = StaticDatabaseBuilder,
+    populate_templates: bool = True,
 ) -> dict[str, Any]:
     content_root = resolve_content_root(source)
     output = output.expanduser().resolve()
@@ -212,7 +219,7 @@ def build_database(
         connection = sqlite3.connect(temporary)
         try:
             connection.execute("PRAGMA foreign_keys = ON")
-            builder = StaticDatabaseBuilder(
+            builder = builder_type(
                 connection,
                 content_root,
                 dataset_id=dataset_id,
@@ -236,7 +243,7 @@ def build_database(
                 connection,
                 database_path=temporary,
                 config_dir=config_dir.expanduser().resolve(),
-            )
+            ) if populate_templates else 0
         finally:
             connection.close()
         os.replace(temporary, output)
@@ -253,6 +260,7 @@ def build_database(
         "source_payloads_included": include_source_payloads,
         "database_counts": counts,
         "fork_permanent_property_audit": fork_permanent_property_audit,
+        "excluded_roles": getattr(builder, "excluded_roles", []),
         "foreign_key_violations": [],
     }
     (report_dir / "static_database_report.json").write_text(

@@ -12,6 +12,7 @@ from src.services.account_settings_service import AccountSettingsService
 from src.storage.sqlite.shared_data_dao import SharedDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.integrations.role_catalog_release import RoleCatalogRelease, resolve_role_catalog
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class ApplicationPaths:
     workshop_weight_template_file: Path
     template_dir: Path
     static_database_path: Path
+    role_catalog: RoleCatalogRelease | None = None
 
     @classmethod
     def from_roots(
@@ -49,6 +51,10 @@ class ApplicationPaths:
         data_root_path = Path(data_root).resolve()
         config_dir = data_root_path / "config"
         accounts_dir = data_root_path / "accounts"
+        static_path = (
+            Path(static_database_path).resolve() if static_database_path is not None
+            else root_path / "data" / "game_static.sqlite3"
+        )
         return cls(
             root=root_path,
             app_dir=Path(app_dir).resolve(),
@@ -59,6 +65,7 @@ class ApplicationPaths:
             config_dir=config_dir,
             accounts_dir=accounts_dir,
             accounts_index_file=accounts_dir / "accounts.json",
+            role_catalog=resolve_role_catalog(static_path),
             shared_database_path=data_root_path / "data" / "app_shared.sqlite3",
             global_ui_preferences_file=config_dir / "global_ui_preferences.json",
             workshop_weight_template_file=config_dir / "workshop_weight_template.json",

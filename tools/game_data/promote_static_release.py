@@ -137,6 +137,11 @@ def _database_summary(path: Path) -> dict[str, Any]:
             source_files = connection.execute(
                 "SELECT relative_path, sha256 FROM source_file ORDER BY relative_path"
             ).fetchall()
+            scope_rows = connection.execute("SELECT scope FROM dataset_scope").fetchall() if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'dataset_scope'"
+            ).fetchone() else [("game",)]
+            if len(scope_rows) != 1 or scope_rows[0][0] not in {"game", "role_page", "reference"}:
+                raise StaticReleasePromotionError("候选数据库缺少唯一的用途声明")
     except sqlite3.Error as exc:
         raise StaticReleasePromotionError(f"无法审计候选数据库：{path}") from exc
 
@@ -156,6 +161,7 @@ def _database_summary(path: Path) -> dict[str, Any]:
         "importer_version": int(importer_version),
         "built_at_utc": str(built_at_utc),
         "schema_version": int(schema_row[0] if schema_row else 0),
+        "catalog_scope": scope_rows[0][0],
         "source_files": [(str(row[0]), str(row[1])) for row in source_files],
     }
 
@@ -210,6 +216,8 @@ def validate_manifest(
     summary: dict[str, Any],
 ) -> dict[str, Any]:
     manifest = _read_json_object(manifest_path, "候选 manifest")
+    if manifest.get("catalog_scope", "game") != summary.get("catalog_scope", "game"):
+        raise StaticReleasePromotionError("候选 manifest 与数据库用途不一致")
     database = manifest.get("database")
     build_tool = manifest.get("build_tool")
     if not isinstance(database, dict) or not isinstance(build_tool, dict):
@@ -468,6 +476,9 @@ def verify_candidate(
     summary = dict(candidate["summary"])
     validate_manifest(database_path, manifest_path, summary)
     validate_final_report(database_path, report_path, summary)
+    if summary.get("catalog_scope") in {"role_page", "reference"}:
+        from src.integrations.role_catalog_release import read_role_catalog
+        read_role_catalog(database_path.parent)
     return {
         "verified": True,
         "dataset_id": summary["dataset_id"],
@@ -508,6 +519,14 @@ def promote_candidate(
     )
     source_database = Path(finalized["database_path"])
     source_manifest = Path(finalized["manifest_path"])
+    role_target = DEFAULT_TARGET_DIR / "role_catalog"
+    if finalized["summary"].get("catalog_scope") in {"role_page", "reference"}:
+        if target_dir != role_target.resolve():
+            raise StaticReleasePromotionError("角色目录只能晋升到 data/role_catalog，不能替换战报数据集")
+        from tools.game_data.promote_role_catalog import promote_role_catalog
+        return promote_role_catalog(finalized, target_dir)
+    elif target_dir == role_target.resolve():
+        raise StaticReleasePromotionError("完整游戏数据集不能替换独立角色目录")
     target_dir.mkdir(parents=True, exist_ok=True)
     target_database = target_dir / DATABASE_FILENAME
     target_manifest = target_dir / MANIFEST_FILENAME

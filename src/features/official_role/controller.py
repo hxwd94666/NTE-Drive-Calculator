@@ -60,6 +60,8 @@ class OfficialRoleController:
             stages: dict[str, float] = {}
             roles = load_official_role_index(
                 self.dependencies.user_database_path, stage_duration_ms=stages,
+                static_database_path=self.dependencies.static_database_path,
+                asset_root=self.dependencies.asset_root,
             )
             span.annotate(
                 role_count=len(roles), start_log_ms=start_log_ms,
@@ -80,6 +82,7 @@ class OfficialRoleController:
                 self.dependencies.user_database_path,
                 int(character_id),
                 static_database_path=self.dependencies.static_database_path,
+                asset_root=self.dependencies.asset_root,
                 shared_database_path=self.dependencies.shared_database_path,
             )
 

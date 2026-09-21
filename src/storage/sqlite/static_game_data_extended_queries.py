@@ -17,6 +17,14 @@ def _official_pack_key(value: object) -> str:
 
 class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
 
+    def get_catalog_scope(self) -> str:
+        if not self._one("SELECT 1 FROM sqlite_master WHERE name = 'dataset_scope'"):
+            return "game"
+        rows = self._rows("SELECT scope FROM dataset_scope")
+        if len(rows) != 1 or rows[0]["scope"] not in {"game", "role_page", "reference"}:
+            raise ValueError("静态目录用途声明无效")
+        return str(rows[0]["scope"])
+
     def list_forks(self) -> list[dict[str, Any]]:
         rows = self._rows(
             """

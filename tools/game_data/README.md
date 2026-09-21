@@ -29,7 +29,7 @@ python tools/game_data/catalog_characters.py `
 
 分类规则位于 `character_overrides.json`。它只补充特殊形态和玩法配置的分类，不提供游戏名称，也不决定角色是否存在。
 
-## 构建静态 SQLite v30
+## 构建完整静态 SQLite
 
 ```powershell
 python tools/game_data/build_static_database.py `
@@ -189,6 +189,30 @@ schema v31 新增 `DT_CharacterUpgradeDataTable` 的人物逐级经验、角色�
 `DT_MonsterPackData`，不能按文件名或前缀推断场景。
 
 新 SQLite DAO、角色页和 nte-core 同步链路只使用当前发行静态库与原始游戏/nte-core ID，不经过旧格式转换。
+
+## 构建独立角色目录与图鉴
+
+来源只有角色/弧盘表和 UI、缺少完整战斗资产时，使用独立构建入口。`$roleConfig` 必须是仓库外本机配置，
+包含该版本的 `official_content_root`、`dataset_id`、`as_of`；不要修改旧战报库对应的本机配置。
+
+```powershell
+$roleSettings = Get-Content -Raw -Encoding UTF8 $roleConfig | ConvertFrom-Json
+$roleCandidate = "build/role_catalog_candidate"
+python tools/game_data/build_role_catalog.py --source $roleSettings.official_content_root --candidate-dir $roleCandidate --dataset-id $roleSettings.dataset_id --as-of $roleSettings.as_of
+python tools/game_data/build_role_catalog_assets.py --source $roleSettings.official_content_root --database "$roleCandidate/game_static.sqlite3" --output "$roleCandidate/game_ui"
+python tools/game_data/promote_static_release.py --candidate-dir $roleCandidate --local-config $roleConfig --finalize-only
+python tools/game_data/promote_static_release.py --candidate-dir $roleCandidate --local-config $roleConfig --verify-only
+python tools/game_data/promote_static_release.py --candidate-dir $roleCandidate --local-config $roleConfig --target-dir data/role_catalog
+```
+
+图片清单绑定数据库 SHA-256，重新构建数据库后也必须重新生成图片清单。候选的
+`report/role_catalog_scope.json` 记录缺失能力和排除条目；报告及来源原文不进入发行包。
+需要同时更新游戏资料库时，改用 `build_reference_catalog.py`（同样接受 `--source`、`--candidate-dir`、
+`--dataset-id`、`--as-of`），以及 `build_reference_catalog_assets.py --source ... --candidate-dir ...`。
+图鉴用途为 `reference`，仍晋升到独立目录。来源按指定版本优先、缺文件再使用本机正式服定向导出的顺序准备，
+保留逐文件来源与哈希清单；不要全量解包。图鉴的赛季元数据不依赖限时任务，缺排期仍展示正式名称和规则，
+不写入战报 Buff 组件表。资料不足的战斗机制继续使用原完整游戏库。
+完整隔离、晋升回滚和读取规则见 [集成文档](../../docs/integrations.md#4-静态数据与资源)。
 
 ## 查询静态数据库
 

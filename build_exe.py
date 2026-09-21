@@ -261,6 +261,14 @@ static_database_path = _required_build_file("发行版静态数据库", STATIC_D
 _append_add_data(static_database_path, "data")
 static_manifest_path = _required_build_file("发行版静态数据库清单", STATIC_MANIFEST_PATH)
 _append_add_data(static_manifest_path, "data")
+from src.integrations.role_catalog_release import resolve_role_catalog, validate_role_assets
+role_catalog = resolve_role_catalog(static_database_path)
+if role_catalog is not None:
+    role_assets = validate_role_assets(role_catalog.asset_root, role_catalog.dataset_id, role_catalog.sha256)
+    for relative in ("game_static.sqlite3", "manifest.json", "game_ui/manifest.json",
+                     *("game_ui/" + path for path in role_assets["files"])):
+        source = role_catalog.database_path.parent / relative
+        _append_add_data(source, (Path("data/role_catalog") / Path(relative).parent).as_posix())
 if not STATIC_MIGRATION_DATA_DIR.is_dir():
     raise FileNotFoundError(f"静态数据迁移基线目录不存在：{STATIC_MIGRATION_DATA_DIR}")
 _append_add_data(STATIC_MIGRATION_DATA_DIR, "data/migrations")

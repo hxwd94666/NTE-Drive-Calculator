@@ -7,6 +7,21 @@ from typing import Any
 
 
 class StaticCatalogCharacterProgressionQueriesMixin:
+    def list_catalog_passive_bindings(self, character_ids: tuple[int, ...]) -> list[dict[str, Any]]:
+        if not character_ids:
+            return []
+        if not self._one("SELECT name FROM sqlite_master WHERE type='table' AND name='catalog_character_passive'"):
+            # 旧发行库的已审计归属只用于旧 schema；新库始终消费正式来源表。
+            from src.storage.sqlite.legacy_catalog_passive_bindings import LEGACY_CATALOG_PASSIVES
+            return [{"ability_id": ability_id, "unlock_stage": stage, "ability_type": "Passive"}
+                    for identity, ability_id, stage in LEGACY_CATALOG_PASSIVES if identity in character_ids]
+        placeholders = ",".join("?" for _ in character_ids)
+        return self._rows(
+            f"SELECT DISTINCT ability_id, ability_type, unlock_stage FROM catalog_character_passive "
+            f"WHERE character_id IN ({placeholders}) ORDER BY ability_type, ability_index, ability_id",
+            character_ids,
+        )
+
     def get_catalog_character_progression(
         self,
         character_id: int,

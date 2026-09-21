@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from src.domain.static_catalog import (
@@ -32,6 +32,7 @@ class StaticCatalogService:
         static_database_path: str | Path,
         providers: Iterable[StaticCatalogProvider],
         release_reader: StaticCatalogReleaseReader | None = None,
+        domain_database_paths: Mapping[str, str | Path] | None = None,
     ) -> None:
         self._database_path = Path(static_database_path).resolve()
         self._release_reader = release_reader or StaticCatalogReleaseReader()
@@ -39,13 +40,26 @@ class StaticCatalogService:
         if GLOBAL_DOMAIN_KEY in provider_map:
             raise ValueError(f"领域 key {GLOBAL_DOMAIN_KEY!r} 保留给全局搜索")
         self._providers = provider_map
+        self._domain_paths = {key: Path(path).resolve() for key, path in (domain_database_paths or {}).items()}
+        if self._domain_paths.keys() - provider_map.keys():
+            raise ValueError("资料库数据集指定了不存在的领域")
 
     def start_request(self) -> StaticCatalogRequest:
         release = self._release_reader.freeze(self._database_path)
         domains = tuple(
             sorted((provider.domain for provider in self._providers.values()), key=lambda item: item.order)
         )
-        return StaticCatalogRequest(release=release, domains=domains)
+        releases = {self._database_path: release}
+        for path in self._domain_paths.values():
+            if path not in releases:
+                releases[path] = self._release_reader.freeze(path)
+        return StaticCatalogRequest(release=release, domains=domains, domain_releases=tuple(
+            (key, releases[path]) for key, path in self._domain_paths.items()
+        ))
+
+    def _ensure_request_unchanged(self, request: StaticCatalogRequest) -> None:
+        for release in {request.release, *(release for _, release in request.domain_releases)}:
+            self._release_reader.ensure_unchanged(release)
 
     def search(
         self,
@@ -56,7 +70,7 @@ class StaticCatalogService:
         offset: int,
         limit: int,
     ) -> CatalogPage:
-        self._release_reader.ensure_unchanged(request.release)
+        self._ensure_request_unchanged(request)
         safe_offset = max(0, int(offset))
         safe_limit = max(1, min(self.MAX_PAGE_SIZE, int(limit)))
         normalized_query = query.strip()
@@ -65,7 +79,7 @@ class StaticCatalogService:
             if provider is None:
                 raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")
             return provider.search(
-                request.release,
+                request.release_for(domain_key),
                 query=normalized_query,
                 offset=safe_offset,
                 limit=safe_limit,
@@ -73,7 +87,7 @@ class StaticCatalogService:
         requested = safe_offset + safe_limit
         pages = [
             provider.search(
-                request.release,
+                request.release_for(provider.domain.key),
                 query=normalized_query,
                 offset=0,
                 limit=requested,
@@ -98,11 +112,11 @@ class StaticCatalogService:
         domain_key: str,
         record_id: str,
     ) -> CatalogDetail | None:
-        self._release_reader.ensure_unchanged(request.release)
+        self._ensure_request_unchanged(request)
         provider = self._providers.get(domain_key)
         if provider is None:
             raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")
-        return provider.detail(request.release, str(record_id))
+        return provider.detail(request.release_for(domain_key), str(record_id))
 
     def relations(
         self,
@@ -116,13 +130,13 @@ class StaticCatalogService:
     ) -> CatalogRelationPage:
         """Route an optional high-cardinality relation page through its owner."""
 
-        self._release_reader.ensure_unchanged(request.release)
+        self._ensure_request_unchanged(request)
         provider = self._providers.get(domain_key)
         loader = getattr(provider, "relations", None)
         if not callable(loader):
             raise StaticCatalogServiceError(f"资料领域不支持分页关系：{domain_key}")
         return loader(
-            request.release,
+            request.release_for(domain_key),
             str(record_id),
             str(relation_kind),
             offset=max(0, int(offset)),

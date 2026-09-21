@@ -132,6 +132,7 @@ class StaticCatalogMonsterService(
             dataset_id=str(metadata.get("dataset_id") or ""),
             importer_version=int(metadata.get("importer_version") or 0),
             built_at_utc=str(metadata.get("built_at_utc") or ""),
+            schema_version=int(metadata.get("schema_version") or 0),
         )
 
     def list_witch_blessings(self) -> tuple[CatalogEntry, ...]:

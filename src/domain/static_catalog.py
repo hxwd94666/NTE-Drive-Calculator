@@ -129,6 +129,10 @@ class CatalogRelationPage:
 class StaticCatalogRequest:
     release: StaticCatalogRelease
     domains: tuple[CatalogDomain, ...]
+    domain_releases: tuple[tuple[str, StaticCatalogRelease], ...] = ()
+
+    def release_for(self, domain_key: str) -> StaticCatalogRelease:
+        return next((release for key, release in self.domain_releases if key == domain_key), self.release)
 
 
 class StaticCatalogProvider(Protocol):

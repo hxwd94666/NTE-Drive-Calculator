@@ -257,6 +257,7 @@ def load_official_role_index(
     *,
     asset_root: str | Path | None = None,
     stage_duration_ms: dict[str, float] | None = None,
+    static_database_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """List official playable roles, ordered by account pointers when present."""
 
@@ -271,7 +272,7 @@ def load_official_role_index(
 
     catalog = GameUiAssetCatalog(_asset_root(asset_root))
     mark("asset_manifest")
-    with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
+    with StaticGameDataDao(static_database_path) as static_dao, UserDataDao(user_database_path) as user_dao:
         mark("database_open")
         profiles = {row["character_id"]: row for row in user_dao.list_character_profiles()}
         mark("profiles")
@@ -399,6 +400,7 @@ def load_official_role_detail(
         UserDataDao(user_database_path) as user_dao,
     ):
         character = static_dao.get_character(character_id)
+        catalog_scope = static_dao.get_catalog_scope()
         if character is None:
             raise ValueError(f"官方角色不存在：{character_id}")
         growth_rows = static_dao.list_character_panel_growth(character_id)
@@ -729,6 +731,7 @@ def load_official_role_detail(
     main_ids = tuple((equipment_plan or {}).get("core_attribute_ids") or ())
     return {
         "character": character,
+        "catalog_scope": catalog_scope,
         "icon_path": catalog.character_icon(character_id),
         "profile": profile,
         "growth_rows": growth_rows,

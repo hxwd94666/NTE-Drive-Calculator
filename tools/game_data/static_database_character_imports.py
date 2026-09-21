@@ -21,6 +21,36 @@ def _player_variant_id(asset: Any) -> str | None:
 
 
 class CharacterImportMixin:
+    source_tables = TABLE_PATHS
+
+    def _character_catalog_entries(self, catalog):
+        return [row for row in catalog["characters"] if row["character_id"] in self.rows["character"]]
+
+    def _select_role_rows(self):
+        """来源行已镜像；只将身份、成长和技能完整的记录投影为可用角色。"""
+        self.excluded_roles = []
+        selected = {}
+        overrides = json.loads(self.overrides_path.read_text(encoding="utf-8"))["character_overrides"]
+        for key, row in self.rows["character"].items():
+            element = row.get("ElementData") or {}
+            base = str(element.get("PropModifyID") or "")
+            growth = str(element.get("UpgradeModifyPackId") or "")
+            transformation = overrides.get(key, {}).get("classification") == "combat_transformation"
+            reason = None
+            if not text_parts(row.get("ItemName"))[0]:
+                reason = "missing_official_name"
+            elif not transformation and (not base.endswith("_base") or growth.casefold() != (base[:-5] + "_lv").casefold()):
+                reason = "base_and_growth_identity_conflict"
+            elif not transformation and not self.rows["character_abilities"].get(key, {}).get("CharacterAbilityList"):
+                reason = "missing_skill_catalog"
+            if reason:
+                self.excluded_roles.append({"character_id": key, "reason": reason})
+            else:
+                selected[key] = row
+        self.rows["character"] = selected
+        for name in ("equipment_plans", "cultivation_guides"):
+            self.rows[name] = {key: row for key, row in self.rows[name].items() if key in selected}
+
     def source_row_id(self, table: str, row_key: str) -> int:
         try:
             return self.source_row_ids[(table, str(row_key))]
@@ -28,8 +58,8 @@ class CharacterImportMixin:
             raise StaticDatabaseError(f"缺少已镜像的来源记录：{table}/{row_key}") from exc
 
     def _mirror_sources(self) -> None:
-        for source_file_id, table in enumerate(sorted(TABLE_PATHS), start=1):
-            relative_path = TABLE_PATHS[table]
+        for source_file_id, table in enumerate(sorted(self.source_tables), start=1):
+            relative_path = self.source_tables[table]
             path = self.content_root / Path(relative_path)
             if not path.is_file():
                 raise StaticDatabaseError(f"缺少必要的来源文件：{path}")
@@ -88,7 +118,7 @@ class CharacterImportMixin:
         )
         source_rows = self.rows["character"]
         annotations = []
-        for item in catalog["characters"]:
+        for item in self._character_catalog_entries(catalog):
             character_id = item["character_id"]
             row = source_rows[character_id]
             name, text_table, text_key = text_parts(row.get("ItemName"))
@@ -130,7 +160,7 @@ class CharacterImportMixin:
         if not directory.is_dir():
             raise StaticDatabaseError(f"缺少角色觉醒目录：{directory}")
 
-        source_file_id = len(TABLE_PATHS)
+        source_file_id = len(self.source_tables)
         paths = sorted(directory.glob("*AwakenEffect*.json"))
         if not paths:
             raise StaticDatabaseError(f"角色觉醒目录没有 AwakenEffect 数据：{directory}")
@@ -524,6 +554,8 @@ class CharacterImportMixin:
 
     def _import_character_skills(self) -> None:
         """导入角色技能目录和官方等级解锁/消耗规则。"""
+        from tools.game_data.static_database_passive_imports import import_catalog_passives
+        import_catalog_passives(self)
 
         ability_rows = self.rows["character_abilities"]
         effect_rows = self.rows["character_ability_effects"]

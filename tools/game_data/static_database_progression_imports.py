@@ -133,6 +133,7 @@ class _ProgressionImportContext(Protocol):
 
 
 class ProgressionImportMixin(_ProgressionImportContext):
+    limited_lottery_sources = _LIMITED_LOTTERY_SOURCES
     def _import_progression_catalog(self) -> None:
         self._import_character_release_annotations()
         drop_results = self._resolve_clone_drop_groups()
@@ -229,7 +230,7 @@ class ProgressionImportMixin(_ProgressionImportContext):
             )
             memberships.add((character_id, "permanent"))
 
-        for source_name in _LIMITED_LOTTERY_SOURCES:
+        for source_name in self.limited_lottery_sources:
             properties = self.rows[source_name].get("Properties")
             if not isinstance(properties, dict):
                 raise StaticDatabaseError(f"限定角色 Lottery DataAsset 缺少 Properties：{source_name}")
@@ -612,8 +613,8 @@ class ProgressionImportMixin(_ProgressionImportContext):
             for entry in self.rows["fork_lottery_data"]["1"].get("PoolIDMap", ())
             if isinstance(entry, dict) and optional_text(entry.get("Value"))
         )
-        if len(configured_pool_ids) != 8 or len(set(configured_pool_ids)) != 8:
-            raise StaticDatabaseError("弧盘限定卡池配置必须恰好包含 8 个 pool")
+        if not configured_pool_ids or len(set(configured_pool_ids)) != len(configured_pool_ids):
+            raise StaticDatabaseError("弧盘限定卡池配置不能为空或包含重复 pool")
         for release_ordinal, pool_id in enumerate(configured_pool_ids):
             row = self.rows["fork_lottery_pools"].get(pool_id)
             if not isinstance(row, dict):

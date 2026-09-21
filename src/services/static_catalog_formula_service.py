@@ -384,17 +384,17 @@ def _formula_entries(
             key="weave_followup",
             section="特殊伤害",
             title="覆纹追加伤害",
-            expression="Weave = ActualDirect × [1.20×(1+0.20×S/(S+180))-1] × Π Special",
+            expression="Weave = ActualDamage × [(C+L)×(1+P)×R + clamp(R-1,0,100)] × F",
             boundary="project_rule",
-            variables=(FormulaVariable(
-                "S",
-                "被覆纹记录的原伤害实际来源角色的环合强度",
-            ),),
+            variables=(
+                FormulaVariable("S", "被记录原伤害实际来源角色的环合强度，最低为 0"),
+                FormulaVariable("C / L / P", "C 为 20%；弱点感应启用时 L、P 各 10%，否则各 0%；(20% + 10%) × (1 + 10%) = 33%"),
+                FormulaVariable("R / F", "R = 1+0.20×S/(S+180)；最终乘数 F 当前取 1"),
+            ),
             applicable_when=("正式覆纹追加伤害继承被记录原伤害的属性",),
-            limitations=("不从预计直伤重新生成动作轴；只消费固定轴触发击。",),
+            limitations=("当前 33% 的拆分解释，非已独立确认的游戏结算顺序；P 只乘复制部分，其他追击增伤不直接代入。",),
             evidence=(
                 _ref("project_contract", contract, "环合基础规则", "覆纹强度乘区"),
-                _ref("implementation", calculation, "calculate_weave_followup_damage", "实际直伤上的追加公式"),
             ),
         ),
         FormulaEntry(
@@ -774,7 +774,7 @@ def _support_entries(
 class StaticCatalogFormulaService:
     """Load a release-static/code audit projection without touching account data."""
 
-    PROJECTION_VERSION = "static-catalog-formula-v1"
+    PROJECTION_VERSION = "static-catalog-formula-v3"
 
     def __init__(self, database_path: str | Path | None = None) -> None:
         self._database_path = database_path

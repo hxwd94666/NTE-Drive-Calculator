@@ -307,8 +307,8 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             "current": "当期", "next": "预计", "scheduled": "预计",
             "historical": "往期", "unscheduled": "未排期",
         }
-        ordinal = representative.primary_id.rsplit("_", 1)[-1]
-        title = f"第 {ordinal} 期" if ordinal.isdigit() else representative.primary_id
+        season = self._controller.outer_buff(representative.primary_id)
+        title = season.entry.subtitle if season else _period_label(representative.primary_id)
         return BrowseCard(
             title,
             f"{len(rows) // 2} 层 · 按大陆服开放时间更新",
@@ -321,15 +321,15 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         )
 
     def _open_rotation(self, entries: tuple[CatalogEntry, ...]) -> None:
-        period_label = _period_label(entries[0].primary_id)
         levels = _group(entries, lambda row: _key_parts(row.key)[2])
         sections = []
         season_buff = self._controller.outer_buff(entries[0].primary_id)
+        period_label = season_buff.entry.subtitle if season_buff else _period_label(entries[0].primary_id)
         if season_buff is not None:
             sections.append(BrowseSection(
                 "本期规则", season_buff.entry.subtitle,
                 (BrowseCard(
-                    season_buff.entry.title, "查看正式说明与结构化分量", "赛季 Buff",
+                    season_buff.entry.title, "查看效果说明", "赛季 Buff",
                     self._first_icon(entries),
                     lambda checked=False, detail=season_buff: self.open_detail(detail),
                     formal_id=season_buff.entry.primary_id,

@@ -139,6 +139,7 @@ STATIC_TABLE_CATALOG: tuple[tuple[str, str, str], ...] = (
     ("divination_buff", "玩法与遭遇", "A"),
     ("outer_realm_rotation", "玩法与遭遇", "A"),
     ("outer_realm_season_buff", "玩法与遭遇", "A"),
+    ("catalog_outer_realm_season", "玩法与遭遇", "A"),
     ("outer_realm_season_buff_component", "玩法与遭遇", "B"),
     ("high_risk_commission", "玩法与遭遇", "B"),
     ("high_risk_commission_difficulty", "玩法与遭遇", "B"),

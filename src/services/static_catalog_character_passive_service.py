@@ -1,14 +1,11 @@
 # 读取角色常驻属性的静态资料。
-"""Project the two official cultivation passives for a logical character."""
+"""Project officially bound cultivation passives and peculiarities."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from src.services.battle_character_passive_service import (
-    BattleCharacterPassiveService,
-)
 from src.services.static_catalog_character_models import (
     CharacterPassive,
     SkillDescription,
@@ -16,6 +13,8 @@ from src.services.static_catalog_character_models import (
 
 
 class CharacterPassiveQueries(Protocol):
+    def list_catalog_passive_bindings(self, character_ids: tuple[int, ...]) -> list[dict[str, Any]]: ...
+
     def list_catalog_characters(
         self, *, query: str = "", limit: int = 50, offset: int = 0,
     ) -> list[dict[str, Any]]: ...
@@ -31,7 +30,7 @@ def _text(value: object) -> str | None:
 
 
 class StaticCatalogCharacterPassiveService:
-    """Join audited PassiveAbilityList ownership with formal localized text."""
+    """Join normalized character ownership with formal localized text."""
 
     def __init__(self, queries: CharacterPassiveQueries) -> None:
         self._queries = queries
@@ -48,34 +47,32 @@ class StaticCatalogCharacterPassiveService:
                 for row in self._queries.list_catalog_characters(limit=200)
                 if _text(row.get("logical_character_key")) == logical_key
             )
-        definitions = tuple(
-            row for row in BattleCharacterPassiveService.catalog()
-            if row.character_id in character_ids
-        )
+        definitions = self._queries.list_catalog_passive_bindings(tuple(sorted(character_ids)))
         details = {
             str(row["ability_id"]): row
             for row in self._queries.list_catalog_ability_details(tuple(
-                definition.ability_id for definition in definitions
+                definition["ability_id"] for definition in definitions
             ))
         }
         return tuple(
-            self._project(definition.ability_id, definition.unlock_stage, details)
-            for definition in sorted(
-                definitions, key=lambda row: (row.unlock_stage, row.ability_id),
-            )
+            self._project(definition["ability_id"], definition["unlock_stage"], details,
+                          definition["ability_type"])
+            for definition in definitions
         )
 
     @staticmethod
     def _project(
         ability_id: str,
-        unlock_stage: int,
+        unlock_stage: int | None,
         details: Mapping[str, Mapping[str, Any]],
+        ability_type: str,
     ) -> CharacterPassive:
         row = details.get(ability_id, {})
         return CharacterPassive(
             ability_id=ability_id,
             name_zh=_text(row.get("name_zh")),
             unlock_stage=unlock_stage,
+            ability_type=ability_type,
             descriptions=tuple(
                 SkillDescription(
                     ordinal=int(item["ordinal"]),

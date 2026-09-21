@@ -639,13 +639,14 @@ def _build_fork_group(
             **calculation_detail,
             "profile": {**calculation_detail["profile"], "fork_id": None},
         }
-        current = calculate_official_role_margins(with_fork, context_key)
-        baseline = calculate_official_role_margins(without_fork, context_key)
+        limited_catalog = detail.get("catalog_scope") in {"role_page", "reference"}
+        current = None if limited_catalog else calculate_official_role_margins(with_fork, context_key)
+        baseline = None if limited_catalog else calculate_official_role_margins(without_fork, context_key)
         if current and baseline and baseline["damage"] > 0:
             gain = (current["damage"] / baseline["damage"] - 1.0) * 100.0
             margin_label.setText(f"直伤收益: {gain:+.2f}%")
         else:
-            margin_label.setText("直伤收益: --")
+            margin_label.setText("直伤收益：待验证" if limited_catalog else "直伤收益: --")
         star_rows = list((fork or {}).get("star_levels") or ())
         star = next(
             (row for row in star_rows if int(row.get("star_level") or 0) == refinement.currentData()),

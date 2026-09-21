@@ -156,7 +156,8 @@ class StaticCatalogMonsterQueries(
 
     def catalog_metadata(self) -> dict[str, Any]:
         row = self._one(
-            "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
+            "SELECT dataset_id, importer_version, built_at_utc, "
+            "(SELECT MAX(version) FROM schema_migration) AS schema_version FROM dataset"
         )
         return row or {}
 
@@ -197,7 +198,17 @@ class StaticCatalogMonsterQueries(
         level_config_id: str,
     ) -> dict[str, Any] | None:
         """Return one season Buff and its structured components."""
-
+        if self._one("SELECT name FROM sqlite_master WHERE name = 'catalog_outer_realm_season'"):
+            scope = self._one("SELECT scope FROM dataset_scope")
+            if scope and scope["scope"] == "reference":
+                row = self._one(
+                    "SELECT * FROM catalog_outer_realm_season WHERE level_config_id = ? COLLATE BINARY",
+                    (str(level_config_id),),
+                )
+                if row is not None:
+                    row["components"] = ()
+                    row["source"] = self.source_trace(row.get("buff_source_row_id"))
+                return row
         row = self._one(
             """
             SELECT b.level_config_id, b.season_name_zh, b.buff_id,

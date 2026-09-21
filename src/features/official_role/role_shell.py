@@ -170,11 +170,14 @@ def _populate_role_tab(window, scroll: QScrollArea, character_id: int) -> None:
         form.addWidget(_build_base_group(window, character_id, detail, editor))
         form.addWidget(_build_awakening_group(window, character_id, detail, editor))
         form.addWidget(_build_skill_group(window, character_id, detail, editor))
-        form.addWidget(_build_margin_group(window, character_id, detail, editor))
+        limited_catalog = detail.get("catalog_scope") in {"role_page", "reference"}
+        if not limited_catalog:
+            form.addWidget(_build_margin_group(window, character_id, detail, editor))
         form.addWidget(_build_fork_group(window, character_id, detail, editor))
-        form.addWidget(_build_drive_summary_group(window, detail, editor))
-        form.addWidget(_build_damage_formula_group(detail, editor))
-        form.addWidget(_build_weight_group(window, character_id, detail, editor))
+        if not limited_catalog:
+            form.addWidget(_build_drive_summary_group(window, detail, editor))
+            form.addWidget(_build_damage_formula_group(detail, editor))
+            form.addWidget(_build_weight_group(window, character_id, detail, editor))
         form.addSpacing(100)
         form.addStretch()
         scroll.setWidget(content)
@@ -396,6 +399,12 @@ def _page_my_role(window) -> QWidget:
     header.addWidget(sync)
     header.addWidget(save)
     root.addLayout(header)
+    if _role_controller(window).dependencies.catalog_identity:
+        notice = QLabel("角色资料预览：支持养成编辑和弧盘选择。弧盘面板仅计等级／突破属性；"
+                        "精炼常驻效果、配装收益及毕业率待验证。战报继续使用原数据集。")
+        notice.setWordWrap(True)
+        notice.setObjectName("officialRoleCatalogNotice")
+        root.addWidget(notice)
 
     sync_result = QPlainTextEdit()
     sync_result.setReadOnly(True)

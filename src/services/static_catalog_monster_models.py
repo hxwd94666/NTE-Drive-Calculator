@@ -23,7 +23,7 @@ class CatalogDataset:
     dataset_id: str
     importer_version: int
     built_at_utc: str
-    schema_version: int = 31
+    schema_version: int
     read_only: bool = True
 
 

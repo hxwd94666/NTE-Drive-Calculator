@@ -186,6 +186,24 @@ class StaticCatalogMechanicsServiceTests(unittest.TestCase):
         cards = self.service.browse("states", "鸠火")
         self.assertEqual(("持续直伤·鸩火",), tuple(card.title for card in cards))
 
+    def test_weave_explains_copy_split_and_preserves_source_damage(self) -> None:
+        detail = self.service.detail(encode_record("formula", "weave_followup"))
+        visible = "\n".join(
+            field.value for section in detail.sections for field in section.fields
+        )
+        self.assertIn("(20% + 10%) × (1 + 10%) = 33%", visible)
+        self.assertIn("(20% + 0%) × (1 + 0%) = 20%", visible)
+        self.assertIn("(复制比例 + 灵可复制比例加成) × (1 + 追击增伤%) × 强度区", visible)
+        self.assertIn("队伍启用灵可", visible)
+        self.assertIn("并非固定为原伤的 33%", visible)
+        self.assertIn("不除掉原增伤区", visible)
+        self.assertIn("只乘复制部分，不乘后面的限制项", visible)
+        self.assertIn("尚未独立确认游戏内部", visible)
+        self.assertIn("其他追击增伤来源不据此直接代入", visible)
+        self.assertIn("当前核心模型取 1", visible)
+        self.assertIn("强度区 - 1", visible)
+        self.assertNotIn("限定通伤", visible)
+
     def test_search_indexes_player_chinese_projection_only(self) -> None:
         chinese = self.service.browse("states", "持续伤害")
         internal = self.service.browse("states", "State.Damage.Dot")
