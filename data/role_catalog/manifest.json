@@ -5,8 +5,8 @@
     "filename": "game_static.sqlite3",
     "dataset_id": "cn_1_4_2_catalog_fork_materials_20260920",
     "schema_version": 36,
-    "size_bytes": 29609984,
-    "sha256": "788FB08AB2D8DD615CA06B33258E1A4856EBE3BAEDFE8C9BB60EE6FC15C67249",
+    "size_bytes": 28164096,
+    "sha256": "18606B6E4C2271C2EC1761734E4172F2DFD56AC963D5EC48F1B65BBD907CF1A3",
     "generated_at_utc": "2026-09-22T09:27:19+00:00",
     "source_payloads_omitted": true
   },

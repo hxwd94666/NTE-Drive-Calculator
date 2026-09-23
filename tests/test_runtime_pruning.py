@@ -5,7 +5,11 @@ from pathlib import Path
 
 from tools.release.runtime_pruning import (
     REQUIRED_OPENVINO_LIBRARIES,
+    REQUIRED_QT_BINARIES,
+    REQUIRED_SCIPY_DIRECTORIES,
     UNUSED_OPENVINO_LIBRARIES,
+    UNUSED_QT_BINARIES,
+    UNUSED_SCIPY_DIRECTORIES,
     prune_unused_runtime_binaries,
     validate_pruned_runtime,
 )
@@ -23,6 +27,14 @@ class RuntimePruningTests(unittest.TestCase):
         for name in (*REQUIRED_OPENVINO_LIBRARIES, *UNUSED_OPENVINO_LIBRARIES):
             (openvino / name).write_bytes(name.encode("ascii"))
         (openvino / "cache.json").write_bytes(b"cache")
+        for name in (*REQUIRED_QT_BINARIES, *UNUSED_QT_BINARIES):
+            path = internal / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode("ascii"))
+        for name in (*REQUIRED_SCIPY_DIRECTORIES, *UNUSED_SCIPY_DIRECTORIES):
+            path = internal / name
+            path.mkdir(parents=True, exist_ok=True)
+            (path / "sample.pyd").write_bytes(name.encode("ascii"))
         return internal
 
     def test_prunes_only_optional_video_and_openvino_backends(self):
@@ -30,11 +42,19 @@ class RuntimePruningTests(unittest.TestCase):
             internal = self._bundle(Path(temporary))
             removed = prune_unused_runtime_binaries(internal)
             validate_pruned_runtime(internal)
-            self.assertEqual(1 + len(UNUSED_OPENVINO_LIBRARIES), len(removed))
+            self.assertEqual(
+                1 + len(UNUSED_OPENVINO_LIBRARIES) + len(UNUSED_QT_BINARIES)
+                + len(UNUSED_SCIPY_DIRECTORIES),
+                len(removed),
+            )
             self.assertTrue((internal / "cv2" / "cv2.pyd").is_file())
             self.assertTrue((internal / "openvino" / "libs" / "cache.json").is_file())
             for name in REQUIRED_OPENVINO_LIBRARIES:
                 self.assertTrue((internal / "openvino" / "libs" / name).is_file())
+            for name in REQUIRED_QT_BINARIES:
+                self.assertTrue((internal / name).is_file())
+            for name in REQUIRED_SCIPY_DIRECTORIES:
+                self.assertTrue((internal / name).is_dir())
 
     def test_layout_change_fails_before_any_deletion(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -25,6 +25,10 @@ try:
         PROVENANCE_FILENAME,
         validate_upgrade_provenance,
     )
+    from .storage_repack import (
+        PROVENANCE_FILENAME as STORAGE_REPACK_PROVENANCE_FILENAME,
+        validate_repack_provenance,
+    )
 except ImportError:  # 支持直接运行
     from static_database_build_support import (
         IMPORTER_VERSION,
@@ -34,6 +38,10 @@ except ImportError:  # 支持直接运行
     from upgrade_static_database import (
         PROVENANCE_FILENAME,
         validate_upgrade_provenance,
+    )
+    from storage_repack import (
+        PROVENANCE_FILENAME as STORAGE_REPACK_PROVENANCE_FILENAME,
+        validate_repack_provenance,
     )
 
 
@@ -425,8 +433,28 @@ def _validate_candidate_database(
             f"候选={summary['importer_version']}，代码={IMPORTER_VERSION}"
         )
     provenance_path = candidate_dir / PROVENANCE_FILENAME
+    repack_path = candidate_dir / STORAGE_REPACK_PROVENANCE_FILENAME
+    if provenance_path.is_file() and repack_path.is_file():
+        raise StaticReleasePromotionError("候选不能同时声明增量升级与物理压缩来源")
     upgrade_provenance = None
-    if provenance_path.is_file():
+    storage_repack_provenance = None
+    if repack_path.is_file():
+        baseline_database_value = config.get("storage_baseline_database_path")
+        baseline_manifest_value = config.get("storage_baseline_manifest_path")
+        if not isinstance(baseline_database_value, str) or not baseline_database_value:
+            raise StaticReleasePromotionError("物理压缩配置缺少 storage_baseline_database_path")
+        if not isinstance(baseline_manifest_value, str) or not baseline_manifest_value:
+            raise StaticReleasePromotionError("物理压缩配置缺少 storage_baseline_manifest_path")
+        try:
+            storage_repack_provenance = validate_repack_provenance(
+                database_path,
+                repack_path,
+                Path(baseline_database_value).expanduser().resolve(),
+                Path(baseline_manifest_value).expanduser().resolve(),
+            )
+        except (OSError, RuntimeError, sqlite3.Error, ValueError) as exc:
+            raise StaticReleasePromotionError(f"物理压缩 provenance 校验失败：{exc}") from exc
+    elif provenance_path.is_file():
         baseline_database_value = config.get("baseline_database_path")
         baseline_manifest_value = config.get("baseline_manifest_path")
         if not isinstance(baseline_database_value, str) or not baseline_database_value:
@@ -459,6 +487,7 @@ def _validate_candidate_database(
         "summary": summary,
         "database_size_bytes": database_size,
         "upgrade_provenance": upgrade_provenance,
+        "storage_repack_provenance": storage_repack_provenance,
     }
 
 
@@ -554,6 +583,14 @@ def promote_candidate(
     )
     source_database = Path(finalized["database_path"])
     source_manifest = Path(finalized["manifest_path"])
+    repack_path = resolved_candidate_dir / STORAGE_REPACK_PROVENANCE_FILENAME
+    if repack_path.is_file():
+        provenance = _read_json_object(repack_path, "物理压缩 provenance")
+        current_database = target_dir / DATABASE_FILENAME
+        if not current_database.is_file() or sha256(current_database) != provenance.get(
+            "baseline_database_sha256"
+        ):
+            raise StaticReleasePromotionError("正式库已变化，物理压缩候选必须重新生成")
     role_target = DEFAULT_TARGET_DIR / "role_catalog"
     if finalized["summary"].get("catalog_scope") in {"role_page", "reference"}:
         if target_dir != role_target.resolve():

@@ -19,7 +19,13 @@ class ScanningControllerOperationGenerationTests(TestCase):
     def test_real_controller_propagates_frozen_generation_to_both_scan_workers(self):
         root = Path("unused")
         account = SimpleNamespace(active_account_id="test", screenshot_dir=root, user_config_dir=root, user_database_path=root / "unused.sqlite3")
-        context = SimpleNamespace(account=account, generation=1, paths=SimpleNamespace(config_dir=root, template_dir=root))
+        paths = SimpleNamespace(
+            config_dir=root,
+            template_dir=root,
+            equipment_allocation_database_path=root / "static.sqlite3",
+            equipment_allocation_asset_root=root / "game_ui",
+        )
+        context = SimpleNamespace(account=account, generation=1, paths=paths)
         revision = [1]
         guard = Mock()
         parent = QWidget()
@@ -38,6 +44,10 @@ class ScanningControllerOperationGenerationTests(TestCase):
             controller._start_scan("auto")
             first = controller._scan_worker
             self.assertIsInstance(first, ScanWorkerThread)
+            self.assertEqual(
+                paths.equipment_allocation_database_path,
+                controller._scan_dependencies.static_database_path,
+            )
             first.operation_guard("interface_input")
             guard.assert_called_with("interface_input")
             revision[0] = 2
@@ -46,6 +56,7 @@ class ScanningControllerOperationGenerationTests(TestCase):
             controller._start_gamepad_scan(1, capture_driver="mouse")
             second = controller._gamepad_worker
             self.assertIsInstance(second, FullVisualScanParseWorkerThread)
+            self.assertEqual(paths.equipment_allocation_database_path, second.static_database_path)
             second.operation_guard("interface_input")
             context.generation = 2
             with self.assertRaises(CancelledError):

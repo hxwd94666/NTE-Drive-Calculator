@@ -69,7 +69,12 @@ class PostActionAccountWeightTests(unittest.TestCase):
     def test_scoring_engine_loads_custom_role_account_weights_for_scan_management(self):
         from src.optimizer.scoring import ScoringEngine
 
+        opened_static_paths = []
+
         class StaticDao:
+            def __init__(self, path):
+                opened_static_paths.append(path)
+
             def __enter__(self):
                 return self
 
@@ -112,13 +117,19 @@ class PostActionAccountWeightTests(unittest.TestCase):
 
         with TemporaryDirectory() as temp_dir:
             account_path = Path(temp_dir) / "account.sqlite3"
+            static_path = Path(temp_dir) / "static.sqlite3"
             account_path.touch()
             with (
                 patch("src.optimizer.scoring.StaticGameDataDao", StaticDao),
                 patch("src.optimizer.scoring.UserDataDao", UserDao),
             ):
-                scoring = ScoringEngine("config", user_database_path=account_path)
+                scoring = ScoringEngine(
+                    "config",
+                    user_database_path=account_path,
+                    static_database_path=static_path,
+                )
 
+        self.assertEqual([static_path], opened_static_paths)
         self.assertEqual(
             {"character_id": 9001, "weights": {"暴击率%": 0.8, "攻击力": 0.25}, "main_weights": {"暴击率%": 0.9}},
             scoring.roles_db["自建角色"],

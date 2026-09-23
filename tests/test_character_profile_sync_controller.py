@@ -59,7 +59,10 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         from src.features.official_role import role_shell
         from src.services.world_bonus_settings_service import WorldBonusSettings
         window = SimpleNamespace(character_profile_sync_controller=self.controller)
-        role_controller = SimpleNamespace(load_world_bonus=lambda: WorldBonusSettings())
+        role_controller = SimpleNamespace(
+            dependencies=self.dependencies,
+            load_world_bonus=lambda: WorldBonusSettings(),
+        )
         with patch.object(role_shell, '_role_controller', return_value=role_controller), patch.object(role_shell, '_refresh_my_role'):
             page = role_shell._page_my_role(window)
         button = next(
@@ -92,7 +95,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
             '当前没有正在运行的游戏数据同步，程序暂时无法读取角色状态。\n\n'
             '请先：\n'
             '1. 在工作台开启“自动同步”；\n'
-            '2. 启动并登录游戏；\n'
+            '2. 登录并进入游戏场景；\n'
             '3. 等待工作台显示“同步中”，再返回点击“同步状态”。',
             'home',
         )

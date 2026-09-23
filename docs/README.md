@@ -9,12 +9,15 @@
 | --- | --- |
 | 核心功能、数据安全、仓库与组件边界 | [仓库开发契约](../AGENTS.md) |
 | 分层、数据域、快照、方案和副作用 | [系统架构](architecture.md) |
-| 已交付的页面、计算、同步、配装、战报和设置 | [功能原理](features.md) |
+| 已交付的页面、计算、同步、配装和设置 | [功能原理](features.md) |
+| 战报当前行为 | [战报功能](features/battle-report.md) |
+| 资料库与养成计算器当前行为 | [工具与游戏资料库](features/tools-and-catalog.md) |
 | nte-core、分析组件、插件、OCR、输入和静态构建 | [外部集成](integrations.md) |
 | 尚未稳定或仍待外部事实的能力 | [当前路线图](roadmap.md) |
+| 战报证据、拟合与分析核心待办 | [战报路线图](roadmap/battle-report.md) |
 | 工作模式、逐功能检测与本机生命周期 | [工作模式契约](reference/work-modes.md) |
 | 游戏组件整套哈希与自动管理输入 | [组件包格式](reference/game-component-bundle.md) |
-| 通用伤害、DOT、环合、倾陷与怪物公式 | [伤害计算规则](reference/damage-calculation.md) |
+| 通用伤害、DOT、环合、倾陷与怪物公式 | [伤害计算规则索引](reference/damage-calculation.md) |
 | 战报派生治疗事件 | [治疗事件](reference/treatment-events.md) |
 | 战报反事实目录与人工审计 | [反事实审计](reference/counterfactual/README.md) |
 | 游戏资料库、角色、弧盘、敌人与覆盖审计 | [静态资料库](reference/static-catalog.md) |
@@ -35,8 +38,10 @@
 
 ## 目录与维护规则
 
-- `architecture.md` 只写结构与数据流；`features.md` 只写当前产品行为；`roadmap.md` 只写未完成能力。
-- `reference/` 放公式、字段、格式与只读资料域；`reference/counterfactual/` 放战报反事实目录和人工审计。
+- `architecture.md` 只写结构与数据流；`features.md` 和 `features/` 只写当前产品行为；`roadmap.md` 和
+  `roadmap/` 只写未完成能力。首页文档保留稳定入口，细节在对应专题维护。
+- `reference/` 放公式、字段、格式与只读资料域；`reference/damage-calculation.md` 是公式权威索引，
+  `reference/damage/` 承载各公式专题；`reference/counterfactual/` 放反事实目录，`reviews/` 按角色保存人工审计。
 - `integrations.md` 是第三方组件、插件、输入与静态构建的唯一集成说明；`validation/` 只保存真实环境验收。
 - 一个事实只保留一个权威位置。更新时覆盖相关章节并删除失效内容，不在文末追加补丁式说明。
 - 修改后检查相对链接、UTF-8、敏感信息边界和 `git diff --check`。

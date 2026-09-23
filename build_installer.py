@@ -27,6 +27,11 @@ from tools import build_cli
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.ocr_model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
+from tools.release.installer_asset_dedup import (
+    InstallerAssetCopy,
+    inno_asset_copy_lines,
+    prepare_installer_asset_stage,
+)
 
 
 ROOT = Path(__file__).parent.resolve()
@@ -46,6 +51,7 @@ APP_SHAPE_BONUS_BASELINE = (
 )
 INSTALLER_DIR = ROOT / "installer"
 OUTPUT_DIR = INSTALLER_DIR / "output"
+INSTALL_STAGE_INTERNAL = ROOT / "build" / "installer-stage" / "_internal"
 ISS_PATH = INSTALLER_DIR / "NTE_Drive_Calc.iss"
 APP_ICON = ROOT / "assets" / "app_icon.ico"
 VIGEM_BUNDLE_EXE = THIRD_PARTY_DIR / "vigembus" / "bin" / "ViGEmBus_1.22.0_x64_x86_arm64.exe"
@@ -218,7 +224,14 @@ def _inno_path(path: Path) -> str:
     return str(path.resolve())
 
 
-def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
+def _write_iss(
+    version: str,
+    vigem_installer: Path,
+    vigem_is_exe: bool,
+    *,
+    internal_source: Path | None = None,
+    asset_copies: list[InstallerAssetCopy] | None = None,
+) -> None:
     INSTALLER_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     setup_icon_line = f"SetupIconFile={_inno_path(APP_ICON)}\n" if APP_ICON.exists() else ""
@@ -232,6 +245,8 @@ def _write_iss(version: str, vigem_installer: Path, vigem_is_exe: bool) -> None:
         'Flags: ignoreversion'
         for name in CORE_CONFIG_FILES
     )
+    package_internal = internal_source or APP_INTERNAL
+    asset_copy_lines = inno_asset_copy_lines(package_internal, asset_copies or [])
     stale_runtime_dlls = list(STALE_AMBIENT_ICU_DLLS)
     if inspect_game_component_bundle(APP_INTERNAL).layout == "native-capture-v1":
         # Old installers could include this game proxy as an ambient dependency.
@@ -380,7 +395,8 @@ Name: "installvigem"; Description: "安装 ViGEmBus 虚拟手柄驱动"; GroupDe
 
 [Files]
 Source: "{_inno_path(APP_EXE)}"; DestDir: "{{app}}"; Flags: ignoreversion
-Source: "{_inno_path(APP_INTERNAL)}\\*"; DestDir: "{{app}}\\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{_inno_path(package_internal)}\\*"; DestDir: "{{app}}\\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+{asset_copy_lines}
 {core_runtime_config_lines}
 {vigem_file_line}
 
@@ -479,8 +495,25 @@ def main() -> int:
             "vigem_installer",
         )
         _ensure_app_bundle(skip_app_build=args.skip_app_build)
+        asset_copies = prepare_installer_asset_stage(
+            APP_INTERNAL, INSTALL_STAGE_INTERNAL, ROOT,
+        )
+        validate_packaged_component_bundle(
+            INSTALL_STAGE_INTERNAL, source_manifest_path=source_component_manifest(ROOT),
+        )
+        validate_packaged_ocr_models(INSTALL_STAGE_INTERNAL)
+        build_cli.info(
+            f"[SIZE] 安装资源复用 {len(asset_copies)} 张图片，"
+            f"{sum(copy.size_bytes for copy in asset_copies) / (1024 * 1024):.1f} MiB 展开体积"
+        )
         vigem_installer, vigem_is_exe = _find_vigem_installer(args.vigem_installer)
-        _write_iss(version=args.version, vigem_installer=vigem_installer, vigem_is_exe=vigem_is_exe)
+        _write_iss(
+            version=args.version,
+            vigem_installer=vigem_installer,
+            vigem_is_exe=vigem_is_exe,
+            internal_source=INSTALL_STAGE_INTERNAL,
+            asset_copies=asset_copies,
+        )
 
         if args.generate_only:
             build_cli.ok("Generate-only mode complete.")

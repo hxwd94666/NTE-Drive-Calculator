@@ -147,9 +147,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertEqual(frozenset({(1, 10), (2, 20)}), sync.guards[0][1])
         self.assertEqual(7, sync.guards[0][3])
         self.assertEqual(("end", sync.guards[0][2]), sync.guards[1])
-        self.assertTrue(
-            any("第 1/2 件" in message for message in progress_messages)
-        )
+        self.assertIn("正在向游戏提交装备状态：1/2", progress_messages)
+        self.assertIn("正在向游戏提交装备状态：2/2", progress_messages)
+        self.assertTrue(any("快照 #8 尚有" in message for message in progress_messages))
         self.assertTrue(
             any("新快照 #9 已确认" in message for message in progress_messages)
         )

@@ -238,6 +238,8 @@ python tools/windows_validation/run_validation.py --profile vision `
 - [ ] 执行 Mirror 更新检查、取消、失败重试和安装器启动；日志无 CDK、Token 和鉴权 URL。
 - [ ] 运行打包测试，确认 Windows 验证器、本机数据库、日志、截图、SDK 缓存和安装器旧输出不进入安装包。
 - [ ] 检查发行静态库与 manifest SHA-256，确认 unresolved 资源仍显式记录。
+- [ ] 用新安装包做干净安装和覆盖升级；核对两套角色图片原始路径、独立图鉴清单哈希、主静态库及角色目录库均有效，卸载后无遗漏的去重图片。
+- [ ] 三种主题下打开工作台、角色图鉴和养成计算器；测试 Windows 中文输入法，执行一次 MILP 计算与线性分配，并确认 OCR 截图识别、CPU 后端及可用设备上的 DirectML 后端正常。
 
 ## 11. 最终结论
 

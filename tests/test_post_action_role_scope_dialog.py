@@ -45,14 +45,17 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             self.assertTrue(
                 all(card not in QApplication.topLevelWidgets() for card, _character_id, _name in dialog.role_cards)
             )
+            cards_by_id = {character_id: card for card, character_id, _name in dialog.role_cards}
+            self.assertEqual([1004, 1003], [character_id for _, character_id, _ in dialog.role_cards])
 
             dialog.search_edit.setText("zaowu")
             self.app.processEvents()
 
-            self.assertFalse(dialog.role_cards[0][0].isHidden())
-            self.assertTrue(dialog.role_cards[1][0].isHidden())
-            dialog.role_cards[0][0].click()
-            self.assertTrue(dialog.role_cards[0][0].isChecked())
+            self.assertFalse(cards_by_id[1003].isHidden())
+            self.assertTrue(cards_by_id[1004].isHidden())
+            cards_by_id[1003].click()
+            self.assertTrue(cards_by_id[1003].isChecked())
+            self.assertEqual([1003], dialog.selected_character_ids())
             self.assertEqual("已选1名", dialog.count_label.text())
             dialog.close()
 

@@ -40,4 +40,10 @@
 - [弧盘数据域](static-catalog-fork.md)
 - [怪物与玩法域](static-catalog-monster-domain.md)
 - [战斗机制图鉴](static-catalog-formula-model.md)
-- [schema 覆盖审计](static-catalog-coverage.md)
+
+## 内部覆盖审计
+
+表清单、行数、schema 与来源覆盖以本次冻结的 `data/manifest.json` 和只读 SQLite 文件为准，不在文档维护
+某次候选库的逐表数字。审计按正式领域和表身份记录空表、缺口与来源哈希；它是构建／晋升验证，不是玩家页面的
+“覆盖总览”或任意 SQL 浏览器。内部查询使用固定领域 key、DAO 白名单和参数化值；大量来源行及资源关系按
+对象 key 分页读取，不随基础详情一次加载。旧候选覆盖快照可从 Git 历史查阅，不作为当前发行事实。

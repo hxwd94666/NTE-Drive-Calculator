@@ -293,9 +293,15 @@ OpenVINO 与 ONNX Runtime 共用发行目录 `assets/ocr/models` 下同一套检
 故障，不回退到包内未知副本；源码环境可读取已安装依赖中通过同一清单校验的模型。
 
 发行包仅裁剪当前 OCR 与截图路径未使用的 OpenCV 视频 FFmpeg DLL，以及 OpenVINO 的 GPU/NPU 和非 ONNX 模型
-frontend；OpenVINO CPU/ONNX frontend、共享模型、ONNX Runtime/DirectML 均保留。打包脚本在依赖布局变化时停止
-裁剪并要求重新审查，不按通配符清理其他运行库。裁剪后的 OCR 初始化、截图图像解码与正式 Windows 扫描验收
-分别验证；仅凭安装包体积下降不视为发行验收通过。
+frontend；OpenVINO CPU/ONNX frontend、共享模型、ONNX Runtime/DirectML 均保留。桌面端还精确裁剪未使用的
+Qt PDF、QML、Quick、虚拟键盘及其独占插件，保留 Widgets、Qt OpenGL 和软件渲染后备；SciPy 仅裁剪不在
+`scipy.optimize` 当前依赖闭包内的 stats、interpolate、integrate、ndimage 子包。打包脚本在依赖布局变化时停止
+裁剪并要求重新审查，不按通配符清理其他运行库。裁剪后的 OCR 初始化、截图图像解码、Qt 主题及输入法、
+MILP/线性分配与正式 Windows 扫描验收分别验证；仅凭安装包体积下降不视为发行验收通过。
+
+安装器从已校验的完整 `dist` 复制到 `build/installer-stage`。仅当主游戏 UI 与独立角色目录图片逐字节相同时，
+暂存区省略后者，并由 Inno `[Files]` 将前者内容安装到两个原始路径。两处安装结果仍由安装器正常管理，
+运行时不使用别名或跨目录查找。暂存前后核对每个文件与映射哈希，目录图片清单仍按安装后的独立路径验证。
 
 `src/integrations/vision` 独占窗口坐标、截图、格位检测、鼠标动作和扫描后状态同步；`src/scanner` 与解析
 Service 负责 OCR、归一化和装备字段。Integration 返回截图、索引、解析结果或诊断，不写业务快照，
@@ -380,6 +386,10 @@ Integration 从所选 `HTGame.exe` 的安装根定位官方启动器，明确传
 版本更新先在 `build/` 完成候选构建和毕业模板重算，再由
 `tools/game_data/promote_static_release.py` 显式读取仓库外本机配置，核对配置/数据库/manifest dataset、
 当前 schema/importer、全部来源 SHA-256、payload 省略、外键、SQLite 完整性及最终报告后带回滚地晋升。
+仅对已发行库执行无语义变化的物理压缩时，`tools/game_data/storage_repack.py` 在独立候选目录执行两次
+`VACUUM`，记录原库、原 manifest 和候选哈希，并逐表比较 schema、索引、全部行的多重集、外键与完整性；
+正式晋升入口使用独立的物理压缩 provenance 验证，而不把旧版本 Content 误作本次新增来源。
+晋升前正式目标必须仍与记录的原库哈希一致。独立角色目录的图片字节不变，仅将图片清单绑定至新数据库哈希。
 正式替换前使用同一工具的 `--finalize-only` 只在候选目录生成最终 manifest 与 JSON/Markdown 报告，再用
 `--verify-only` 只读复核候选数据库、这些最终证据和全部官方来源；两步均不得接触 `data/`，预检不得
 改写候选。

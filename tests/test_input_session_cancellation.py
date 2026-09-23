@@ -16,10 +16,18 @@ class InputSessionCancellationTests(TestCase):
 
         root = Path("unused")
         account = SimpleNamespace(active_account_id="test", screenshot_dir=root, user_config_dir=root, user_database_path=root / "unused.sqlite3")
-        context = SimpleNamespace(account=account, generation=1, paths=SimpleNamespace(config_dir=root, template_dir=root))
+        paths = SimpleNamespace(
+            config_dir=root,
+            template_dir=root,
+            equipment_allocation_database_path=root / "static.sqlite3",
+            equipment_allocation_asset_root=root / "game_ui",
+        )
+        context = SimpleNamespace(account=account, generation=1, paths=paths)
         mode_revision = [1]
         owner = SimpleNamespace(app_context=context, operation_guard=lambda _: None, operation_generation=lambda: (mode_revision[0], context.generation))
         frozen = current_scanning_dependencies(owner)
+        self.assertEqual(paths.equipment_allocation_database_path, frozen.static_database_path)
+        self.assertEqual(paths.equipment_allocation_asset_root, frozen.game_ui_asset_root)
         frozen.operation_guard("interface_input")
         mode_revision[0] = 2  # New mode also allows input; old scan still stops.
         with self.assertRaises(CancelledError):

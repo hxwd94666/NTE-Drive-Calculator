@@ -42,6 +42,7 @@ class BattleReportHitLogUiTests(unittest.TestCase):
         view._analysis = SimpleNamespace(
             hits=(hit,),
             hit_replays=(),
+            hit_replay_model_version="",
             battle_start_us=0,
             time_stop_intervals=(),
             buff_intervals=(),
@@ -68,6 +69,7 @@ class BattleReportHitLogUiTests(unittest.TestCase):
         view._analysis = SimpleNamespace(
             hits=(hit,),
             hit_replays=(replay,),
+            hit_replay_model_version="test-v1",
             battle_start_us=0,
             time_stop_intervals=(),
             buff_intervals=(),
