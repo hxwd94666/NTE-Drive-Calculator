@@ -22,6 +22,7 @@ from src.services.allocation_context import (
     build_allocation_context,
 )
 from src.services.allocation_legacy_adapter import score_allocation_candidate
+from src.services.allocation_main_value_service import weighted_option_tape_main_values
 from src.services.allocation_solver import (
     AllocationAssignment,
     AllocationSolveResult,
@@ -58,6 +59,8 @@ class WeightedAllocationRequest:
     include_role_top_k: bool = True
     operation_context: OperationContext | None = None
     shared_database_path: Path | None = None
+    static_database_path: Path | None = None
+    equipment_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +79,9 @@ class WeightedAllocationPreview:
     loadout_comparisons: Mapping[int, tuple[WeightedLoadoutComparison, ...]] = field(default_factory=dict)
     operation_context: OperationContext | None = None
     shared_database_path: Path | None = None
+    static_database_path: Path | None = None
+    equipment_only: bool = False
+    static_file_identity: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +124,8 @@ class WeightedAllocationPersistence:
 
 def read_weighted_allocation_persistence(
     user_database_path: Path,
+    static_database_path: Path | None = None,
+    equipment_only: bool = False,
 ) -> WeightedAllocationPersistence:
     """Read the latest weighted preferences and saved plans from user SQLite.
 
@@ -261,6 +269,8 @@ def read_weighted_allocation_persistence(
         profile_version=profile_version,
         top_k=1,
         include_role_top_k=False,
+        static_database_path=static_database_path,
+        equipment_only=equipment_only,
     )
     return WeightedAllocationPersistence(
         database_path, profile_id, profile_version, characters,
@@ -278,6 +288,8 @@ def restore_weighted_allocation_preview(
     if persistence.restore_request is None:
         return None
     preview = run_weighted_allocation(persistence.restore_request)
+    if preview.static_dataset != persistence.static_dataset:
+        raise RuntimeError("已保存方案的数据集已更新，请重新计算。")
     expected = {plan.character_id: plan for plan in persistence.saved_plans}
     selected = {option.character_id: option for option in preview.result.unified.selected}
     if set(selected) != set(expected):
@@ -438,7 +450,9 @@ def _run_weighted_allocation(
     request: WeightedAllocationRequest,
     operation: OperationContext,
 ) -> WeightedAllocationPreview:
-    with UserDataDao(request.user_database_path) as user_dao, StaticGameDataDao() as static_dao:
+    with UserDataDao(request.user_database_path) as user_dao, StaticGameDataDao(request.static_database_path) as static_dao:
+        static_stat = static_dao.database_path.stat()
+        static_file_identity = (static_stat.st_size, static_stat.st_mtime_ns)
         context = build_allocation_context(
             user_dao,
             static_dao,
@@ -449,12 +463,14 @@ def _run_weighted_allocation(
             shared_database_path=request.shared_database_path,
         )
         static_database_path = static_dao.database_path
-    context, role_details = freeze_official_role_details(
-        context,
-        user_database_path=request.user_database_path,
-        shared_database_path=request.shared_database_path,
-        static_database_path=static_database_path,
-    )
+    role_details: dict[int, Mapping[str, Any]] = {}
+    if not request.equipment_only:
+        context, role_details = freeze_official_role_details(
+            context,
+            user_database_path=request.user_database_path,
+            shared_database_path=request.shared_database_path,
+            static_database_path=static_database_path,
+        )
     result = solve_allocation_context(
         context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
         allow_missing_core=True,
@@ -463,6 +479,9 @@ def _run_weighted_allocation(
         loadout_comparisons = freeze_weighted_loadout_comparisons(
             user_dao, static_dao, context, result.unified.selected,
         )
+        latest_stat = static_dao.database_path.stat()
+        if (latest_stat.st_size, latest_stat.st_mtime_ns) != static_file_identity:
+            raise RuntimeError("计算期间静态数据集已更新，请重新执行计算。")
     return WeightedAllocationPreview(
         result=result,
         static_dataset=context.static_dataset,
@@ -473,6 +492,9 @@ def _run_weighted_allocation(
         loadout_comparisons=loadout_comparisons,
         operation_context=operation,
         shared_database_path=request.shared_database_path,
+        static_database_path=static_database_path,
+        equipment_only=request.equipment_only,
+        static_file_identity=static_file_identity,
     )
 
 
@@ -516,33 +538,19 @@ def save_weighted_allocation_preview(
         return plan_ids
 
 
-def _option_tape_main_values(
-    context: AllocationContext,
-    option: RoleAllocationOption,
-) -> dict[str, float]:
-    """Persist the exact max-level card value produced by this calculation."""
-
-    candidates = {candidate.uid: candidate for candidate in context.candidates}
-    for assignment in option.assignments:
-        if assignment.kind != "core" or assignment.virtual:
-            continue
-        candidate = candidates.get(assignment.uid)
-        stat = next(iter(candidate.main_stats), None) if candidate is not None else None
-        if stat is None:
-            continue
-        value = float(stat.value) * (100.0 if stat.percent else 1.0)
-        uid = f"nte-core-{assignment.uid[0]}-{assignment.uid[1]}"
-        return {uid: round(value, 6)}
-    return {}
-
-
 def _save_weighted_allocation_preview(
     preview: WeightedAllocationPreview,
     *,
     slot_ids_by_character: Mapping[int, int] | None = None,
 ) -> tuple[int, ...]:
     result = preview.result
-    with UserDataDao(preview.user_database_path) as user_dao, StaticGameDataDao() as static_dao:
+    with UserDataDao(preview.user_database_path) as user_dao, StaticGameDataDao(preview.static_database_path) as static_dao:
+        if preview.static_file_identity is not None:
+            current_stat = static_dao.database_path.stat()
+            if (current_stat.st_size, current_stat.st_mtime_ns) != preview.static_file_identity:
+                raise RuntimeError("计算使用的静态数据集已更新，请重新执行计算。")
+        if static_dao.summary()["dataset"]["dataset_id"] != preview.static_dataset.dataset_id:
+            raise RuntimeError("计算使用的静态数据集已更新，请重新执行计算。")
         role_names = {
             int(character["character_id"]): str(character.get("name_zh") or character["character_id"])
             for character in static_dao.list_characters()
@@ -572,7 +580,7 @@ def _save_weighted_allocation_preview(
                         f"nte-{assignment.kind}-{assignment.uid[0]}-{assignment.uid[1]}": assignment.score
                         for assignment in option.assignments
                     },
-                    "tape_main_values": _option_tape_main_values(preview.context, option),
+                    "tape_main_values": weighted_option_tape_main_values(preview.context, option),
                     "static_dataset": {
                         "schema_version": preview.static_dataset.schema_version,
                         "dataset_id": preview.static_dataset.dataset_id,

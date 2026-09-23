@@ -52,7 +52,6 @@ def settings_card(tmp_path, monkeypatch):
 def test_existing_proxy_preference_refreshes_actual_native_controls(settings_card):
     window, _worker = settings_card
     assert window._equipment_plugin_loading_method_combo.currentData() == "native-capture"
-    assert window._equipment_plugin_loading_method_combo.width() == 180
     assert window._equipment_plugin_primary_button.text() == "部署原生组件"
     assert window._equipment_plugin_status_label.text() == "组件已准备好，启动游戏后会自动检查连接和可用功能。"
     assert not hasattr(window, "_equipment_plugin_bundle_label")

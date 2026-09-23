@@ -101,12 +101,14 @@ class BasicWeightController:
 
     def _load_form_data(self) -> dict[str, object]:
         characters = load_official_role_index(
-            self.dependencies.user_database_path
+            self.dependencies.user_database_path,
+            static_database_path=self.dependencies.static_database_path,
         )
         character_ids = [int(row["character_id"]) for row in characters]
         account_weights = ensure_account_character_weights(
             self.dependencies.user_database_path,
             character_ids,
+            static_database_path=self.dependencies.static_database_path,
         )
         with StaticGameDataDao(self.dependencies.static_database_path) as static_dao:
             attributes = {
@@ -259,6 +261,7 @@ class BasicWeightController:
                     role_data.get("weights") or {},
                     main_property_weights=role_data.get("main_weights") or {},
                     operation_context=operation,
+                    static_database_path=self.dependencies.static_database_path,
                 )
             if character_id in (dirty_board_ids or set()):
                 save_custom_character_board(
@@ -288,11 +291,12 @@ class BasicWeightController:
     def delete_custom_role(self, character_id: int) -> None:
         delete_custom_character(self.dependencies.user_database_path, character_id)
 
-    def reset_weights(self, character_ids: Iterable[int]) -> list[int]:
+    def reset_weights(self, character_ids: Iterable[int]) -> dict[int, dict]:
         return reset_account_character_weights(
             self.dependencies.user_database_path,
             tuple(int(character_id) for character_id in character_ids),
             operation_context=self.operation(),
+            static_database_path=self.dependencies.static_database_path,
         )
 
     def log_dirty_exit(self, action: str, dirty_count: int) -> None:

@@ -29,9 +29,13 @@ class NTEPipelineOrchestrator:
     _blueprint_cache: dict[str, List[Dict]] = {}
     _blueprint_cache_limit = 256
 
-    def __init__(self, config_dir: str | Path | None = None, *, user_database_path=None):
+    def __init__(
+        self, config_dir: str | Path | None = None, *, user_database_path=None,
+        static_database_path: str | Path | None = None,
+    ):
         self.config_dir = str(Path(config_dir) if config_dir is not None else bundled_config_dir())
         self.user_database_path = user_database_path
+        self.static_database_path = static_database_path
         self.roles_db = {}
         self.sets_db = {}
         self.shapes_db = {}
@@ -59,6 +63,7 @@ class NTEPipelineOrchestrator:
             Path(config_dir) if config_dir is not None else bundled_config_dir()
         )
         instance.user_database_path = None
+        instance.static_database_path = None
         instance.roles_db = roles_db
         instance.sets_db = sets_db
         instance.shapes_db = shapes_db
@@ -73,6 +78,7 @@ class NTEPipelineOrchestrator:
         catalog = build_legacy_allocation_static_catalog(
             config_dir=self.config_dir,
             user_database_path=self.user_database_path,
+            static_database_path=self.static_database_path,
         )
         self.roles_db = catalog.roles_db
         self.sets_db = catalog.sets_db

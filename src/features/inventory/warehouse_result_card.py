@@ -20,8 +20,8 @@ from PySide6.QtWidgets import QWidget
 from src.app.theme import GRADE_COLORS, theme_color
 from src.features.inventory.warehouse import (
     WarehouseCardDelegate,
+    _equipped_owner_portrait,
     _equipment_item_pixmap,
-    _legacy_character_avatar,
     warehouse_core_pixmap,
     warehouse_shape_pixmap,
 )
@@ -146,13 +146,7 @@ class WarehouseResultCard(QWidget):
 
         avatar_rect = QRect(rect.right() - 48, top + 1, 36, 36)
         if item.get("equipped"):
-            avatar = _equipment_item_pixmap(
-                str(item.get("equipped_character_icon_path") or "")
-            )
-            if avatar.isNull():
-                avatar = _legacy_character_avatar(
-                    str(item.get("equipped_character_name") or "")
-                )
+            avatar = _equipped_owner_portrait(item, self.devicePixelRatioF())
             if not avatar.isNull():
                 painter.drawPixmap(avatar_rect, avatar)
 

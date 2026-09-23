@@ -95,6 +95,7 @@ class FullVisualScanParseWorkerThread(QThread):
         screenshot_dir,
         config_dir,
         user_database_path,
+        static_database_path=None,
         parent=None,
         post_actions_config=None,
         selected_roles=None,
@@ -110,6 +111,7 @@ class FullVisualScanParseWorkerThread(QThread):
         self.screenshot_dir = str(screenshot_dir)
         self.config_dir = str(config_dir)
         self.user_database_path = user_database_path
+        self.static_database_path = static_database_path
         self.post_actions_config = post_actions_config
         self.selected_roles = list(selected_roles or [])
         self.amd_compatibility = bool(amd_compatibility)
@@ -208,6 +210,7 @@ class FullVisualScanParseWorkerThread(QThread):
                 selected_roles=self.selected_roles,
                 config_dir=self.config_dir,
                 user_database_path=self.user_database_path,
+                static_database_path=self.static_database_path,
                 parse_during_scan=self.parse_during_scan,
                 low_load_mode=self.low_load_mode,
                 low_load_parse_delay_seconds=self.low_load_parse_delay_seconds,

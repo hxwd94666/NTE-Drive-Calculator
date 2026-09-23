@@ -63,6 +63,7 @@ class ProgressionStaminaRequest:
     requirements: tuple[MaterialRequirement, ...]
     stages: tuple[FarmingStage, ...]
     effective_identification_level: int | None = None
+    conversions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +145,13 @@ def calculate_progression_stamina(
     )
     requirements = _validate_requirements(request.requirements)
     stages = _validate_stages(request.stages)
+    if request.conversions:
+        from src.domain.progression_stamina_conversion import calculate_conversion_stamina
+
+        return calculate_conversion_stamina(
+            request, identification, requirements, stages,
+            maximum_search_states=maximum_search_states,
+        )
     deficits = tuple(
         MaterialDeficit(
             item_id=requirement.item_id,
@@ -239,6 +247,100 @@ def calculate_progression_stamina(
 
 
 def _minimum_stamina_runs(
+    deficits: tuple[MaterialDeficit, ...],
+    stages: tuple[FarmingStage, ...],
+    *,
+    maximum_search_states: int,
+) -> tuple[tuple[FarmingRun, ...], int] | None:
+    optimized = _minimum_stamina_runs_milp(deficits, stages)
+    if optimized is not _SCIPY_UNAVAILABLE:
+        return optimized
+    return _minimum_stamina_runs_search(
+        deficits,
+        stages,
+        maximum_search_states=maximum_search_states,
+    )
+
+
+_SCIPY_UNAVAILABLE = object()
+
+
+def _minimum_stamina_runs_milp(
+    deficits: tuple[MaterialDeficit, ...],
+    stages: tuple[FarmingStage, ...],
+) -> tuple[tuple[FarmingRun, ...], int] | None | object:
+    """Solve large deterministic bundles exactly without expanding each unit."""
+
+    try:
+        import numpy as np
+        from scipy.optimize import Bounds, LinearConstraint, milp
+    except ImportError:
+        return _SCIPY_UNAVAILABLE
+    item_ids = tuple(deficit.item_id for deficit in deficits)
+    useful = tuple(
+        stage
+        for stage in stages
+        if any(_stage_yield(stage, item_id) for item_id in item_ids)
+    )
+    if not useful:
+        return None
+    yields = np.asarray(
+        [
+            [_stage_yield(stage, item_id) for stage in useful]
+            for item_id in item_ids
+        ],
+        dtype=float,
+    )
+    required = np.asarray(
+        [deficit.deficit_quantity for deficit in deficits],
+        dtype=float,
+    )
+    stamina = np.asarray([stage.stamina_cost for stage in useful], dtype=float)
+    integrality = np.ones(len(useful), dtype=int)
+    bounds = Bounds(np.zeros(len(useful)), np.full(len(useful), np.inf))
+    production = LinearConstraint(yields, required, np.full(len(required), np.inf))
+    first = milp(
+        stamina,
+        integrality=integrality,
+        bounds=bounds,
+        constraints=production,
+        options={"time_limit": 2.0},
+    )
+    if not first.success or first.x is None or first.fun is None:
+        return None
+    minimum_stamina = int(round(float(first.fun)))
+    stamina_lock = LinearConstraint(stamina, minimum_stamina, minimum_stamina)
+    second = milp(
+        np.ones(len(useful), dtype=float),
+        integrality=integrality,
+        bounds=bounds,
+        constraints=(production, stamina_lock),
+        options={"time_limit": 2.0},
+    )
+    solution = second.x if second.success and second.x is not None else first.x
+    counts = np.rint(solution).astype(int)
+    if np.any(counts < 0) or np.any(yields @ counts < required):
+        return None
+    runs = tuple(
+        FarmingRun(
+            stage_id=stage.stage_id,
+            label=stage.label,
+            runs=int(count),
+            stamina_cost_per_run=stage.stamina_cost,
+            total_stamina=int(count) * stage.stamina_cost,
+            produced=tuple(
+                MaterialYield(item.item_id, item.quantity * int(count))
+                for item in stage.yields
+            ),
+            source=stage.source,
+        )
+        for stage, count in zip(useful, counts, strict=True)
+        if count > 0
+    )
+    return runs, minimum_stamina
+
+
+def _minimum_stamina_runs_search(
     deficits: tuple[MaterialDeficit, ...],
     stages: tuple[FarmingStage, ...],
     *,

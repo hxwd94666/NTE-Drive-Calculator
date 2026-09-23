@@ -7,6 +7,7 @@ from typing import Any
 
 from src.optimizer.contracts import (
     EQUIP_AREA,
+    EQUIP_MAIN_VALUE,
     EQUIP_SCORE,
     EQUIP_SCORE_AREA,
     EQUIP_UID,
@@ -27,6 +28,7 @@ def loadout_plan_state(plan: dict[str, Any]) -> dict[str, Any]:
     tape = None
     drives = []
     assignment_scores = (plan.get("payload") or {}).get("assignment_scores") or {}
+    tape_main_values = (plan.get("payload") or {}).get("tape_main_values") or {}
     for assignment in plan.get("assignments") or []:
         resolved = normalized_equipment_assignment(assignment)
         kind = str(resolved.get("kind") or "")
@@ -47,6 +49,8 @@ def loadout_plan_state(plan: dict[str, Any]) -> dict[str, Any]:
         if uid in assignment_scores:
             item[EQUIP_SCORE] = float(assignment_scores[uid])
         if kind == "core":
+            if uid in tape_main_values:
+                item[EQUIP_MAIN_VALUE] = float(tape_main_values[uid])
             tape = item
         elif kind == "module":
             drives.append(item)

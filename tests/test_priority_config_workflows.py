@@ -265,6 +265,151 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertEqual(["薄荷", "达芙蒂尔"], selector._available_role_names(""))
         self.assertEqual(["达芙蒂尔"], selector._available_role_names("达"))
 
+    def test_unselected_roles_sort_by_first_name_character_initial(self):
+        from PySide6.QtWidgets import QApplication
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles(
+            {name: {} for name in ("早雾", "「零」", "薄荷", "达芙蒂尔", "白藏", "阿德勒")},
+            [],
+        )
+
+        self.assertEqual(
+            ["阿德勒", "白藏", "薄荷", "达芙蒂尔", "「零」", "早雾"],
+            selector._available_role_names(),
+        )
+        selector.selected = ["白藏"]
+        self.assertEqual(
+            ["阿德勒", "薄荷", "达芙蒂尔", "「零」", "早雾"],
+            selector._available_role_names(),
+        )
+
+    def test_search_keeps_selected_chain_and_operator_buttons_visible(self):
+        from PySide6.QtWidgets import QApplication, QPushButton
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({name: {} for name in ("早雾", "安魂曲", "薄荷")}, [])
+        selector.selected = ["早雾", "安魂曲", "薄荷"]
+        selector.priority_links = ["=", ">>"]
+
+        selector.search.setText("没有匹配的角色")
+
+        buttons = [
+            item.widget().findChildren(QPushButton)
+            for index in range(selector.priority_layout.count())
+            if (item := selector.priority_layout.itemAt(index)).widget() is not None
+        ]
+        texts = [button.text() for group in buttons for button in group]
+        self.assertIn("=", texts)
+        self.assertIn(">>", texts)
+        self.assertEqual(3, texts.count("管理"))
+
+    def test_role_card_uses_provided_portrait_and_keeps_name(self):
+        from PySide6.QtWidgets import QApplication, QLabel
+
+        from src.features.allocation.role_selector import RoleSelector
+        from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        assets = GameUiAssetCatalog(Path(__file__).resolve().parents[1] / "assets" / "game_ui")
+        selector.load_roles(
+            {"早雾": {"character_id": 1003}},
+            [],
+            character_icon_paths={"早雾": assets.character_icon(1003)},
+        )
+
+        card = selector._cards["早雾"]["card"]
+        labels = card.findChildren(QLabel)
+        avatar = next(label for label in labels if label.accessibleName() == "早雾头像")
+        self.assertFalse(avatar.pixmap().isNull())
+        self.assertIn("早雾", [label.text() for label in labels])
+
+    def test_custom_role_uses_question_portrait_in_both_selector_areas(self):
+        from PySide6.QtWidgets import QApplication, QLabel
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles(
+            {"自定义": {"is_custom": True}},
+            [],
+            character_icon_paths={"自定义": Path(__file__)},
+        )
+
+        candidate = selector._cards["自定义"]["card"]
+        candidate_avatar = next(
+            label for label in candidate.findChildren(QLabel)
+            if label.accessibleName() == "自定义头像"
+        )
+        self.assertEqual("自定义角色问号头像", candidate_avatar.accessibleDescription())
+        self.assertFalse(candidate_avatar.pixmap().isNull())
+
+        selector.selected = ["自定义"]
+        selector._render_grid()
+        selected_avatar = next(
+            label for label in selector.priority_w.findChildren(QLabel)
+            if label.accessibleName() == "自定义头像"
+        )
+        self.assertEqual("自定义角色问号头像", selected_avatar.accessibleDescription())
+        self.assertFalse(selected_avatar.pixmap().isNull())
+
+    def test_role_selector_reflows_and_exposes_all_selected_roles(self):
+        from PySide6.QtWidgets import QApplication, QScrollArea
+
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.resize(700, 440)
+        selector.show()
+        selector.load_roles({f"角色{index}": {} for index in range(18)}, [])
+        app.processEvents()
+        app.processEvents()
+        narrow_candidate_columns = selector._shown_card_columns
+        narrow_candidate_height = selector.roles_w.sizeHint().height()
+        selector.resize(1600, 440)
+        app.processEvents()
+        app.processEvents()
+        self.assertGreater(selector._shown_card_columns, narrow_candidate_columns)
+        self.assertLess(selector.roles_w.sizeHint().height(), narrow_candidate_height)
+        card_width = selector._cards["角色0"]["card"].width()
+        occupied = selector._shown_card_columns * card_width + (selector._shown_card_columns - 1) * 6
+        self.assertLess(selector.width() - 4 - occupied, selector._shown_card_columns)
+
+        selector.selected = [f"角色{index}" for index in range(18)]
+        selector.priority_links = [">" for _ in range(17)]
+        selector._render_grid()
+        app.processEvents()
+        wide_selected_columns = selector._shown_priority_columns
+        wide_selected_height = selector.roles_w.sizeHint().height()
+        self.assertGreater(wide_selected_columns, 4)
+        self.assertEqual(18, selector.priority_layout.count())
+        self.assertTrue(selector.grid_w.isHidden())
+        self.assertEqual([], selector.findChildren(QScrollArea))
+
+        selector.resize(1210, 440)
+        app.processEvents()
+        app.processEvents()
+        self.assertEqual(4, selector._shown_priority_columns)
+        self.assertEqual(18, selector.priority_layout.count())
+
+        selector.resize(700, 440)
+        app.processEvents()
+        app.processEvents()
+        self.assertEqual(700, selector.width())
+        self.assertLess(selector._shown_priority_columns, wide_selected_columns)
+        self.assertGreater(selector.roles_w.sizeHint().height(), wide_selected_height)
+        self.assertEqual(18, selector.priority_layout.count())
+        selector.close()
+
     def test_role_selector_custom_sets_only_store_real_overrides(self):
         from PySide6.QtWidgets import QApplication
 

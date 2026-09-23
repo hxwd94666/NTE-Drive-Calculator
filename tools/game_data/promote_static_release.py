@@ -21,11 +21,19 @@ try:
         SCHEMA_VERSION,
         write_static_manifest,
     )
+    from .upgrade_static_database import (
+        PROVENANCE_FILENAME,
+        validate_upgrade_provenance,
+    )
 except ImportError:  # 支持直接运行
     from static_database_build_support import (
         IMPORTER_VERSION,
         SCHEMA_VERSION,
         write_static_manifest,
+    )
+    from upgrade_static_database import (
+        PROVENANCE_FILENAME,
+        validate_upgrade_provenance,
     )
 
 
@@ -167,7 +175,7 @@ def _database_summary(path: Path) -> dict[str, Any]:
 
 
 def _source_path(content_root: Path, relative_path: str) -> Path:
-    normalized = relative_path
+    normalized = relative_path.split("#", 1)[0]
     prefix = "combat_blueprint/"
     if normalized.startswith(prefix):
         normalized = normalized[len(prefix) :]
@@ -416,7 +424,33 @@ def _validate_candidate_database(
             "候选 importer 与当前代码不一致："
             f"候选={summary['importer_version']}，代码={IMPORTER_VERSION}"
         )
-    validate_source_files(summary["source_files"], content_root)
+    provenance_path = candidate_dir / PROVENANCE_FILENAME
+    upgrade_provenance = None
+    if provenance_path.is_file():
+        baseline_database_value = config.get("baseline_database_path")
+        baseline_manifest_value = config.get("baseline_manifest_path")
+        if not isinstance(baseline_database_value, str) or not baseline_database_value:
+            raise StaticReleasePromotionError(
+                "增量候选配置缺少 baseline_database_path"
+            )
+        if not isinstance(baseline_manifest_value, str) or not baseline_manifest_value:
+            raise StaticReleasePromotionError(
+                "增量候选配置缺少 baseline_manifest_path"
+            )
+        try:
+            upgrade_provenance = validate_upgrade_provenance(
+                candidate_database=database_path,
+                provenance_path=provenance_path,
+                baseline_database=Path(baseline_database_value).expanduser().resolve(),
+                baseline_manifest=Path(baseline_manifest_value).expanduser().resolve(),
+                official_source_root=content_root,
+            )
+        except (OSError, RuntimeError, sqlite3.Error, ValueError) as exc:
+            raise StaticReleasePromotionError(
+                f"增量候选 provenance 校验失败：{exc}"
+            ) from exc
+    else:
+        validate_source_files(summary["source_files"], content_root)
     return {
         "candidate_dir": candidate_dir,
         "database_path": database_path,
@@ -424,6 +458,7 @@ def _validate_candidate_database(
         "report_path": candidate_dir / REPORT_RELATIVE_PATH,
         "summary": summary,
         "database_size_bytes": database_size,
+        "upgrade_provenance": upgrade_provenance,
     }
 
 

@@ -278,12 +278,13 @@ class PostActionScoreContext:
         config_dir: str | None,
         *,
         user_database_path: str | None = None,
+        static_database_path: str | None = None,
     ) -> "PostActionScoreContext":
         try:
-            orchestrator = NTEPipelineOrchestrator(
-                config_dir=config_dir,
-                user_database_path=user_database_path,
-            )
+            kwargs = {"config_dir": config_dir, "user_database_path": user_database_path}
+            if static_database_path is not None:
+                kwargs["static_database_path"] = static_database_path
+            orchestrator = NTEPipelineOrchestrator(**kwargs)
             role_names = list(orchestrator.roles_db.keys())
             blueprints = orchestrator.solve_blueprints(role_names)
         except Exception:

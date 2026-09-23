@@ -19,6 +19,7 @@ from src.domain.rewind_shape_recommendation import (
     target_percentage_score,
 )
 from src.domain.loadout_plan_scores import assignment_score_key
+from src.domain.role_name_order import role_name_sort_key
 from src.optimizer.scoring import ScoringEngine
 from src.services.equipment_scoring_service import score_drive_stats
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -59,11 +60,13 @@ class RewindShapeRecommendationService:
         *,
         user_database_path: str | Path,
         static_database_path: str | Path,
+        asset_root: str | Path | None = None,
         user_dao_factory: Callable[..., Any] = UserDataDao,
         static_dao_factory: Callable[..., Any] = StaticGameDataDao,
     ) -> None:
         self._user_database_path = Path(user_database_path)
         self._static_database_path = Path(static_database_path)
+        self.asset_root = Path(asset_root) if asset_root is not None else None
         self._user_dao_factory = user_dao_factory
         self._static_dao_factory = static_dao_factory
 
@@ -111,7 +114,7 @@ class RewindShapeRecommendationService:
                 )
                 for character in sorted(
                     roles_by_name.values(),
-                    key=lambda row: str(row.get("name_zh") or row["character_id"]),
+                    key=lambda row: role_name_sort_key(str(row.get("name_zh") or row["character_id"])),
                 )
             ]
         calculation_scores: dict[int, float] = {}
@@ -127,7 +130,13 @@ class RewindShapeRecommendationService:
                     slot = row.get("slot") or {}
                     plan = row.get("plan") or {}
                     payload = plan.get("payload") or {}
-                    if payload.get("schema") != "allocation-official-snapshot-v1":
+                    if payload.get("schema") not in {
+                        "allocation-official-snapshot-v1",
+                        "game-observed-loadout-v1",
+                    } or (
+                        payload.get("schema") == "game-observed-loadout-v1"
+                        and payload.get("source") != "game_inventory"
+                    ):
                         continue
                     character_id = plan.get("character_id") or slot.get("character_id")
                     score = plan.get("score")
@@ -166,7 +175,9 @@ class RewindShapeRecommendationService:
             )
             for role in roles
         ]
-        return tuple(sorted(roles, key=lambda role: (role.name, role.character_id)))
+        return tuple(sorted(
+            roles, key=lambda role: (role_name_sort_key(role.name), role.character_id),
+        ))
 
     def load_owned_shape_counts(self) -> tuple[tuple[str, int], ...]:
         """Count every official drive shape in the current pinned inventory."""

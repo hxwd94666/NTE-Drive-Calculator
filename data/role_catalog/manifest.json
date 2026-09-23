@@ -3,15 +3,15 @@
   "catalog_scope": "reference",
   "database": {
     "filename": "game_static.sqlite3",
-    "dataset_id": "cn_1_4_2_catalog_skills_20260920_431223b",
-    "schema_version": 35,
-    "size_bytes": 29487104,
-    "sha256": "3156FE59EF9B627ED14A82A4CE76D814F45ECF6F18DBC894A5C512320338C15B",
-    "generated_at_utc": "2026-09-20T14:19:40+00:00",
+    "dataset_id": "cn_1_4_2_catalog_fork_materials_20260920",
+    "schema_version": 36,
+    "size_bytes": 29609984,
+    "sha256": "788FB08AB2D8DD615CA06B33258E1A4856EBE3BAEDFE8C9BB60EE6FC15C67249",
+    "generated_at_utc": "2026-09-22T09:27:19+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_reference_catalog.py",
-    "importer_version": 45
+    "importer_version": 46
   }
 }

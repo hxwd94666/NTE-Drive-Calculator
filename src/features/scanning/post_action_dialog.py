@@ -32,6 +32,7 @@ from src.domain.post_actions import (
     merge_post_action_config,
     validate_post_action_config,
 )
+from src.domain.role_name_order import role_name_sort_key
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
@@ -113,8 +114,8 @@ def _combo(options, value: object, width: int = 130) -> NoWheelComboBox:
     return combo
 
 
-def _load_drive_shape_options() -> list[tuple[str, int]]:
-    with StaticGameDataDao() as static_dao:
+def _load_drive_shape_options(static_database_path: Path | None = None) -> list[tuple[str, int]]:
+    with (StaticGameDataDao(static_database_path) if static_database_path is not None else StaticGameDataDao()) as static_dao:
         options = [
             (legacy_shape_id(shape["shape_id"]), int(shape["cell_count"]))
             for shape in static_dao.list_shapes()
@@ -122,37 +123,43 @@ def _load_drive_shape_options() -> list[tuple[str, int]]:
     return sorted(options, key=lambda item: (item[1], item[0]))
 
 
-def _load_set_name_options() -> list[str]:
-    with StaticGameDataDao() as static_dao:
+def _load_set_name_options(static_database_path: Path | None = None) -> list[str]:
+    with (StaticGameDataDao(static_database_path) if static_database_path is not None else StaticGameDataDao()) as static_dao:
         return [str(suit["name_zh"]) for suit in static_dao.list_suits()]
 
 
-def _load_role_options(user_database_path: Path | None = None) -> list[tuple[int, str, str]]:
-    """Return selectable official and custom roles with an optional avatar."""
+def _load_role_options(
+    user_database_path: Path | None = None,
+    static_database_path: Path | None = None,
+    asset_root: Path | None = None,
+) -> list[tuple[int, str, str, bool]]:
+    """Return role identity, optional official portrait, and custom-role flag."""
 
-    asset_catalog = GameUiAssetCatalog(bundled_game_ui_asset_root())
-    with StaticGameDataDao() as static_dao:
+    asset_catalog = GameUiAssetCatalog(asset_root or bundled_game_ui_asset_root())
+    with (StaticGameDataDao(static_database_path) if static_database_path is not None else StaticGameDataDao()) as static_dao:
         options = [
             (
                 int(character["character_id"]),
                 str(character.get("name_zh") or character["character_id"]),
                 str(asset_catalog.character_icon(int(character["character_id"])) or ""),
+                False,
             )
             for character in static_dao.list_role_template_characters()
         ]
     if user_database_path is not None and Path(user_database_path).is_file():
         with UserDataDao(user_database_path) as user_dao:
-            official_ids = {character_id for character_id, _name, _avatar in options}
+            official_ids = {character_id for character_id, _name, _avatar, _custom in options}
             options.extend(
                 (
                     character_id,
                     str(role.get("name_zh") or character_id),
                     "",
+                    True,
                 )
                 for role in user_dao.list_custom_characters()
                 if (character_id := int(role["character_id"])) not in official_ids
             )
-    return sorted(options, key=lambda item: item[0])
+    return sorted(options, key=lambda item: (role_name_sort_key(item[1]), item[0]))
 
 
 def _rule_summary_values(values: list[str], limit: int = 2) -> str:
@@ -198,6 +205,8 @@ class ScanPostActionDialog(QDialog):
         config_dir: Path,
         *,
         user_database_path: Path | None = None,
+        static_database_path: Path | None = None,
+        asset_root: Path | None = None,
         window_title: str = "全量扫描管理",
         show_server_region_option: bool = True,
     ):
@@ -205,6 +214,8 @@ class ScanPostActionDialog(QDialog):
         self.user_config_dir = Path(user_config_dir)
         self.config_dir = Path(config_dir)
         self.user_database_path = user_database_path
+        self.static_database_path = static_database_path
+        self.asset_root = asset_root
         self._show_server_region_option = show_server_region_option
         self.setWindowTitle(window_title)
         self.setMinimumWidth(560)
@@ -213,9 +224,9 @@ class ScanPostActionDialog(QDialog):
             user_database_path=self.user_database_path,
         )
         self._widgets = {}
-        self._shape_options = _load_drive_shape_options()
-        self._set_options = _load_set_name_options()
-        self._role_options = _load_role_options(self.user_database_path)
+        self._shape_options = _load_drive_shape_options(self.static_database_path) if self.static_database_path is not None else _load_drive_shape_options()
+        self._set_options = _load_set_name_options(self.static_database_path) if self.static_database_path is not None else _load_set_name_options()
+        self._role_options = _load_role_options(self.user_database_path, self.static_database_path, self.asset_root) if self.static_database_path is not None else _load_role_options(self.user_database_path)
         self._selected_character_ids = list(self.config.get("selected_character_ids", []))
         self._range_values = {}
         self._preserve_rules = copy.deepcopy(self.config.get("preserve_rules", []))
@@ -637,6 +648,8 @@ def show_scan_post_action_dialog(
     config_dir: Path,
     *,
     user_database_path: Path | None = None,
+    static_database_path: Path | None = None,
+    asset_root: Path | None = None,
     window_title: str = "全量扫描管理",
     show_server_region_option: bool = True,
 ) -> bool:
@@ -645,6 +658,8 @@ def show_scan_post_action_dialog(
         user_config_dir,
         config_dir,
         user_database_path=user_database_path,
+        static_database_path=static_database_path,
+        asset_root=asset_root,
         window_title=window_title,
         show_server_region_option=show_server_region_option,
     )

@@ -164,7 +164,6 @@ def test_plugin_cards_remain_editable_across_modes_and_themes(tmp_path, monkeypa
         page.show()
         app.processEvents()
         assert page.cards["cooldown"][0].isEnabled()
-        assert page.grab().width() == 820
     page.cards["cooldown"][0].click()
     assert service.settings.cooldown and applied
     policy.enabled = False

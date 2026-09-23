@@ -16,6 +16,7 @@ from src.features.scanning.file_lifecycle import (
 from src.features.settings.page import build_settings_page
 from src.optimizer.scoring import ScoringEngine
 from src.services.dashboard_service import DashboardService
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.legacy_allocation_static_catalog import build_legacy_allocation_static_catalog
 from src.services.role_fork_template_service import (
     fork_templates_as_weapon_models,
@@ -127,10 +128,14 @@ class MainWindowDataMixin:
             }
             self.tape_main_stats = catalog.tape_main_stats
             self.drive_sub_stats = list(catalog.gold_base_values.keys())
-            self.weapons_db = fork_templates_as_weapon_models(load_official_role_fork_templates())
+            allocation_database_path = self.app_context.paths.equipment_allocation_database_path
+            self.weapons_db = fork_templates_as_weapon_models(
+                load_official_role_fork_templates(allocation_database_path)
+            )
             static_catalog = build_legacy_allocation_static_catalog(
                 config_dir=config_dir,
                 user_database_path=user_database_path,
+                static_database_path=allocation_database_path,
             )
             self.roles_db = static_catalog.roles_db
             self.sets_db = static_catalog.sets_db
@@ -144,12 +149,22 @@ class MainWindowDataMixin:
             )
             logger.info(f"已从 SQLite 加载 {len(self.roles_db)} 角色，{len(self.sets_db)} 套装")
             self._update_inventory_status()
+            character_art = GameUiAssetCatalog(
+                self.app_context.paths.equipment_allocation_asset_root
+            )
+            character_icon_paths = {
+                name: icon
+                for name, role in self.roles_db.items()
+                if isinstance(role, dict) and role.get("character_id") is not None
+                if (icon := character_art.character_icon(int(role["character_id"]))) is not None
+            }
             self.scanning_controller.role_selector.load_roles(
                 self.roles_db,
                 self.all_set_names,
                 self.tape_main_stats,
                 self.drive_sub_stats,
                 weapons_db=self.weapons_db,
+                character_icon_paths=character_icon_paths,
             )
             if reload_priority:
                 self.scanning_controller.role_selector.load_startup_priority_config()
@@ -157,6 +172,7 @@ class MainWindowDataMixin:
                 roles_db=self.roles_db,
                 scoring_engine=self.scoring_engine,
                 shape_areas=self._shape_areas,
+                stats_config=self.stats_config,
             )
             self.identification_controller.update_catalog(
                 shape_areas=self._shape_areas,

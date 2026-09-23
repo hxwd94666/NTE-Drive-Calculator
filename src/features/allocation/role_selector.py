@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtCore import QMimeData, QTimer, Qt, Signal
 from PySide6.QtGui import QDrag, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
     QLineEdit,
@@ -29,6 +29,8 @@ from src.domain.crit_threshold import persistable_stat_priority_config
 from src.features.allocation.priority_groups import (
     normalize_priority_links,
 )
+from src.features.allocation.role_selector_visuals import role_avatar
+from src.domain.role_name_order import role_name_sort_key
 from src.solver.set_effects import FOUR_PIECE, normalize_set_effect_mode
 
 
@@ -155,7 +157,12 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self.stat_priority_override_roles: set[str] = set()
         self.set_effect_modes: dict[str, str] = {}
         self.default_mag_character_ids: frozenset[int] = frozenset()
+        self._role_icon_paths: dict[str, Path] = {}
         self._cards: dict = {}
+        self._reflow_pending = False
+        self._shown_card_columns = 0
+        self._shown_priority_columns = 0
+        self._shown_layout_width = 0
         self._build()
 
     def _priority_config_path(self) -> Path:
@@ -202,31 +209,60 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         search_row.addWidget(help_btn)
         layout.addLayout(search_row)
 
-        self.roles_scroll = QScrollArea()
-        self.roles_scroll.setWidgetResizable(True)
-        self.roles_scroll.setMinimumHeight(260)
         self.roles_w = QWidget()
+        self.roles_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.roles_layout = QVBoxLayout(self.roles_w)
         self.roles_layout.setContentsMargins(0, 0, 0, 0)
-        self.roles_layout.setSpacing(14)
+        self.roles_layout.setSpacing(8)
 
         self.priority_w = QWidget()
+        self.priority_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.priority_layout = QGridLayout(self.priority_w)
-        self.priority_layout.setContentsMargins(0, 6, 0, 6)
+        self.priority_layout.setContentsMargins(0, 0, 0, 0)
         self.priority_layout.setHorizontalSpacing(8)
         self.priority_layout.setVerticalSpacing(8)
         self.priority_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.roles_layout.addWidget(self.priority_w)
 
         self.grid_w = QWidget()
+        self.grid_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.grid_layout = QGridLayout(self.grid_w)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
         self.grid_layout.setSpacing(6)
         self.grid_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.roles_layout.addWidget(self.grid_w)
-        self.roles_layout.addStretch(1)
-        self.roles_scroll.setWidget(self.roles_w)
-        layout.addWidget(self.roles_scroll, 1)
+        layout.addWidget(self.roles_w)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._reflow_pending:
+            self._reflow_pending = True
+            QTimer.singleShot(0, self._reflow_for_width)
+
+    def _columns_for_width(self, item_width: int, spacing: int) -> int:
+        available = max(0, self.width() - 4)
+        return max(1, (available + spacing) // (item_width + spacing))
+
+    def _column_width(self, columns: int, spacing: int) -> int:
+        available = max(0, self.width() - 4)
+        return max(1, (available - (columns - 1) * spacing) // columns)
+
+    def _priority_columns(self) -> int:
+        width = self._priority_role_frame_width("") + 5 + 42
+        columns = self._columns_for_width(width, 8)
+        return min(columns, 4) if self.width() <= 1320 else columns
+
+    def _card_columns(self) -> int:
+        return self._columns_for_width(112, 6)
+
+    def _reflow_for_width(self) -> None:
+        self._reflow_pending = False
+        if (
+            self._card_columns() != self._shown_card_columns
+            or self._priority_columns() != self._shown_priority_columns
+            or self.width() != self._shown_layout_width
+        ):
+            self._render_grid(self.search.text())
 
     _CARD_SEL = "QFrame{background:#1f6feb22;border:2px solid #58a6ff;border-radius:8px}QFrame:hover{border-color:#79c0ff}"
     _CARD_OFF = "QFrame{background:#161b22;border:1px solid #21262d;border-radius:8px}QFrame:hover{border-color:#30363d}"
@@ -239,10 +275,12 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         drive_sub_stats=None,
         weapons_db=None,
         default_mag_character_ids=None,
+        character_icon_paths=None,
     ):
         self.all_roles = roles_db
         self.all_sets = all_sets
         self.weapons_db = normalize_weapons_db(weapons_db)
+        self._role_icon_paths = dict(character_icon_paths or {})
         self.tape_main_stats = list(tape_main_stats or [])
         self.drive_sub_stats = list(drive_sub_stats or [])
         if default_mag_character_ids is not None:
@@ -260,33 +298,40 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self._cards.clear()
 
         names = self._available_role_names(filter_text)
+        self.grid_w.setVisible(bool(names))
+        columns = self._card_columns()
+        self._shown_card_columns = columns
+        self._shown_layout_width = self.width()
         col = row = 0
         for name in names:
             self.grid_layout.addWidget(self._make_card(name), row, col)
             col += 1
-            if col >= 8:
+            if col >= columns:
                 col = 0
                 row += 1
 
     def _available_role_names(self, filter_text=""):
         query = str(filter_text or "").strip()
-        names = [name for name in sorted(self.all_roles.keys()) if name not in self.selected]
+        names = [name for name in self.all_roles if name not in self.selected]
         if query:
             names = [name for name in names if match_pinyin(name, query)]
-        return names
+        return sorted(names, key=role_name_sort_key)
 
     def _priority_role_frame_width(self, name):
-        return self._priority_role_name_width() + 48 + 6 + 5 + 6
+        return self._priority_role_name_width() + 106
 
     def _priority_role_name_width(self):
         return max(54, self.fontMetrics().horizontalAdvance("MMMM") + 18)
 
-    def _priority_role_name_font_size(self, name):
-        available = self._priority_role_name_width() - 18
-        text_width = max(1, self.fontMetrics().horizontalAdvance(str(name)))
-        if text_width <= available:
-            return 12
-        return max(9, min(12, int(12 * available / text_width)))
+    def _role_avatar(self, name, size):
+        role = self.all_roles.get(name) or {}
+        return role_avatar(
+            name,
+            self._role_icon_paths.get(name),
+            size,
+            is_custom=bool(role.get("is_custom")),
+            device_pixel_ratio=self.devicePixelRatioF(),
+        )
 
     def _render_priority_row(self):
         if not hasattr(self, "priority_layout"):
@@ -296,11 +341,10 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self.priority_links = normalize_priority_links(self.selected, self.priority_links)
-        query = self.search.text().strip() if hasattr(self, "search") else ""
-        visible_indexes = [
-            index for index, name in enumerate(self.selected)
-            if not query or match_pinyin(name, query)
-        ]
+        columns = self._priority_columns()
+        self._shown_priority_columns = columns
+        # Search narrows only the unselected pool; it must not hide operators.
+        visible_indexes = list(range(len(self.selected)))
         if not visible_indexes:
             empty = QLabel("未选择角色")
             empty.setStyleSheet(themed_style("color:#8b949e;border:none;font-size:12px"))
@@ -314,7 +358,13 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             unit_layout.setSpacing(5)
 
             item = QFrame()
-            item.setFixedSize(self._priority_role_frame_width(name), 40)
+            item.setFixedSize(self._priority_role_frame_width(name), 48)
+            item.setCursor(Qt.PointingHandCursor)
+            item.setToolTip(f"{name}：点击头像或角色名移回待选区")
+            item.mousePressEvent = (
+                lambda event, role=name: self._toggle(role)
+                if event.button() == Qt.LeftButton else event.ignore()
+            )
             item.setStyleSheet(
                 themed_style(
                     "QFrame{background:#161b22;border:1px solid #30363d;border-radius:7px}"
@@ -322,18 +372,20 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
                 )
             )
             item_layout = QHBoxLayout(item)
-            item_layout.setContentsMargins(6, 5, 6, 5)
+            item_layout.setContentsMargins(6, 6, 6, 6)
             item_layout.setSpacing(5)
 
+            item_layout.addWidget(self._role_avatar(name, 36))
+
             name_btn = PriorityRoleButton(self, name, index)
-            name_btn.setObjectName("btnSm")
-            name_btn.setToolTip("点击移出当前优先级；向后拖拽会按目标同级组调整优先级")
+            name_btn.setObjectName("priorityRoleName")
+            name_btn.setToolTip(f"{name}：点击移出当前优先级；向后拖拽调整优先级")
             name_btn.setFixedWidth(self._priority_role_name_width())
-            name_size = self._priority_role_name_font_size(name)
             name_btn.setStyleSheet(
                 themed_style(
                     "QPushButton{background:transparent;color:#c9d1d9;border:none;"
-                    f"padding:3px 5px;font-size:{name_size}px;font-weight:700;text-align:left}}"
+                    "padding:3px 5px;font-family:'Microsoft YaHei UI';"
+                    "font-size:13px;font-weight:700;text-align:left}"
                     "QPushButton:hover{color:#c9d1d9}"
                 )
             )
@@ -341,17 +393,17 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
 
             manage_btn = QPushButton("管理")
             manage_btn.setObjectName("btnSm")
-            manage_btn.setFixedSize(48, 28)
+            manage_btn.setFixedSize(48, 30)
             manage_btn.setStyleSheet(
                 "QPushButton{background:#238636;color:#fff;border:1px solid #2ea043;"
-                "border-radius:5px;padding:3px 7px;font-size:11px;font-weight:700}"
+                "border-radius:5px;padding:3px 7px;font-size:12px;font-weight:700}"
                 "QPushButton:hover{background:#2ea043}"
             )
             manage_btn.clicked.connect(lambda _checked=False, role=name: self._open_role_preferences(role))
             item_layout.addWidget(manage_btn)
             unit_layout.addWidget(item)
 
-            if index < len(self.selected) - 1 and (not query or index + 1 in visible_indexes):
+            if index < len(self.selected) - 1:
                 link_text = self.priority_links[index]
                 link_btn = QPushButton(link_text)
                 link_btn.setFixedWidth(42)
@@ -379,23 +431,31 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
                 link_btn.clicked.connect(lambda _checked=False, pos=index: self._cycle_priority_link(pos))
                 unit_layout.addWidget(link_btn)
             unit.setFixedSize(unit.sizeHint())
-            self.priority_layout.addWidget(unit, visible_pos // 5, visible_pos % 5)
+            self.priority_layout.addWidget(unit, visible_pos // columns, visible_pos % columns)
 
     def _make_card(self, name):
         selected = name in self.selected
         card = QFrame()
-        card.setFixedSize(96, 34)
+        card.setFixedSize(self._column_width(self._shown_card_columns, 6), 46)
         card.setCursor(Qt.PointingHandCursor)
         card.setStyleSheet(themed_style(self._CARD_SEL if selected else self._CARD_OFF))
 
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(7, 4, 7, 4)
-        layout.setSpacing(0)
+        layout.setContentsMargins(6, 5, 6, 5)
+        layout.setSpacing(6)
+
+        layout.addWidget(self._role_avatar(name, 36))
 
         name_label = QLabel(name)
-        name_label.setAlignment(Qt.AlignCenter)
-        name_label.setStyleSheet(themed_style("font-size:12px;font-weight:700;border:none;background:transparent;color:#c9d1d9"))
+        name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        name_label.setStyleSheet(
+            themed_style(
+                "font-family:'Microsoft YaHei UI';font-size:13px;font-weight:700;"
+                "border:none;background:transparent;color:#c9d1d9"
+            )
+        )
         layout.addWidget(name_label, 1)
+        name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         card.mousePressEvent = lambda event, role=name: self._toggle(role)
         self._cards[name] = {"card": card}

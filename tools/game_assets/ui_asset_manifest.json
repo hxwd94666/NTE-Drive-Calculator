@@ -4,7 +4,8 @@
   "source_appearance_table": "/Game/DataTable/Character/Appearance/DT_AppearanceData",
   "database_groups": [
     "equipment_modules",
-    "fork_items"
+    "fork_items",
+    "progression_items"
   ],
   "encounter_icons_from_database": true,
   "monster_tables": [

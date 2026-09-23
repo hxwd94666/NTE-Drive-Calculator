@@ -38,6 +38,13 @@ _DATABASE_GROUPS = {
         "forks/{identity}.png",
         128,
     ),
+    "progression_items": (
+        "item_id",
+        """SELECT item_id, icon_path FROM progression_item
+           WHERE icon_path IS NOT NULL ORDER BY item_id""",
+        "materials/{identity}.png",
+        128,
+    ),
 }
 
 

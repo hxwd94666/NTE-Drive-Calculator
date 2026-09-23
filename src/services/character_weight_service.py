@@ -46,6 +46,8 @@ def _same_weight_rows(
 def ensure_account_character_weights(
     user_database_path: str | Path,
     character_ids: Iterable[int] | None = None,
+    *,
+    static_database_path: str | Path | None = None,
 ) -> dict[int, dict[str, Any]]:
     """Refresh public defaults while preserving only genuine account edits.
 
@@ -56,7 +58,7 @@ def ensure_account_character_weights(
     against later public-data updates.
     """
 
-    with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
+    with StaticGameDataDao(static_database_path) as static_dao, UserDataDao(user_database_path) as user_dao:
         wanted_ids = (
             [int(character_id) for character_id in character_ids]
             if character_ids is not None
@@ -113,6 +115,7 @@ def save_account_character_weights(
     *,
     main_property_weights: Mapping[str, float] | None = None,
     operation_context: OperationContext | None = None,
+    static_database_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Persist the account SQLite weights without changing static recommendations."""
 
@@ -132,6 +135,7 @@ def save_account_character_weights(
             character_id,
             property_weights,
             main_property_weights=main_property_weights,
+            static_database_path=static_database_path,
         )
         span.annotate(
             source_kind=str(result.get("source_kind") or ""),
@@ -147,8 +151,11 @@ def _save_account_character_weights(
     property_weights: Mapping[str, float],
     *,
     main_property_weights: Mapping[str, float] | None,
+    static_database_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    current = ensure_account_character_weights(user_database_path, (character_id,)).get(
+    current = ensure_account_character_weights(
+        user_database_path, (character_id,), static_database_path=static_database_path,
+    ).get(
         int(character_id), {}
     )
     # Account-created roles deliberately have no static recommendation.  Their
@@ -156,7 +163,7 @@ def _save_account_character_weights(
     if not current:
         with UserDataDao(user_database_path) as user_dao:
             current = user_dao.get_character_weight_preferences(int(character_id)) or {}
-    with StaticGameDataDao() as static_dao:
+    with StaticGameDataDao(static_database_path) as static_dao:
         known_property_ids = {
             str(row["attribute_id"]) for row in static_dao.list_equipment_attributes()
         }
@@ -234,6 +241,7 @@ def reset_account_character_weights(
     character_ids: Iterable[int],
     *,
     operation_context: OperationContext | None = None,
+    static_database_path: str | Path | None = None,
 ) -> dict[int, dict[str, Any]]:
     """Restore selected roles to current public defaults in one account DB."""
 
@@ -252,6 +260,7 @@ def reset_account_character_weights(
         restored = _reset_account_character_weights(
             user_database_path,
             wanted_ids,
+            static_database_path=static_database_path,
         )
         span.annotate(
             restored_character_count=len(restored),
@@ -263,8 +272,10 @@ def reset_account_character_weights(
 def _reset_account_character_weights(
     user_database_path: str | Path,
     wanted_ids: tuple[int, ...],
+    *,
+    static_database_path: str | Path | None = None,
 ) -> dict[int, dict[str, Any]]:
-    with StaticGameDataDao() as static_dao, UserDataDao(user_database_path) as user_dao:
+    with StaticGameDataDao(static_database_path) as static_dao, UserDataDao(user_database_path) as user_dao:
         dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
         public_revision = workshop_weight_template_revision() or dataset_id
         restored: dict[int, dict[str, Any]] = {}

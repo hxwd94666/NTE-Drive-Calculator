@@ -132,17 +132,19 @@ def _current_role_calculation_projection(
 
 def build_legacy_allocation_static_catalog(
     *, config_dir: str | Path, user_database_path: str | Path | None = None,
+    static_database_path: str | Path | None = None,
 ) -> LegacyAllocationStaticCatalog:
     """Build all old-solver inputs from the static and account SQLite databases."""
 
     scoring = ScoringEngine(
         config_dir=str(config_dir), user_database_path=user_database_path,
+        static_database_path=static_database_path,
     )
     roles_db: dict[str, dict[str, Any]] = {}
     sets_db: dict[str, dict[str, Any]] = {}
     shapes_db: dict[str, DriveShape] = {}
     board_matrices: dict[str, list[list[int]]] = {}
-    with StaticGameDataDao() as static_dao:
+    with StaticGameDataDao(static_database_path) as static_dao:
         characters = static_dao.list_role_template_characters()
         for suit in static_dao.list_suits():
             name = str(suit.get("name_zh") or suit["suit_id"])

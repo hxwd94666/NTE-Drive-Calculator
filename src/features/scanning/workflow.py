@@ -618,6 +618,7 @@ def _start_gamepad_scan(
         screenshot_dir=dependencies.screenshot_dir,
         config_dir=dependencies.config_dir,
         user_database_path=dependencies.user_database_path,
+        static_database_path=dependencies.static_database_path,
         parent=self,
         post_actions_config=post_actions_config,
         selected_roles=selected_roles,

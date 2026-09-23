@@ -24,7 +24,8 @@ SOURCE_NAMES = (
     "equipment_curves", "equipment_core_random", "fork_types", "fork_items", "fork_upgrades",
     "fork_stars", "fork_buff_curves", "fork_breakthroughs", "fork_modify", "likeability_roles",
     "likeability_modify", "cultivation_guides", "gameplay_ability_tips", "gameplay_effect_mapping",
-    "equipment_modify", "equipment_buff_curves",
+    "equipment_modify", "equipment_buff_curves", "item_catalog", "capital_item_catalog",
+    "item_qualities", "string_item",
 )
 
 
@@ -34,6 +35,17 @@ class RoleCatalogBuilder(StaticDatabaseBuilder):
 
     def _import_reference_details(self):
         """角色目录的专用构建器可追加只读图鉴投影。"""
+
+    def _import_role_progression_catalog(self) -> None:
+        """Import only fork-related item facts required by role-page displays."""
+
+        if self.catalog_scope != "role_page":
+            return
+        item_ids = self._collect_fork_progression_item_ids()
+        self._import_progression_items(item_ids)
+        self._import_progression_aliases()
+        self._import_fork_exp_materials()
+        self._import_item_quality_terms()
 
     def build(self):
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -52,7 +64,8 @@ class RoleCatalogBuilder(StaticDatabaseBuilder):
             self._import_official_character_shape_bonuses, self._import_character_likeability_bonuses,
             self._import_equipment_shapes, self._import_equipment_suits, self._import_equipment_items,
             self._import_equipment_progression, self._import_equipment_plans, self._import_default_character_weights,
-            self._import_forks, self._import_gameplay_abilities, self._import_gameplay_effect_catalog,
+            self._import_forks, self._import_role_progression_catalog,
+            self._import_gameplay_abilities, self._import_gameplay_effect_catalog,
             self._import_cultivation_guides, self._import_combat_curves,
         ):
             operation()

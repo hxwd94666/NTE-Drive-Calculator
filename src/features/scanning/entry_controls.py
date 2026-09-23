@@ -10,4 +10,6 @@ def open_scan_post_action_manager(self):
         dependencies.user_config_dir,
         dependencies.config_dir,
         user_database_path=dependencies.user_database_path,
+        static_database_path=dependencies.static_database_path,
+        asset_root=dependencies.game_ui_asset_root,
     )

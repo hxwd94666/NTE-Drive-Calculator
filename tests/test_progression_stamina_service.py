@@ -153,6 +153,25 @@ class ProgressionStaminaServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "搜索上限"):
             ProgressionStaminaService(maximum_search_states=0)
 
+    def test_large_material_totals_use_exact_integer_planning(self) -> None:
+        result = self.service.calculate(ProgressionStaminaRequest(
+            hunter_level=60,
+            requirements=(
+                MaterialRequirement("exp", 364),
+                MaterialRequirement("gold", 1_092_150),
+            ),
+            stages=(
+                _stage("exp_stage", 40, (("exp", 10), ("gold", 1000))),
+                _stage("gold_stage", 40, (("gold", 220_000),)),
+            ),
+        ))
+        self.assertEqual(result.status, StaminaPlanStatus.COMPLETE)
+        self.assertEqual(result.total_stamina, 1680)
+        self.assertEqual(
+            {run.stage_id: run.runs for run in result.runs},
+            {"exp_stage": 37, "gold_stage": 5},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

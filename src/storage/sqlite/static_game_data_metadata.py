@@ -1,7 +1,7 @@
 # 静态游戏数据库版本与摘要表清单。
 """Shared metadata for the normalized static game database."""
 
-SCHEMA_VERSION = 35
+SCHEMA_VERSION = 36
 MINIMUM_SUPPORTED_SCHEMA_VERSION = 31
 
 SUMMARY_TABLES = (
@@ -26,6 +26,8 @@ SUMMARY_TABLES = (
     "character_breakthrough_cost",
     "character_exp_material",
     "character_exp_material_cost",
+    "fork_exp_material",
+    "fork_exp_material_cost",
     "character_skill",
     "catalog_character_passive",
     "character_skill_level",

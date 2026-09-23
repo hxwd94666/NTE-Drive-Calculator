@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.features.allocation.role_selector import RoleSelector
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.character_weight_service import (
     ensure_account_character_weights,
 )
@@ -36,6 +37,25 @@ from .weighted_workflow import (
 _INTERNAL_PROFILE_NAME = "__weighted_allocation_role_priority__"
 # 普通入口不展示候选；避免为不可见的 Top-K 重复执行昂贵的 DFS 与评分。
 _INTERNAL_TOP_K = 1
+
+
+def _weighted_selector_roles(
+    role_names: dict[str, int],
+    suit_defaults: dict[int, str],
+    suit_names: dict[str, str],
+    custom_character_ids: frozenset[int],
+) -> dict[str, dict[str, object]]:
+    """Pass verified account role identity to the shared portrait selector."""
+
+    return {
+        name: {
+            "character_id": character_id,
+            "default_set": suit_names.get(suit_defaults.get(character_id), ""),
+            "is_custom": character_id in custom_character_ids,
+        }
+        for name, character_id in role_names.items()
+    }
+
 
 _MAIN_PROPERTY_CHOICES = (
     ("生命值百分比", "HPMaxUp"),
@@ -173,7 +193,9 @@ def refresh_weighted_allocation_page(window) -> None:
         return
     try:
         dependencies = weighted_allocation_dependencies(window)
-        catalog = get_weighted_static_catalog(dependencies.game_ui_asset_root)
+        catalog = get_weighted_static_catalog(
+            dependencies.game_ui_asset_root, dependencies.static_database_path
+        )
         characters = [row for row in catalog.characters if int(row["character_id"]) in catalog.plans_by_character_id]
         database_path = dependencies.user_database_path
         with UserDataDao(database_path) as user_dao:
@@ -231,26 +253,43 @@ def refresh_weighted_allocation_page(window) -> None:
         account_weights = ensure_account_character_weights(
             database_path,
             role_names.values(),
+            static_database_path=dependencies.static_database_path,
         )
         account_weights.update(custom_weights)
         window._weighted_default_property_weights = {
             character_id: dict(row.get("property_weights") or {}) for character_id, row in account_weights.items()
         }
-        database_changed = getattr(window, "_weighted_persistence_database_path", None) != database_path
+        static_path = dependencies.static_database_path
+        static_stat = static_path.stat() if static_path is not None else None
+        catalog_identity = (
+            static_path,
+            static_stat.st_size if static_stat is not None else None,
+            static_stat.st_mtime_ns if static_stat is not None else None,
+        )
+        database_changed = (
+            getattr(window, "_weighted_persistence_database_path", None) != database_path
+            or getattr(window, "_weighted_catalog_identity", None) != catalog_identity
+        )
+        window._weighted_catalog_identity = catalog_identity
         window._weighted_preference_overrides = getattr(window, "_weighted_preference_overrides", {})
         suit_names = window._weighted_suit_names
+        portraits = GameUiAssetCatalog(dependencies.game_ui_asset_root)
         window.weighted_role_selector.load_roles(
-            {
-                name: {
-                    "character_id": character_id,
-                    "default_set": suit_names.get(suit_defaults.get(character_id), ""),
-                }
-                for name, character_id in role_names.items()
-            },
+            _weighted_selector_roles(
+                role_names,
+                suit_defaults,
+                suit_names,
+                window._weighted_custom_character_ids,
+            ),
             list(suit_names.values()),
             list(window._weighted_main_property_by_label),
             list(window._weighted_substat_property_by_label),
             weapons_db={},
+            character_icon_paths={
+                name: icon
+                for name, character_id in role_names.items()
+                if (icon := portraits.character_icon(character_id)) is not None
+            },
         )
         _hide_legacy_selector_controls(window.weighted_role_selector)
         if database_changed:

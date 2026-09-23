@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
+from src.app.theme import GRADE_COLORS, current_theme_name, theme_color, theme_rgba, themed_style
 from src.services.equipment_scoring_service import (
     score_drive_stats,
     score_tape_stats,
@@ -191,6 +191,14 @@ def _format_equipment_stat_display(value):
     return f"{number:.2f}".rstrip("0").rstrip(".")
 
 
+def _stat_chip_surface(color: str) -> tuple[str, str]:
+    """Give neutral chips a readable mid-gray outline in the light theme."""
+    if current_theme_name() == "light" and color == theme_color("#8b949e"):
+        return "#8c959f", "#f6f8fa"
+    qc = QColor(color)
+    return color, f"rgba({qc.red()},{qc.green()},{qc.blue()},0.12)"
+
+
 def _equip_card(
     self,
     label,
@@ -312,13 +320,13 @@ def _equip_card(
         main_weight_source = main_weights if isinstance(main_weights, dict) else weights
         mw = self._stat_w(main_stat, main_weight_source)
         mc = self._stat_c(mw)
-        qc = QColor(mc)
+        main_border, main_background = _stat_chip_surface(mc)
         main_text = str(main_stat)
         if main_value is not None:
             main_text = f"{main_text} {_format_equipment_stat_display(main_value)}{'%' if '%' in main_text else ''}"
         ms_block = QLabel(main_text)
         ms_block.setStyleSheet(
-            f"border:1px solid {mc};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);"
+            f"border:1px solid {main_border};background:{main_background};"
             f"border-radius:6px;padding:{'5px 12px' if is_feature_card else '4px 12px'};font-size:{header_font_size or 13}px;color:{mc};font-weight:700"
         )
         hdr.addWidget(ms_block, 0, Qt.AlignTop)
@@ -373,11 +381,11 @@ def _equip_card(
         for sn, sv in sub_stats.items():
             sw = self._stat_w(sn, weights)
             color = self._stat_c(sw)
-            qc = QColor(color)
+            stat_border, stat_background = _stat_chip_surface(color)
             block = QLabel(f"{sn} <b>{_format_equipment_stat_display(sv)}</b>")
             block.setAlignment(Qt.AlignCenter)
             block.setStyleSheet(
-                f"border:1px solid {color};background:rgba({qc.red()},{qc.green()},{qc.blue()},0.12);border-radius:6px;padding:5px 12px;font-size:{'13px' if is_feature_card else '12px'};color:{color};font-weight:600"
+                f"border:1px solid {stat_border};background:{stat_background};border-radius:6px;padding:5px 12px;font-size:{'13px' if is_feature_card else '12px'};color:{color};font-weight:600"
             )
             block.setToolTip(f"权重: {sw:.2f}")
             br.addWidget(block)
@@ -450,6 +458,7 @@ class EquipmentPresentation(EquipmentLoadoutComparisonPresentationMixin):
         self.result_content_layout = None
         self.role_selector = None
         self.roles_db: dict = {}
+        self.stats_config: dict = {}
         self.scoring_engine = None
         self._shape_areas: dict = {}
         self.final_plan: dict = {}
@@ -476,10 +485,12 @@ class EquipmentPresentation(EquipmentLoadoutComparisonPresentationMixin):
         roles_db: dict,
         scoring_engine,
         shape_areas: dict,
+        stats_config: dict | None = None,
     ) -> None:
         self.roles_db = roles_db
         self.scoring_engine = scoring_engine
         self._shape_areas = shape_areas
+        self.stats_config = dict(stats_config or {})
 
     def set_plan_context(
         self,

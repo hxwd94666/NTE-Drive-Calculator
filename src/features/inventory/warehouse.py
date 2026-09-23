@@ -33,6 +33,7 @@ from src.services.warehouse_visual_catalog import (
     representative_module_item_id,
 )
 from src.ui.equipment_state_icons import paint_warehouse_lock_button
+from src.ui.role_portrait import custom_role_portrait
 
 
 _STAT_LABELS = {
@@ -313,6 +314,17 @@ def _equipment_item_pixmap(path_text: str) -> QPixmap:
     return QPixmap(str(path)) if path.is_file() else QPixmap()
 
 
+def _equipped_owner_portrait(item: Mapping[str, Any], device_pixel_ratio: float = 1.0) -> QPixmap:
+    """Keep temporary custom ownership distinct from official game ownership."""
+
+    if item.get("equipped_character_is_custom"):
+        return custom_role_portrait(36, device_pixel_ratio)
+    avatar = _equipment_item_pixmap(str(item.get("equipped_character_icon_path") or ""))
+    if avatar.isNull():
+        avatar = _legacy_character_avatar(str(item.get("equipped_character_name") or ""))
+    return avatar
+
+
 def warehouse_item_view(
     row: Mapping[str, Any],
     *,
@@ -384,6 +396,7 @@ def warehouse_item_view(
         "equipped": equipped,
         "equipped_character_id": equipped_character_id,
         "equipped_character_name": equipped_character_name,
+        "equipped_character_is_custom": equipped and bool(row.get("equipped_character_is_custom")),
         "equipped_character_icon_path": (
             row.get("equipped_character_icon_path")
             or _character_icon(
@@ -732,13 +745,10 @@ class WarehouseCardDelegate(QStyledItemDelegate):
             # Packet snapshots contain an official character ID.  Prefer its
             # packaged portrait; the legacy display-name lookup misses newer
             # or renamed roles and left equipped items with no image.
-            avatar = _equipment_item_pixmap(
-                str(item.get("equipped_character_icon_path") or "")
+            avatar = _equipped_owner_portrait(
+                item,
+                option.widget.devicePixelRatioF() if option.widget is not None else 1.0,
             )
-            if avatar.isNull():
-                avatar = _legacy_character_avatar(
-                    str(item.get("equipped_character_name") or "")
-                )
             if not avatar.isNull():
                 painter.drawPixmap(avatar_rect, avatar)
             else:

@@ -24,6 +24,7 @@ from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.workers import WorkerThread
 from src.domain.progression_stamina import ProgressionStaminaResult, StaminaPlanStatus
+from src.integrations.bundled_resources import bundled_game_ui_asset_root
 from src.features.static_catalog.progression_calculator_models import (
     ProgressionCalculatorOrchestrator,
     ProgressionCalculatorOutcome,
@@ -32,10 +33,12 @@ from src.features.static_catalog.progression_calculator_models import (
     deliver_progression_outcome,
 )
 from src.services.progression_stamina_service import ProgressionStaminaService
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.services.static_catalog_fork_release_metadata import ForkProgressionRequest
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
+from src.ui.progression_material_card import ProgressionMaterialCard
 
 
 ResultCallback = Callable[[ProgressionCalculatorOutcome], None]
@@ -88,6 +91,7 @@ class _MaterialCard(QFrame):
         self,
         material: ProgressionMaterialInput,
         *,
+        icon_path: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -96,14 +100,12 @@ class _MaterialCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 10, 12, 10)
         root.setSpacing(7)
-        top = QHBoxLayout()
-        name = QLabel(material.display_name, self)
-        name.setObjectName("progressionMaterialName")
-        requirement = QLabel(material.requirement_text, self)
-        requirement.setObjectName("progressionMaterialRequired")
-        top.addWidget(name, 1)
-        top.addWidget(requirement)
-        root.addLayout(top)
+        root.addWidget(ProgressionMaterialCard(
+            name=material.display_name,
+            amount_text=material.requirement_text,
+            icon_path=icon_path,
+            parent=self,
+        ))
         owned_row = QHBoxLayout()
         owned_label = QLabel("当前持有", self)
         self.owned = QSpinBox(self)
@@ -136,6 +138,7 @@ class ProgressionCalculatorDialog(QDialog):
             service=service,
             terminology_service=terminology_service,
         )
+        self._asset_catalog = GameUiAssetCatalog(bundled_game_ui_asset_root())
         self._session: ProgressionCalculatorSession | None = None
         self._callback: ResultCallback | None = None
         self._calculation_token: object | None = None
@@ -302,7 +305,14 @@ class ProgressionCalculatorDialog(QDialog):
             self.materials_layout.addWidget(empty)
             return
         for material in session.materials:
-            card = _MaterialCard(material, parent=self.materials_host)
+            icon = self._asset_catalog.progression_item_icon(
+                material.canonical_id
+            )
+            card = _MaterialCard(
+                material,
+                icon_path=str(icon) if icon is not None else None,
+                parent=self.materials_host,
+            )
             self._material_cards[material.key] = card
             self.materials_layout.addWidget(card)
 
@@ -407,6 +417,23 @@ class ProgressionCalculatorDialog(QDialog):
             total = QLabel("完整活力暂不可用", self.result_host)
         total.setObjectName("progressionResultTotal")
         self.result_layout.addWidget(total)
+        session_materials = {
+            item.canonical_id: item
+            for item in (self._session.materials if self._session is not None else ())
+        }
+        for deficit in result.deficits:
+            material = session_materials.get(deficit.item_id)
+            icon = self._asset_catalog.progression_item_icon(deficit.item_id)
+            self.result_layout.addWidget(ProgressionMaterialCard(
+                name=(material.display_name if material is not None else deficit.item_id),
+                amount_text=f"缺口 × {deficit.deficit_quantity:,}",
+                icon_path=icon,
+                detail_text=(
+                    f"需要 {deficit.required_quantity:,} · "
+                    f"持有 {deficit.owned_quantity:,}"
+                ),
+                parent=self.result_host,
+            ))
         for run in result.runs:
             row = QLabel(
                 f"{run.label}  × {run.runs} 次  ·  {run.total_stamina} 活力",

@@ -20,6 +20,8 @@ from src.features.static_catalog.domain_pages.fork_page import (
 )
 from src.services.static_catalog_fork_release_metadata import (
     ForkItemDisplayNameService,
+    ForkProgressionState,
+    build_fork_progression_request,
     fork_character_catalog_link,
     fork_mechanics_catalog_routes,
     sort_fork_catalog,
@@ -30,11 +32,14 @@ from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.ui.progression_material_card import ProgressionMaterialCard
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DATABASE = ROOT / "data" / "game_static.sqlite3"
 ASSETS = ROOT / "assets" / "game_ui"
+ROLE_DATABASE = ROOT / "data" / "role_catalog" / "game_static.sqlite3"
+ROLE_ASSETS = ROOT / "data" / "role_catalog" / "game_ui"
 
 
 class ForkReleaseOrderingTests(unittest.TestCase):
@@ -365,6 +370,78 @@ class ForkCatalogPageTests(unittest.TestCase):
 
         self.assertEqual(
             [], page.profile_view.findChildren(QLabel, "forkRawIdentity")
+        )
+
+    def test_reference_catalog_shows_fork_exp_and_breakthrough_image_cards(self) -> None:
+        dao = StaticGameDataDao(ROLE_DATABASE)
+        self.addCleanup(dao.close)
+        terminology = StaticCatalogTerminologyService(dao)
+        page = build_fork_catalog_page(
+            database_path=ROLE_DATABASE,
+            game_ui_asset_root=ROLE_ASSETS,
+            terminology_service=terminology,
+        )
+        self.addCleanup(page.dispose)
+        fork_id = page.visible_summaries()[0].fork_id
+        page.open_fork(fork_id)
+        page.profile_view.tabs.setCurrentIndex(1)
+        page.show()
+        self.app.processEvents()
+
+        cards = page.profile_view.findChildren(ProgressionMaterialCard)
+        visible_text = "\n".join(
+            label.text() for label in page.profile_view.findChildren(QLabel)
+            if label.isVisibleTo(page)
+        )
+        self.assertGreaterEqual(len(cards), 3)
+        self.assertIn("500 EXP", visible_text)
+        self.assertIn("2,500 EXP", visible_text)
+        self.assertIn("10,000 EXP", visible_text)
+        self.assertIn("使用消耗", visible_text)
+
+        service = StaticCatalogForkService.from_database(ROLE_DATABASE)
+        self.addCleanup(service.close)
+        detail = service.get_fork(fork_id)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        request = build_fork_progression_request(
+            detail,
+            current=ForkProgressionState(1, 0, 1),
+            target=ForkProgressionState(80, 6, 1),
+        )
+        requested_ids = {item.item_id for item in request.requirements}
+        self.assertTrue(any(
+            item_id.startswith("WeaponUpMaterial_")
+            for item_id in requested_ids
+        ))
+        self.assertNotIn(
+            "level_material_relation_unavailable",
+            {gap.code for gap in request.requirement_gaps},
+        )
+
+    def test_game_release_exposes_complete_fork_material_calculation(self) -> None:
+        service = StaticCatalogForkService.from_database(DATABASE)
+        self.addCleanup(service.close)
+        detail = service.get_fork("fork_nonos")
+        self.assertIsNotNone(detail)
+        assert detail is not None
+
+        request = build_fork_progression_request(
+            detail,
+            current=ForkProgressionState(1, 0, 1),
+            target=ForkProgressionState(80, 6, 1),
+        )
+
+        requirements = {
+            item.item_id: item.required_quantity
+            for item in request.requirements
+        }
+        self.assertEqual(364, requirements["WeaponUpMaterial_lv3"])
+        self.assertEqual(1, requirements["WeaponUpMaterial_lv1"])
+        self.assertEqual(1_344_150, requirements["Fons"])
+        self.assertNotIn(
+            "level_material_relation_unavailable",
+            {gap.code for gap in request.requirement_gaps},
         )
 
 if __name__ == "__main__":

@@ -2323,8 +2323,562 @@
       "height": 160,
       "bytes": 38693,
       "sha256": "59B36C36E9EDE12006AEE204F7794FF066643A9B6747AF3BF7022BDADACC6D01"
+    },
+    "materials/CharacterUpMaterial_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/CharacterUpMaterial_lv1.CharacterUpMaterial_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 17723,
+      "sha256": "B91482B1CFB65821845A12DCCB419A5799FA34D81D6E802A6E55A2AEAEA6FCE0"
+    },
+    "materials/CharacterUpMaterial_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/CharacterUpMaterial_lv2.CharacterUpMaterial_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 18954,
+      "sha256": "18E12543AE524562DA5D51C281B1E76870F466BB1ABC372358CC56E2FD6EB68C"
+    },
+    "materials/CharacterUpMaterial_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/CharacterUpMaterial_lv3.CharacterUpMaterial_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 19831,
+      "sha256": "B90BE12C4CD32B23780A515B8234836D8D6CA9E7A7E0AB7B52E71650C7A1450C"
+    },
+    "materials/EquipmentUpMaterial_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/xiewang_01.xiewang_01",
+      "width": 128,
+      "height": 128,
+      "bytes": 21605,
+      "sha256": "541D9ACB3177EE40A9BEF13D89A314DC8234DE631DE148DDCEC29C8D0FB07624"
+    },
+    "materials/EquipmentUpMaterial_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/xiewang_02.xiewang_02",
+      "width": 128,
+      "height": 128,
+      "bytes": 22234,
+      "sha256": "27BCECA3AB1FE111F326A5583BBA6141262447B55796BDDCC6E1AF04AAC69154"
+    },
+    "materials/EquipmentUpMaterial_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/xiewang_03.xiewang_03",
+      "width": 128,
+      "height": 128,
+      "bytes": 22191,
+      "sha256": "EF5A002E9097E563E82022339F25EB82E9E73239B0D377FDF7DACB578F7C495D"
+    },
+    "materials/Equipment_BlueTicket.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/YH_UI_icon_game_gold_03.YH_UI_icon_game_gold_03",
+      "width": 128,
+      "height": 128,
+      "bytes": 6597,
+      "sha256": "403A4F67DE6CD67CA143E99C65C5BA01E02C7A3CBD78A34F857D72D035EDB638"
+    },
+    "materials/Equipment_OrangeTicket.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/YH_UI_icon_game_gold_01.YH_UI_icon_game_gold_01",
+      "width": 128,
+      "height": 128,
+      "bytes": 6401,
+      "sha256": "559D0826085266C83AEE96707EE983D2A871BAE3E91D1F29C6EFE021E62C00FC"
+    },
+    "materials/Equipment_PurpleTicket.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/YH_UI_icon_game_gold_02.YH_UI_icon_game_gold_02",
+      "width": 128,
+      "height": 128,
+      "bytes": 6548,
+      "sha256": "629A7C4AA7EA5EAD29533ED9471501DE6781408854FEEC9C732B851BEA4F0161"
+    },
+    "materials/Fons.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/Icon_Fonizie.Icon_Fonizie",
+      "width": 128,
+      "height": 128,
+      "bytes": 13972,
+      "sha256": "1D4D572B4EA399DE86BF2566D171483D56A4CA15B4283E92AEB6A9E6537A5A1A"
+    },
+    "materials/Gold.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/item_Coin_Beetle.item_Coin_Beetle",
+      "width": 128,
+      "height": 128,
+      "bytes": 17320,
+      "sha256": "07E7F2A3CEE09447F83D8521D94C7B8AE44A0A53833D07AEF192CAF1ECBADFB8"
+    },
+    "materials/HunterLvExp.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/hunterexp.hunterexp",
+      "width": 128,
+      "height": 128,
+      "bytes": 14513,
+      "sha256": "703DB77FB9C66F335DE058B78729E4B638C82C7732F119559CCD915D46D8CA2A"
+    },
+    "materials/OrdinaryMonMaterial_01_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/OrdinaryMonMaterial_01_lv1.OrdinaryMonMaterial_01_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 19543,
+      "sha256": "C93B72682055F2929062E9CB2A899F83DA02628781012AA1083DBA9D0FDD0B3A"
+    },
+    "materials/OrdinaryMonMaterial_01_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/OrdinaryMonMaterial_01_lv2.OrdinaryMonMaterial_01_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 20023,
+      "sha256": "8EED72B1E8A85F110E9B3C25BEF7D433FF82B483A5FA851EB45F69134B076176"
+    },
+    "materials/OrdinaryMonMaterial_01_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/OrdinaryMonMaterial_01_lv3.OrdinaryMonMaterial_01_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 20922,
+      "sha256": "7C19F1C358FAB6EAF5BEA3515B55C622C2D2B0EDA8A65712962951B7A52FAF4D"
+    },
+    "materials/OrdinaryMonMaterial_02_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_tuiselveying.material_tuiselveying",
+      "width": 128,
+      "height": 128,
+      "bytes": 17028,
+      "sha256": "1C320A2F3B38D56192E95DD3395CC219E0C46CE686BDD55F7C534AE7F6F2B85E"
+    },
+    "materials/OrdinaryMonMaterial_02_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_shijiaolveying.material_shijiaolveying",
+      "width": 128,
+      "height": 128,
+      "bytes": 17756,
+      "sha256": "175DF4FD266B9CD7E3DC773BA1BE357E2A944F8F91F49B32D0FDD307E58979A3"
+    },
+    "materials/OrdinaryMonMaterial_02_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_huianlveying.material_huianlveying",
+      "width": 128,
+      "height": 128,
+      "bytes": 17842,
+      "sha256": "5664411D55696D450A54F6624388EF08B3BEC3C655EB7D0648AADC3979FB3767"
+    },
+    "materials/OrdinaryMonMaterial_03_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_mohushufu.material_mohushufu",
+      "width": 128,
+      "height": 128,
+      "bytes": 15187,
+      "sha256": "1C216D6C24879E1C0DC19F099736E0BDDBB6BE9CC878D09EE646941688FC27F1"
+    },
+    "materials/OrdinaryMonMaterial_03_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_bianxingshufu.material_bianxingshufu",
+      "width": 128,
+      "height": 128,
+      "bytes": 16350,
+      "sha256": "933318F441DED6D683FFA06BD4985EC69DF090BDD69EABC0CCA9EDF4474AD6B5"
+    },
+    "materials/OrdinaryMonMaterial_03_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_niuqushufu.material_niuqushufu",
+      "width": 128,
+      "height": 128,
+      "bytes": 16690,
+      "sha256": "AE91DA8601BFABF3A6CC7D1D4068D1A7AE0462527140B7BD1CCB8103D26975F0"
+    },
+    "materials/OrdinaryMonMaterial_04_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_xuannianwangning.material_xuannianwangning",
+      "width": 128,
+      "height": 128,
+      "bytes": 12633,
+      "sha256": "BD70CE5F853011332D72CB577F2E97499D81C1E7DE35E687F6FC0C63F7AA901F"
+    },
+    "materials/OrdinaryMonMaterial_04_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_kewangwangning.material_kewangwangning",
+      "width": 128,
+      "height": 128,
+      "bytes": 13007,
+      "sha256": "9893B328F6B322C36F35D80AF0E4DADF42A539FABFBABE8457C1AC555A9C41F5"
+    },
+    "materials/OrdinaryMonMaterial_04_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_chaoyanwangning.material_chaoyanwangning",
+      "width": 128,
+      "height": 128,
+      "bytes": 13083,
+      "sha256": "1EDC22881B35AEE47A9CB34E18862D6BF7C3BF388264D37688CB37851398DE92"
+    },
+    "materials/SkillUpMaterial_01_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/characterskill_01_lv1_256x256_.characterskill_01_lv1_256x256_",
+      "width": 128,
+      "height": 128,
+      "bytes": 14155,
+      "sha256": "F306DF9E74915AAACE795C79BE5E76BDEE972B185D21EB3316992C8CA5CDA67E"
+    },
+    "materials/SkillUpMaterial_01_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/characterskill_01_lv2_256x256_.characterskill_01_lv2_256x256_",
+      "width": 128,
+      "height": 128,
+      "bytes": 14000,
+      "sha256": "D9A5D218A4790B70438E2968527337FBA65346E99558A711BBABB2457109C462"
+    },
+    "materials/SkillUpMaterial_01_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/characterskill_01_lv3_256x256_.characterskill_01_lv3_256x256_",
+      "width": 128,
+      "height": 128,
+      "bytes": 14598,
+      "sha256": "488450055BD1BB4173A12E47C7417D766981907E0A0F82C5A93B5A6B7531203B"
+    },
+    "materials/SkillUpMaterial_02_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_02_lv1.SkillUpMaterial_02_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 17172,
+      "sha256": "C182C9E96079207FD15A7BB5BC652DF57AE5502B353D4B6202DA0E974EF1248A"
+    },
+    "materials/SkillUpMaterial_02_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_02_lv2.SkillUpMaterial_02_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 18073,
+      "sha256": "17CC03975EAA3D3E912618E9F09E79E2E8CFD84F47DC8A2EBCB529ECC3D36893"
+    },
+    "materials/SkillUpMaterial_02_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_02_lv3.SkillUpMaterial_02_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 17874,
+      "sha256": "055ECBFCA0B7FB75797C4B76E8338917535B78D889D894A516EDAA656296403C"
+    },
+    "materials/SkillUpMaterial_03_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_03_lv1.SkillUpMaterial_03_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 16795,
+      "sha256": "ACA4697FF57B46F718E94C604EE305BFDC82E4101F826273D07F8C781C1B8190"
+    },
+    "materials/SkillUpMaterial_03_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_03_lv2.SkillUpMaterial_03_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 17566,
+      "sha256": "AFBB2BAF5ED153C0B2D53B438AD06C65D55184B4DBD972145C5727BECAFDAEE7"
+    },
+    "materials/SkillUpMaterial_03_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_03_lv3.SkillUpMaterial_03_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 17927,
+      "sha256": "3D1A5BC523C9D379A1E2A464293C36A701341D2DE0C8B202870AFF8FF87A140C"
+    },
+    "materials/SkillUpMaterial_04_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_04_lv1.SkillUpMaterial_04_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 15048,
+      "sha256": "3A0273336DEAE506441820EE3B8FA7FEDD3A5E700CF24CC519D5416026C6F984"
+    },
+    "materials/SkillUpMaterial_04_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_04_lv2.SkillUpMaterial_04_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 15358,
+      "sha256": "1957808D012ED772D689C1B23732DB3B0F916DE1A2D9635C75103D2DBEE86D75"
+    },
+    "materials/SkillUpMaterial_04_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_04_lv3.SkillUpMaterial_04_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 15703,
+      "sha256": "0C144D0B62F583E6ABAA5C38665AC61654BFFC59009B258B8168B4FBA4B348EE"
+    },
+    "materials/SkillUpMaterial_05_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_05_lv1.SkillUpMaterial_05_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 15481,
+      "sha256": "89FA68DA5F8580F00AF87FE1CDECBEFA78497A263EA74CD881E472F59AC94B20"
+    },
+    "materials/SkillUpMaterial_05_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_05_lv2.SkillUpMaterial_05_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 16224,
+      "sha256": "7EFAF5228B84DE8E31C4D810B14F8B0AF298118F88D54ED3E3BCB74A7E3A0B62"
+    },
+    "materials/SkillUpMaterial_05_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/SkillUpMaterial_05_lv3.SkillUpMaterial_05_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 16500,
+      "sha256": "7E67E04F83EE1CB79923E8412459D6D04A3EB8FBABD927B9D32771A00E790213"
+    },
+    "materials/Visions_furniture_05_UpMaterial.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Furniture/line_256.line_256",
+      "width": 128,
+      "height": 128,
+      "bytes": 20110,
+      "sha256": "A386F6CB12161C3216E3EF2DC69B96AED3FC0FFC1B8E21793004F520B6459A99"
+    },
+    "materials/Visions_furniture_05_unlock.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Furniture/magicline_256.magicline_256",
+      "width": 128,
+      "height": 128,
+      "bytes": 20227,
+      "sha256": "329D5378F9CABA75F4E8477CD221E646D96579990FF4352CFE45164ACCF3B523"
+    },
+    "materials/WeaponBreakMaterial_01_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_01_lv1.material_wpbreak_01_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 16882,
+      "sha256": "C7D1BA01BF8455F39D43B650289717FE79D8EE549F011305E160C9DA11372C96"
+    },
+    "materials/WeaponBreakMaterial_01_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_01_lv2.material_wpbreak_01_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 17950,
+      "sha256": "0613030D3E281F1FF1B83AD20059B83CF22A1B2F9F465C97FF0FCDEF6EB43C93"
+    },
+    "materials/WeaponBreakMaterial_01_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_01_lv3.material_wpbreak_01_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 17912,
+      "sha256": "5666A922E77A1A378B2B1BA79C2630DD3325A2A5DD35235855704747E26C66A6"
+    },
+    "materials/WeaponBreakMaterial_02_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_02_lv1.material_wpbreak_02_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 19115,
+      "sha256": "512839C6D59ACE4FA7009E48D578F289BD67F27FD478A55D0427C5099DEEB14B"
+    },
+    "materials/WeaponBreakMaterial_02_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_02_lv2.material_wpbreak_02_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 20278,
+      "sha256": "505C0BC9CB76442F76B7F785D66C9E297D9AC1DF6700A3C02E777EBCE624DC5F"
+    },
+    "materials/WeaponBreakMaterial_02_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_02_lv3.material_wpbreak_02_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 20422,
+      "sha256": "DE1B75262FC15C4F5DCDE8E01E95ECA1DC5CB7715890E768355B1D2C509ED15F"
+    },
+    "materials/WeaponBreakMaterial_03_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_03_lv1.material_wpbreak_03_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 16504,
+      "sha256": "9BC114370FB6CAB2AC8EEA3F3A7DB690CB11132EA48C88000D54FB8AA453B1EA"
+    },
+    "materials/WeaponBreakMaterial_03_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_03_lv2.material_wpbreak_03_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 16782,
+      "sha256": "093FB72170988DD795B736810F7999BF2E20D2EE23FC6BBF2BB4E51FBDC2180B"
+    },
+    "materials/WeaponBreakMaterial_03_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_03_lv3.material_wpbreak_03_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 18408,
+      "sha256": "EA3780C394EE48E32694B1A70AEA255B455ADD847C8D66A7D8C8847B5B74D4E5"
+    },
+    "materials/WeaponBreakMaterial_04_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_04_lv2.material_wpbreak_04_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 17391,
+      "sha256": "E0A460C6380863BCB39D9A6E77ED660B2B70A4FDACC03C33385CF8CBDAA30981"
+    },
+    "materials/WeaponBreakMaterial_04_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_04_lv1.material_wpbreak_04_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 17796,
+      "sha256": "AE221390CAB08525749A56E8271CE741356890BE9AE2F06864A774FC953C8560"
+    },
+    "materials/WeaponBreakMaterial_04_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_04_lv3.material_wpbreak_04_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 17524,
+      "sha256": "2DB716B43C0E31E3A92379DDEBCAD51B44106CD78C0A0E9DB52657ECE4DBBF58"
+    },
+    "materials/WeaponBreakMaterial_05_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_05_lv1.material_wpbreak_05_lv1",
+      "width": 128,
+      "height": 128,
+      "bytes": 17785,
+      "sha256": "A45B6F696BF44D8ED0E4F7171EEA0A9D42104F7A55F7711AF723B1BBCE7CAB32"
+    },
+    "materials/WeaponBreakMaterial_05_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_05_lv2.material_wpbreak_05_lv2",
+      "width": 128,
+      "height": 128,
+      "bytes": 18142,
+      "sha256": "17E6CC9A7392C9DBF84DEF9B9A5518209115FF474F2929816CC4812D3F08E572"
+    },
+    "materials/WeaponBreakMaterial_05_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_wpbreak_05_lv3.material_wpbreak_05_lv3",
+      "width": 128,
+      "height": 128,
+      "bytes": 18157,
+      "sha256": "8AF678353CF02C1D34DC9F2C5A4991EE70F9FFCEE8567C8424038F7CD3CDA35E"
+    },
+    "materials/WeaponUpMaterial_lv1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/weaponexp_lv1_256x256.weaponexp_lv1_256x256",
+      "width": 128,
+      "height": 128,
+      "bytes": 11620,
+      "sha256": "518C24FE2ABA078225DF38B27F2C1C06E2A76EC1C5EEFFEF52B09FDD8ADC3910"
+    },
+    "materials/WeaponUpMaterial_lv2.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/weaponexp_lv2_256x256.weaponexp_lv2_256x256",
+      "width": 128,
+      "height": 128,
+      "bytes": 12076,
+      "sha256": "077B2C3CCCD0EFCA9B270FF5A7D9CC70A78A8613588D6A09A2BF54B9462CCBFE"
+    },
+    "materials/WeaponUpMaterial_lv3.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/weaponexp_lv3_256x256.weaponexp_lv3_256x256",
+      "width": 128,
+      "height": 128,
+      "bytes": 14478,
+      "sha256": "2280F100602AFF7602B7E5943E4EA1BBE4F6F6C96E7AA5F8827A6C49AD78E9F8"
+    },
+    "materials/Worldboss_material_01.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/material_huafang3.material_huafang3",
+      "width": 128,
+      "height": 128,
+      "bytes": 18856,
+      "sha256": "2464C61A2210929AE20637416F4A6BD6E243168AE953E41C28C6B2D97934AC90"
+    },
+    "materials/Worldboss_material_02.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/Worldboss_material_02.Worldboss_material_02",
+      "width": 128,
+      "height": 128,
+      "bytes": 26016,
+      "sha256": "3DAA18C27AF6F87E0EC095CF31091226C383EFBE6476E6950B345F6335BE6B43"
+    },
+    "materials/Worldboss_material_03.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/Worldboss_material_03.Worldboss_material_03",
+      "width": 128,
+      "height": 128,
+      "bytes": 25415,
+      "sha256": "80DB06D60C15806283829FFDA8EA8DC2F1F932E6FFAAE9F527C1CDB92CC603DD"
+    },
+    "materials/Worldboss_material_04.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/Worldboss_material_04.Worldboss_material_04",
+      "width": 128,
+      "height": 128,
+      "bytes": 25036,
+      "sha256": "DFD12AFC38B89C8B50CDCFD0A7251F76F48D55A0116A62CE0FD6EDA9CBE10EF6"
+    },
+    "materials/Worldboss_material_05.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/Worldboss_material_05.Worldboss_material_05",
+      "width": 128,
+      "height": 128,
+      "bytes": 18343,
+      "sha256": "3BEDC56DFFEFEABF65C67638DBDCFFF7CD4B7395E1D0D6F5A43462EFE5DA9867"
+    },
+    "materials/Worldboss_material_06.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/Worldboss_material_06.Worldboss_material_06",
+      "width": 128,
+      "height": 128,
+      "bytes": 16861,
+      "sha256": "B0A794E972D8C35248EEE3979BB68A880689FEE080567CC792D0A743A3456A9E"
+    },
+    "materials/Worldboss_material_07.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/Worldboss_material_07.Worldboss_material_07",
+      "width": 128,
+      "height": 128,
+      "bytes": 21501,
+      "sha256": "DD94FE13C1C342B26F21C282EA6EA8E8F8BB3F6BF9C93226B682F06595CD4B97"
+    },
+    "materials/weeklycloneboss_a01_01.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/mofeikesi_yinzhang.mofeikesi_yinzhang",
+      "width": 128,
+      "height": 128,
+      "bytes": 15763,
+      "sha256": "F31DCE5383E5FAE33C2B43FDAACEB91A9BA11C6C9AEAC59BF4363D06435EB20E"
+    },
+    "materials/weeklycloneboss_a02_01.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/weeklycloneboss_a02_01.weeklycloneboss_a02_01",
+      "width": 128,
+      "height": 128,
+      "bytes": 16539,
+      "sha256": "E1CB54F418E526280AEA3DD146BD7E7231D73275B501D4D6B5C44A8C3240806D"
+    },
+    "materials/weeklycloneboss_a03_01.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/weeklycloneboss_a03_01.weeklycloneboss_a03_01",
+      "width": 128,
+      "height": 128,
+      "bytes": 17110,
+      "sha256": "A0C32AD47E5A88C1BFC94473E6878F5F6E61FCB5F9180FFE58954238E8228A18"
     }
   },
-  "total_files": 274,
-  "total_bytes": 15542821
+  "total_files": 343,
+  "total_bytes": 16724247,
+  "progression_items": {
+    "CharacterUpMaterial_lv1": "materials/CharacterUpMaterial_lv1.png",
+    "CharacterUpMaterial_lv2": "materials/CharacterUpMaterial_lv2.png",
+    "CharacterUpMaterial_lv3": "materials/CharacterUpMaterial_lv3.png",
+    "EquipmentUpMaterial_lv1": "materials/EquipmentUpMaterial_lv1.png",
+    "EquipmentUpMaterial_lv2": "materials/EquipmentUpMaterial_lv2.png",
+    "EquipmentUpMaterial_lv3": "materials/EquipmentUpMaterial_lv3.png",
+    "Equipment_BlueTicket": "materials/Equipment_BlueTicket.png",
+    "Equipment_OrangeTicket": "materials/Equipment_OrangeTicket.png",
+    "Equipment_PurpleTicket": "materials/Equipment_PurpleTicket.png",
+    "Fons": "materials/Fons.png",
+    "Gold": "materials/Gold.png",
+    "HunterLvExp": "materials/HunterLvExp.png",
+    "OrdinaryMonMaterial_01_lv1": "materials/OrdinaryMonMaterial_01_lv1.png",
+    "OrdinaryMonMaterial_01_lv2": "materials/OrdinaryMonMaterial_01_lv2.png",
+    "OrdinaryMonMaterial_01_lv3": "materials/OrdinaryMonMaterial_01_lv3.png",
+    "OrdinaryMonMaterial_02_lv1": "materials/OrdinaryMonMaterial_02_lv1.png",
+    "OrdinaryMonMaterial_02_lv2": "materials/OrdinaryMonMaterial_02_lv2.png",
+    "OrdinaryMonMaterial_02_lv3": "materials/OrdinaryMonMaterial_02_lv3.png",
+    "OrdinaryMonMaterial_03_lv1": "materials/OrdinaryMonMaterial_03_lv1.png",
+    "OrdinaryMonMaterial_03_lv2": "materials/OrdinaryMonMaterial_03_lv2.png",
+    "OrdinaryMonMaterial_03_lv3": "materials/OrdinaryMonMaterial_03_lv3.png",
+    "OrdinaryMonMaterial_04_lv1": "materials/OrdinaryMonMaterial_04_lv1.png",
+    "OrdinaryMonMaterial_04_lv2": "materials/OrdinaryMonMaterial_04_lv2.png",
+    "OrdinaryMonMaterial_04_lv3": "materials/OrdinaryMonMaterial_04_lv3.png",
+    "SkillUpMaterial_01_lv1": "materials/SkillUpMaterial_01_lv1.png",
+    "SkillUpMaterial_01_lv2": "materials/SkillUpMaterial_01_lv2.png",
+    "SkillUpMaterial_01_lv3": "materials/SkillUpMaterial_01_lv3.png",
+    "SkillUpMaterial_02_lv1": "materials/SkillUpMaterial_02_lv1.png",
+    "SkillUpMaterial_02_lv2": "materials/SkillUpMaterial_02_lv2.png",
+    "SkillUpMaterial_02_lv3": "materials/SkillUpMaterial_02_lv3.png",
+    "SkillUpMaterial_03_lv1": "materials/SkillUpMaterial_03_lv1.png",
+    "SkillUpMaterial_03_lv2": "materials/SkillUpMaterial_03_lv2.png",
+    "SkillUpMaterial_03_lv3": "materials/SkillUpMaterial_03_lv3.png",
+    "SkillUpMaterial_04_lv1": "materials/SkillUpMaterial_04_lv1.png",
+    "SkillUpMaterial_04_lv2": "materials/SkillUpMaterial_04_lv2.png",
+    "SkillUpMaterial_04_lv3": "materials/SkillUpMaterial_04_lv3.png",
+    "SkillUpMaterial_05_lv1": "materials/SkillUpMaterial_05_lv1.png",
+    "SkillUpMaterial_05_lv2": "materials/SkillUpMaterial_05_lv2.png",
+    "SkillUpMaterial_05_lv3": "materials/SkillUpMaterial_05_lv3.png",
+    "Visions_furniture_05_UpMaterial": "materials/Visions_furniture_05_UpMaterial.png",
+    "Visions_furniture_05_unlock": "materials/Visions_furniture_05_unlock.png",
+    "WeaponBreakMaterial_01_lv1": "materials/WeaponBreakMaterial_01_lv1.png",
+    "WeaponBreakMaterial_01_lv2": "materials/WeaponBreakMaterial_01_lv2.png",
+    "WeaponBreakMaterial_01_lv3": "materials/WeaponBreakMaterial_01_lv3.png",
+    "WeaponBreakMaterial_02_lv1": "materials/WeaponBreakMaterial_02_lv1.png",
+    "WeaponBreakMaterial_02_lv2": "materials/WeaponBreakMaterial_02_lv2.png",
+    "WeaponBreakMaterial_02_lv3": "materials/WeaponBreakMaterial_02_lv3.png",
+    "WeaponBreakMaterial_03_lv1": "materials/WeaponBreakMaterial_03_lv1.png",
+    "WeaponBreakMaterial_03_lv2": "materials/WeaponBreakMaterial_03_lv2.png",
+    "WeaponBreakMaterial_03_lv3": "materials/WeaponBreakMaterial_03_lv3.png",
+    "WeaponBreakMaterial_04_lv1": "materials/WeaponBreakMaterial_04_lv1.png",
+    "WeaponBreakMaterial_04_lv2": "materials/WeaponBreakMaterial_04_lv2.png",
+    "WeaponBreakMaterial_04_lv3": "materials/WeaponBreakMaterial_04_lv3.png",
+    "WeaponBreakMaterial_05_lv1": "materials/WeaponBreakMaterial_05_lv1.png",
+    "WeaponBreakMaterial_05_lv2": "materials/WeaponBreakMaterial_05_lv2.png",
+    "WeaponBreakMaterial_05_lv3": "materials/WeaponBreakMaterial_05_lv3.png",
+    "WeaponUpMaterial_lv1": "materials/WeaponUpMaterial_lv1.png",
+    "WeaponUpMaterial_lv2": "materials/WeaponUpMaterial_lv2.png",
+    "WeaponUpMaterial_lv3": "materials/WeaponUpMaterial_lv3.png",
+    "Worldboss_material_01": "materials/Worldboss_material_01.png",
+    "Worldboss_material_02": "materials/Worldboss_material_02.png",
+    "Worldboss_material_03": "materials/Worldboss_material_03.png",
+    "Worldboss_material_04": "materials/Worldboss_material_04.png",
+    "Worldboss_material_05": "materials/Worldboss_material_05.png",
+    "Worldboss_material_06": "materials/Worldboss_material_06.png",
+    "Worldboss_material_07": "materials/Worldboss_material_07.png",
+    "weeklycloneboss_a01_01": "materials/weeklycloneboss_a01_01.png",
+    "weeklycloneboss_a02_01": "materials/weeklycloneboss_a02_01.png",
+    "weeklycloneboss_a03_01": "materials/weeklycloneboss_a03_01.png"
+  }
 }

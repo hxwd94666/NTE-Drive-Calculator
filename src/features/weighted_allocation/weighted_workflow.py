@@ -128,6 +128,8 @@ def start_weighted_allocation(window) -> None:
             snapshot_id=snapshot_id,
         ),
         shared_database_path=dependencies.shared_database_path,
+        static_database_path=dependencies.static_database_path,
+        equipment_only=dependencies.equipment_only,
     )
     log_event(
         "INFO",
@@ -156,9 +158,10 @@ def _on_done(
     token: object,
     preview: WeightedAllocationPreview,
 ) -> None:
+    dependencies = weighted_allocation_dependencies(window)
     if (
         getattr(window, "_weighted_calculation_token", None) is not token
-        or preview.user_database_path != weighted_allocation_dependencies(window).user_database_path
+        or preview.user_database_path != dependencies.user_database_path
     ):
         operation = getattr(preview, "operation_context", None) or OperationContext.create(
             "allocation",
@@ -173,13 +176,27 @@ def _on_done(
             result="discarded",
         )
         return
+    static_path = dependencies.static_database_path
+    if (
+        static_path != preview.static_database_path
+        or static_path is None
+        or not static_path.is_file()
+        or preview.static_file_identity is None
+        or (static_path.stat().st_size, static_path.stat().st_mtime_ns)
+        != preview.static_file_identity
+    ):
+        window._weighted_allocation_worker = None
+        window.weighted_run_button.setEnabled(True)
+        window.weighted_status_label.setText("计算期间静态数据集已更新，请重新执行计算。")
+        return
     window._weighted_allocation_worker = None
     window.weighted_run_button.setEnabled(True)
     window._weighted_allocation_preview = preview
     window._weighted_allocation_saved_preview = None
     window.weighted_save_button.setEnabled(bool(preview.result.unified.selected))
     captured_at = preview.context.snapshot.captured_at_utc
-    window.weighted_status_label.setText(f"计算完成。背包数据截至 {captured_at}")
+    scope_note = "；当前仅进行装备评分与分配" if preview.equipment_only else ""
+    window.weighted_status_label.setText(f"计算完成。背包数据截至 {captured_at}{scope_note}")
     render_weighted_allocation_result(
         window,
         preview,
@@ -203,7 +220,7 @@ def _prompt_weighted_save_slots(
     """Collect one explicit current slot target for every calculated role."""
 
     dependencies = weighted_allocation_dependencies(window)
-    with UserDataDao(dependencies.user_database_path) as user_dao, StaticGameDataDao() as static_dao:
+    with UserDataDao(dependencies.user_database_path) as user_dao, StaticGameDataDao(dependencies.static_database_path) as static_dao:
         role_names = {
             int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
             for row in static_dao.list_characters()
@@ -415,7 +432,13 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         result["equipped"] = True
         result["equipped_character_id"] = owner_id
         result["equipped_character_name"] = str(role_names.get(owner_id, owner_id))
-        icon_path = asset_catalog.character_icon(owner_id)
+        result["equipped_character_is_custom"] = owner_id in getattr(
+            window, "_weighted_custom_character_ids", ()
+        )
+        icon_path = (
+            None if result["equipped_character_is_custom"]
+            else asset_catalog.character_icon(owner_id)
+        )
         if icon_path is not None:
             result["equipped_character_icon_path"] = str(icon_path)
         return result
@@ -450,7 +473,7 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         )
         for item in role_option.assignments
     ]
-    with StaticGameDataDao() as static_dao:
+    with StaticGameDataDao(weighted_allocation_dependencies(window).static_database_path) as static_dao:
         projected = project_equipment_items_to_max_level(
             [
                 *source_rows,
@@ -484,27 +507,30 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         return
 
     context_key = "_weighted_replacement"
-    # Do not reuse the lazy result-card cache here.  Replacement ordering needs
-    # the selected role's profile, fork and public extra-shape context in full.
-    detail = load_official_role_detail(
-        preview.user_database_path,
-        role_option.character_id,
-        shared_database_path=preview.shared_database_path,
-    )
     context = {
         "title": "词条配装临时结果",
         "items": tuple(projected_current_items),
         "calculation_items": tuple(projected_current_items),
         "available": True,
     }
-    full_detail = {
-        **detail,
-        "equipment_contexts": {
-            **(detail.get("equipment_contexts") or {}),
-            context_key: context,
-        },
-    }
-    final_weights = calculate_official_role_final_weights(full_detail, context_key)
+    full_detail = None
+    final_weights = None
+    if not preview.equipment_only:
+        # Complete combat data permits marginal damage and dynamic sorting.
+        detail = load_official_role_detail(
+            preview.user_database_path,
+            role_option.character_id,
+            shared_database_path=preview.shared_database_path,
+            static_database_path=preview.static_database_path,
+        )
+        full_detail = {
+            **detail,
+            "equipment_contexts": {
+                **(detail.get("equipment_contexts") or {}),
+                context_key: context,
+            },
+        }
+        final_weights = calculate_official_role_final_weights(full_detail, context_key)
 
     def item_score(item: Mapping[str, Any]) -> float:
         """Keep all visible replacement and saved-plan scores on base weights."""
@@ -518,6 +544,8 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
 
     def hidden_sort_score(item: Mapping[str, Any]) -> float:
         """Use final role weights only to order candidates, never to display/save."""
+        if full_detail is None or final_weights is None:
+            return item_score(item)
         return calculate_official_role_hidden_equipment_score(
             full_detail,
             item,
@@ -525,16 +553,17 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
             main_property_weights=final_weights["main_property_weights"],
         )
 
-    current_gain = calculate_official_role_item_gain(
-        full_detail,
-        context_key,
-        current_item,
+    current_gain = (
+        calculate_official_role_item_gain(full_detail, context_key, current_item)
+        if full_detail is not None else None
     )
     current_direct_damage_score = float(current_gain["gain_percent"]) if current_gain else None
 
     def direct_damage_score(
         candidate_item: Mapping[str, Any],
     ) -> float | None:
+        if full_detail is None:
+            return None
         replaced = tuple(
             candidate_item
             if (
@@ -625,8 +654,12 @@ def _request_weighted_replacement(window, role_name: str, assignment, role) -> N
         title=f"{role_name} · 替换优化",
         role_name=role_name,
         summary=(
-            "候选已先加载该角色完整面板，并按最终权重的隐藏装备评分降序排列；"
-            "直伤边际收益仅用于展示比较。候选与持有者只来自当前词条配装临时结果，不读取活动配装库；"
+            (
+                "当前使用图鉴基础权重排序，不展示直伤边际收益。"
+                if preview.equipment_only else
+                "候选按最终权重的隐藏装备评分降序排列；直伤边际收益仅用于展示比较。"
+            )
+            + "候选与持有者只来自当前词条配装临时结果，不读取活动配装库；"
             "借用其他角色装备后会在其原槽位生成可继续替换的金色占位装备。"
         ),
         current=current_card,
@@ -651,8 +684,20 @@ def _validated_weighted_preview(
     if not isinstance(preview, WeightedAllocationPreview) or not preview.result.unified.selected:
         QMessageBox.information(window, f"无法{action_name}", "请先完成一次有效的配装计算。")
         return None
-    if preview.user_database_path != weighted_allocation_dependencies(window).user_database_path:
+    dependencies = weighted_allocation_dependencies(window)
+    if preview.user_database_path != dependencies.user_database_path:
         QMessageBox.warning(window, "账号已切换", f"请在当前账号重新计算后再{action_name}。")
+        return None
+    static_path = dependencies.static_database_path
+    if (
+        static_path != preview.static_database_path
+        or static_path is None
+        or not static_path.is_file()
+        or preview.static_file_identity is None
+        or (static_path.stat().st_size, static_path.stat().st_mtime_ns)
+        != preview.static_file_identity
+    ):
+        QMessageBox.warning(window, "静态数据已更新", f"请重新计算后再{action_name}。")
         return None
     return preview
 

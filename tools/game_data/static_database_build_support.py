@@ -80,9 +80,10 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "033_game_static_dataset_scope.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "034_game_static_reference_catalog.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "035_game_static_catalog_passives.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "036_game_static_fork_exp_material.sql",
 )
-SCHEMA_VERSION = 35
-IMPORTER_VERSION = 45
+SCHEMA_VERSION = 36
+IMPORTER_VERSION = 46
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",

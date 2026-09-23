@@ -292,6 +292,11 @@ OpenVINO 与 ONNX Runtime 共用发行目录 `assets/ocr/models` 下同一套检
 解析并复核共享模型，再通过 `det_model_path`、`rec_model_path`、`cls_model_path` 显式注入。模型缺失或内容漂移属于组件
 故障，不回退到包内未知副本；源码环境可读取已安装依赖中通过同一清单校验的模型。
 
+发行包仅裁剪当前 OCR 与截图路径未使用的 OpenCV 视频 FFmpeg DLL，以及 OpenVINO 的 GPU/NPU 和非 ONNX 模型
+frontend；OpenVINO CPU/ONNX frontend、共享模型、ONNX Runtime/DirectML 均保留。打包脚本在依赖布局变化时停止
+裁剪并要求重新审查，不按通配符清理其他运行库。裁剪后的 OCR 初始化、截图图像解码与正式 Windows 扫描验收
+分别验证；仅凭安装包体积下降不视为发行验收通过。
+
 `src/integrations/vision` 独占窗口坐标、截图、格位检测、鼠标动作和扫描后状态同步；`src/scanner` 与解析
 Service 负责 OCR、归一化和装备字段。Integration 返回截图、索引、解析结果或诊断，不写业务快照，
 不决定评分和保留规则。

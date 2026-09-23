@@ -107,7 +107,7 @@ class CharacterBuildView(QWidget):
             if module_ordinal is not None:
                 matrix[row - 1][column - 1] = str(module_ordinal + 1)
         card.layout().addWidget(
-            PuzzleBoardWidget(matrix, cell_size=28, parent=card),
+            PuzzleBoardWidget(matrix, cell_size=28, parent=card, style_variant="catalog"),
             0,
             Qt.AlignmentFlag.AlignHCenter,
         )

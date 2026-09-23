@@ -41,7 +41,7 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
         for page in (by_ga, by_ge, by_buff, by_path):
             self.assertIn(1036, {item.character_id for item in page.items})
             self.assertTrue(page.dataset.dataset_id)
-            self.assertEqual(31, page.dataset.schema_version)
+            self.assertEqual(36, page.dataset.schema_version)
 
     def test_character_search_treats_sql_wildcards_as_literal_text(self) -> None:
         page = self.service.list_characters(query="%_", limit=200)
@@ -145,10 +145,10 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
         self.assertEqual(2000.0, first_costs["gold"])
         self.assertEqual(2.0, first_costs["SkillUpMaterial_03_lv1"])
         self.assertEqual(
-            ("暮落残阳", "殷红幻景"),
+            ("暮落残阳", "殷红幻景", "谲影迷踪"),
             tuple(passive.name_zh for passive in detail.passives),
         )
-        self.assertEqual((2, 4), tuple(
+        self.assertEqual((2, 4, None), tuple(
             passive.unlock_stage for passive in detail.passives
         ))
         self.assertTrue(all(passive.descriptions for passive in detail.passives))

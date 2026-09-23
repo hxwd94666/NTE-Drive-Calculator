@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -25,6 +24,7 @@ from src.app.constants import APP_VERSION
 from src.app.theme import themed_style
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.dashboard_widgets import metric_card, set_status_badge
+from src.ui.image_scaling import asset_pixmap
 
 
 _SYNC_ERROR_GUIDANCE = {
@@ -218,22 +218,17 @@ def build_home_page(window) -> QScrollArea:
     title_column.addWidget(window.home_account_label)
     hero_layout.addLayout(title_column)
     hero_layout.addStretch()
-    # 工作台使用灵可的正式头像。
+    # 工作台头像取已核验角色目录中的黑羽 256px 图片，不替换战报数据集。
     hero_icon_path = GameUiAssetCatalog(
-        window.app_context.paths.asset_dir / "game_ui"
-    ).character_icon(1072)
+        window.app_context.paths.cultivation_asset_root
+    ).character_icon(1042)
     if hero_icon_path is not None:
         hero_icon = QLabel()
         hero_icon.setObjectName("homeHeroAvatar")
         hero_icon.setFixedSize(72, 72)
-        hero_icon.setPixmap(
-            QPixmap(str(hero_icon_path)).scaled(
-                72,
-                72,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
-            )
-        )
+        hero_icon.setPixmap(asset_pixmap(
+            hero_icon_path, 72, hero_icon.devicePixelRatioF()
+        ))
         hero_icon.setStyleSheet("background:transparent")
         hero_layout.addWidget(hero_icon)
     window.home_sync_badge = QLabel("未启动")

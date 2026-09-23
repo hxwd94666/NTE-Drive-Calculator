@@ -23,7 +23,7 @@ class BlueprintDependencies:
             account_id=app_context.account.active_account_id,
             generation=app_context.generation,
             user_database_path=Path(app_context.account.user_database_path),
-            static_database_path=Path(app_context.paths.static_database_path),
+            static_database_path=Path(app_context.paths.equipment_allocation_database_path),
             shared_database_path=Path(app_context.paths.shared_database_path),
         )
 

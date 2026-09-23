@@ -1,4 +1,4 @@
-# 验证游戏资料库固定登记全部 125 张发行静态表。
+# 验证游戏资料库固定登记全部 126 张发行静态表。
 from __future__ import annotations
 
 import unittest
@@ -20,11 +20,13 @@ class StaticCatalogOverviewTests(unittest.TestCase):
         self.provider.close()
 
     def test_registers_every_release_table(self) -> None:
-        self.assertEqual(registered_static_table_count(), 125)
+        self.assertEqual(registered_static_table_count(), 126)
         page = self.provider.search(
-            self.release, query="", offset=0, limit=125
+            self.release, query="", offset=0, limit=126
         )
-        expected_count = 125 if self.release.schema_version >= 32 else 124
+        expected_count = 126 if self.release.schema_version >= 36 else (
+            125 if self.release.schema_version >= 32 else 124
+        )
         self.assertEqual(page.total, expected_count)
         self.assertEqual(len(page.items), expected_count)
         self.assertIn("source_row", {item.record_id for item in page.items})

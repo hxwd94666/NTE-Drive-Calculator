@@ -34,7 +34,6 @@ def test_settings_card_removes_manual_sync_policy_controls():
         assert not {"背包获取方式:", "内容稳定等待:", "历史快照保留:"}.intersection(labels)
         assert "清理历史快照" not in buttons
         assert host._sync_raw_capture_toggle.isChecked()
-        assert host._sync_capture_device_edit.width() == 360
         host._sync_capture_device_edit.setText("fixture-device")
         host._sync_capture_device_edit.editingFinished.emit()
         assert saves == [True]

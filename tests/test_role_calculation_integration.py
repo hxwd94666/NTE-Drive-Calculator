@@ -2,9 +2,43 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+from pathlib import Path
 
 from src.services import legacy_allocation_static_catalog as catalog_service
 from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+def test_new_reference_roles_reach_both_equipment_calculation_catalogs() -> None:
+    from src.app.context import ApplicationPaths
+    from src.features.weighted_allocation.weighted_static_catalog import (
+        get_weighted_static_catalog,
+    )
+    from src.integrations.role_catalog_release import read_role_catalog
+
+    root = Path(__file__).resolve().parents[1]
+    release = read_role_catalog(root / "data" / "role_catalog")
+    paths = ApplicationPaths.from_roots(
+        root=root, app_dir=root, data_root=root,
+        bundled_config_dir=root / "config", asset_dir=root / "assets",
+        app_icon_path=root / "assets" / "app_icon.ico",
+    )
+    assert paths.equipment_allocation_database_path == release.database_path
+    assert paths.static_database_path != release.database_path
+    legacy = catalog_service.build_legacy_allocation_static_catalog(
+        config_dir=root / "config",
+        static_database_path=release.database_path,
+    )
+    by_id = {
+        int(role["character_id"]): (name, role)
+        for name, role in legacy.roles_db.items()
+    }
+    weighted = get_weighted_static_catalog(release.asset_root, release.database_path)
+    for character_id in (1042, 1057):
+        name, role = by_id[character_id]
+        assert role["weights"]
+        assert role["default_set"] in legacy.sets_db
+        assert sum(cell == 0 for row in legacy.board_matrices[name] for cell in row) == 20
+        assert character_id in weighted.plans_by_character_id
 
 
 def test_legacy_calculation_projection_uses_current_role_profile() -> None:

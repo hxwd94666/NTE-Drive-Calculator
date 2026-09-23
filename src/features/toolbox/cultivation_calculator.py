@@ -1,34 +1,42 @@
 # 实现工具页养成计算器的交互界面。
-"""Toolbox dialog for calculating a character's formal cultivation materials."""
+"""Toolbox page content for calculating a character's formal cultivation materials."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPen
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
+    QSizePolicy,
     QSpinBox,
-    QStyle,
-    QStyleOptionSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from src.app.theme import theme_color, themed_style
-from src.app.window_geometry import fit_dialog_to_available_screen
+from src.app.theme import themed_style
+from src.features.toolbox.cultivation_owned_materials import (
+    CultivationOwnedMaterials,
+    build_material_grid,
+    remaining_materials,
+    visible_materials,
+    visible_owned_inputs,
+)
 from src.features.toolbox.cultivation_selectors import select_cultivation_item
+from src.features.toolbox.cultivation_single_editor import CultivationSingleEditor
+from src.features.toolbox.cultivation_stamina_ui import (
+    CultivationStaminaControls,
+    stamina_runs_text,
+    stamina_summary_text,
+    style_stamina_badge,
+)
 from src.services.character_progression_requirements import (
     MaterialSummaryStatus,
 )
@@ -38,76 +46,30 @@ from src.services.cultivation_planner_service import (
     CultivationFork,
     CultivationForkSeed,
     CultivationForkTarget,
+    CultivationMaterial,
     CultivationPlan,
     CultivationPlannerService,
     CultivationRequest,
     CultivationRole,
     CultivationSeed,
+    CultivationStaminaPlan,
     CultivationSkillTarget,
 )
 
 
-class _CultivationSpinBox(QSpinBox):
-    """Draw stable step chevrons independent of the active Qt platform theme."""
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt override
-        super().paintEvent(event)
-        option = QStyleOptionSpinBox()
-        self.initStyleOption(option)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor(theme_color("#8b949e")))
-        pen.setWidth(2)
-        painter.setPen(pen)
-        for control, upward in (
-            (QStyle.SubControl.SC_SpinBoxUp, True),
-            (QStyle.SubControl.SC_SpinBoxDown, False),
-        ):
-            rect = self.style().subControlRect(
-                QStyle.ComplexControl.CC_SpinBox,
-                option,
-                control,
-                self,
-            )
-            center_x = rect.center().x()
-            center_y = rect.center().y()
-            tip_offset = -2 if upward else 2
-            wing_y = center_y - tip_offset
-            tip_y = center_y + tip_offset
-            painter.drawLine(center_x - 3, wing_y, center_x, tip_y)
-            painter.drawLine(center_x, tip_y, center_x + 3, wing_y)
-        painter.end()
-
-
-class _ParticipationToggle(QToolButton):
-    """A text-free on/off switch that remains recognizable in every theme."""
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt override
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        track = QRectF(self.rect()).adjusted(1, 5, -1, -5)
-        checked = self.isChecked()
-        track_color = theme_color("#238636" if checked else "#30363d")
-        border_color = theme_color("#58a6ff" if self.underMouse() else "#30363d")
-        painter.setPen(QPen(QColor(border_color), 1.2))
-        painter.setBrush(QColor(track_color))
-        painter.drawRoundedRect(track, track.height() / 2, track.height() / 2)
-        knob_size = track.height() - 6
-        knob_x = (
-            track.right() - knob_size - 3
-            if checked else track.left() + 3
-        )
-        knob = QRectF(knob_x, track.top() + 3, knob_size, knob_size)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#ffffff" if checked else theme_color("#8b949e")))
-        painter.drawEllipse(knob)
-        painter.end()
-
-
-class CultivationCalculatorDialog(QDialog):
+class CultivationCalculatorContent(QWidget):
     """Editable planning draft; calculation never writes the account or inventory."""
 
-    def __init__(self, service: CultivationPlannerService, parent: QWidget) -> None:
+    plan_available = Signal(bool)
+    layout_changed = Signal()
+
+    def __init__(
+        self,
+        service: CultivationPlannerService,
+        parent: QWidget,
+        *,
+        asset_root: str | Path | None = None,
+    ) -> None:
         super().__init__(parent)
         self._service = service
         self._roles: tuple[CultivationRole, ...] = ()
@@ -116,145 +78,86 @@ class CultivationCalculatorDialog(QDialog):
         self._fork_seed: CultivationForkSeed | None = None
         self._skill_inputs: dict[str, tuple[QSpinBox, QSpinBox]] = {}
         self._last_plan: CultivationPlan | None = None
-        self._asset_catalog = GameUiAssetCatalog(bundled_game_ui_asset_root())
-        self.setWindowTitle("养成计算器")
-        self.setObjectName("cultivationCalculatorDialog")
-        self.setModal(True)
+        self._last_stamina_plan: CultivationStaminaPlan | None = None
+        self._materials_dirty = False
+        self._material_scope = "stamina"
+        self._details_expanded = False
+        self._asset_catalog = GameUiAssetCatalog(
+            asset_root if asset_root is not None else bundled_game_ui_asset_root()
+        )
+        self.setObjectName("cultivationCalculatorContent")
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Minimum,
+        )
         self._build()
-        fit_dialog_to_available_screen(self, QSize(1180, 740))
-        QTimer.singleShot(0, self._load_roles)
+        self._load_roles()
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
 
-        note = QLabel(
-            "按角色页已保存的养成状态预填；仅汇总正式材料，不扣除背包库存，也不估算体力。",
-            self,
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
-        layout.addWidget(note)
-
-        content = QHBoxLayout()
-        content.setSpacing(14)
-        input_scroll = QScrollArea(self)
-        input_scroll.setObjectName("cultivationCalculatorInputScroll")
-        input_scroll.setWidgetResizable(True)
-        input_scroll.setFrameShape(QFrame.NoFrame)
-        input_scroll.setMinimumWidth(470)
-        input_body = QWidget(input_scroll)
+        input_body = QWidget(self)
         input_layout = QVBoxLayout(input_body)
-        input_layout.setContentsMargins(2, 2, 2, 2)
+        input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(10)
 
-        configuration_caption = QLabel("养成目标", input_body)
-        configuration_caption.setStyleSheet(themed_style(
-            "font-size:14px;font-weight:800;color:#c9d1d9"
-        ))
-        input_layout.addWidget(configuration_caption)
-
-        controls = QFrame(input_body)
-        controls.setObjectName("cultivationCalculatorControls")
-        controls.setStyleSheet(themed_style(
-            "QFrame#cultivationCalculatorControls{background:#161b22;border:1px solid #30363d;"
-            "border-radius:9px;}"
-        ))
-        grid = QGridLayout(controls)
-        grid.setContentsMargins(14, 12, 14, 12)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
-        self._role = QPushButton("选择角色", controls)
-        self._role.setObjectName("cultivationCalculatorRoleSelector")
-        self._role.setMinimumWidth(210)
+        self._editor = CultivationSingleEditor(input_body)
+        input_layout.addWidget(self._editor)
+        self._role = self._editor.role_button
+        self._fork = self._editor.fork_button
+        self._character_toggle = self._editor.character_toggle
+        self._skills_toggle = self._editor.skills_toggle
+        self._fork_toggle = self._editor.fork_toggle
+        self._current_level = self._editor.current_level
+        self._current_stage = self._editor.current_stage
+        self._target_level = self._editor.target_level
+        self._target_stage = self._editor.target_stage
+        self._fork_current_level = self._editor.fork_current_level
+        self._fork_current_stage = self._editor.fork_current_stage
+        self._fork_target_level = self._editor.fork_target_level
+        self._fork_target_stage = self._editor.fork_target_stage
+        self._skill_inputs = self._editor.skill_inputs
         self._role.clicked.connect(self._select_role)
-        grid.addWidget(QLabel("角色", controls), 0, 0)
-        grid.addWidget(self._role, 0, 1, 1, 2)
-        self._character_toggle = _participation_toggle(controls, "角色养成")
+        self._fork.clicked.connect(self._select_fork)
         self._character_toggle.toggled.connect(self._set_character_progression_enabled)
-        grid.addWidget(self._character_toggle, 0, 3)
-        self._current_level = _level_spinbox(controls)
-        self._target_level = _level_spinbox(controls)
-        self._current_stage = _stage_combobox(controls)
-        self._target_stage = _stage_combobox(controls)
+        self._skills_toggle.toggled.connect(self._set_skills_enabled)
+        self._fork_toggle.toggled.connect(self._refresh_fork_participation)
         self._current_level.valueChanged.connect(self._refresh_current_stages)
         self._target_level.valueChanged.connect(self._refresh_target_stages)
-        grid.addWidget(QLabel("当前等级", controls), 1, 0)
-        grid.addWidget(self._current_level, 1, 1)
-        grid.addWidget(self._current_stage, 1, 2)
-        grid.addWidget(QLabel("目标等级", controls), 2, 0)
-        grid.addWidget(self._target_level, 2, 1)
-        grid.addWidget(self._target_stage, 2, 2)
-        input_layout.addWidget(controls)
-
-        self._fork_controls = QFrame(input_body)
-        self._fork_controls.setObjectName("cultivationCalculatorForkControls")
-        self._fork_controls.setStyleSheet(themed_style(
-            "QFrame#cultivationCalculatorForkControls{background:#161b22;border:1px solid #30363d;"
-            "border-radius:9px;}"
-        ))
-        fork_grid = QGridLayout(self._fork_controls)
-        fork_grid.setContentsMargins(14, 12, 14, 12)
-        fork_grid.setHorizontalSpacing(10)
-        fork_grid.setVerticalSpacing(8)
-        self._fork = QPushButton("选择弧盘", self._fork_controls)
-        self._fork.setObjectName("cultivationCalculatorForkSelector")
-        self._fork.setMinimumWidth(210)
-        self._fork.clicked.connect(self._select_fork)
-        fork_grid.addWidget(QLabel("弧盘", self._fork_controls), 0, 0)
-        fork_grid.addWidget(self._fork, 0, 1, 1, 2)
-        self._fork_toggle = _participation_toggle(self._fork_controls, "弧盘养成")
-        self._fork_toggle.toggled.connect(self._refresh_fork_participation)
-        fork_grid.addWidget(self._fork_toggle, 0, 3)
-        self._fork_current_level = _level_spinbox(self._fork_controls)
-        self._fork_target_level = _level_spinbox(self._fork_controls)
-        self._fork_current_stage = _stage_combobox(self._fork_controls)
-        self._fork_target_stage = _stage_combobox(self._fork_controls)
         self._fork_current_level.valueChanged.connect(self._refresh_fork_current_stages)
         self._fork_target_level.valueChanged.connect(self._refresh_fork_target_stages)
-        fork_grid.addWidget(QLabel("当前等级", self._fork_controls), 1, 0)
-        fork_grid.addWidget(self._fork_current_level, 1, 1)
-        fork_grid.addWidget(self._fork_current_stage, 1, 2)
-        fork_grid.addWidget(QLabel("目标等级", self._fork_controls), 2, 0)
-        fork_grid.addWidget(self._fork_target_level, 2, 1)
-        fork_grid.addWidget(self._fork_target_stage, 2, 2)
-        input_layout.addWidget(self._fork_controls)
         self._set_fork_controls_enabled(False)
 
-        skill_header = QHBoxLayout()
-        skill_header.setContentsMargins(0, 0, 22, 0)
-        skill_caption = QLabel("技能目标", input_body)
-        skill_caption.setStyleSheet(themed_style("font-size:14px;font-weight:800;color:#c9d1d9"))
-        skill_header.addWidget(skill_caption)
-        skill_header.addStretch(1)
-        self._skills_toggle = _participation_toggle(input_body, "技能目标")
-        self._skills_toggle.toggled.connect(self._set_skills_enabled)
-        skill_header.addWidget(self._skills_toggle)
-        input_layout.addLayout(skill_header)
-        self._skills_box = QWidget(input_body)
-        self._skills_layout = QFormLayout(self._skills_box)
-        self._skills_layout.setContentsMargins(8, 2, 8, 2)
-        self._skills_layout.setHorizontalSpacing(14)
-        self._skills_layout.setVerticalSpacing(7)
-        input_layout.addWidget(self._skills_box)
+        self._stamina_controls = CultivationStaminaControls(input_body)
+        self._stamina_controls.values_changed.connect(self._stamina_inputs_changed)
+        input_layout.addWidget(self._stamina_controls)
+
+        self._owned_materials = CultivationOwnedMaterials(
+            self._asset_catalog.progression_item_icon,
+            input_body,
+        )
+        self._owned_materials.quantities_changed.connect(
+            self._owned_quantities_changed
+        )
+        self._owned_materials.layout_changed.connect(self.layout_changed)
+        input_layout.addWidget(self._owned_materials)
 
         action_row = QHBoxLayout()
-        calculate = QPushButton("计算所需材料", input_body)
-        calculate.setObjectName("cultivationCalculatorCalculate")
-        calculate.setMinimumHeight(44)
-        calculate.setStyleSheet(themed_style(
+        self._calculate_button = QPushButton("计算所需材料与体力", input_body)
+        self._calculate_button.setObjectName("cultivationCalculatorCalculate")
+        self._calculate_button.setMinimumHeight(44)
+        self._calculate_button.setStyleSheet(themed_style(
             "QPushButton#cultivationCalculatorCalculate{background:#1f6feb;color:#fff;"
             "border:1px solid #58a6ff;border-radius:7px;font-size:14px;font-weight:800;}"
             "QPushButton#cultivationCalculatorCalculate:hover{background:#388bfd;}"
             "QPushButton#cultivationCalculatorCalculate:pressed{background:#1f6feb;}"
         ))
-        calculate.clicked.connect(self._calculate)
-        action_row.addWidget(calculate)
+        self._calculate_button.clicked.connect(self._calculate)
+        action_row.addWidget(self._calculate_button)
         input_layout.addLayout(action_row)
-        input_layout.addStretch()
-        input_scroll.setWidget(input_body)
-        content.addWidget(input_scroll, 4)
+        layout.addWidget(input_body)
 
         result_panel = QFrame(self)
         result_panel.setObjectName("cultivationCalculatorResultPanel")
@@ -268,25 +171,14 @@ class CultivationCalculatorDialog(QDialog):
         result_caption = QLabel("材料清单", result_panel)
         result_caption.setStyleSheet(themed_style("font-size:15px;font-weight:900;color:#58a6ff"))
         result_layout.addWidget(result_caption)
-        self._result = QScrollArea(result_panel)
-        self._result.setWidgetResizable(True)
-        self._result.setFrameShape(QFrame.StyledPanel)
-        self._result_body = QWidget(self._result)
+        self._result_body = QWidget(result_panel)
         self._result_layout = QVBoxLayout(self._result_body)
         self._result_layout.setContentsMargins(12, 10, 12, 10)
         self._result_layout.setSpacing(8)
-        self._result.setWidget(self._result_body)
-        result_layout.addWidget(self._result, 1)
-        content.addWidget(result_panel, 6)
-        layout.addLayout(content, 1)
+        result_layout.addWidget(self._result_body)
+        layout.addWidget(result_panel)
+        layout.addStretch(1)
         self._set_result_message("选择角色后填写目标等级和技能目标，再计算所需材料。")
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Close, parent=self)
-        self._copy_button = buttons.addButton("复制清单", QDialogButtonBox.ActionRole)
-        self._copy_button.setEnabled(False)
-        self._copy_button.clicked.connect(self._copy_plan)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
 
     def _load_roles(self) -> None:
         try:
@@ -324,15 +216,21 @@ class CultivationCalculatorDialog(QDialog):
             self._set_result_message(f"读取角色养成状态失败：{exc}", error=True)
             return
         self._seed = seed
-        self._role.setText(seed.character_name)
+        self._editor.set_role(
+            seed.character_name, self._asset_catalog.character_icon(seed.character_id),
+        )
         self._current_level.setValue(seed.current_level)
         self._set_stages(self._current_stage, seed.current_level, seed.current_breakthrough_stage)
         self._target_level.setValue(80)
         self._set_stages(self._target_stage, 80, 6)
         self._rebuild_skills(seed)
         self._apply_fork_seed(seed.fork)
+        self._owned_materials.clear_materials()
         self._last_plan = None
-        self._copy_button.setEnabled(False)
+        self._last_stamina_plan = None
+        self._materials_dirty = False
+        self._calculate_button.setText("计算所需材料与体力")
+        self.plan_available.emit(False)
         self._set_result_message("已按角色页保存的等级、突破和技能等级预填。")
 
     def _select_fork(self) -> None:
@@ -370,9 +268,11 @@ class CultivationCalculatorDialog(QDialog):
         self._fork_seed = seed
         self._set_fork_controls_enabled(seed is not None)
         if seed is None:
-            self._fork.setText("选择弧盘")
+            self._editor.set_fork(None, None)
             return
-        self._fork.setText(seed.fork_name)
+        self._editor.set_fork(
+            seed.fork_name, self._asset_catalog.fork_icon(seed.fork_id),
+        )
         self._fork_current_level.setValue(seed.current_level)
         self._set_stages(
             self._fork_current_stage,
@@ -410,30 +310,7 @@ class CultivationCalculatorDialog(QDialog):
             target.setEnabled(enabled)
 
     def _rebuild_skills(self, seed: CultivationSeed) -> None:
-        while self._skills_layout.rowCount():
-            self._skills_layout.removeRow(0)
-        self._skill_inputs.clear()
-        if not seed.skills:
-            self._skills_layout.addRow(QLabel("当前正式静态库未提供可升级技能。", self._skills_box))
-            return
-        for skill in seed.skills:
-            current = _CultivationSpinBox(self._skills_box)
-            current.setRange(1, skill.maximum_level)
-            current.setValue(skill.current_level)
-            target = _CultivationSpinBox(self._skills_box)
-            target.setRange(1, skill.maximum_level)
-            target.setValue(skill.maximum_level)
-            row = QWidget(self._skills_box)
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(6)
-            row_layout.addWidget(QLabel("当前", row))
-            row_layout.addWidget(current)
-            row_layout.addWidget(QLabel("目标", row))
-            row_layout.addWidget(target)
-            row_layout.addStretch()
-            self._skills_layout.addRow(f"{skill.category} · {skill.name}", row)
-            self._skill_inputs[skill.skill_id] = (current, target)
+        self._editor.set_skills(seed)
         self._set_skills_enabled(self._skills_toggle.isChecked())
 
     def _refresh_current_stages(self) -> None:
@@ -503,50 +380,98 @@ class CultivationCalculatorDialog(QDialog):
             QMessageBox.warning(self, "养成计算器", f"计算材料失败：{exc}")
             return
         self._last_plan = plan
-        self._copy_button.setEnabled(True)
+        self._materials_dirty = False
+        self._calculate_button.setText("计算所需材料与体力")
+        self.plan_available.emit(True)
         self._render_plan(plan)
 
-    def _render_plan(self, plan: CultivationPlan) -> None:
-        self._clear_result()
-        complete = plan.status == MaterialSummaryStatus.COMPLETE
-        summary = QLabel(
-            "材料数据完整" if complete else "材料数据不完整，以下为已识别的材料",
-            self._result_body,
+    def _owned_quantities_changed(self) -> None:
+        if self._last_plan is not None and not self._materials_dirty:
+            self._materials_dirty = True
+            self._calculate_button.setText("重新计算所需材料与体力")
+            self.plan_available.emit(False)
+            self._set_result_message("已有材料已修改，请点击重新计算更新材料与体力。")
+
+    def _stamina_inputs_changed(self) -> None:
+        if self._last_plan is not None and not self._materials_dirty:
+            self._render_plan(self._last_plan)
+
+    def set_material_scope(self, scope: str) -> None:
+        if scope not in {"all", "stamina"} or scope == self._material_scope:
+            return
+        self._material_scope = scope
+        if self._last_plan is None:
+            return
+        if self._materials_dirty:
+            self._owned_materials.set_materials(self._input_options(self._last_plan))
+        else:
+            self._render_plan(self._last_plan, refresh_stamina=False)
+
+    def _visible(
+        self, materials: tuple[CultivationMaterial, ...]
+    ) -> tuple[CultivationMaterial, ...]:
+        item_ids = (
+            getattr(self._last_stamina_plan, "stamina_item_ids", frozenset())
+            if self._last_stamina_plan is not None else frozenset()
         )
-        summary.setStyleSheet(themed_style(
-            "color:#3fb950;font-weight:800" if complete else "color:#d29922;font-weight:800"
-        ))
-        self._result_layout.addWidget(summary)
+        return visible_materials(materials, self._material_scope, item_ids)
+
+    def _calculate_stamina(self, plan: CultivationPlan) -> CultivationStaminaPlan | None:
+        calculate = getattr(self._service, "calculate_stamina", None)
+        if not callable(calculate):
+            return None
+        hunter_level, identification_level = self._stamina_controls.values()
+        try:
+            return calculate(
+                plan,
+                owned_quantities=self._owned_materials.quantities(),
+                hunter_level=hunter_level,
+                effective_identification_level=identification_level,
+            )
+        except (TypeError, ValueError):
+            return None
+
+    def _input_options(self, plan: CultivationPlan) -> tuple[CultivationMaterial, ...]:
+        item_ids = (
+            self._last_stamina_plan.stamina_item_ids
+            if self._last_stamina_plan is not None else frozenset()
+        )
+        return visible_owned_inputs(
+            plan.owned_inputs or plan.totals, plan.totals,
+            self._material_scope, item_ids,
+        )
+
+    def _render_plan(
+        self, plan: CultivationPlan, *, refresh_stamina: bool = True
+    ) -> None:
+        self._clear_result()
+        if refresh_stamina:
+            self._last_stamina_plan = self._calculate_stamina(plan)
+        self._owned_materials.set_materials(self._input_options(plan))
+        complete = plan.status == MaterialSummaryStatus.COMPLETE
+        if not complete:
+            summary = QLabel(
+                "材料数据不完整，以下为已识别的材料",
+                self._result_body,
+            )
+            summary.setStyleSheet(themed_style(
+                "color:#d29922;font-weight:800"
+            ))
+            self._result_layout.addWidget(summary)
         if plan.required_experience:
             overflow = f"，经验书最小溢出 {plan.experience_overflow:,}" if plan.experience_overflow else ""
             self._result_layout.addWidget(QLabel(
                 f"角色升级经验 {plan.required_experience:,}{overflow}", self._result_body
             ))
-        for section in plan.sections:
-            card = QFrame(self._result_body)
-            card.setObjectName("cultivationCalculatorResultSection")
-            card.setStyleSheet(themed_style(
-                "QFrame#cultivationCalculatorResultSection{background:#161b22;border:1px solid #30363d;"
-                "border-radius:8px;}"
+        if plan.fork_required_experience:
+            overflow = (
+                f"，材料最小溢出 {plan.fork_experience_overflow:,}"
+                if plan.fork_experience_overflow else ""
+            )
+            self._result_layout.addWidget(QLabel(
+                f"弧盘升级经验 {plan.fork_required_experience:,}{overflow}",
+                self._result_body,
             ))
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(10, 8, 10, 8)
-            heading = QLabel(section.label, card)
-            heading.setStyleSheet(themed_style("color:#58a6ff;font-weight:800"))
-            card_layout.addWidget(heading)
-            material_text = " · ".join(
-                f"{material.name} × {material.quantity:,}" for material in section.materials
-            ) or "无额外材料"
-            values = QLabel(material_text, card)
-            values.setWordWrap(True)
-            values.setStyleSheet(themed_style("color:#c9d1d9"))
-            card_layout.addWidget(values)
-            if section.description:
-                description = QLabel(section.description, card)
-                description.setWordWrap(True)
-                description.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
-                card_layout.addWidget(description)
-            self._result_layout.addWidget(card)
         total = QFrame(self._result_body)
         total.setObjectName("cultivationCalculatorTotals")
         total.setStyleSheet(themed_style(
@@ -554,31 +479,200 @@ class CultivationCalculatorDialog(QDialog):
         ))
         total_layout = QVBoxLayout(total)
         total_layout.setContentsMargins(10, 8, 10, 8)
-        total_heading = QLabel("合计", total)
+        owned = self._owned_materials.quantities()
+        visible_totals = self._visible(plan.totals)
+        remaining = remaining_materials(visible_totals, owned)
+        total_header = QHBoxLayout()
+        total_heading = QLabel("仍需合计", total)
         total_heading.setStyleSheet(themed_style("color:#58a6ff;font-size:14px;font-weight:900"))
-        total_layout.addWidget(total_heading)
-        total_text = QLabel(
-            " · ".join(f"{item.name} × {item.quantity:,}" for item in plan.totals) or "本次目标没有新增材料",
+        total_header.addWidget(total_heading)
+        total_header.addStretch(1)
+        total_stamina = QLabel(
+            stamina_summary_text(
+                self._last_stamina_plan.total if self._last_stamina_plan else None
+            ),
             total,
         )
-        total_text.setWordWrap(True)
-        total_layout.addWidget(total_text)
-        self._result_layout.addWidget(total)
+        style_stamina_badge(total_stamina)
+        total_header.addWidget(total_stamina)
+        total_layout.addLayout(total_header)
+        if remaining:
+            total_grid = build_material_grid(
+                remaining,
+                icon_lookup=self._asset_catalog.progression_item_icon,
+                parent=total,
+            )
+            total_grid.layout_changed.connect(self.layout_changed)
+            total_layout.addWidget(total_grid)
+        elif visible_totals:
+            total_layout.addWidget(QLabel("已有材料已覆盖全部需求", total))
+        elif self._material_scope == "stamina":
+            total_layout.addWidget(QLabel("本次目标没有需消耗体力刷取的材料", total))
+        else:
+            total_layout.addWidget(QLabel("本次目标没有新增材料", total))
+        total_runs = stamina_runs_text(
+            self._last_stamina_plan.total if self._last_stamina_plan else None
+        )
+        if total_runs:
+            run_label = QLabel(total_runs, total)
+            run_label.setWordWrap(True)
+            run_label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
+            total_layout.addWidget(run_label)
+        self._result_layout.addWidget(total, 0, Qt.AlignmentFlag.AlignTop)
         if plan.gaps:
             self._result_layout.addWidget(QLabel(
                 "部分正式材料数量尚未提供，合计只包含已识别条目。", self._result_body
             ))
+        if plan.sections:
+            self._result_layout.addWidget(
+                self._details_panel(plan, self._last_stamina_plan),
+                0,
+                Qt.AlignmentFlag.AlignTop,
+            )
         self._result_layout.addStretch()
+        self.layout_changed.emit()
 
-    def _copy_plan(self) -> None:
-        if self._last_plan is None:
+    def _details_panel(
+        self,
+        plan: CultivationPlan,
+        stamina_plan: CultivationStaminaPlan | None,
+    ) -> QFrame:
+        panel = QFrame(self._result_body)
+        panel.setObjectName("cultivationCalculatorDetailsPanel")
+        panel.setStyleSheet(themed_style(
+            "QFrame#cultivationCalculatorDetailsPanel{background:#0d1117;"
+            "border:1px solid #30363d;border-radius:8px;}"
+            "QToolButton#cultivationCalculatorDetailsToggle{border:0;"
+            "padding:9px;text-align:left;color:#c9d1d9;font-weight:800;}"
+        ))
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        toggle = QToolButton(panel)
+        toggle.setObjectName("cultivationCalculatorDetailsToggle")
+        toggle.setText(f"计算明细 · {len(plan.sections)}项")
+        toggle.setCheckable(True)
+        toggle.setChecked(self._details_expanded)
+        toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(toggle)
+        content = QWidget(panel)
+        content.setObjectName("cultivationCalculatorDetailsContent")
+        content.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Maximum,
+        )
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(10, 4, 10, 10)
+        content_layout.setSpacing(8)
+        content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        for index, section in enumerate(plan.sections):
+            card = QFrame(content)
+            card.setObjectName("cultivationCalculatorResultSection")
+            card.setSizePolicy(
+                QSizePolicy.Policy.Preferred,
+                QSizePolicy.Policy.Maximum,
+            )
+            card.setStyleSheet(themed_style(
+                "QFrame#cultivationCalculatorResultSection{background:#161b22;"
+                "border:1px solid #30363d;border-radius:8px;}"
+            ))
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 8, 10, 8)
+            heading_row = QHBoxLayout()
+            heading = QLabel(section.label, card)
+            heading.setStyleSheet(themed_style("color:#58a6ff;font-weight:800"))
+            heading_row.addWidget(heading)
+            heading_row.addStretch(1)
+            section_stamina = (
+                stamina_plan.sections[index].result
+                if stamina_plan is not None and index < len(stamina_plan.sections)
+                else None
+            )
+            stamina = QLabel(stamina_summary_text(section_stamina), card)
+            style_stamina_badge(stamina)
+            heading_row.addWidget(stamina)
+            card_layout.addLayout(heading_row)
+            section_materials = self._visible(section.materials)
+            if section_materials:
+                grid = build_material_grid(
+                    section_materials,
+                    icon_lookup=self._asset_catalog.progression_item_icon,
+                    parent=card,
+                    minimum_card_width=118,
+                )
+                grid.layout_changed.connect(self.layout_changed)
+                card_layout.addWidget(grid)
+            else:
+                values = QLabel(
+                    "本模块没有需消耗体力刷取的材料"
+                    if self._material_scope == "stamina" else "无额外材料",
+                    card,
+                )
+                values.setStyleSheet(themed_style("color:#8b949e"))
+                card_layout.addWidget(values)
+            if section.description:
+                description = QLabel(section.description, card)
+                description.setWordWrap(True)
+                description.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
+                card_layout.addWidget(description)
+            runs = stamina_runs_text(section_stamina)
+            if runs:
+                run_label = QLabel(runs, card)
+                run_label.setWordWrap(True)
+                run_label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
+                card_layout.addWidget(run_label)
+            content_layout.addWidget(card)
+        layout.addWidget(content)
+        toggle.toggled.connect(
+            lambda expanded: self._set_details_expanded(expanded, toggle, content)
+        )
+        self._set_details_expanded(self._details_expanded, toggle, content)
+        return panel
+
+    def _set_details_expanded(
+        self,
+        expanded: bool,
+        toggle: QToolButton,
+        content: QWidget,
+    ) -> None:
+        self._details_expanded = bool(expanded)
+        toggle.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        content.setVisible(expanded)
+        content.updateGeometry()
+        toggle.parentWidget().updateGeometry()
+        self.layout_changed.emit()
+
+    def copy_plan(self) -> None:
+        if self._last_plan is None or self._materials_dirty:
             return
         lines = [f"{self._last_plan.character_name} · 养成材料"]
         if self._last_plan.fork_required_experience:
             lines.append(f"弧盘升级经验 × {self._last_plan.fork_required_experience:,}")
-        for material in self._last_plan.totals:
+        for material in remaining_materials(
+            self._visible(self._last_plan.totals),
+            self._owned_materials.quantities(),
+        ):
             lines.append(f"{material.name} × {material.quantity:,}")
         QApplication.clipboard().setText("\n".join(lines))
+
+    def reset_draft(self) -> None:
+        """Restore the selected role's saved state and clear transient results."""
+
+        self._details_expanded = False
+        self._last_plan = None
+        self._last_stamina_plan = None
+        self._materials_dirty = False
+        self._calculate_button.setText("计算所需材料与体力")
+        self.plan_available.emit(False)
+        if self._seed is not None:
+            self._load_selected_seed(self._seed.character_id)
+        elif self._roles:
+            self._load_selected_seed(self._roles[0].character_id)
+        else:
+            self._set_result_message("正在读取可用于养成计算的角色。")
 
     def _set_result_message(self, text: str, *, error: bool = False) -> None:
         self._clear_result()
@@ -589,43 +683,15 @@ class CultivationCalculatorDialog(QDialog):
         ))
         self._result_layout.addWidget(message)
         self._result_layout.addStretch()
+        self.layout_changed.emit()
 
     def _clear_result(self) -> None:
         while self._result_layout.count():
             item = self._result_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
                 widget.deleteLater()
-
-
-def _participation_toggle(parent: QWidget, label: str) -> QToolButton:
-    """Return a compact, text-free power toggle with an accessible explanation."""
-
-    toggle = _ParticipationToggle(parent)
-    toggle.setObjectName("cultivationParticipationToggle")
-    toggle.setCheckable(True)
-    toggle.setChecked(True)
-    toggle.setToolTip(f"{label}：参与计算（点击关闭）")
-    toggle.toggled.connect(lambda enabled: toggle.setToolTip(
-        f"{label}：{'参与计算（点击关闭）' if enabled else '不参与计算（点击开启）'}"
-    ))
-    toggle.setCursor(Qt.PointingHandCursor)
-    toggle.setFixedSize(36, 26)
-    return toggle
-
-
-def _level_spinbox(parent: QWidget) -> QSpinBox:
-    control = _CultivationSpinBox(parent)
-    control.setRange(1, 80)
-    control.setSuffix(" 级")
-    control.setFixedWidth(132)
-    return control
-
-
-def _stage_combobox(parent: QWidget) -> QComboBox:
-    control = QComboBox(parent)
-    control.setMinimumWidth(188)
-    return control
 
 
 def _stages_for_level(level: int) -> tuple[int, ...]:
@@ -646,4 +712,4 @@ def _asset_path(value: object) -> str | None:
     return str(value) if value is not None else None
 
 
-__all__ = ["CultivationCalculatorDialog"]
+__all__ = ["CultivationCalculatorContent"]

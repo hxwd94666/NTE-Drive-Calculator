@@ -270,10 +270,11 @@ class SqliteAllocationInventory:
 def load_inventory_projection(
     database_path: str | Path,
     snapshot_id: int,
+    static_database_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """投影指定快照，供结果差异等历史方案展示使用。"""
 
-    with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
+    with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
         return [
             dict(item)
             for item in SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id).items

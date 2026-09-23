@@ -1,7 +1,8 @@
 # 游戏资料库：弧盘数据域
 
-本页记录“工具 → 游戏资料库”的弧盘域只读边界。它只消费发行静态库
-`data/game_static.sqlite3`，不读账号库，不写静态库，不启动后台任务或游戏集成。
+本页记录“工具 → 游戏资料库”的弧盘域只读边界。它消费本次打开时冻结的发行静态库；安装独立
+`reference`/`role_page` 图鉴包时使用 `data/role_catalog/game_static.sqlite3`，否则使用
+`data/game_static.sqlite3`。一次请求不逐行回退，不读账号库，不写静态库，不启动后台任务或游戏集成。
 
 ## 展示来源分类
 
@@ -53,13 +54,18 @@ dataset/schema/importer、资源或动画路径、GE/Calculation/requirement 路
 ## 养成材料展示
 
 养成页只读展示当前所选等级的升级经验与突破消耗、0–6 阶完整突破路线，以及混频 1–5 级的正式消耗。
+schema v36 另外通过 `fork_exp_material` / `fork_exp_material_cost` 展示淡色、无彩和混沌染剂的正式图片、
+单件经验与使用方斯；突破阶段的材料和方斯同样使用 `progression_items` 图片卡片，不从描述文本提取数值。
 材料和方斯都由公共术语目录投影正式名称与数量；缺名或缺量保持“名称暂未提供”或“暂未提供”，不显示 raw
 ID，也不伪装成 0。页面不提供“当前 → 目标”、材料缺口、账号库存、副本次数或活力计算，不公开养成请求
 信号和结果回填接口。
 
-## schema v32 候选只读审计
+## schema v36 发行只读审计
 
-已发布 dataset `cn_1_3_13_20260828` 仍为 schema v31、importer 37。下表是同一 dataset 的 schema v32、importer 40 发行候选；只有通过正式晋升后才替换 `data/`：
+当前完整游戏 dataset `cn_1_3_13_fork_materials_v36_20260828` 为 schema v36、importer 46。它从已发行 v31
+基线按追加迁移生成：晋升时重新打开基线数据库、基线 manifest、候选数据库和正式来源文件，既有 `source_file`
+与未授权旧表必须保持相同指纹；新增导入只采用与基线 `source_row` 哈希完全相同的行。独立图鉴库和异版本战斗
+Blueprint 不参与该迁移。
 
 | 内容 | 权威表 / 字段 | 当前行数或覆盖 |
 | --- | --- | --- |
@@ -72,16 +78,17 @@ ID，也不伪装成 0。页面不提供“当前 → 目标”、材料缺口�
 | Buff 根资产、属性修改、事件触发、目标效果 | `buff_definition`, `buff_modifier`, `buff_trigger_effect` | 245 个根 Buff 定义、176 个根修改、594 个根触发 |
 | GE 正式 ID/类路径 | `gameplay_effect_catalog` | 仅按精确资产路径关联根 Buff 和触发目标 |
 | 正式材料与货币名称 | `progression_item`、`progression_item_alias`、`localized_term*` | 105 个闭包物品；玩家层显示正式名称，缺名不回退 raw ID |
+| 弧盘升级染剂与使用成本 | `fork_exp_material`、`fork_exp_material_cost` | 3 种染剂；正式单件经验与方斯成本均已闭合 |
 | 限定卡池 | `fork_lottery_campaign` | 8 个限定弧盘、正式活动标题和稳定发行顺序 |
-| 来源追溯 | `source_row`, `source_file` | 行键、相对路径、行/文件 SHA-256；47,750 个 `payload_json` 均为 NULL |
+| 来源追溯 | `source_row`, `source_file` | 47,830 个行键、8,148 个文件及 SHA-256；全部 `payload_json` 均为 NULL |
 
 弧盘行来源包括 `DataTable/Fork/DT_ForkItemData.json`、`DT_ForkUpgradeData.json`、
 `DT_ForkBreakthroughData.json`、`DT_ForkUpgradeStarDataTable.json`、`CT_ForkBuff.json` 以及
 `DataTable/PackData/ModifyData/DT_ForkModifyData.json`。
 
-## 当前 importer 未保留
+## 当前 importer 边界
 
-- schema v32 候选没有 `fork_skill` / `fork_skill_level` 表。产品中的“弧盘技能”只能展示混频
+- schema v36 没有 `fork_skill` / `fork_skill_level` 表。产品中的“弧盘技能”只能展示混频
   1–5 级描述、参数、Buff 与效果，不可声称另有独立技能目录。
 - `source_payloads_omitted=true`；发行库不能还原原始 JSON 全行，只能展示 importer 保留字段、
   来源文件和校验值。
@@ -89,7 +96,7 @@ ID，也不伪装成 0。页面不提供“当前 → 目标”、材料缺口�
   审计为 0，不从描述文本、名称或路径前缀推测。
 - 49 件弧盘中 33 件有独占角色 ID 或养成推荐关系，余下 16 件不显示专属/推荐徽记；所有弧盘仍可依据
   正式 `group_type` 展示同类型可用角色，不按中文名、描述或效果类型猜专属角色。
-- schema v32 候选已提供通用养成物品和本地化目录；突破消耗通过稳定 item ID 关联正式名称。缺名仍显示
+- schema v36 已提供通用养成物品和本地化目录；突破消耗通过稳定 item ID 关联正式名称。缺名仍显示
   “名称暂未提供”，玩家页面不展示 raw ID。
 - `combat_effect_definition` 和 `combat_effect_buff_link` 是 importer 正规化的项目投影；
   其中描述、参数和 Buff 路径仍可回溯正式行，但投影 ID 不标成官方原始字段。
@@ -98,8 +105,8 @@ ID，也不伪装成 0。页面不提供“当前 → 目标”、材料缺口�
   并进入构建审计。子 Buff 未声明本地 Modifier 时会沿正式 Blueprint `Super` 链读取最近父级 Modifier；当前审计为
   20 件已解析、5 件仅有条件候选、24 件没有直接计算证据。
   触发、层数、持续时间和状态限制效果继续由战斗状态链路处理。
-- 已发布 schema v31 没有该持久表；读取器使用同一结构解析器生成 20 件弧盘的兼容只读投影，不读取仓库外
-  `Content` 文件。v32 候选把 100 条结果持久化，并据此重新生成 22 份毕业模板；两者都不新增账号配置或手工入口。
+- schema v36 将 20 件弧盘的 100 条闭合结果持久化，并据此重新生成 22 份毕业模板；运行时不读取仓库外
+  `Content` 文件，也不新增账号配置或手工入口。
 
 ## 分层与集成接口
 

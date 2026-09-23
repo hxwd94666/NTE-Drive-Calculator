@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from src.features.input_operation_entry import request_input_entry, show_input_unavailable
-
 from typing import Any
 
 from PySide6.QtCore import QModelIndex, Qt
@@ -606,6 +605,8 @@ def _open_warehouse_state_manager(self):
         account.user_config_dir,
         self.app_context.paths.config_dir,
         user_database_path=account.user_database_path,
+        static_database_path=self.app_context.paths.equipment_allocation_database_path,
+        asset_root=self.app_context.paths.equipment_allocation_asset_root,
         window_title="仓库弃置/锁定管理",
         show_server_region_option=False,
     ):
@@ -626,6 +627,7 @@ def _open_warehouse_state_manager(self):
         account.user_database_path,
         sync_service,
         config_dir=self.app_context.paths.config_dir,
+        static_database_path=self.app_context.paths.equipment_allocation_database_path,
         operation_context=OperationContext.create(
             "warehouse",
             account_id=account.active_account_id,

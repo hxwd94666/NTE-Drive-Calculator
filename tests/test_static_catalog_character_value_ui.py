@@ -171,9 +171,13 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
             if row.isVisibleTo(view)
         )
 
-        self.assertEqual(["A", "E", "Q", "QTE", "G", "PASSIVE", "PASSIVE"], [
-            row.action.slot for row in rows
-        ])
+        self.assertEqual(
+            [
+                "A", "E", "Q", "QTE", "G",
+                "PASSIVE", "PASSIVE", "PECULIARITY",
+            ],
+            [row.action.slot for row in rows],
+        )
         self.assertTrue(all(row.width() > view.width() * 0.8 for row in rows))
         self.assertTrue(all(
             row.findChild(QComboBox, "characterSkillLevel") is not None
@@ -184,7 +188,7 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
             for row in rows for button in row.findChildren(QPushButton)
         ))
         passive_rows = tuple(row for row in rows if row.action.passive is not None)
-        self.assertEqual(2, len(passive_rows))
+        self.assertEqual(3, len(passive_rows))
         self.assertTrue(all(
             not row.level.isVisibleTo(row) for row in passive_rows
         ))

@@ -14,6 +14,7 @@ from src.optimizer.contracts import (
     EQUIP_DISPLAY_NAME,
     EQUIP_GRADE,
     EQUIP_MAIN_STATS,
+    EQUIP_MAIN_VALUE,
     EQUIP_QUALITY,
     EQUIP_SCORE,
     EQUIP_SCORE_AREA,
@@ -69,7 +70,7 @@ def _state_item_snapshot(item: dict, item_type: str) -> dict:
         EQUIP_TYPE: item_type,
         EQUIP_DISPLAY_NAME: str(item.get(EQUIP_DISPLAY_NAME) or item.get(EQUIP_UID) or ""),
     }
-    for key in (EQUIP_SHAPE_ID, EQUIP_SET_NAME, EQUIP_MAIN_STATS, EQUIP_SUB_STATS, EQUIP_QUALITY, EQUIP_SCORE, EQUIP_GRADE, EQUIP_SCORE_AREA, EQUIP_AREA):
+    for key in (EQUIP_SHAPE_ID, EQUIP_SET_NAME, EQUIP_MAIN_STATS, EQUIP_MAIN_VALUE, EQUIP_SUB_STATS, EQUIP_QUALITY, EQUIP_SCORE, EQUIP_GRADE, EQUIP_SCORE_AREA, EQUIP_AREA):
         if key in item:
             snapshot[key] = item[key]
     return snapshot
@@ -95,6 +96,7 @@ def _plan_item_snapshot(item: Any, item_type: str, role_name: str) -> dict:
             EQUIP_DISPLAY_NAME: display_name,
             EQUIP_SET_NAME: set_name,
             EQUIP_MAIN_STATS: main_stats,
+            EQUIP_MAIN_VALUE: _value(item, EQUIP_MAIN_VALUE, None),
             EQUIP_SUB_STATS: sub_stats,
             EQUIP_QUALITY: quality,
             EQUIP_SCORE: score,

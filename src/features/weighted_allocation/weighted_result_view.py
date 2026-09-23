@@ -37,6 +37,7 @@ from src.features.weighted_allocation.result_styles import (
 from src.features.weighted_allocation.runner import (
     WeightedAllocationPreview,
 )
+from .dependencies import weighted_allocation_dependencies
 from src.services.allocation_solver import RoleAllocationOption
 from src.services.allocation_context import AllocationContext
 from src.services.equipment_level_projection_service import (
@@ -641,7 +642,9 @@ def _allocation_direct_damage_scores(
         return {}
     if detail is None:
         return {}
-    with StaticGameDataDao() as static_dao:
+    with StaticGameDataDao(
+        weighted_allocation_dependencies(window).static_database_path
+    ) as static_dao:
         calculation_items = project_equipment_items_to_max_level(
             items_by_uid.values(),
             static_dao,

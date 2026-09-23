@@ -1,16 +1,17 @@
 {
   "format_version": 1,
+  "catalog_scope": "game",
   "database": {
     "filename": "game_static.sqlite3",
-    "dataset_id": "cn_1_3_13_20260828",
-    "schema_version": 31,
-    "size_bytes": 92692480,
-    "sha256": "BC49CF8622924D0B32D4F61607CA170C83C218850A5F8F3BEBE58A4291F3E123",
-    "generated_at_utc": "2026-08-30T13:27:01+00:00",
+    "dataset_id": "cn_1_3_13_fork_materials_v36_20260828",
+    "schema_version": 36,
+    "size_bytes": 92774400,
+    "sha256": "B3F895EE0E2BB8238D7434E72723BC3E897328184F7D7CDD47AF5FD5FC681448",
+    "generated_at_utc": "2026-09-22T12:05:41+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_static_database.py",
-    "importer_version": 37
+    "importer_version": 46
   }
 }

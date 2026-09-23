@@ -61,16 +61,36 @@ class CharacterImportMixin:
         for source_file_id, table in enumerate(sorted(self.source_tables), start=1):
             relative_path = self.source_tables[table]
             path = self.content_root / Path(relative_path)
+            aggregate_namespace: str | None = None
+            if (
+                not path.is_file()
+                and table in STRING_TABLE_SOURCES
+                and Path(relative_path).parts[0].casefold() == "text"
+            ):
+                aggregate_path = (
+                    self.content_root
+                    / "Localization" / "Game" / "zh-CN" / "game.json"
+                )
+                if aggregate_path.is_file():
+                    path = aggregate_path
+                    aggregate_namespace = Path(relative_path).stem
             if not path.is_file():
                 raise StaticDatabaseError(f"缺少必要的来源文件：{path}")
             if table in STRING_TABLE_SOURCES:
                 payload = json.loads(path.read_text(encoding="utf-8-sig"))
-                try:
-                    rows = payload[0]["StringTable"]["KeysToEntries"]
-                except (IndexError, KeyError, TypeError) as exc:
-                    raise StaticDatabaseError(
-                        f"StringTable 结构无效：{path}"
-                    ) from exc
+                if aggregate_namespace is not None:
+                    rows = payload.get(aggregate_namespace)
+                    relative_path = (
+                        "Localization/Game/zh-CN/game.json"
+                        f"#{aggregate_namespace}"
+                    )
+                else:
+                    try:
+                        rows = payload[0]["StringTable"]["KeysToEntries"]
+                    except (IndexError, KeyError, TypeError) as exc:
+                        raise StaticDatabaseError(
+                            f"StringTable 结构无效：{path}"
+                        ) from exc
                 if not isinstance(rows, dict):
                     raise StaticDatabaseError(
                         f"StringTable 条目不是对象：{path}"

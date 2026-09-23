@@ -64,6 +64,7 @@ def run_streaming_scan_parse(
     selected_roles: list[str] | None = None,
     config_dir: str | Path | None = None,
     user_database_path: str | Path | None = None,
+    static_database_path: str | Path | None = None,
     parse_during_scan: bool | None = None,
     low_load_mode: bool = False,
     low_load_parse_delay_seconds: float = 0.12,
@@ -117,6 +118,7 @@ def run_streaming_scan_parse(
                 selected_roles=selected_roles,
                 config_dir=config_dir,
                 user_database_path=user_database_path,
+                static_database_path=static_database_path,
             ).evaluate(scan_result.parsed_items, processor.inventory)
             post_action_summary = GamepadStateSyncService(
                 scanner,

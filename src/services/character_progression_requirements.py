@@ -5,8 +5,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from functools import reduce
-from math import gcd
+
+from src.domain.progression_materials import (
+    ExperienceMaterial,
+    least_waste_experience_materials,
+)
 
 from src.services.static_catalog_character_models import (
     CharacterExperienceMaterial,
@@ -162,53 +165,20 @@ def _least_waste_experience_books(
     materials: tuple[CharacterExperienceMaterial, ...],
     required_experience: int,
 ) -> tuple[tuple[CharacterMaterialRequirement, ...], int]:
-    if required_experience <= 0:
-        return (), 0
-    usable = tuple(sorted(
-        (item for item in materials if item.experience_value > 0),
-        key=lambda item: (-item.experience_value, item.item_id),
-    ))
-    if not usable:
-        return (), 0
-    divisor = reduce(gcd, (item.experience_value for item in usable))
-    values = tuple(item.experience_value // divisor for item in usable)
-    minimum = (required_experience + divisor - 1) // divisor
-    limit = minimum + max(values) ** 2
-    unreachable = limit + 1
-    counts = [unreachable] * (limit + 1)
-    choices = [-1] * (limit + 1)
-    counts[0] = 0
-    for amount in range(1, limit + 1):
-        for index, value in enumerate(values):
-            if amount < value or counts[amount - value] == unreachable:
-                continue
-            candidate = counts[amount - value] + 1
-            if candidate < counts[amount]:
-                counts[amount] = candidate
-                choices[amount] = index
-    target = next(
-        (amount for amount in range(minimum, limit + 1) if choices[amount] >= 0),
-        None,
+    requirements, overflow = least_waste_experience_materials(
+        tuple(
+            ExperienceMaterial(item.item_id, item.experience_value)
+            for item in materials
+        ),
+        required_experience,
     )
-    if target is None:
-        return (), 0
-    material_counts = [0] * len(usable)
-    cursor = target
-    while cursor > 0:
-        index = choices[cursor]
-        if index < 0:
-            return (), 0
-        material_counts[index] += 1
-        cursor -= values[index]
-    requirements = tuple(
+    return tuple(
         CharacterMaterialRequirement(
-            item_id=material.item_id,
-            required_quantity=quantity,
+            item_id=item.item_id,
+            required_quantity=item.quantity,
         )
-        for material, quantity in zip(usable, material_counts)
-        if quantity > 0
-    )
-    return requirements, target * divisor - required_experience
+        for item in requirements
+    ), overflow
 
 
 def _requirements(

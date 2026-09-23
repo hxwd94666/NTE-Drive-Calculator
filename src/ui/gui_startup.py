@@ -40,7 +40,10 @@ def run_gui(APP_CONTEXT, GLOBAL_THEME_SETTINGS, MainWindow, _ensure_admin):
     )
     if hasattr(Qt, "AA_DontUseNativeDialogs"):
         QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
-    app = QApplication(sys.argv)
+    # Preserve bootstrap flags in sys.argv for UAC relaunch and theme restart,
+    # but do not pass them to Qt's platform-argument parser.
+    qt_args = [arg for arg in sys.argv if arg not in {"--gui", "--ime-compat"}]
+    app = QApplication(qt_args)
     app.setStyle("Fusion")
     account_settings = APP_CONTEXT.account_settings
     legacy_theme = account_settings.legacy_theme_preference()
@@ -56,5 +59,4 @@ def run_gui(APP_CONTEXT, GLOBAL_THEME_SETTINGS, MainWindow, _ensure_admin):
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
-
 

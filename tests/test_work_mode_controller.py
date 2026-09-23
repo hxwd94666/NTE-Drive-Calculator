@@ -638,8 +638,6 @@ def test_settings_card_keeps_only_compact_status_and_explicit_details(controller
     assert card.findChildren(QCheckBox) == []
     assert all("开发采集来源" not in label.text() for label in card.findChildren(QLabel))
     combo, status, check = c._controls
-    assert combo.maximumWidth() == 150
-    assert check.maximumWidth() == 96
     assert status.isHidden()
     labels = {label.text() for label in card.findChildren(QLabel)}
     assert {

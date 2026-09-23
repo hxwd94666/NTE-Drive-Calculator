@@ -10,6 +10,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
+from src.services.static_catalog_fork_progression_models import ForkExperienceMaterial, project_fork_experience_materials
 from src.storage.sqlite.static_catalog_fork_queries import StaticCatalogForkDao
 
 
@@ -235,6 +236,7 @@ class ForkCatalogDetail:
     resources: tuple[CatalogResource, ...]
     relations: tuple[CatalogRelation, ...]
     growth_levels: tuple[ForkGrowthLevel, ...]
+    experience_materials: tuple[ForkExperienceMaterial, ...]
     breakthroughs: tuple[ForkBreakthrough, ...]
     critical_level_states: tuple[ForkCriticalLevelState, ...]
     refinement_levels: tuple[ForkRefinementLevel, ...]
@@ -252,6 +254,7 @@ class ForkCatalogQueries(Protocol):
     def get_fork_catalog_item(self, fork_id: str) -> dict[str, Any] | None: ...
     def list_fork_character_relations(self, fork_id: str) -> list[dict[str, Any]]: ...
     def list_fork_growth_rows(self, fork_id: str) -> list[dict[str, Any]]: ...
+    def list_fork_exp_materials(self) -> list[dict[str, Any]]: ...
     def list_fork_breakthrough_rows(self, fork_id: str) -> list[dict[str, Any]]: ...
     def list_fork_refinement_rows(self, fork_id: str) -> list[dict[str, Any]]: ...
     def list_fork_refinement_parameters(self, fork_id: str) -> list[dict[str, Any]]: ...
@@ -673,6 +676,10 @@ class StaticCatalogForkService:
             for item in relations_rows
         )
         growth = self._growth(str(fork_id))
+        material_query = getattr(self._queries, "list_fork_exp_materials", None)
+        experience_materials = project_fork_experience_materials(
+            material_query() if callable(material_query) else []
+        )
         breakthroughs = self._breakthroughs(str(fork_id))
         refinements = self._refinements(str(fork_id))
         buffs = self._buffs(str(fork_id))
@@ -783,6 +790,7 @@ class StaticCatalogForkService:
             resources=resources,
             relations=tuple(relations),
             growth_levels=growth,
+            experience_materials=experience_materials,
             breakthroughs=breakthroughs,
             critical_level_states=self._critical_states(growth, breakthroughs),
             refinement_levels=refinements,

@@ -21,6 +21,8 @@ class WeightedAllocationDependencies:
     shared_database_path: Path
     game_ui_asset_root: Path
     account_settings: AccountSettingsService
+    static_database_path: Path | None = None
+    equipment_only: bool = False
 
     @classmethod
     def from_context(
@@ -32,8 +34,13 @@ class WeightedAllocationDependencies:
             generation=context.generation,
             user_database_path=Path(context.account.user_database_path),
             shared_database_path=Path(context.paths.shared_database_path),
-            game_ui_asset_root=Path(context.paths.asset_dir) / "game_ui",
+            game_ui_asset_root=context.paths.equipment_allocation_asset_root,
             account_settings=context.account_settings,
+            static_database_path=context.paths.equipment_allocation_database_path,
+            equipment_only=(
+                context.paths.role_catalog is not None
+                and context.paths.role_catalog.scope == "reference"
+            ),
         )
 
 

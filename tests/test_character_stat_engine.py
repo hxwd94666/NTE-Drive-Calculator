@@ -1,7 +1,11 @@
 # 测试角色面板属性计算引擎。
 import unittest
 
-from src.features.role.stat_engine import CharacterStatContext, build_character_panel
+from src.features.role.stat_engine import (
+    CharacterStatContext,
+    build_character_panel,
+    fallback_tape_main_value,
+)
 
 
 class CharacterStatEngineTests(unittest.TestCase):
@@ -90,6 +94,12 @@ class CharacterStatEngineTests(unittest.TestCase):
         # The saved snapshot value is authoritative; do not substitute the old
         # generic Gold fallback of 37.5%.
         self.assertEqual(168.75, panel.totals["总攻击力"])
+
+    def test_legacy_crit_main_label_keeps_its_value_without_catalog_context(self):
+        self.assertEqual(
+            30.0,
+            fallback_tape_main_value("暴击率%", "Gold", {}, {}),
+        )
 
     def test_conditional_weapon_skill_is_not_a_panel_stat(self):
         panel = build_character_panel(self._context(), "测试角色")

@@ -33,8 +33,10 @@ _CACHE_LOCK = RLock()
 _CACHE: dict[tuple[str, int, int, str], WeightedStaticCatalog] = {}
 
 
-def _cache_key(asset_root: str | Path) -> tuple[str, int, int, str]:
-    database_path = resolve_static_database()
+def _cache_key(
+    asset_root: str | Path, static_database_path: str | Path | None = None,
+) -> tuple[str, int, int, str]:
+    database_path = resolve_static_database(static_database_path)
     stat = database_path.stat()
     return (
         str(database_path),
@@ -44,10 +46,12 @@ def _cache_key(asset_root: str | Path) -> tuple[str, int, int, str]:
     )
 
 
-def get_weighted_static_catalog(asset_root: str | Path) -> WeightedStaticCatalog:
+def get_weighted_static_catalog(
+    asset_root: str | Path, static_database_path: str | Path | None = None,
+) -> WeightedStaticCatalog:
     """Load static data once, invalidating automatically after DB replacement."""
 
-    key = _cache_key(asset_root)
+    key = _cache_key(asset_root, static_database_path)
     with _CACHE_LOCK:
         cached = _CACHE.get(key)
         if cached is not None:
@@ -55,7 +59,7 @@ def get_weighted_static_catalog(asset_root: str | Path) -> WeightedStaticCatalog
         # A static-data refresh replaces the SQLite file.  Drop the old entry
         # rather than retaining multiple complete catalogues in a long session.
         _CACHE.clear()
-        with StaticGameDataDao() as dao:
+        with StaticGameDataDao(static_database_path) as dao:
             plans = dao.list_equipment_plans()
             equipment_items = tuple(dao.list_equipment_items())
             catalog = GameUiAssetCatalog(Path(asset_root))

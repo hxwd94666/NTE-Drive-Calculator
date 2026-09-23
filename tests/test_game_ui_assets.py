@@ -74,6 +74,36 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertTrue(catalog.fork_icon("fork_DemonBlade").is_file())
         self.assertTrue(catalog.fork_icon("fork_GoldRecord").is_file())
 
+    def test_fork_progression_materials_resolve_to_packaged_icons(self) -> None:
+        manifest = json.loads(
+            (ASSET_ROOT / "manifest.json").read_text(encoding="utf-8")
+        )
+        with StaticGameDataDao(
+            PROJECT_ROOT / "data" / "game_static.sqlite3"
+        ) as dao:
+            material_ids = {
+                str(row["item_id"])
+                for row in dao.list_progression_items(tuple(
+                    manifest.get("progression_items", {})
+                ))
+                if str(row["item_id"]).startswith((
+                    "WeaponUpMaterial_",
+                    "WeaponBreakMaterial_",
+                    "OrdinaryMonMaterial_",
+                ))
+            }
+        expected_exp = {
+            "WeaponUpMaterial_lv1",
+            "WeaponUpMaterial_lv2",
+            "WeaponUpMaterial_lv3",
+        }
+        self.assertTrue(expected_exp <= material_ids)
+        catalog = GameUiAssetCatalog(ASSET_ROOT)
+        self.assertTrue(all(
+            catalog.progression_item_icon(item_id).is_file()
+            for item_id in material_ids
+        ))
+
     def test_catalog_resolves_ids_and_rejects_missing_keys(self) -> None:
         catalog = GameUiAssetCatalog(ASSET_ROOT)
         self.assertTrue(catalog.character_icon(1003).is_file())

@@ -1,5 +1,5 @@
 # 提供工具页养成计算器的入口卡片。
-"""Entry card and dialog launcher for the toolbox cultivation calculator."""
+"""Entry card for the toolbox cultivation calculator page."""
 
 from __future__ import annotations
 
@@ -10,17 +10,12 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from src.app.theme import themed_style
-from src.features.toolbox.cultivation_calculator import CultivationCalculatorDialog
-from src.services.cultivation_planner_service import CultivationPlannerService
-
-
 def build_cultivation_calculator_entry(
     parent: QWidget,
     *,
@@ -44,14 +39,14 @@ def build_cultivation_calculator_entry(
     title.setStyleSheet(themed_style("font-size:16px;font-weight:800;color:#58a6ff"))
     copy.addWidget(title)
     description = QLabel(
-        "按角色等级、突破和技能目标汇总官方养成材料；当前不扣除背包，也不估算体力。",
+        "进入整页计算角色、技能与弧盘养成材料；当前不扣除背包，也不估算体力。",
         row,
     )
     description.setWordWrap(True)
     description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     copy.addWidget(description)
     layout.addLayout(copy, 1)
-    button = QPushButton("使用", row)
+    button = QPushButton("进入", row)
     button.setObjectName("toolboxCultivationCalculator")
     button.setCursor(Qt.PointingHandCursor)
     button.setMinimumSize(76, 38)
@@ -66,19 +61,4 @@ def build_cultivation_calculator_entry(
     return row
 
 
-def show_cultivation_calculator(
-    parent: QWidget,
-    *,
-    service_factory: Callable[[], CultivationPlannerService],
-) -> None:
-    """Construct the account-bound service only when the user opens the tool."""
-
-    try:
-        service = service_factory()
-    except Exception as exc:
-        QMessageBox.warning(parent, "养成计算器", f"读取养成数据失败：{exc}")
-        return
-    CultivationCalculatorDialog(service, parent).exec()
-
-
-__all__ = ["build_cultivation_calculator_entry", "show_cultivation_calculator"]
+__all__ = ["build_cultivation_calculator_entry"]

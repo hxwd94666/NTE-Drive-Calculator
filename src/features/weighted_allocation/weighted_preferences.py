@@ -125,7 +125,11 @@ def _load_weighted_persistence(window, database_path: Path) -> None:
     window.weighted_save_button.setEnabled(False)
     _set_weighted_equipment_actions_enabled(window, False)
     _clear_layout(window.weighted_result_layout)
-    persistence = read_weighted_allocation_persistence(database_path)
+    persistence = read_weighted_allocation_persistence(
+        database_path,
+        weighted_allocation_dependencies(window).static_database_path,
+        weighted_allocation_dependencies(window).equipment_only,
+    )
     weights_changed = not _persistence_weights_match_account(window, persistence)
     _apply_weighted_persisted_preferences(window, persistence)
     if weights_changed:

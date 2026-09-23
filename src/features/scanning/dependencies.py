@@ -20,6 +20,8 @@ class ScanningDependencies:
     screenshot_dir: Path
     user_config_dir: Path
     user_database_path: Path
+    static_database_path: Path
+    game_ui_asset_root: Path
     config_dir: Path
     template_dir: Path
     operation_guard: OperationGuard | None = None
@@ -33,6 +35,8 @@ class ScanningDependencies:
             screenshot_dir=account.screenshot_dir,
             user_config_dir=account.user_config_dir,
             user_database_path=account.user_database_path,
+            static_database_path=app_context.paths.equipment_allocation_database_path,
+            game_ui_asset_root=app_context.paths.equipment_allocation_asset_root,
             config_dir=app_context.paths.config_dir,
             template_dir=app_context.paths.template_dir,
             operation_guard=operation_guard,

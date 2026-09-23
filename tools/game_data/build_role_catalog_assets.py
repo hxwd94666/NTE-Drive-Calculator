@@ -21,10 +21,22 @@ def asset_requests(source: Path, database: Path):
         for identity, path in connection.execute("SELECT fork_id, icon_path FROM fork_item ORDER BY fork_id"):
             if path:
                 yield "fork_items", identity, path
+        for identity, path in connection.execute(
+            """SELECT item_id, icon_path FROM progression_item
+               WHERE icon_path IS NOT NULL ORDER BY item_id"""
+        ):
+            yield "progression_items", identity, path
 
 
 def build_assets(source: Path, database: Path, output: Path):
-    manifest = {"format_version": 1, "characters": {}, "fork_items": {}, "files": {}, "unresolved_assets": []}
+    manifest = {
+        "format_version": 1,
+        "characters": {},
+        "fork_items": {},
+        "progression_items": {},
+        "files": {},
+        "unresolved_assets": [],
+    }
     with closing(sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)) as connection:
         identity = connection.execute("SELECT dataset_id FROM dataset_scope WHERE scope IN ('role_page', 'reference')").fetchone()
     if not identity:

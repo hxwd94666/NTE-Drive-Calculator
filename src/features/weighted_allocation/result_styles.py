@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QLabel
 
-from src.app.theme import theme_color, themed_style
+from src.app.theme import themed_style
 from src.ui.attribute_summary_panel import attribute_summary_weight_color
 
 

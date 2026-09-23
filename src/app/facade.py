@@ -24,6 +24,7 @@ class NTEAppFacade:
         screenshot_dir: str | Path | None = None,
         log_dir: str | Path | None = None,
         app_dir: str | Path | None = None,
+        allocation_static_database_path: str | Path | None = None,
     ):
         self.config_dir = str(config_dir)
         self.user_config_dir = str(user_config_dir)
@@ -33,6 +34,10 @@ class NTEAppFacade:
         )
         self.log_dir = Path(log_dir) if log_dir is not None else None
         self.app_dir = Path(app_dir) if app_dir is not None else None
+        self.allocation_static_database_path = (
+            Path(allocation_static_database_path)
+            if allocation_static_database_path is not None else None
+        )
 
     def execute_vision_processing(self, input_dir=None):
         resolved_input_dir = (
@@ -75,6 +80,7 @@ class NTEAppFacade:
         orchestrator = NTEPipelineOrchestrator(
             config_dir=self.config_dir,
             user_database_path=self.user_database_path,
+            static_database_path=self.allocation_static_database_path,
         )
         locked_uids = set(locked_uids or ())
         base_mode = mode

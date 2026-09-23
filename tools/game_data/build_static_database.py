@@ -65,43 +65,13 @@ class StaticDatabaseBuilder(
         for schema_path in SCHEMA_PATHS:
             self.connection.executescript(schema_path.read_text(encoding="utf-8"))
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.connection.execute(
-            "INSERT INTO schema_migration VALUES (2, ?)",
-            (now,),
+        self.connection.executemany(
+            "INSERT INTO schema_migration VALUES (?, ?)",
+            (
+                (int(path.name.split("_", 1)[0]), now)
+                for path in SCHEMA_PATHS
+            ),
         )
-        self.connection.execute("INSERT INTO schema_migration VALUES (3, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (4, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (5, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (6, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (7, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (8, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (9, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (10, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (11, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (12, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (13, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (14, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (15, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (16, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (17, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (18, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (19, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (20, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (21, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (22, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (23, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (24, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (25, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (26, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (27, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (28, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (29, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (30, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (31, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (32, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (33, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (34, ?)", (now,))
-        self.connection.execute("INSERT INTO schema_migration VALUES (35, ?)", (now,))
         self.connection.execute(
             "INSERT INTO dataset VALUES (?, ?, ?)",
             (self.dataset_id, IMPORTER_VERSION, now),

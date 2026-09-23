@@ -18,10 +18,11 @@ class PuzzleBoardWidget(QWidget):
         "TAPE_15": 50,
     }
 
-    def __init__(self, matrix=None, cell_size=40, parent=None):
+    def __init__(self, matrix=None, cell_size=40, parent=None, *, style_variant="equipment"):
         super().__init__(parent)
         self.matrix = matrix or []
         self.cell_size = cell_size
+        self.style_variant = style_variant
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._recalc()
 
@@ -44,6 +45,7 @@ class PuzzleBoardWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         is_light = current_theme_name() == "light"
+        catalog_style = self.style_variant == "catalog"
         rows, cols = len(self.matrix), len(self.matrix[0])
         for row in range(rows):
             for col in range(cols):
@@ -53,24 +55,24 @@ class PuzzleBoardWidget(QWidget):
                 if cell in ("XX", "-1"):
                     border = QColor("#cf222e" if is_light else "#da3633")
                     fill = QColor(255, 235, 233, 210) if is_light else QColor(218, 54, 51, 40)
-                    painter.setPen(QPen(border, 1.4 if is_light else 1))
+                    painter.setPen(QPen(border, 1.4 if is_light and catalog_style else 1))
                     painter.setBrush(fill)
                     painter.drawRoundedRect(rect, 4, 4)
                     painter.setPen(border)
                     painter.setFont(QFont("Microsoft YaHei UI", 8, QFont.Bold))
                     painter.drawText(rect, Qt.AlignCenter, "✕")
                 elif cell in ("0", "0.0"):
-                    painter.setPen(QPen(QColor("#d0d7de" if is_light else "#21262d"), 1.2 if is_light else 1))
+                    painter.setPen(QPen(QColor("#d0d7de" if is_light else "#21262d"), 1.2 if is_light and catalog_style else 1))
                     painter.setBrush(QColor(246, 248, 250, 180) if is_light else QColor(13, 17, 23, 120))
                     painter.drawRoundedRect(rect, 4, 4)
                 else:
                     hue = self.SHAPE_HUE.get(cell, abs(hash(cell)) % 360)
                     if is_light:
-                        color = QColor.fromHsl(hue, 185, 220)
-                        border = QColor.fromHsl(hue, 210, 135)
+                        color = QColor.fromHsl(hue, 185 if catalog_style else 150, 220 if catalog_style else 225)
+                        border = QColor.fromHsl(hue, 210 if catalog_style else 125, 135 if catalog_style else 150)
                         text_color = QColor.fromHsl(hue, 220, 70)
-                        painter.setPen(QPen(border, 1.4))
-                        painter.setBrush(QColor(color.red(), color.green(), color.blue(), 215))
+                        painter.setPen(QPen(border, 1.4 if catalog_style else 1))
+                        painter.setBrush(QColor(color.red(), color.green(), color.blue(), 215 if catalog_style else 230))
                     else:
                         color = QColor.fromHsl(hue, 180, 128)
                         border = QColor.fromHsl(hue, 220, 160)

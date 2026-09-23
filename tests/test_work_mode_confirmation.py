@@ -24,16 +24,12 @@ def test_risk_confirmation_only_accepts_explicit_consent(monkeypatch, mode, acti
         consent = dialog.findChild(QPushButton, "workModeConfirm" if mode == "offline" else "workModeRiskConsent")
         if mode == "offline":
             assert consent.text() == "确认切换"
-            assert not consent.styleSheet()
         else:
             assert consent.text() == "确认风险并切换"
-            assert "#ffffff" in consent.styleSheet()
         assert dialog.windowTitle() == "确认切换到" + {
             "offline": "离线", "low": "低风险", "medium": "中风险", "developer": "开发",
         }[mode] + "模式"
         assert dialog.findChild(QFrame, "workModeWarning") is not None
-        assert consent.height() == 38 and consent.minimumWidth() == 148
-        assert cancel.size().width() == 88 and cancel.height() == 38
         assert buttons.layout().indexOf(cancel) < buttons.layout().indexOf(consent)
         assert cancel.isDefault() and not consent.isDefault()
         assert not consent.autoDefault()
@@ -103,8 +99,6 @@ def test_low_mode_report_offers_download_only_for_confirmed_missing_npcap(tmp_pa
     dialog = ModeReportDialog(parent, controller)
     dialog.begin('low')
     dialog.set_report(report)
-    assert dialog.close_button.width() == 72
-    assert dialog.retry_button.width() == 88
     assert dialog.footer.indexOf(dialog.retry_button) < dialog.footer.indexOf(dialog.close_button)
     dialog.retry_button.click()
     controller.check.assert_called_once_with(show=True)

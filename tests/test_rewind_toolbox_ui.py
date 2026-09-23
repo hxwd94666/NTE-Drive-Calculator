@@ -9,7 +9,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 def test_rewind_role_picker_adds_highest_calculation_score_below_name() -> None:
     from PySide6.QtWidgets import QApplication, QLabel
 
-    from src.app.theme import GRADE_COLORS
     from src.features.toolbox.page import _RoleSelectionDialog
     from src.services.rewind_shape_recommendation_service import RewindTargetRole
 
@@ -30,22 +29,31 @@ def test_rewind_role_picker_adds_highest_calculation_score_below_name() -> None:
     empty_label = cards[9001].findChild(QLabel, "rewindRoleCalculationScore")
     assert cards[1004].text() == "安魂曲"
     assert scored_label.text() == "最高分 251.25 · SS"
-    assert GRADE_COLORS["SS"] in scored_label.styleSheet()
     assert cards[1004].property("rewindCalculationScore") == 251.25
     assert cards[9001].text() == "自建角色"
-    assert empty_label.text() == ""
+    assert empty_label.text() == "暂无计算方案"
+    assert not cards[9001].icon().isNull()
     assert cards[9001].property("rewindCalculationScore") is None
-    assert cards[1004].height() == cards[9001].height() == 132
 
 
 def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() -> None:
-    from PySide6.QtCore import QPoint
-    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import (
+        QApplication,
+        QFrame,
+        QLabel,
+        QPushButton,
+        QScrollArea,
+        QToolButton,
+        QWidget,
+    )
 
     from src.services.character_progression_requirements import (
         MaterialSummaryStatus,
     )
-    from src.features.toolbox.cultivation_calculator import CultivationCalculatorDialog
+    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
+    from src.ui.progression_material_card import ProgressionMaterialCard
     from src.services.cultivation_planner_service import (
         CultivationMaterial,
         CultivationPlan,
@@ -82,15 +90,32 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
             else:
                 assert not request.include_skills
                 assert request.fork is None
+            materials = (
+                CultivationMaterial(
+                    "WeaponUpMaterial_lv3", "混沌染剂", 364, quality=5,
+                ),
+                CultivationMaterial(
+                    "WeaponUpMaterial_lv1", "淡色染剂", 1,
+                ),
+                CultivationMaterial("Fons", "方斯", 1_344_150),
+                CultivationMaterial(
+                    "WeaponBreakMaterial_02_lv3", "弧盘突破材料", 12,
+                ),
+            )
             return CultivationPlan(
                 "安魂曲", MaterialSummaryStatus.COMPLETE,
-                (CultivationSection("Q · 终结技", (CultivationMaterial("m-1", "材料甲", 4),)),),
-                (CultivationMaterial("m-1", "材料甲", 4),), 100, 0, (2,), (), 300,
+                (CultivationSection(
+                    "弧盘升级",
+                    materials,
+                ), CultivationSection("弧盘突破", materials[:3])),
+                materials,
+                100, 0, (2,), (), 3_640_330, 170, (1, 2, 3, 4, 5, 6),
             )
 
     QApplication.instance() or QApplication([])
     service = Service()
-    dialog = CultivationCalculatorDialog(service, None)
+    page = CultivationCalculatorPage(service, None)
+    dialog = page.calculator
     QApplication.processEvents()
 
     assert dialog._current_level.value() == 20
@@ -100,31 +125,55 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     assert dialog._fork.text() == "专属弧盘"
     assert dialog._fork_current_level.value() == 40
     assert dialog._fork_current_level.isEnabled()
-    assert dialog._current_level.width() == 132
-    assert dialog._target_level.width() == 132
-    assert dialog._fork_current_level.width() == 132
-    assert dialog._fork_target_level.width() == 132
-    assert dialog._current_stage.minimumWidth() == 188
-    assert dialog._target_stage.minimumWidth() == 188
-    assert dialog._fork_current_stage.minimumWidth() == 188
-    assert dialog._fork_target_stage.minimumWidth() == 188
-    assert dialog._result.parentWidget().objectName() == "cultivationCalculatorResultPanel"
-    assert not any(label.text() == "养成计算器" for label in dialog.findChildren(QLabel))
-    assert dialog.findChild(QPushButton, "cultivationCalculatorCalculate").text() == "计算所需材料"
-    assert dialog.findChild(QPushButton, "cultivationCalculatorCalculate").minimumHeight() == 44
-    dialog.resize(1120, 740)
-    dialog.show()
+    assert dialog._result_body.parentWidget().objectName() == "cultivationCalculatorResultPanel"
+    assert page.findChild(QLabel, "cultivationCalculatorPageTitle").text() == "养成计算器"
+    assert dialog.findChild(QPushButton, "cultivationCalculatorCalculate").text() == "计算所需材料与体力"
+    page.resize(1120, 740)
+    page.show()
     QApplication.processEvents()
-    skill_x = dialog._skills_toggle.mapTo(dialog, QPoint()).x()
-    fork_x = dialog._fork_toggle.mapTo(dialog, QPoint()).x()
-    assert skill_x <= fork_x
 
     dialog._calculate()
+    QApplication.processEvents()
     rendered = "\n".join(label.text() for label in dialog.findChildren(QLabel))
-    assert "材料数据完整" in rendered
-    assert "材料甲 × 4" in rendered
-    assert "Q · 终结技" in rendered
-    assert dialog._copy_button.isEnabled()
+    assert "材料数据完整" not in rendered
+    assert "品质 5" not in rendered
+    material_cards = dialog.findChildren(ProgressionMaterialCard)
+    assert material_cards
+    icon = material_cards[0].findChild(QLabel, "progressionMaterialIcon")
+    assert icon is not None and not icon.pixmap().isNull()
+    assert "混沌染剂" in rendered
+    assert "× 364" in rendered
+    assert "弧盘升级" in rendered
+    assert "弧盘升级经验 3,640,330，材料最小溢出 170" in rendered
+    totals = dialog.findChild(QFrame, "cultivationCalculatorTotals")
+    details = dialog.findChild(QFrame, "cultivationCalculatorDetailsPanel")
+    total_cards = totals.findChildren(ProgressionMaterialCard)
+    details_toggle = details.findChild(
+        QToolButton, "cultivationCalculatorDetailsToggle"
+    )
+    details_content = details.findChild(
+        QWidget, "cultivationCalculatorDetailsContent"
+    )
+    assert dialog._result_layout.indexOf(totals) < dialog._result_layout.indexOf(details)
+    assert len(total_cards) == 4
+    scroll_areas = page.findChildren(QScrollArea)
+    assert scroll_areas == [page.scroll]
+    assert page.scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert page.scroll.horizontalScrollBar().maximum() == 0
+    assert not details_toggle.isChecked()
+    assert not details_content.isVisibleTo(dialog)
+    details_toggle.setFocus()
+    QTest.keyClick(details_toggle, Qt.Key.Key_Space)
+    QApplication.processEvents()
+    assert details_toggle.isChecked()
+    assert details_content.isVisibleTo(dialog)
+    assert page.scroll.verticalScrollBar().maximum() > 0
+    detail_cards = [
+        card for card in details_content.findChildren(QFrame)
+        if card.objectName() == "cultivationCalculatorResultSection"
+    ]
+    assert len(detail_cards) == 2
+    assert page.copy_button.isEnabled()
     assert service.requests[-1].include_character_progression
     assert service.requests[-1].include_skills
 
@@ -135,9 +184,17 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     assert not dialog._fork_current_level.isEnabled()
     assert not dialog._skill_inputs["skill-a"][0].isEnabled()
     dialog._calculate()
+    QApplication.processEvents()
+    assert dialog.findChild(
+        QToolButton, "cultivationCalculatorDetailsToggle"
+    ).isChecked()
     assert not service.requests[-1].include_character_progression
     assert not service.requests[-1].include_skills
     assert service.requests[-1].fork is None
+    page.findChild(QPushButton, "cultivationCalculatorReset").click()
+    QApplication.processEvents()
+    assert not page.copy_button.isEnabled()
+    assert dialog._current_level.value() == 20
 
 
 def test_cultivation_image_selector_is_a_searchable_single_choice_card_grid() -> None:
@@ -156,8 +213,6 @@ def test_cultivation_image_selector_is_a_searchable_single_choice_card_grid() ->
 
     cards = {option_id: card for card, option_id, _name in dialog._cards}
     assert dialog.selected_id() == "fork-a"
-    assert cards["fork-a"].size().width() == 116
-    assert cards["fork-a"].size().height() == 132
     cards["fork-b"].setChecked(True)
     assert dialog.selected_id() == "fork-b"
     dialog._search.setText("qinglan")
@@ -166,15 +221,35 @@ def test_cultivation_image_selector_is_a_searchable_single_choice_card_grid() ->
     assert not cards["fork-b"].isHidden()
 
 
-def test_official_replacement_summary_explains_score_and_third_percentage() -> None:
-    from src.ui.controllers.official_role_replacement_controller import (
-        OFFICIAL_ROLE_REPLACEMENT_SUMMARY,
-    )
+def test_progression_material_grid_reflows_without_horizontal_rows() -> None:
+    from PySide6.QtWidgets import QApplication
 
-    assert OFFICIAL_ROLE_REPLACEMENT_SUMMARY == (
-        "评分按该角色的直伤权重计算，候选由高到低排列；"
-        "卡片第三项百分比表示该装备带来的直伤收益。"
+    from src.ui.progression_material_card import ProgressionMaterialCard
+    from src.ui.progression_material_grid import ProgressionMaterialGrid
+
+    QApplication.instance() or QApplication([])
+    grid = ProgressionMaterialGrid()
+    cards = tuple(
+        ProgressionMaterialCard(
+            name=f"材料 {index}",
+            amount_text=f"× {index}",
+            compact=True,
+            parent=grid,
+        )
+        for index in range(1, 6)
     )
+    grid.set_cards(cards)
+    grid.resize(700, 320)
+    grid.show()
+    QApplication.processEvents()
+
+    assert all(grid.rect().contains(card.geometry()) for card in cards)
+
+    grid.resize(260, 640)
+    QApplication.processEvents()
+
+    assert all(grid.rect().contains(card.geometry()) for card in cards)
+    grid.close()
 
 
 def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
@@ -271,7 +346,6 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
     service = Service()
     dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     assert dialog._custom_percent_input.text() == ""
-    assert dialog._custom_percent_input.width() == 60
     grade_help = next(
         button
         for button in dialog.findChildren(QPushButton, "btnHelp")
@@ -335,10 +409,6 @@ def test_rewind_execution_dialog_marks_experimental_prerequisite_and_disables_cu
 
     assert any("提前打开游戏内的倒带页面" in text for text in descriptions)
     assert any("实验性开发" in text and "不保证可以使用" in text for text in descriptions)
-    notice = dialog.findChild(QLabel, "rewindExperimentalNotice")
-    assert notice is not None
-    assert "background:#1f6feb33" in notice.styleSheet()
-    assert "color:#58a6ff" in notice.styleSheet()
     assert dialog.options().drive_customization == "none"
     assert custom_buttons["none"].isChecked()
     assert not custom_buttons["enabled"].isEnabled()

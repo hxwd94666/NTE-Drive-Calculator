@@ -109,6 +109,8 @@ def test_every_classic_strategy_receives_the_same_globally_filtered_pool(
 
     database_path = tmp_path / "user.sqlite3"
     database_path.touch()
+    static_path = tmp_path / "static.sqlite3"
+    static_path.touch()
     projection = AllocationInventoryProjection(
         snapshot_id=7,
         items=(
@@ -141,6 +143,7 @@ def test_every_classic_strategy_receives_the_same_globally_filtered_pool(
     user_dao.current_inventory_snapshot_id.return_value = 7
     static_dao = MagicMock()
     static_dao.__enter__.return_value = static_dao
+    static_dao.summary.return_value = {"dataset": {"dataset_id": "fixture-dataset"}}
     inventory = MagicMock()
     inventory.build.return_value = projection
     settings = AllocationFilterSettings(
@@ -152,7 +155,7 @@ def test_every_classic_strategy_receives_the_same_globally_filtered_pool(
         patch.object(
             runner,
             "_allocation_paths",
-            return_value=(database_path, tmp_path, tmp_path, tmp_path, tmp_path / "static.sqlite3"),
+            return_value=(database_path, tmp_path, tmp_path, tmp_path, static_path),
         ),
         patch.object(runner, "UserDataDao", return_value=user_dao),
         patch.object(runner, "StaticGameDataDao", return_value=static_dao),

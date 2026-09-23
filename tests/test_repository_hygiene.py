@@ -12,6 +12,9 @@ TRACKED_FILE_SIZE_BUDGETS = {
     # Normalized combat-blueprint and Buff evidence is an intentional release
     # asset. Keep a finite ceiling so accidental source payloads still fail.
     "data/game_static.sqlite3": 96 * 1024 * 1024,
+    # The promoted read-only role/reference catalog is also a versioned release
+    # asset. It deliberately carries normalized rows plus its source manifest.
+    "data/role_catalog/game_static.sqlite3": 36 * 1024 * 1024,
     # The independent analysis executable is an audited release input whose
     # exact hash is pinned by third_party/analysis-core/component.json.
     "third_party/analysis-core/bin/nte-analysis-core.exe": 24 * 1024 * 1024,

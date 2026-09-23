@@ -20,6 +20,7 @@ class GameUiAssetCatalog:
                 "characters": {}, "character_arts": {}, "attributes": {},
                 "equipment_items": {},
                 "equipment_modules": {}, "fork_items": {}, "monster_icons": {},
+                "progression_items": {},
                 "encounter_icons": {}, "monster_family_icons": {},
             }
         )
@@ -59,6 +60,9 @@ class GameUiAssetCatalog:
 
     def fork_icon(self, fork_id: str) -> Path | None:
         return self._resolve("fork_items", str(fork_id))
+
+    def progression_item_icon(self, item_id: str) -> Path | None:
+        return self._resolve("progression_items", str(item_id))
 
     def monster_icon(self, static_table: str, monster_id: str) -> Path | None:
         return self._resolve("monster_icons", f"{static_table}:{monster_id}")

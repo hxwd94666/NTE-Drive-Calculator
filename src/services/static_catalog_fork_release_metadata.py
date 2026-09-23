@@ -21,6 +21,12 @@ from src.services.static_catalog_fork_service import (
     ForkCost,
     ForkRefinementLevel,
 )
+from src.services.static_catalog_fork_progression_models import (
+    ForkExperienceMaterialCost,
+)
+from src.services.fork_progression_requirements import (
+    project_fork_level_requirements,
+)
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -204,29 +210,73 @@ def build_fork_progression_request(
             return
         entry["known"] = int(entry["known"]) + amount
 
+    def add_requirement(
+        item_id: str,
+        quantity: int,
+        source_ref: str,
+        *,
+        unknown_total: bool = False,
+    ) -> None:
+        entry = aggregated.setdefault(item_id, {
+            "known": 0,
+            "unknown": False,
+            "sources": [],
+        })
+        sources = entry["sources"]
+        assert isinstance(sources, list)
+        sources.append(source_ref)
+        entry["known"] = int(entry["known"]) + int(quantity)
+        entry["unknown"] = bool(entry["unknown"]) or unknown_total
+
     current_stage = current.breakthrough_stage or 0
     target_stage = target.breakthrough_stage or 0
-    crossed_stages = {
-        row.stage: row for row in detail.breakthroughs
-        if current_stage < row.stage <= target_stage
-    }
-    for stage in range(current_stage + 1, target_stage + 1):
-        row = crossed_stages.get(stage)
-        source_ref = f"breakthrough:{stage}"
-        if row is None:
-            gaps.append(ForkProgressionRequirementGap(
-                code="breakthrough_cost_row_unavailable",
-                source_ref=source_ref,
-            ))
-            continue
-        costs = (*row.item_costs, *row.gold_costs)
-        if not costs:
-            gaps.append(ForkProgressionRequirementGap(
-                code="breakthrough_cost_unavailable",
-                source_ref=source_ref,
-            ))
-        for cost in costs:
-            add_cost(cost, source_ref)
+    level_projection = project_fork_level_requirements(
+        detail,
+        current_level=current.level,
+        current_stage=current_stage,
+        target_level=target.level,
+        target_stage=target_stage,
+    )
+    incomplete_upgrade = any(
+        gap.reason_code == "fork_level_exp_row_unavailable"
+        for gap in level_projection.gaps
+    )
+    for requirement in level_projection.experience_materials:
+        add_requirement(
+            requirement.item_id,
+            requirement.required_quantity,
+            "level_materials",
+            unknown_total=incomplete_upgrade,
+        )
+    for requirement in level_projection.experience_costs:
+        add_requirement(
+            requirement.item_id,
+            requirement.required_quantity,
+            "level_material_use_cost",
+            unknown_total=incomplete_upgrade,
+        )
+    for requirement in level_projection.breakthrough_materials:
+        add_requirement(
+            requirement.item_id,
+            requirement.required_quantity,
+            "breakthrough_materials",
+        )
+    for requirement in level_projection.breakthrough_costs:
+        add_requirement(
+            requirement.item_id,
+            requirement.required_quantity,
+            "breakthrough_costs",
+        )
+    gaps.extend(
+        ForkProgressionRequirementGap(
+            code=gap.reason_code,
+            source_ref=(
+                f"level:{gap.level}" if gap.level is not None else "progression"
+            ),
+            item_id=gap.item_id,
+        )
+        for gap in level_projection.gaps
+    )
 
     refinements = {
         row.level: row for row in detail.refinement_levels
@@ -244,24 +294,9 @@ def build_fork_progression_request(
         for cost in parse_fork_costs(row.need_gold_raw):
             add_cost(cost, source_ref)
 
-    required_upgrade_exp: int | None = 0
-    if target.level > current.level:
-        growth = {
-            row.level: row.need_exp for row in detail.growth_levels
-            if current.level < row.level <= target.level
-        }
-        if len(growth) != target.level - current.level:
-            required_upgrade_exp = None
-            gaps.append(ForkProgressionRequirementGap(
-                code="upgrade_exp_rows_unavailable",
-                source_ref=f"levels:{current.level + 1}-{target.level}",
-            ))
-        else:
-            required_upgrade_exp = sum(growth.values())
-        gaps.append(ForkProgressionRequirementGap(
-            code="level_material_relation_unavailable",
-            source_ref=f"levels:{current.level + 1}-{target.level}",
-        ))
+    required_upgrade_exp: int | None = (
+        None if incomplete_upgrade else level_projection.required_experience
+    )
 
     requirements = tuple(
         ForkProgressionMaterialRequirement(
@@ -310,7 +345,7 @@ class ForkItemDisplayNameService:
 
     def present_costs(
         self,
-        costs: Iterable[ForkCost],
+        costs: Iterable[ForkCost | ForkExperienceMaterialCost],
     ) -> tuple[ForkCostDisplay, ...]:
         presented = []
         for cost in costs:

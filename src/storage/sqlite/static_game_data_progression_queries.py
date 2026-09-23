@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from src.domain.progression_stamina import FarmingStage, MaterialYield
 
 from .protocols import StaticDataDaoMixinHost
@@ -79,3 +81,62 @@ class StaticGameDataProgressionQueriesMixin(StaticDataDaoMixinHost):
                 source="official_static_drop_projection_v30",
             ))
         return tuple(stages)
+
+    def list_fork_exp_materials(self) -> list[dict[str, Any]]:
+        """Return normalized fork EXP materials with official item presentation."""
+
+        if not self._one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='fork_exp_material'"
+        ):
+            return []
+        materials = self._rows(
+            """
+            SELECT material.item_id, material.experience_value,
+                   item.name_zh, item.quality, item.icon_path,
+                   material.source_row_id,
+                   source.row_key, source.content_sha256,
+                   source.payload_json IS NOT NULL AS payload_preserved,
+                   file.relative_path,
+                   file.sha256 AS source_file_sha256
+            FROM fork_exp_material AS material
+            JOIN progression_item AS item ON item.item_id = material.item_id
+            JOIN source_row AS source ON source.source_row_id = material.source_row_id
+            JOIN source_file AS file ON file.source_file_id = source.source_file_id
+            ORDER BY material.experience_value DESC, material.item_id
+            """
+        )
+        costs = self._rows(
+            """
+            SELECT item_id, cost_item_id, quantity
+            FROM fork_exp_material_cost
+            ORDER BY item_id, cost_item_id
+            """
+        )
+        by_material: dict[str, list[dict[str, Any]]] = {}
+        for cost in costs:
+            by_material.setdefault(str(cost["item_id"]), []).append(cost)
+        for material in materials:
+            material["costs"] = tuple(
+                by_material.get(str(material["item_id"]), ())
+            )
+        return materials
+
+    def list_progression_items(
+        self,
+        item_ids: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        """Resolve a bounded set of progression item names, quality and icons."""
+
+        normalized = tuple(dict.fromkeys(str(item) for item in item_ids if str(item)))
+        if not normalized:
+            return []
+        placeholders = ",".join("?" for _ in normalized)
+        return self._rows(
+            f"""
+            SELECT item_id, name_zh, quality, icon_path, source_kind
+            FROM progression_item
+            WHERE item_id IN ({placeholders})
+            ORDER BY item_id
+            """,
+            normalized,
+        )

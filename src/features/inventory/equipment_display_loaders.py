@@ -201,6 +201,11 @@ def _load_sqlite_equipment_display_states(
             int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
             for row in getattr(static_dao, "list_characters", lambda: ())()
         }
+        custom_roles = {
+            int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
+            for row in getattr(user_dao, "list_custom_characters", lambda: ())()
+        }
+        role_names.update(custom_roles)
         current_slot_ids = {int(slot["slot_id"]) for slot, _plan in plans.values()}
         visible_character_ids = {
             int(plan["character_id"])
@@ -215,6 +220,7 @@ def _load_sqlite_equipment_display_states(
             displays[f"slot:{slot['slot_id']}"] = {
                 "_empty_slot": True,
                 "_character_id": int(slot["character_id"]),
+                "_is_custom_role": int(slot["character_id"]) in custom_roles,
                 "_role_name": role_name,
                 "_loadout_slot_id": int(slot["slot_id"]),
                 "_loadout_slot_key": str(slot["slot_key"]),
@@ -242,6 +248,7 @@ def _load_sqlite_equipment_display_states(
             payload = plan.get("payload") or {}
             role_name = str(payload.get("source_role_name") or plan["character_id"])
             display["_character_id"] = int(plan["character_id"])
+            display["_is_custom_role"] = int(plan["character_id"]) in custom_roles
             display["_role_name"] = role_name
             display["_loadout_slot_id"] = int(slot["slot_id"])
             display["_loadout_slot_key"] = str(slot["slot_key"])

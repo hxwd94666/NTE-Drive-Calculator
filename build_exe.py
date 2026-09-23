@@ -30,6 +30,7 @@ from tools.release.pyinstaller_native_dependencies import declared_native_proxie
 from tools.release.game_component_bundle_build import (
     prepare_component_bundle, validate_packaged_component_bundle,
 )
+from tools.release.runtime_pruning import prune_unused_runtime_binaries, validate_pruned_runtime
 from src.integrations.ocr_model_resources import (
     build_source_ocr_models,
     validate_packaged_ocr_models,
@@ -436,6 +437,12 @@ if onefile:
 
 if output.exists():
     if not onefile:
+        removed_runtime = prune_unused_runtime_binaries(output / "_internal")
+        validate_pruned_runtime(output / "_internal")
+        build_cli.info(
+            "[SIZE] 已裁剪可选运行库："
+            f"{sum(removed_runtime.values()) / (1024 * 1024):.1f} MiB 展开体积"
+        )
         validate_packaged_component_bundle(output / "_internal")
         validate_packaged_ocr_models(output / "_internal")
     _validate_no_ambient_icu_dlls(output)

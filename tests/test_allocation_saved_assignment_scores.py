@@ -3,13 +3,14 @@
 
 from types import SimpleNamespace
 
-from src.features.weighted_allocation.runner import _option_tape_main_values
-
 from src.features.allocation.slot_plan_diff import loadout_plan_state, selected_slot_plan_diff
 from src.features.allocation.runner import (
     _plan_assignment_scores,
     _plan_changed_uids,
-    _plan_tape_main_values,
+)
+from src.services.allocation_main_value_service import (
+    legacy_plan_tape_main_values,
+    weighted_option_tape_main_values,
 )
 from src.optimizer.contracts import (
     PLAN_ASSIGNED_EXTRA_DRIVES,
@@ -78,7 +79,7 @@ def test_plan_tape_main_value_is_frozen_for_saved_loadouts() -> None:
         PLAN_ASSIGNED_TAPE: SimpleNamespace(uid="nte-core-8-80", main_value=37.5),
     }
 
-    assert _plan_tape_main_values(plan) == {"nte-core-8-80": 37.5}
+    assert legacy_plan_tape_main_values(plan) == {"nte-core-8-80": 37.5}
 
 
 def test_weighted_plan_tape_main_value_is_frozen_from_the_calculation_context() -> None:
@@ -91,7 +92,7 @@ def test_weighted_plan_tape_main_value_is_frozen_from_the_calculation_context() 
         assignments=(SimpleNamespace(kind="core", virtual=False, uid=(8, 80)),),
     )
 
-    assert _option_tape_main_values(context, option) == {"nte-core-8-80": 37.5}
+    assert weighted_option_tape_main_values(context, option) == {"nte-core-8-80": 37.5}
 
 
 def test_first_save_to_an_empty_slot_has_no_changed_equipment_markers() -> None:
@@ -172,6 +173,27 @@ def test_selected_slot_diff_uses_the_selected_slot_as_its_only_baseline() -> Non
     assert result["早雾"][DIFF_ADDED_UIDS] == {"nte-core-2-20"}
 
 
+def test_selected_slot_diff_keeps_old_tape_main_value_for_summary() -> None:
+    old_uid = "nte-core-1-10"
+    old_plan = {
+        "payload": {"tape_main_values": {old_uid: 30.0}},
+        "assignments": [{"kind": "core", "uid_slot": 1, "uid_serial": 10}],
+    }
+    dao = _SlotDiffDao({
+        2: {"character_id": 1003, "current_plan": old_plan},
+    })
+    final_plan = {
+        "早雾": {
+            "valid": True,
+            "assigned_tape": {"uid": "nte-core-2-20"},
+        }
+    }
+
+    result = selected_slot_plan_diff(dao, final_plan, {"早雾": (1003, 2)})
+
+    assert result["早雾"]["removed"][0]["main_value"] == 30.0
+
+
 def test_loadout_plan_state_preserves_frozen_item_score_and_area() -> None:
     uid = "nte-module-1-10"
     state = loadout_plan_state({
@@ -188,3 +210,13 @@ def test_loadout_plan_state_preserves_frozen_item_score_and_area() -> None:
     assert drive["score"] == 12.5
     assert drive["area"] == 2
     assert drive["score_area"] == 2
+
+
+def test_loadout_plan_state_preserves_frozen_tape_main_value() -> None:
+    uid = "nte-core-8-80"
+    state = loadout_plan_state({
+        "payload": {"tape_main_values": {uid: 30.0}},
+        "assignments": [{"kind": "core", "uid_slot": 8, "uid_serial": 80}],
+    })
+
+    assert state["equipped_tape"]["main_value"] == 30.0

@@ -572,7 +572,11 @@ def test_target_role_picker_includes_account_custom_roles(tmp_path) -> None:
             return False
 
         def list_characters(self):
-            return [{"character_id": 1004, "name_zh": "安魂曲"}]
+            return [
+                {"character_id": 1057, "name_zh": "明音凛"},
+                {"character_id": 1042, "name_zh": "黑羽"},
+                {"character_id": 1004, "name_zh": "安魂曲"},
+            ]
 
         def get_character_graduation_template(self, _character_id):
             return None
@@ -601,11 +605,13 @@ def test_target_role_picker_includes_account_custom_roles(tmp_path) -> None:
 
     assert [(role.character_id, role.name, role.default_suit_id, role.is_custom) for role in service.list_target_roles()] == [
         (1004, "安魂曲", None, False),
+        (1042, "黑羽", None, False),
+        (1057, "明音凛", None, False),
         (9001, "自建角色", "Suit_Custom", True),
     ]
 
 
-def test_target_role_picker_shows_highest_current_calculation_plan_score(tmp_path) -> None:
+def test_target_role_picker_includes_saved_game_import_in_highest_score(tmp_path) -> None:
     class StaticDao:
         def __init__(self, *_args):
             pass
@@ -657,8 +663,16 @@ def test_target_role_picker_shows_highest_current_calculation_plan_score(tmp_pat
                     "slot": {"character_id": 1004},
                     "plan": {
                         "character_id": 1004,
+                        "score": 265.5,
+                        "payload": {"schema": "game-observed-loadout-v1", "source": "game_inventory"},
+                    },
+                },
+                {
+                    "slot": {"character_id": 1004},
+                    "plan": {
+                        "character_id": 1004,
                         "score": 999.0,
-                        "payload": {"schema": "game-observed-loadout-v1"},
+                        "payload": {"schema": "game-observed-loadout-v1", "source": "game_preview"},
                     },
                 },
             ]
@@ -673,7 +687,7 @@ def test_target_role_picker_shows_highest_current_calculation_plan_score(tmp_pat
     )
 
     role, = service.list_target_roles()
-    assert role.calculation_score == 251.25
+    assert role.calculation_score == 265.5
 
 
 def test_target_role_picker_excludes_transformations_and_merges_avatar_variants(tmp_path) -> None:

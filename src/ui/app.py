@@ -109,6 +109,7 @@ from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxDependencies, ToolboxPage
+from src.features.toolbox.toolbox_navigation import cultivation_context_identity
 from src.services.cultivation_planner_service import CultivationPlannerService
 from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.dependencies import (
@@ -337,12 +338,19 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 operation_generation=self.operation_generation,
                 rewind_service_factory=lambda: RewindShapeRecommendationService(
                     user_database_path=self.app_context.account.user_database_path,
-                    static_database_path=self.app_context.paths.static_database_path,
+                    static_database_path=self.app_context.paths.equipment_allocation_database_path,
+                    asset_root=self.app_context.paths.equipment_allocation_asset_root,
                 ),
                 cultivation_service_factory=lambda: CultivationPlannerService(
                     user_database_path=self.app_context.account.user_database_path,
-                    static_database_path=self.app_context.paths.static_database_path,
+                    static_database_path=self.app_context.paths.cultivation_database_path,
                 ),
+                cultivation_context_identity=lambda: cultivation_context_identity(
+                    self.app_context.account.active_account_id,
+                    self.app_context.generation,
+                    self.app_context.paths.cultivation_database_path,
+                ),
+                cultivation_asset_root=lambda: self.app_context.paths.cultivation_asset_root,
                 navigate_static_catalog=lambda: self._go("static_catalog"),
             ),
             dialog_parent=self,
@@ -421,7 +429,8 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._workshop_weight_refresh_thread = None
         QTimer.singleShot(1500, lambda: setattr(
             self, "_workshop_weight_refresh_thread", start_workshop_weight_template_refresh(
-                self.app_context.paths.workshop_weight_template_file, self.app_context.paths.static_database_path)))
+                self.app_context.paths.workshop_weight_template_file,
+                self.app_context.paths.equipment_allocation_database_path)))
         self._refresh_home()
         self.auto_sync_controller.start()
         self.work_mode_controller.start()

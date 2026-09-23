@@ -91,7 +91,7 @@ def fallback_tape_main_value(main_stat: Any, quality: Any, stats_config: dict[st
         return stat_number_value(configured[name]) * coef
     if name == "暴击伤害%":
         return 60.0 * coef
-    if name == "暴击率":
+    if name in {"暴击率", "暴击率%"}:
         return 30.0 * coef
     if name in {"攻击力%", "防御力%", "生命值%"}:
         return 37.5 * coef

@@ -91,6 +91,7 @@ class WarehouseStateManagementService:
         static_dao_factory=StaticGameDataDao,
         state_writer_factory=WarehouseStateWriter,
         config_dir: str | Path | None = None,
+        static_database_path: str | Path | None = None,
         operation_context: OperationContext | None = None,
     ) -> None:
         self.database_path = Path(database_path)
@@ -99,6 +100,7 @@ class WarehouseStateManagementService:
         self.dao_factory = dao_factory
         self.static_dao_factory = static_dao_factory
         self.config_dir = config_dir
+        self.static_database_path = Path(static_database_path) if static_database_path is not None else None
         self.operation_context = operation_context or OperationContext.create(
             "warehouse"
         )
@@ -126,7 +128,8 @@ class WarehouseStateManagementService:
         config: dict,
         selected_roles: list[str] | None,
     ) -> WarehouseStateManagementPlan:
-        with self.dao_factory(self.database_path) as user_dao, self.static_dao_factory() as static_dao:
+        static_dao = self.static_dao_factory(self.static_database_path) if self.static_database_path is not None else self.static_dao_factory()
+        with self.dao_factory(self.database_path) as user_dao, static_dao:
             snapshot_id = user_dao.current_inventory_snapshot_id()
             if snapshot_id is None:
                 raise WarehouseStateManagementError("尚无稳定背包快照，无法管理仓库")
@@ -150,6 +153,7 @@ class WarehouseStateManagementService:
             selected_roles=selected_roles,
             config_dir=self.config_dir,
             user_database_path=self.database_path,
+            static_database_path=self.static_database_path,
         ).evaluate(parsed_items, inventory)
         changes: list[dict[str, Any]] = []
         for change in evaluation.state_changes:

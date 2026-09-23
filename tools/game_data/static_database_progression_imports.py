@@ -23,6 +23,9 @@ from tools.game_data.static_database_build_support import (
 from tools.game_data.static_database_character_progression_imports import (
     import_character_progression,
 )
+from tools.game_data.static_database_fork_progression_imports import (
+    fork_exp_material_spec,
+)
 
 
 _COST_TOKEN_ALIASES = {
@@ -141,6 +144,7 @@ class ProgressionImportMixin(_ProgressionImportContext):
         missing_names = self._import_progression_items(referenced_items)
         self._import_progression_aliases()
         self._import_character_progression()
+        self._import_fork_exp_materials()
         self._import_item_quality_terms()
         self._import_character_acquisition_terms()
         self._import_fork_lottery_campaigns()
@@ -408,12 +412,39 @@ class ProgressionImportMixin(_ProgressionImportContext):
                 self._canonical_item_id(token, "progression_cost")
                 for token, _quantity in costs
             )
+        item_ids.update(self._collect_fork_progression_item_ids())
         cost_tables = (
             ("character_breakthroughs", ("NeedItems", "NeedGolds")),
-            ("fork_breakthroughs", ("NeedItems", "NeedGolds")),
-            ("fork_stars", ("NeedGolds",)),
         )
         for table, fields in cost_tables:
+            for row in self.rows[table].values():
+                if not isinstance(row, dict):
+                    continue
+                for field in fields:
+                    for token, _quantity in _parse_cost_string(row.get(field)):
+                        item_ids.add(
+                            self._canonical_item_id(token, "progression_cost")
+                        )
+        return item_ids
+
+    def _collect_fork_progression_item_ids(self) -> set[str]:
+        item_ids = {"Fons", "Gold"}
+        for item_id, row in self.rows["item_catalog"].items():
+            specification = fork_exp_material_spec(
+                str(item_id), row, parse_cost_string=_parse_cost_string,
+            )
+            if specification is None:
+                continue
+            item_ids.add(str(item_id))
+            _experience, costs = specification
+            item_ids.update(
+                self._canonical_item_id(token, "progression_cost")
+                for token, _quantity in costs
+            )
+        for table, fields in (
+            ("fork_breakthroughs", ("NeedItems", "NeedGolds")),
+            ("fork_stars", ("NeedGolds",)),
+        ):
             for row in self.rows[table].values():
                 if not isinstance(row, dict):
                     continue
@@ -431,6 +462,28 @@ class ProgressionImportMixin(_ProgressionImportContext):
             parse_cost_string=_parse_cost_string,
             exp_material_spec=_character_exp_material_spec,
         )
+
+    def _import_fork_exp_materials(self) -> None:
+        for item_id, row in sorted(self.rows["item_catalog"].items()):
+            specification = fork_exp_material_spec(
+                str(item_id), row, parse_cost_string=_parse_cost_string,
+            )
+            if specification is None:
+                continue
+            experience, costs = specification
+            self.connection.execute(
+                "INSERT INTO fork_exp_material VALUES (?,?,?)",
+                (item_id, experience, self.source_row_id("item_catalog", item_id)),
+            )
+            for token, quantity in costs:
+                self.connection.execute(
+                    "INSERT INTO fork_exp_material_cost VALUES (?,?,?)",
+                    (
+                        item_id,
+                        self._canonical_item_id(token, "progression_cost"),
+                        quantity,
+                    ),
+                )
 
     def _import_progression_items(self, item_ids: set[str]) -> set[str]:
         catalogs = {

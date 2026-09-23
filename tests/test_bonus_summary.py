@@ -5,6 +5,7 @@ from src.features.allocation.bonus_summary import (
     BonusSummaryContext,
     aligned_bonus_comparison_rows,
     bonus_rows_for_mode,
+    equipment_bonus_rows,
     has_bonus_delta,
     merge_bonus_row_lists,
     split_loadout_sources,
@@ -62,3 +63,30 @@ class BonusSummaryTests(unittest.TestCase):
         ctx = BonusSummaryContext({}, {}, {}, {})
         rows = merge_bonus_row_lists(ctx, [("暴击率%", 10)], [("暴击率%", 5)])
         self.assertEqual([("暴击率%", 15.0)], rows)
+
+    def test_same_crit_tape_is_not_reported_as_a_new_thirty_percent_gain(self):
+        ctx = BonusSummaryContext({}, {}, {}, {})
+        drives = [{"sub_stats": {"暴击率%": 30.0}}]
+        old_rows = equipment_bonus_rows(
+            ctx,
+            "A",
+            {"main_stats": "暴击率%", "quality": "Gold", "sub_stats": {}},
+            drives,
+        )
+        new_rows = equipment_bonus_rows(
+            ctx,
+            "A",
+            {
+                "main_stats": "暴击率%",
+                "main_value": 30.0,
+                "quality": "Gold",
+                "sub_stats": {},
+            },
+            drives,
+        )
+
+        self.assertEqual(old_rows, new_rows)
+        self.assertEqual(
+            0.0,
+            aligned_bonus_comparison_rows(old_rows, new_rows)[0]["delta"],
+        )

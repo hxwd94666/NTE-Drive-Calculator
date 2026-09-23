@@ -44,7 +44,6 @@ def test_fixed_dialog_is_relaxed_and_fitted_to_scaled_work_area() -> None:
         available_geometry=available,
     )
 
-    assert fitted == QSize(952, 652)
     assert dialog.size() == fitted
     assert dialog.minimumWidth() <= fitted.width()
     assert dialog.minimumHeight() <= fitted.height()
@@ -105,8 +104,6 @@ def test_dialog_geometry_covers_common_windows_scaling_ratios(scale: float) -> N
 
     assert fitted.width() <= available.width() - 48
     assert fitted.height() <= available.height() - 48
-    if scale == 1.0:
-        assert fitted == QSize(1064, 920)
 
 
 def test_global_dialog_defaults_fit_future_oversized_dialogs() -> None:

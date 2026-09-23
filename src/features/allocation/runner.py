@@ -36,6 +36,7 @@ from src.optimizer.contracts import (
     plan_drives,
 )
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
+from src.services.allocation_main_value_service import legacy_plan_tape_main_values
 from src.services.allocation_filter_settings import (
     AllocationFilterSettings,
     filter_allocation_candidates,
@@ -79,6 +80,9 @@ class AllocationRunResult:
     snapshot_id: int
     lock_snapshot: AllocationLockSnapshot
     selected_locked_role_names: frozenset[str]
+    static_database_path: Path
+    static_dataset_id: str
+    static_file_identity: tuple[int, int]
 
 
 def _allocation_paths(window: Any) -> tuple[Path, Path, Path, Path, Path]:
@@ -117,7 +121,7 @@ def _allocation_paths(window: Any) -> tuple[Path, Path, Path, Path, Path]:
         Path(context.paths.config_dir),
         Path(context.account.user_config_dir),
         Path(context.account.screenshot_dir),
-        Path(context.paths.static_database_path),
+        Path(context.paths.equipment_allocation_database_path),
     )
 
 
@@ -143,6 +147,9 @@ def _run_allocation(
         if not database_path.is_file():
             raise RuntimeError("尚无官方背包数据，请先完成背包同步并生成稳定快照。")
         with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
+            static_dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
+            static_stat = static_database_path.stat()
+            static_file_identity = (static_stat.st_size, static_stat.st_mtime_ns)
             snapshot_id = user_dao.current_inventory_snapshot_id()
             if snapshot_id is None:
                 raise RuntimeError("尚无稳定背包快照，请先在首页启动背包同步并进入游戏。")
@@ -184,13 +191,13 @@ def _run_allocation(
                 f"排除 {len(lock_snapshot.reserved_uids)} 件装备："
                 f"{'、'.join(sorted(selected_locked_role_names))}"
             )
-        # 求解器只接收本次固定 SQLite 快照的内存投影，不再回退到旧背包 JSON。
         from src.app.facade import NTEAppFacade
 
         a = NTEAppFacade(
             config_dir=str(config_dir),
             user_config_dir=str(user_config_dir),
             user_database_path=database_path,
+            allocation_static_database_path=static_database_path,
         )
         if unlocked_sel:
             if cancel_check is not None and cancel_check():
@@ -205,12 +212,18 @@ def _run_allocation(
             )
         else:
             fp = {}
+        latest_stat = static_database_path.stat()
+        if (latest_stat.st_size, latest_stat.st_mtime_ns) != static_file_identity:
+            raise RuntimeError("计算期间静态数据集已更新，请重新执行计算。")
         logger.info(f"分配计算完成: result_type={type(fp).__name__}")
         return AllocationRunResult(
             plans=fp,
             snapshot_id=projection.snapshot_id,
             lock_snapshot=lock_snapshot,
             selected_locked_role_names=selected_locked_role_names,
+            static_database_path=static_database_path,
+            static_dataset_id=static_dataset_id,
+            static_file_identity=static_file_identity,
         )
     except Exception as e:
         import traceback as tb
@@ -345,20 +358,6 @@ def _plan_assignment_scores(
     return result
 
 
-def _plan_tape_main_values(plan: dict[str, Any]) -> dict[str, float]:
-    """Freeze the calculated card main value in the saved plan payload."""
-
-    tape = plan.get(PLAN_ASSIGNED_TAPE)
-    if tape is None:
-        return {}
-    uid = str(tape.get(EQUIP_UID, "") if isinstance(tape, dict) else getattr(tape, EQUIP_UID, ""))
-    value = tape.get("main_value") if isinstance(tape, dict) else getattr(tape, "main_value", None)
-    try:
-        return {uid: float(value)} if uid and value is not None else {}
-    except (TypeError, ValueError):
-        return {}
-
-
 def _confirm_unsaved_allocation_before_recompute(self: Any) -> bool:
     if not self.final_plan or not self._allocation_dirty:
         return True
@@ -416,15 +415,23 @@ def _on_done(self: Any, r: Any) -> None:
         )
         if not isinstance(r, AllocationRunResult):
             raise RuntimeError("分配线程返回了未绑定快照的结果")
+        current_static = _allocation_paths(self)[4]
+        current_stat = current_static.stat()
+        if current_static != r.static_database_path or (
+            current_stat.st_size, current_stat.st_mtime_ns
+        ) != r.static_file_identity:
+            _on_exec_error(self, "计算期间静态数据集已更新，请重新执行计算。")
+            return
         self.final_plan = r.plans
         self._pending_allocation_snapshot_id = r.snapshot_id
+        self._pending_allocation_static_identity = (
+            r.static_database_path, r.static_dataset_id, r.static_file_identity
+        )
         self._allocation_lock_snapshot = r.lock_snapshot
         self._selected_locked_role_names = r.selected_locked_role_names
         self.btn_run.setEnabled(True)
         self.btn_run.setText("⚡  开始计算")
         self._allocation_custom_weapons = dict(getattr(self, "_pending_custom_weapons", {}) or {})
-        # The old JSON-state path was removed.  Comparing with the active
-        # SQLite plans restores NEW/CHANGE labels and the per-role diff button.
         self.allocation_plan_diff = _calculation_plan_diff(self, self.final_plan)
         self._allocation_dirty = bool(self.final_plan)
         self._render_results(self.final_plan)
@@ -503,8 +510,20 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
         snapshot_id = getattr(self, "_pending_allocation_snapshot_id", None)
         if snapshot_id is None:
             raise RuntimeError("本次计算未绑定官方背包快照，请重新执行计算。")
+        static_identity = getattr(self, "_pending_allocation_static_identity", None)
+        if not isinstance(static_identity, tuple) or len(static_identity) != 3:
+            raise RuntimeError("本次计算未绑定静态数据集，请重新执行计算。")
+        pinned_path, pinned_dataset_id, pinned_file_identity = static_identity
+        current_stat = static_database_path.stat()
+        if (
+            static_database_path != pinned_path
+            or (current_stat.st_size, current_stat.st_mtime_ns) != pinned_file_identity
+        ):
+            raise RuntimeError("计算使用的静态数据集已更新，请重新执行计算。")
         saved_roles = []
         with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
+            if static_dao.summary()["dataset"]["dataset_id"] != pinned_dataset_id:
+                raise RuntimeError("计算使用的静态数据集身份已改变，请重新执行计算。")
             lock_snapshot = getattr(self, "_allocation_lock_snapshot", None)
             if not isinstance(lock_snapshot, AllocationLockSnapshot):
                 raise RuntimeError("本次计算缺少配装锁定快照，请重新执行计算。")
@@ -544,6 +563,7 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
                         "schema": "allocation-official-snapshot-v1",
                         "source": "allocation",
                         "source_role_name": role_name,
+                        "static_dataset_id": pinned_dataset_id,
                         "strategy": getattr(self, "_pending_strat", ""),
                         "blueprint_combo_limit": int(
                             getattr(self, "_pending_blueprint_combo_limit", 500)
@@ -554,10 +574,7 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
                             role_name,
                             plan,
                         ),
-                        # The card's full-level main stat is part of this
-                        # computed plan, not a value to reconstruct at every
-                        # later presentation pass.
-                        "tape_main_values": _plan_tape_main_values(plan),
+                        "tape_main_values": legacy_plan_tape_main_values(plan),
                     },
                     slot_id=slot_id,
                 )
@@ -565,8 +582,6 @@ def _save_alloc(self: Any, show_message: bool = True) -> bool:
         if not saved_roles:
             raise RuntimeError("本次计算没有可保存的有效方案。")
         self._allocation_dirty = False
-        # The saved target slot is now known, so update the visible calculation
-        # comparison with the same baseline that was persisted into the plan.
         self._render_results(self.final_plan)
         # Active plans are the character-page equipment source.  Refresh both
         # projections immediately so a saved calculation is visible as the
@@ -659,6 +674,7 @@ class AllocationController(QObject):
         self.allocation_plan_diff: dict = {}
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id: int | None = None
+        self._pending_allocation_static_identity: tuple[Path, str, tuple[int, int]] | None = None
         self._allocation_lock_snapshot: AllocationLockSnapshot | None = None
         self._selected_locked_role_names: frozenset[str] = frozenset()
         self._pending_archive_paths: list[Path] = []
@@ -737,6 +753,7 @@ class AllocationController(QObject):
         self.allocation_plan_diff = {}
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id = None
+        self._pending_allocation_static_identity = None
         self._allocation_lock_snapshot = None
         self._selected_locked_role_names = frozenset()
         self._pending_filter_settings = AllocationFilterSettings()

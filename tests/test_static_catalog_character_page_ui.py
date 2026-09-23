@@ -402,10 +402,14 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         action_cards = self.page.detail_view.skill_view.findChildren(SkillActionCard)
         slots = [card.action.slot for card in action_cards]
         self.assertEqual(
-            ["A", "E", "Q", "QTE", "G", "PASSIVE", "PASSIVE"], slots,
+            [
+                "A", "E", "Q", "QTE", "G",
+                "PASSIVE", "PASSIVE", "PECULIARITY",
+            ],
+            slots,
         )
         passives = tuple(card for card in action_cards if card.action.passive is not None)
-        self.assertEqual(("暮落残阳", "殷红幻景"), tuple(
+        self.assertEqual(("暮落残阳", "殷红幻景", "谲影迷踪"), tuple(
             card.action.title for card in passives
         ))
         self.assertNotIn("闪避反击", slots)
@@ -673,7 +677,10 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
                 if card.action.character_id == 1036
             )
             slots = {card.action.slot for card in cards}
-            self.assertEqual({"A", "E", "Q", "QTE", "G", "PASSIVE"}, slots)
+            self.assertEqual(
+                {"A", "E", "Q", "QTE", "G", "PASSIVE", "PECULIARITY"},
+                slots,
+            )
             for card in cards:
                 self.assertGreater(card.width(), detail.skill_view.width() * 0.8)
             a_card = next(card for card in cards if card.action.slot == "A")

@@ -23,7 +23,9 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.features.inventory.warehouse import warehouse_shape_pixmap
+from src.ui.role_portrait import custom_role_portrait
 from src.ui.widgets import match_pinyin
+from src.domain.role_name_order import role_name_sort_key
 
 
 def _button_style(checked: bool) -> str:
@@ -151,14 +153,16 @@ class RoleScopeDialog(QDialog):
     def __init__(
         self,
         parent,
-        role_options: list[tuple[int, str, str]],
+        role_options: list[tuple[int, str, str, bool]],
         selected_character_ids: list[int],
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("选择弃置/锁定评估角色")
         self.setMinimumSize(620, 500)
         self.resize(700, 620)
-        self._role_options = list(role_options)
+        self._role_options = sorted(
+            role_options, key=lambda item: (role_name_sort_key(item[1]), item[0]),
+        )
         selected_ids = {int(value) for value in selected_character_ids}
 
         root = QVBoxLayout(self)
@@ -199,7 +203,7 @@ class RoleScopeDialog(QDialog):
         self.role_grid.setVerticalSpacing(8)
         self.role_grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.role_cards: list[tuple[QToolButton, int, str]] = []
-        for character_id, role_name, avatar_path in self._role_options:
+        for character_id, role_name, avatar_path, is_custom in self._role_options:
             # Bind the parent before the card is ever shown.  A parentless
             # widget briefly becomes a top-level window on Windows, which
             # previously caused a rapid flash while opening this dialog.
@@ -208,14 +212,15 @@ class RoleScopeDialog(QDialog):
             card.setChecked(character_id in selected_ids)
             card.setText(role_name)
             card.setToolTip(role_name)
-            if avatar_path:
+            if avatar_path or is_custom:
                 card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
                 card.setIconSize(QSize(76, 76))
                 card.setFixedSize(116, 116)
-                card.setIcon(QIcon(avatar_path))
+                card.setIcon(
+                    QIcon(custom_role_portrait(76, card.devicePixelRatioF()))
+                    if is_custom else QIcon(avatar_path)
+                )
             else:
-                # Custom roles do not have a game avatar.  Keep their picker
-                # cards deliberately text-only instead of rendering a blank icon.
                 card.setToolButtonStyle(Qt.ToolButtonTextOnly)
                 card.setFixedSize(116, 44)
             card.setStyleSheet(

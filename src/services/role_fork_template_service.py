@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from src.services.advancement_stage_service import fork_active_panel_stats
@@ -21,13 +22,15 @@ _FORK_PROPERTY_DISPLAY = {
 }
 
 
-def load_official_role_fork_templates() -> dict[str, Any]:
+def load_official_role_fork_templates(
+    static_database_path: str | Path | None = None,
+) -> dict[str, Any]:
     """直接读取发行静态库中的角色与弧盘官方模板。
 
     账号抓包只更新账号背包快照；游戏公共定义由官方文件构建器更新静态库，
     不再复制或写入 config JSON。
     """
-    with StaticGameDataDao() as static_dao:
+    with StaticGameDataDao(static_database_path) as static_dao:
         return {
             "source": "game_static.sqlite3",
             "static_dataset": static_dao.summary()["dataset"],

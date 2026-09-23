@@ -6,7 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QToolButton
 
-from src.app.theme import GRADE_COLORS
+from src.app.theme import GRADE_COLORS, themed_style
 from src.domain.allocation_rating import loadout_total_grade
 from src.services.rewind_shape_recommendation_service import RewindTargetRole
 
@@ -26,8 +26,9 @@ def configure_rewind_role_score_card(
     label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
     label.setGeometry(4, 108, 108, 18)
     if role.calculation_score is None:
-        label.setText("")
-        card.setToolTip(role.name)
+        label.setText("暂无计算方案")
+        label.setStyleSheet(themed_style("color:#8b949e;font-size:10px;border:none;background:transparent;padding:0"))
+        card.setToolTip(f"{role.name}\n尚无已保存的计算配装评分")
         return label
     grade = loadout_total_grade(role.calculation_score)
     color = GRADE_COLORS.get(grade, "#58a6ff")

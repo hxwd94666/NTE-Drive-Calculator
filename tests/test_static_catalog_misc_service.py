@@ -104,9 +104,12 @@ class StaticCatalogMiscServiceTests(unittest.TestCase):
     def test_release_metadata_preserves_payload_omission_boundary(self) -> None:
         metadata = self.service.release_metadata()
 
-        self.assertEqual(metadata.dataset_id, "cn_1_3_13_20260828")
-        self.assertEqual(metadata.schema_version, 31)
-        self.assertEqual(metadata.importer_version, 37)
+        self.assertEqual(
+            metadata.dataset_id,
+            "cn_1_3_13_fork_materials_v36_20260828",
+        )
+        self.assertEqual(metadata.schema_version, 36)
+        self.assertEqual(metadata.importer_version, 46)
         self.assertTrue(metadata.source_payloads_omitted)
 
     def test_source_trace_does_not_promise_an_omitted_payload(self) -> None:

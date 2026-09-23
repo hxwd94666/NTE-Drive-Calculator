@@ -35,6 +35,46 @@ class ApplicationPaths:
     static_database_path: Path
     role_catalog: RoleCatalogRelease | None = None
 
+    @property
+    def cultivation_database_path(self) -> Path:
+        """Use one verified catalog for cultivation without changing combat data."""
+
+        return (
+            self.role_catalog.database_path
+            if self.role_catalog is not None
+            else self.static_database_path
+        )
+
+    @property
+    def cultivation_asset_root(self) -> Path:
+        """Keep cultivation portraits and materials on the same dataset."""
+
+        return (
+            self.role_catalog.asset_root
+            if self.role_catalog is not None
+            else self.asset_dir / "game_ui"
+        )
+
+    @property
+    def equipment_allocation_database_path(self) -> Path:
+        """Use one reference dataset for equipment-only allocation when installed."""
+
+        catalog = self.role_catalog
+        return (
+            catalog.database_path
+            if catalog is not None and catalog.scope == "reference"
+            else self.static_database_path
+        )
+
+    @property
+    def equipment_allocation_asset_root(self) -> Path:
+        catalog = self.role_catalog
+        return (
+            catalog.asset_root
+            if catalog is not None and catalog.scope == "reference"
+            else self.asset_dir / "game_ui"
+        )
+
     @classmethod
     def from_roots(
         cls,

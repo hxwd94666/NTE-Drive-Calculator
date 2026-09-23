@@ -39,10 +39,14 @@ class ScoringEngine:
         *,
         user_database_path: str | Path | None = None,
         roles_db: Mapping[str, Mapping[str, Any]] | None = None,
+        static_database_path: str | Path | None = None,
     ):
         self.config_dir = str(Path(config_dir) if config_dir is not None else bundled_config_dir())
         self.user_database_path = (
             Path(user_database_path) if user_database_path is not None else None
+        )
+        self.static_database_path = (
+            Path(static_database_path) if static_database_path is not None else None
         )
         self.roles_db = dict(roles_db or {})
         self.stat_catalog = StatCatalog()
@@ -89,7 +93,7 @@ class ScoringEngine:
                 preferred_ids = user_dao.list_observed_character_ids()
             else:
                 preferred_ids = ()
-            with StaticGameDataDao() as static_dao:
+            with StaticGameDataDao(self.static_database_path) as static_dao:
                 labels = {
                     str(attribute["attribute_id"]): self._scoring_property_name(attribute)
                     for attribute in static_dao.list_equipment_attributes()

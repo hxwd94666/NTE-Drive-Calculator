@@ -28,6 +28,6 @@ class BasicWeightDependencies:
             generation=app_context.generation,
             user_database_path=account.user_database_path,
             config_dir=app_context.paths.config_dir,
-            static_database_path=app_context.paths.static_database_path,
+            static_database_path=app_context.paths.equipment_allocation_database_path,
             shared_database_path=app_context.paths.shared_database_path,
         )

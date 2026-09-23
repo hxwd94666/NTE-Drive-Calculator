@@ -34,6 +34,7 @@ from src.optimizer.contracts import (
     EQUIP_IS_NEW,
     EQUIP_ITEM_TYPE,
     EQUIP_MAIN_STATS,
+    EQUIP_MAIN_VALUE,
     EQUIP_QUALITY,
     EQUIP_SCORE,
     EQUIP_SCORE_AREA,
@@ -259,6 +260,7 @@ def _diff_snapshot_from_source(self, role_name, source):
     if item_type == "tape":
         snapshot[EQUIP_SET_NAME] = _diff_value(source, EQUIP_SET_NAME, "") or "卡带"
         snapshot[EQUIP_MAIN_STATS] = _diff_value(source, EQUIP_MAIN_STATS, "")
+        snapshot[EQUIP_MAIN_VALUE] = _diff_value(source, EQUIP_MAIN_VALUE, None)
         snapshot[EQUIP_SHAPE_ID] = "TAPE_15"
     else:
         snapshot[EQUIP_SHAPE_ID] = _diff_value(source, EQUIP_SHAPE_ID, "") or ""
@@ -330,7 +332,9 @@ def _diff_inventory_sources(self):
     snapshot_id = getattr(self, "_pending_allocation_snapshot_id", None)
     if snapshot_id is None:
         return {}
-    cache_key = (path_key, int(snapshot_id))
+    static_identity = getattr(self, "_pending_allocation_static_identity", None)
+    static_path = static_identity[0] if static_identity is not None else None
+    cache_key = (path_key, int(snapshot_id), static_identity)
     cached = getattr(self, "_diff_inventory_index_cache", None)
     if cached and cached[0] == cache_key:
         return cached[1]
@@ -338,7 +342,7 @@ def _diff_inventory_sources(self):
     try:
         from src.services.sqlite_allocation_inventory import load_inventory_projection
 
-        data = load_inventory_projection(path_key, int(snapshot_id))
+        data = load_inventory_projection(path_key, int(snapshot_id), static_path)
     except Exception:
         data = []
     for item in data:
@@ -682,6 +686,7 @@ def _sync_saved_tape_replacement(self, role_name, new_tape, new_score):
         EQUIP_SET_NAME: new_tape.get(EQUIP_SET_NAME, ""),
         EQUIP_DISPLAY_NAME: new_tape.get(EQUIP_DISPLAY_NAME, ""),
         EQUIP_MAIN_STATS: main_stat,
+        EQUIP_MAIN_VALUE: new_tape.get(EQUIP_MAIN_VALUE),
         EQUIP_SUB_STATS: new_tape.get(EQUIP_SUB_STATS, {}) or {},
         EQUIP_QUALITY: new_tape.get(EQUIP_QUALITY, "Gold"),
         EQUIP_SCORE: new_score,

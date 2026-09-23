@@ -499,6 +499,8 @@ class CombatImportMixin:
             "character_breakthrough_cost",
             "character_exp_material",
             "character_exp_material_cost",
+            "fork_exp_material",
+            "fork_exp_material_cost",
             "character_skill",
             "character_skill_level",
             "skill_damage",
