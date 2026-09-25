@@ -57,15 +57,16 @@ class _TerminologySource:
                     else "formal_localization"
                 ),
             )
-        if (entity_kind, stable_id, context) == (
-            "item", "gold", "progression_cost",
-        ):
+        if (entity_kind, stable_id, context) in {
+            ("item", "gold", "progression_cost"),
+            ("item", "Gold", "progression_cost"),
+        }:
             return LocalizedTermRecord(
                 entity_kind="item",
-                canonical_id="Fons",
-                names={"zh-CN": "方斯"},
-                text_table="/Game/Text/ST_Item.ST_Item",
-                text_key="item_Fons_name",
+                canonical_id="Gold",
+                names={"zh-CN": "甲硬币"},
+                text_table="/Game/Text/ST_Ui.ST_Ui",
+                text_key="gold_name",
             )
         progression_names = {
             "Fons": "方斯",
@@ -485,7 +486,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             )[0],
         )
 
-    def test_level_planner_summarizes_formal_books_breakthroughs_and_fons(self) -> None:
+    def test_level_planner_summarizes_formal_books_breakthroughs_and_gold(self) -> None:
         self.page.open_character(1075)
         growth = self.page.detail_view.growth_view
         growth.start_level.setCurrentIndex(4)
@@ -502,7 +503,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.assertIn("失焦掠影 × 18", text)
         self.assertIn("晦暗掠影 × 15", text)
         self.assertIn("妄想彼端的一页 × 86", text)
-        self.assertIn("方斯 × 2,067,500", text)
+        self.assertIn("甲硬币 × 2,067,500", text)
         self.assertNotIn("活力", text)
         self.assertFalse(any(
             "计算" in button.text() or "活力" in button.text()
@@ -515,7 +516,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.app.processEvents()
 
         text = training.result.text()
-        self.assertIn("方斯 × 437,000", text)
+        self.assertIn("甲硬币 × 437,000", text)
         self.assertIn("初次的期许 × 10", text)
         self.assertIn("模糊数符 × 10", text)
         self.assertIn("记忆的永恒 × 8", text)

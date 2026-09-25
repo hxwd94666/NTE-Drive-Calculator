@@ -29,7 +29,7 @@ from tools.game_data.static_database_fork_progression_imports import (
 
 
 _COST_TOKEN_ALIASES = {
-    ("gold", "progression_cost"): "Fons",
+    ("gold", "progression_cost"): "Gold",
 }
 
 _LIMITED_LOTTERY_SOURCES = (
@@ -124,7 +124,7 @@ def _character_exp_material_spec(
         raise StaticDatabaseError(f"角色经验材料 EXP 无效：{item_id}")
     costs = _parse_cost_string(element.get("CostGold"))
     if not costs:
-        raise StaticDatabaseError(f"角色经验材料缺少正式方斯消耗：{item_id}")
+        raise StaticDatabaseError(f"角色经验材料缺少正式甲硬币消耗：{item_id}")
     return experience, costs
 
 

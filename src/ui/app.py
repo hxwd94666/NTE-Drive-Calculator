@@ -111,6 +111,7 @@ from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxDependencies, ToolboxPage
 from src.features.toolbox.toolbox_navigation import cultivation_context_identity
 from src.services.cultivation_planner_service import CultivationPlannerService
+from src.services.cultivation_owned_material_import import CultivationOwnedMaterialImportService
 from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.dependencies import (
     build_static_catalog_domain_pages,
@@ -345,6 +346,11 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                     user_database_path=self.app_context.account.user_database_path,
                     static_database_path=self.app_context.paths.cultivation_database_path,
                 ),
+                cultivation_material_importer=lambda: CultivationOwnedMaterialImportService(
+                    user_database_path=self.app_context.account.user_database_path,
+                    static_database_path=self.app_context.paths.cultivation_database_path,
+                    account_id=self.app_context.account.active_account_id,
+                ).load_latest(),
                 cultivation_context_identity=lambda: cultivation_context_identity(
                     self.app_context.account.active_account_id,
                     self.app_context.generation,

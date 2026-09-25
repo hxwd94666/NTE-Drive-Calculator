@@ -112,6 +112,10 @@ class CultivationBatchContent(QWidget):
         self._connect_controller()
         self._load_roles()
 
+    @property
+    def owned_materials(self) -> CultivationOwnedMaterials:
+        return self._owned_materials
+
     def _build(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)

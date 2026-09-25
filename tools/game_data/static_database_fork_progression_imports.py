@@ -33,7 +33,7 @@ def fork_exp_material_spec(
         raise StaticDatabaseError(f"弧盘经验材料 EXP 无效：{item_id}")
     costs = parse_cost_string(element.get("CostGold"))
     if not costs:
-        raise StaticDatabaseError(f"弧盘经验材料缺少正式方斯消耗：{item_id}")
+        raise StaticDatabaseError(f"弧盘经验材料缺少正式甲硬币消耗：{item_id}")
     return experience, costs
 
 

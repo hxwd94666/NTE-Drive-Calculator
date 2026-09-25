@@ -98,7 +98,7 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
                     next(
                         cost.quantity
                         for cost in material.costs
-                        if cost.item_id == "Fons"
+                        if cost.item_id == "Gold"
                     ),
                 )
                 for material in progression.experience_materials
@@ -110,7 +110,7 @@ class StaticCatalogCharacterDomainTests(unittest.TestCase):
                 totals[cost.item_id] = totals.get(cost.item_id, 0) + cost.quantity
         self.assertEqual(
             {
-                "Fons": 525_000,
+                "Gold": 525_000,
                 "OrdinaryMonMaterial_02_lv1": 17,
                 "OrdinaryMonMaterial_02_lv2": 18,
                 "OrdinaryMonMaterial_02_lv3": 15,

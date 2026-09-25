@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QMessageBox, QStackedWidget, QWidget
 
 from src.features.toolbox.cultivation_page import CultivationCalculatorPage
 from src.services.cultivation_planner_service import CultivationPlannerService
+from src.services.cultivation_owned_material_import import ImportedOwnedMaterials
 from src.services.rewind_shape_recommendation_service import (
     RewindShapeRecommendationService,
 )
@@ -41,6 +42,7 @@ class ToolboxDependencies:
     operation_unavailable: Callable[[str, str, str], None] | None = None
     cultivation_context_identity: Callable[[], object] | None = None
     cultivation_asset_root: Callable[[], Path] | None = None
+    cultivation_material_importer: Callable[[], ImportedOwnedMaterials] | None = None
 
     def rewind_service(self) -> RewindShapeRecommendationService:
         return self.rewind_service_factory()
@@ -79,6 +81,7 @@ class CultivationToolboxNavigation:
                 service,
                 self.stack,
                 context_identity=self._identity,
+                material_importer=self.dependencies.cultivation_material_importer,
                 asset_root=(
                     self.dependencies.cultivation_asset_root()
                     if self.dependencies.cultivation_asset_root is not None

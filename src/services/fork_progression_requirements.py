@@ -106,7 +106,7 @@ def project_fork_level_requirements(
                     item_id=item_id,
                 ))
                 continue
-            target = breakthrough_costs if item_id == "Fons" else breakthrough
+            target = breakthrough_costs if item_id in {"Fons", "Gold"} else breakthrough
             target[item_id] += cost.amount
 
     has_results = bool(
@@ -136,7 +136,7 @@ def project_fork_level_requirements(
 
 
 def _canonical_item_id(item_id: str) -> str:
-    return "Fons" if str(item_id).strip().lower() in {"gold", "fons"} else str(item_id)
+    return "Gold" if str(item_id) == "gold" else str(item_id)
 
 
 def _requirements(

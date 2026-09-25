@@ -92,3 +92,5 @@ nte_capture*.json
 *.key
 *.pfx
 *.p12
+/build/slimming-evidence/rollback-test/build_exe.py
+/build/slimming-evidence/rollback-test/docs/integrations.md

@@ -45,9 +45,10 @@ class _TerminologySource:
         if entity_kind != "item":
             return None
         if stable_id == "gold" and context == "progression_cost":
-            stable_id = "Fons"
+            stable_id = "Gold"
         names = {
             "Fons": "方斯",
+            "Gold": "甲硬币",
             "known": "定向材料",
             "unknown": "未命名测试材料",
         }
@@ -73,7 +74,7 @@ class _StageSource:
                 minimum_identification_level=1,
                 stamina_cost=20,
                 yields=(
-                    MaterialYield("Fons", 10),
+                    MaterialYield("Gold", 10),
                     MaterialYield("known", 2),
                     MaterialYield("unknown", 1),
                 ),
@@ -105,7 +106,7 @@ class StaticCatalogProgressionCalculatorTests(unittest.TestCase):
             "skill_id": "skill-a",
             "requirements": (
                 MaterialRequirement("gold", 15),
-                MaterialRequirement("Fons", 5),
+                MaterialRequirement("Gold", 5),
             ),
             "requirement_status": "complete",
             "requirement_gaps": (),
@@ -117,18 +118,18 @@ class StaticCatalogProgressionCalculatorTests(unittest.TestCase):
         self.assertEqual(session.skill_id, "skill-a")
         self.assertEqual(len(session.materials), 1)
         material = session.materials[0]
-        self.assertEqual(material.display_name, "方斯")
-        self.assertEqual(material.canonical_id, "Fons")
+        self.assertEqual(material.display_name, "甲硬币")
+        self.assertEqual(material.canonical_id, "Gold")
         self.assertEqual(material.required_quantity, 20)
-        self.assertEqual(material.requested_ids, ("gold", "Fons"))
+        self.assertEqual(material.requested_ids, ("gold", "Gold"))
         self.assertNotIn("gold", material.display_name)
-        self.assertIn(("规范材料 ID", "Fons"), material.more_info)
+        self.assertIn(("规范材料 ID", "Gold"), material.more_info)
 
         outcome = self.orchestrator.calculate(
             session,
             hunter_level=60,
             effective_identification_level=7,
-            owned_quantities={"Fons": 5},
+            owned_quantities={"Gold": 5},
         )
         self.assertEqual(outcome.result.status, StaminaPlanStatus.COMPLETE)
         self.assertEqual(outcome.owner_id, "1072")

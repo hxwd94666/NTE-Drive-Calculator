@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from time import monotonic
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -27,6 +27,7 @@ from src.features.toolbox.cultivation_calculator import (
 )
 from src.features.toolbox.cultivation_batch_page import CultivationBatchContent
 from src.services.cultivation_planner_service import CultivationPlannerService
+from src.services.cultivation_owned_material_import import ImportedOwnedMaterials
 from src.utils.cultivation_trace import trace_cultivation
 
 
@@ -42,8 +43,12 @@ class CultivationCalculatorPage(QWidget):
         *,
         context_identity: Callable[[], object] | None = None,
         asset_root: str | Path | None = None,
+        material_importer: Callable[[], ImportedOwnedMaterials] | None = None,
     ) -> None:
         super().__init__(parent)
+        self._context_identity = context_identity
+        self._initial_identity = context_identity() if context_identity is not None else None
+        self._material_importer = material_importer
         self.setObjectName("cultivationCalculatorPage")
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 8, 10, 10)
@@ -70,12 +75,16 @@ class CultivationCalculatorPage(QWidget):
             parent=self.mode_stack,
             asset_root=asset_root,
         )
+        for content in (self.calculator, self.batch_calculator):
+            content.owned_materials.set_import_available(material_importer is not None)
+            content.owned_materials.import_requested.connect(self._import_owned_materials)
         self.material_scope.currentIndexChanged.connect(self._set_material_scope)
         self.mode_stack.addWidget(self.calculator)
         self.mode_stack.addWidget(self.batch_calculator)
         self.calculator.plan_available.connect(
             lambda available: self._set_plan_available("single", available)
         )
+        self.calculator.calculation_completed.connect(self._queue_single_material_scroll)
         self.batch_calculator.plan_available.connect(
             lambda available: self._set_plan_available("batch", available)
         )
@@ -88,6 +97,7 @@ class CultivationCalculatorPage(QWidget):
         self._scroll_extent_timer.setSingleShot(True)
         self._scroll_extent_timer.timeout.connect(self._sync_scroll_extent)
         self._batch_transition_generation = 0
+        self._single_scroll_generation = 0
         self._batch_transition_operation = 0
         self._batch_transition_active = False
         self._batch_retired_serial = 0
@@ -107,6 +117,36 @@ class CultivationCalculatorPage(QWidget):
         root.addWidget(self.scroll, 1)
         self._set_mode("single")
         self._sync_scroll_extent()
+
+    def _import_owned_materials(self) -> None:
+        importer = self._material_importer
+        if importer is None:
+            return
+        if (self._context_identity is not None
+                and self._context_identity() != self._initial_identity):
+            return
+        try:
+            imported = importer()
+        except ValueError as exc:
+            message = f"材料导入未完成：{exc}"
+        except Exception:
+            message = "材料导入未完成：读取原生归档失败，请检查同步状态后重试。"
+        else:
+            if (self._context_identity is not None
+                    and self._context_identity() != self._initial_identity):
+                return
+            observed = dict(imported.quantities)
+            applied = 0
+            for content in (self.calculator, self.batch_calculator):
+                applied += content.owned_materials.apply_import(observed)
+            message = (
+                f"原生归档保存于 {imported.saved_at_utc}；已识别 {len(observed)} 种材料，"
+                f"本次草稿更新 {applied} 处。未观测项和手工修改保持原值。"
+            )
+            if imported.skipped_item_count:
+                message += f" {imported.skipped_item_count} 种记录有冲突或字段异常，已跳过。"
+        for content in (self.calculator, self.batch_calculator):
+            content.owned_materials.set_import_status(message)
 
     def _build_header(self) -> QWidget:
         header = QFrame(self)
@@ -170,6 +210,7 @@ class CultivationCalculatorPage(QWidget):
 
     def _reset(self) -> None:
         self._cancel_batch_result_transition()
+        self._single_scroll_generation += 1
         self._active_content().reset_draft()
         self.scroll.verticalScrollBar().setValue(0)
 
@@ -184,11 +225,24 @@ class CultivationCalculatorPage(QWidget):
         self.copy_button.setEnabled(
             self._single_available if self._mode() == "single" else self._batch_available
         )
-        if available and mode == "single":
-            self.scroll.verticalScrollBar().setValue(0)
+
+    def _queue_single_material_scroll(self) -> None:
+        self._single_scroll_generation += 1
+        generation = self._single_scroll_generation
+        QTimer.singleShot(0, self, lambda: self._scroll_to_owned_materials(generation))
+
+    def _scroll_to_owned_materials(self, generation: int) -> None:
+        if generation != self._single_scroll_generation or self._mode() != "single":
+            return
+        self._sync_scroll_extent()
+        owned = self.calculator.owned_materials
+        position = owned.mapTo(self.mode_stack, QPoint(0, 0)).y()
+        bar = self.scroll.verticalScrollBar()
+        bar.setValue(max(0, min(bar.maximum(), position - 12)))
 
     def _set_mode(self, mode: str) -> None:
         self._cancel_batch_result_transition()
+        self._single_scroll_generation += 1
         batch = mode == "batch"
         self.mode_stack.setCurrentWidget(
             self.batch_calculator if batch else self.calculator

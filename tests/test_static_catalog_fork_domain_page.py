@@ -80,7 +80,7 @@ class ForkReleaseOrderingTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            ("雏鸟的希冀", "名称暂未提供", "方斯", "方斯", "甲硬币"),
+            ("雏鸟的希冀", "名称暂未提供", "甲硬币", "方斯", "甲硬币"),
             tuple(item.display_name for item in costs),
         )
 
@@ -358,7 +358,7 @@ class ForkCatalogPageTests(unittest.TestCase):
             label.text() for label in page.profile_view.findChildren(QLabel)
             if label.isVisibleTo(page)
         )
-        self.assertIn("方斯", visible_text)
+        self.assertIn("甲硬币", visible_text)
         self.assertIn("罐装液态梦", visible_text)
         self.assertIn("悖谬絮语", visible_text)
         self.assertNotIn("名称暂未提供", visible_text)
@@ -438,7 +438,7 @@ class ForkCatalogPageTests(unittest.TestCase):
         }
         self.assertEqual(364, requirements["WeaponUpMaterial_lv3"])
         self.assertEqual(1, requirements["WeaponUpMaterial_lv1"])
-        self.assertEqual(1_344_150, requirements["Fons"])
+        self.assertEqual(1_344_150, requirements["Gold"])
         self.assertNotIn(
             "level_material_relation_unavailable",
             {gap.code for gap in request.requirement_gaps},

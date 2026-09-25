@@ -33,6 +33,11 @@ from src.services.cultivation_stamina_planner import (
     normalize_owned_quantities,
     stamina_material_ids,
 )
+from src.services.cultivation_legacy_gold_projection import (
+    correct_legacy_costs,
+    correct_legacy_stages,
+    has_legacy_gold_alias,
+)
 from src.services.static_catalog_character_models import (
     CharacterBreakthroughRequirement,
     CharacterDetail,
@@ -352,6 +357,11 @@ class CultivationPlannerService:
                 fork_included_stages = (
                     fork_projection.included_breakthrough_stages
                 )
+            if has_legacy_gold_alias(terminology_dao):
+                sections = [
+                    (label, correct_legacy_costs(requirements), description)
+                    for label, requirements, description in sections
+                ]
             item_ids = tuple(dict.fromkeys(
                 item.item_id
                 for _label, requirements, _description in sections
@@ -454,7 +464,8 @@ class CultivationPlannerService:
 
         dao = self._terminology_dao_factory(self._static_database_path)
         try:
-            return tuple(dao.list_progression_farming_stages())
+            stages = tuple(dao.list_progression_farming_stages())
+            return correct_legacy_stages(stages) if has_legacy_gold_alias(dao) else stages
         finally:
             dao.close()
 
@@ -731,7 +742,7 @@ def _skill_category(skill: CharacterSkill) -> str:
 
 
 def _canonical_fork_item_id(item_id: str) -> str:
-    return "Fons" if str(item_id) == "gold" else str(item_id)
+    return "Gold" if str(item_id) == "gold" else str(item_id)
 
 
 def _deduplicate_roles(roles: Iterable[CultivationRole]) -> tuple[CultivationRole, ...]:

@@ -31,11 +31,11 @@ kind；GE ID 只保留为可选专业标识。
 
 - canonical `Fons` 的名称来自 `/Game/Text/ST_Item.ST_Item` / `item_Fons_name`，简体中文为“方斯”；
 - canonical `Gold` 的名称来自 `/Game/Text/ST_Ui.ST_Ui` / `gold_name`，简体中文为“甲硬币”；
-- 角色技能、角色突破和弧盘养成源使用 lowercase `gold` 成本 token，但物品表与资本物品表均没有该
-  canonical ID。它只在 `progression_cost` 上下文解析到 `Fons`，不能解析到 `Gold`。
+- 养成来源中的 lowercase `gold` 与原生物品归档的 `ItemID=gold` 对应甲硬币；只有在各自明确的
+  成本和背包语境下精确映射到 canonical `Gold`，不能并入 `Fons`。
 
 别名解析严格采用“先查 context 下 exact alias，再查 exact-case canonical ID”。所以即使调用方传入
-`progression_cost`，`gold` 仍是“方斯”、`Gold` 仍是“甲硬币”；context 不得吞掉或改写 canonical ID。
+`progression_cost`，`gold` 和 `Gold` 都指向“甲硬币”，`Fons` 仍是“方斯”；context 不得吞掉或改写 canonical ID。
 
 因此 UI 不再使用“金币”泛称，也不能仅凭字段名 `NeedGolds` 自创货币名。
 
@@ -88,6 +88,6 @@ kind；GE ID 只保留为可选专业标识。
 - 玩法内部 `clone_type`、敌人类路径、属性 enum 和资源路径都不是名称。应使用已导入的玩法、怪物、属性
   名称；缺少关系时保持缺名，不能从英文 token 猜中文。
 
-明确禁止的映射包括：`gold` 按大小写不敏感命中 `Gold`；`NeedGolds` 直译成“金币”；ORANGE 统一写成
+明确禁止的映射包括：所有成本 token 按大小写不敏感地归并、`gold` 归并到 `Fons`；`NeedGolds` 直译成“金币”；ORANGE 统一写成
 “金色”；把弧盘 star/refinement 显示成“精炼”；把 material/item ID、GA/GE ID、class path 或 enum tail
 当作默认名称；根据中文说明反向猜不存在于正式关系中的术语。

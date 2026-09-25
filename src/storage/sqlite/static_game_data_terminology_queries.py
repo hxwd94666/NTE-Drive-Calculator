@@ -44,7 +44,7 @@ class StaticGameDataTerminologyQueriesMixin(_TerminologyQuerySource):
 
         Context aliases are exact and case-sensitive. A missing alias falls
         through to exact canonical lookup, so ``Gold`` remains the formal
-        capital item while only lowercase ``gold`` maps to ``Fons``.
+        capital item while only lowercase ``gold`` maps to ``Gold``.
         """
 
         kind = str(entity_kind or "").strip()

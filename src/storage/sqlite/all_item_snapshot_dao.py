@@ -3,10 +3,34 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
+from contextlib import closing
+from pathlib import Path
 
 from src.domain.all_item_snapshot import encode_all_item_snapshot
 from .protocols import UserDataDaoMixinHost
-from .user_data_support import DEFAULT_SNAPSHOT_RETENTION_COUNT, UserDataValidationError, _utc_now
+from .user_data_support import DEFAULT_SNAPSHOT_RETENTION_COUNT, UserDataError, UserDataValidationError, _utc_now
+
+
+def read_latest_all_item_snapshot_archive(database_path: str | Path, *, account_id: str):
+    """Read one account archive without schema migration or writes."""
+
+    uri = f"{Path(database_path).expanduser().resolve().as_uri()}?mode=ro"
+    try:
+        with closing(sqlite3.connect(uri, uri=True)) as connection:
+            connection.row_factory = sqlite3.Row
+            profile = connection.execute(
+                "SELECT account_id FROM database_profile WHERE singleton_id = 1"
+            ).fetchone()
+            if profile is None or profile["account_id"] != account_id:
+                raise UserDataValidationError("原生物品归档与当前账号不一致。")
+            row = connection.execute(
+                "SELECT snapshot_id, source, raw_snapshot_json, content_sha256, saved_at_utc "
+                "FROM all_item_snapshot ORDER BY snapshot_id DESC LIMIT 1"
+            ).fetchone()
+            return dict(row) if row else None
+    except sqlite3.Error as exc:
+        raise UserDataError("读取原生物品归档失败") from exc
 
 
 class AllItemSnapshotDaoMixin(UserDataDaoMixinHost):

@@ -29,6 +29,7 @@ try:
         PROVENANCE_FILENAME as STORAGE_REPACK_PROVENANCE_FILENAME,
         validate_repack_provenance,
     )
+    from .repair_published_gold_catalog import validate_gold_fix_provenance
 except ImportError:  # 支持直接运行
     from static_database_build_support import (
         IMPORTER_VERSION,
@@ -43,6 +44,7 @@ except ImportError:  # 支持直接运行
         PROVENANCE_FILENAME as STORAGE_REPACK_PROVENANCE_FILENAME,
         validate_repack_provenance,
     )
+    from repair_published_gold_catalog import validate_gold_fix_provenance
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +52,7 @@ DEFAULT_TARGET_DIR = ROOT / "data"
 DATABASE_FILENAME = "game_static.sqlite3"
 MANIFEST_FILENAME = "manifest.json"
 REPORT_RELATIVE_PATH = Path("report") / "static_database_report.json"
+GOLD_FIX_PROVENANCE_FILENAME = "gold_fix_provenance.json"
 MIB_BYTES = 1024 * 1024
 DATABASE_WARNING_BYTES = 95 * MIB_BYTES
 DATABASE_REPOSITORY_BUDGET_BYTES = 96 * MIB_BYTES
@@ -438,11 +441,28 @@ def _validate_candidate_database(
         validate_catalog_inputs(database_path)
     provenance_path = candidate_dir / PROVENANCE_FILENAME
     repack_path = candidate_dir / STORAGE_REPACK_PROVENANCE_FILENAME
-    if provenance_path.is_file() and repack_path.is_file():
-        raise StaticReleasePromotionError("候选不能同时声明增量升级与物理压缩来源")
+    gold_fix_path = candidate_dir / GOLD_FIX_PROVENANCE_FILENAME
+    if sum(path.is_file() for path in (provenance_path, repack_path, gold_fix_path)) > 1:
+        raise StaticReleasePromotionError("候选只能声明一种特殊晋升来源")
     upgrade_provenance = None
     storage_repack_provenance = None
-    if repack_path.is_file():
+    gold_fix_provenance = None
+    if gold_fix_path.is_file():
+        baseline_database_value = config.get("baseline_database_path")
+        baseline_manifest_value = config.get("baseline_manifest_path")
+        if not isinstance(baseline_database_value, str) or not isinstance(baseline_manifest_value, str):
+            raise StaticReleasePromotionError("甲硬币修复配置缺少基线数据库或 manifest")
+        try:
+            gold_fix_provenance = validate_gold_fix_provenance(
+                candidate_database=database_path,
+                provenance_path=gold_fix_path,
+                baseline_database=Path(baseline_database_value).expanduser().resolve(),
+                baseline_manifest=Path(baseline_manifest_value).expanduser().resolve(),
+                official_source_root=content_root,
+            )
+        except (OSError, RuntimeError, sqlite3.Error, ValueError, KeyError) as exc:
+            raise StaticReleasePromotionError(f"甲硬币修复 provenance 校验失败：{exc}") from exc
+    elif repack_path.is_file():
         baseline_database_value = config.get("storage_baseline_database_path")
         baseline_manifest_value = config.get("storage_baseline_manifest_path")
         if not isinstance(baseline_database_value, str) or not baseline_database_value:
@@ -492,6 +512,7 @@ def _validate_candidate_database(
         "database_size_bytes": database_size,
         "upgrade_provenance": upgrade_provenance,
         "storage_repack_provenance": storage_repack_provenance,
+        "gold_fix_provenance": gold_fix_provenance,
     }
 
 
@@ -595,6 +616,14 @@ def promote_candidate(
             "baseline_database_sha256"
         ):
             raise StaticReleasePromotionError("正式库已变化，物理压缩候选必须重新生成")
+    gold_fix_path = resolved_candidate_dir / GOLD_FIX_PROVENANCE_FILENAME
+    if gold_fix_path.is_file():
+        provenance = _read_json_object(gold_fix_path, "甲硬币修复 provenance")
+        current_database = target_dir / DATABASE_FILENAME
+        if not current_database.is_file() or sha256(current_database) != provenance.get(
+            "baseline_sha256"
+        ):
+            raise StaticReleasePromotionError("正式库已变化，甲硬币修复候选必须重新生成")
     role_target = DEFAULT_TARGET_DIR / "role_catalog"
     if finalized["summary"].get("catalog_scope") in {"role_page", "reference"}:
         if target_dir != role_target.resolve():

@@ -136,7 +136,7 @@ def project_character_level_requirements(
                 included_stages.append(stage.stage)
                 for cost in stage.costs:
                     target = (
-                        additional if cost.item_id == "Fons"
+                        additional if cost.item_id in {"Fons", "Gold"}
                         else breakthrough_totals
                     )
                     target[cost.item_id] = target.get(cost.item_id, 0) + cost.quantity

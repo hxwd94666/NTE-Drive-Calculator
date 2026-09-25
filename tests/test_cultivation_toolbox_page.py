@@ -161,7 +161,7 @@ def test_cultivation_page_uses_one_vertical_scroll_surface() -> None:
 def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
     from types import SimpleNamespace
 
-    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtCore import QEvent, QPoint, Qt
     from PySide6.QtWidgets import (
         QApplication,
         QFrame,
@@ -235,9 +235,11 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
     QApplication.processEvents()
     assert service.stamina_calls == 1
 
-    sync = page.findChild(QPushButton, "cultivationOwnedSyncPlaceholder")
+    sync = page.findChild(QPushButton, "cultivationOwnedImport")
     assert sync is not None and not sync.isEnabled()
-    assert "待接入" in sync.text()
+    assert sync.text() == "同步材料"
+    clear = page.findChild(QPushButton, "cultivationOwnedClear")
+    assert clear is not None and clear.isEnabled()
     owned_materials = page.calculator._owned_materials
     owned_inputs = owned_materials.findChildren(QSpinBox, "cultivationOwnedMaterialQuantity")
     assert len(owned_inputs) == 1
@@ -290,7 +292,11 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
 
     page.calculator._calculate_button.click()
     QApplication.processEvents()
+    QApplication.processEvents()
     assert service.stamina_calls == 2
+    bar = page.scroll.verticalScrollBar()
+    owned_top = owned_materials.mapTo(page.mode_stack, QPoint(0, 0)).y()
+    assert bar.value() == min(bar.maximum(), max(0, owned_top - 12))
     assert page.copy_button.isEnabled()
     assert page.calculator._calculate_button.text() == "计算所需材料与体力"
 
@@ -335,7 +341,7 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
 def test_owned_material_result_reuses_editor_on_first_and_changed_materials() -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QSpinBox, QWidget
+    from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QPushButton, QSpinBox, QWidget
 
     from src.features.toolbox.cultivation_owned_materials import CultivationOwnedMaterials
     from src.services.cultivation_planner_service import CultivationMaterial
@@ -365,10 +371,63 @@ def test_owned_material_result_reuses_editor_on_first_and_changed_materials() ->
     assert owned.findChild(QSpinBox, "cultivationOwnedMaterialQuantity") is editor
     assert tuple(owned.findChildren(QSpinBox)) == editors_before
 
+    owned.apply_import({"hidden": 9})
+    clear = owned.findChild(QPushButton, "cultivationOwnedClear")
+    clear.click()
+    assert owned.quantities() == {"b": 0, "a": 0}
+    assert editor.value() == 0
+    assert owned.required_quantity("a") == 5
+    assert owned.apply_import({"a": 6}) == 1
+    assert owned.quantities()["a"] == 6
+
     owned.clear_materials()
     assert owned.quantities() == {}
     assert tuple(owned.findChildren(QSpinBox)) == editors_before
     _dispose_widget(host)
+
+
+def test_native_material_import_updates_both_drafts_without_overwriting_manual_values() -> None:
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
+    from src.services.cultivation_owned_material_import import ImportedOwnedMaterials
+    from src.services.cultivation_planner_service import CultivationMaterial
+
+    class Service:
+        def list_roles(self):
+            return ()
+
+    QApplication.instance() or QApplication([])
+    identity = {"value": ("a", 1, "dataset")}
+    calls = []
+
+    def importer():
+        calls.append(True)
+        return ImportedOwnedMaterials((("a", 7), ("b", 4)), "2026-09-25", 1, 0)
+
+    page = CultivationCalculatorPage(
+        Service(), context_identity=lambda: identity["value"], material_importer=importer,
+    )
+    single = page.calculator._owned_materials
+    batch = page.batch_calculator._owned_materials
+    single.set_materials((CultivationMaterial("a", "材料 A", 10),))
+    batch.set_materials((CultivationMaterial("a", "材料 A", 10),))
+    assert single.select_material("a")
+    single._canvas.editor.setValue(2)
+    button = page.findChild(QPushButton, "cultivationOwnedImport")
+    assert button.isEnabled()
+    button.click()
+    assert calls == [True]
+    assert single.quantities()["a"] == 2
+    assert single.quantities()["b"] == 4
+    assert batch.quantities()["a"] == 7
+    assert batch.quantities()["b"] == 4
+    assert "未观测项" in single._import_status.text()
+
+    identity["value"] = ("b", 2, "dataset")
+    button.click()
+    assert calls == [True]
+    _dispose_widget(page)
 
 
 def test_cultivation_page_removes_saved_state_note_and_switches_mode_drafts() -> None:

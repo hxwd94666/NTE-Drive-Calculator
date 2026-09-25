@@ -25,17 +25,17 @@ class CultivationMaterialLike(Protocol):
     quantity: int
 
 
-_CURRENCY_ITEM_IDS = frozenset({"Fons", "Gold"})
+_NON_STAMINA_CURRENCY_ITEM_IDS = frozenset({"Fons"})
 
 
 def stamina_material_ids(stages: tuple[FarmingStage, ...]) -> frozenset[str]:
-    """Identify paid-stage materials, excluding currency from incidental drops."""
+    """Expose Gold even when a legacy dataset lacks its verified paid-stage yield."""
 
-    ids = {
+    ids = {"Gold"} | {
         item.item_id
         for stage in stages if stage.stamina_cost > 0
         for item in stage.yields
-        if item.quantity > 0 and item.item_id not in _CURRENCY_ITEM_IDS
+        if item.quantity > 0 and item.item_id not in _NON_STAMINA_CURRENCY_ITEM_IDS
     }
     for item_id in tuple(ids):
         tier = material_tier(item_id)
@@ -65,7 +65,7 @@ def calculate_stamina_result(
     stage_item_ids = {item.item_id for stage in stages for item in stage.yields}
     relevant = tuple(
         material for material in materials
-        if material.item_id not in _CURRENCY_ITEM_IDS
+        if material.item_id not in _NON_STAMINA_CURRENCY_ITEM_IDS
         and (
             material.item_id in stage_item_ids
             or not is_non_stamina_source_material(material.item_id)
@@ -110,7 +110,7 @@ def is_non_stamina_source_material(item_id: str) -> bool:
     """Return items obtained outside deterministic material-stage planning."""
 
     normalized = str(item_id)
-    return normalized in {"Fons", "Gold"} or normalized.startswith((
+    return normalized == "Fons" or normalized.startswith((
         "OrdinaryMonMaterial_",
         "Worldboss_material_",
     ))

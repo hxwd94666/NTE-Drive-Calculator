@@ -265,7 +265,7 @@ def _import_fork_exp_materials(
             (item_id, experience, source_ids[item_id][0]),
         )
         for token, quantity in costs:
-            cost_item_id = "Fons" if token.strip().lower() in {"gold", "fons"} else token
+            cost_item_id = "Gold" if token.strip() == "gold" else token
             connection.execute(
                 "INSERT INTO fork_exp_material_cost VALUES (?,?,?)",
                 (item_id, cost_item_id, quantity),

@@ -22,7 +22,7 @@ class _Source:
             ("item", "Gold", None): LocalizedTermRecord(
                 entity_kind="item",
                 canonical_id="Gold",
-                names={"zh-CN": "甲硬币"},
+                names={"zh-CN": "甲硬币", "en-US": "Gold"},
                 text_table="/Game/Text/ST_Ui.ST_Ui",
                 text_key="gold_name",
             ),
@@ -45,7 +45,7 @@ class _Source:
             "gold",
             "progression_cost",
         ):
-            return self.rows[("item", "Fons", "progression_cost")]
+            return self.rows[("item", "Gold", None)]
         return self.rows.get((entity_kind, stable_id, context)) or self.rows.get(
             (entity_kind, stable_id, None)
         )
@@ -60,11 +60,13 @@ class StaticCatalogTerminologyServiceTest(unittest.TestCase):
         capital = self.service.resolve(
             "item", "Gold", context="progression_cost"
         )
+        fons = self.service.resolve("item", "Fons", context="progression_cost")
 
-        self.assertEqual((cost.canonical_id, cost.display_name), ("Fons", "方斯"))
+        self.assertEqual((cost.canonical_id, cost.display_name), ("Gold", "甲硬币"))
         self.assertEqual(
             (capital.canonical_id, capital.display_name), ("Gold", "甲硬币")
         )
+        self.assertEqual((fons.canonical_id, fons.display_name), ("Fons", "方斯"))
 
     def test_source_record_must_keep_the_requested_entity_kind(self) -> None:
         class _InvalidSource:
@@ -81,7 +83,7 @@ class StaticCatalogTerminologyServiceTest(unittest.TestCase):
             "item", "gold", context="progression_cost", locale="en_US"
         )
 
-        self.assertEqual(term.display_name, "Fons")
+        self.assertEqual(term.display_name, "Gold")
         self.assertEqual(term.resolved_locale, "en-US")
         self.assertEqual(term.source_label, "Official in-game text")
 

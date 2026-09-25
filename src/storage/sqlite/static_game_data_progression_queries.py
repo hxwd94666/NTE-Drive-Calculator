@@ -19,6 +19,21 @@ def _integer(value: object, field: str) -> int:
 class StaticGameDataProgressionQueriesMixin(StaticDataDaoMixinHost):
     """Return only deterministic positive yields from the formal v30 closure."""
 
+    def progression_dataset_identity(self) -> tuple[str, int]:
+        """Expose the frozen importer identity for explicit legacy cost projection."""
+
+        row = self._one("SELECT dataset_id, importer_version FROM dataset")
+        if row is None:
+            raise ValueError("静态数据库缺少养成数据集身份")
+        return str(row["dataset_id"]), _integer(row["importer_version"], "importer_version")
+
+    def progression_item_ids(self) -> frozenset[str]:
+        """Identify materials from the one frozen cultivation dataset."""
+
+        return frozenset(str(row["item_id"]) for row in self._rows(
+            "SELECT item_id FROM progression_item", ()
+        ))
+
     def list_progression_farming_stages(self) -> tuple[FarmingStage, ...]:
         rows = self._rows(
             """

@@ -60,9 +60,8 @@ class StaticCatalogTerminologyService:
     """Resolve stable IDs without leaking raw fields into player-facing names.
 
     Alias and capitalization semantics belong to ``source``.  In particular,
-    the progression token ``gold`` must not be case-folded to the canonical
-    capital item ``Gold``.  The source resolves that context-qualified alias to
-    its canonical item first; this service only selects localized text.
+    lowercase ``gold`` is an exact, context-qualified alias for ``Gold``;
+    ``Fons`` remains distinct. This service only selects localized text.
     """
 
     def __init__(

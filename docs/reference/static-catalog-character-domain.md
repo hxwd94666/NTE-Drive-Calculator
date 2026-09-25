@@ -39,12 +39,12 @@ StaticCatalogPage / Controller（集成任务）
 
 - schema v31 从 `DT_CharacterUpgradeDataTable` 保存共享的 1–80 逐级 `NeedExp`，从角色正式
   `UpgradePackId` 建立养成档案；区间总经验按当前等级对应的行累加到目标等级前一行。
-- `DT_ItemConfig` 中三种正式角色经验书保存经验值及每次使用的方斯成本。页面以总经验为目标，先最小化
+- `DT_ItemConfig` 中三种正式角色经验书保存经验值及每次使用的甲硬币成本。页面以总经验为目标，先最小化
   经验溢出，再最小化本数；该折算是确定的材料组合，不读取账号库存，也不换算副本或活力。
-- `DT_CharacterBreakthroughDataTable` 的 0–6 阶、人物等级上限、正式材料和方斯全部规范化；只有玩家选择
+- `DT_CharacterBreakthroughDataTable` 的 0–6 阶、人物等级上限、正式材料和甲硬币全部规范化；只有玩家选择
   “包含沿途突破”时，才汇总当前与目标等级之间尚需跨过的阶段。
-- 人物与技能成本中的 lowercase `gold` 只在 `progression_cost` 语境规范成 Fons/方斯；不会映射成
-  Gold/甲硬币。技能升级消耗继续通过 `progression_item`、`localized_term*` 解析玩家名称；缺名时显示
+- 人物与技能成本中的 lowercase `gold` 只在 `progression_cost` 语境规范成 Gold/甲硬币；显式
+  `Fons` 仍为方斯。技能升级消耗继续通过 `progression_item`、`localized_term*` 解析玩家名称；缺名时显示
   “名称暂未提供”，raw ID 不进入默认界面。
 - 没有独立正式养成包的目录条目保持 unavailable，不从同名角色、说明文字或外部 JSON 猜材料。
 - 战斗变身或未完整导入角色可能只有目录/战斗绑定，没有人物面板、好感度、觉醒、培养或毕业模板；Service

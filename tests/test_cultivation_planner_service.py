@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from src.domain.progression_stamina import FarmingStage, MaterialYield
 from src.services.character_progression_requirements import MaterialSummaryStatus
@@ -15,6 +18,7 @@ from src.services.cultivation_planner_service import (
     CultivationRequest,
     CultivationRole,
     CultivationSection,
+    CultivationSkillTarget,
     _canonical_fork_item_id,
     _breakthrough_requirements,
     _deduplicate_roles,
@@ -32,6 +36,7 @@ from src.services.static_catalog_character_models import (
 
 
 NTE_TEST_TIER = "core"
+_RELEASE_STATIC = Path(__file__).resolve().parents[1] / "data/game_static.sqlite3"
 
 _SOURCE = CatalogSource(table_name="test")
 _STAGES = (
@@ -95,8 +100,51 @@ def test_request_keeps_skill_costs_as_independent_explicit_targets() -> None:
     assert request.skills == ()
 
 
-def test_fork_gold_cost_uses_the_shared_fons_identity() -> None:
-    assert _canonical_fork_item_id("gold") == "Fons"
+def test_fork_gold_cost_keeps_distinct_currency_identity() -> None:
+    assert _canonical_fork_item_id("gold") == "Gold"
+    assert _canonical_fork_item_id("Fons") == "Fons"
+
+
+def test_released_catalog_character_costs_and_paid_drops_show_gold() -> None:
+    service = CultivationPlannerService(
+        static_database_path=_RELEASE_STATIC,
+        user_database_path=Path("unused-user.sqlite3"),
+    )
+    plan = service.calculate(CultivationRequest(1075, 1, 0, 2, 0, ()))
+    totals = {item.item_id: item.quantity for item in plan.totals}
+
+    assert totals.get("Gold", 0) > 0
+    assert "Fons" not in totals
+    assert all(item.name == "甲硬币" for item in plan.totals if item.item_id == "Gold")
+    assert any(
+        stage.stamina_cost > 0
+        and any(item.item_id == "Gold" and item.quantity > 0 for item in stage.yields)
+        for stage in service.load_farming_stages()
+    )
+    result = service.calculate_stamina(
+        plan, owned_quantities={}, hunter_level=60, effective_identification_level=7,
+    ).total
+    assert "Gold" in {item.item_id for item in result.deficits}
+    assert result.total_stamina is not None
+
+
+@pytest.mark.parametrize("catalog", (
+    "data/game_static.sqlite3", "data/role_catalog/game_static.sqlite3",
+))
+def test_released_catalog_all_cultivation_sections_use_gold(catalog: str) -> None:
+    service = CultivationPlannerService(
+        static_database_path=Path(__file__).resolve().parents[1] / catalog,
+        user_database_path=Path("unused-user.sqlite3"),
+    )
+    plan = service.calculate(CultivationRequest(
+        1075, 1, 0, 30, 1,
+        (CultivationSkillTarget("GA_Oneiroi_Melee", 1, 2),),
+        fork=CultivationForkTarget("fork_GoldRecord", 1, 0, 30, 1),
+    ))
+    assert len(plan.sections) == 5
+    assert all("Gold" in {material.item_id for material in section.materials}
+               for section in plan.sections)
+    assert all(material.item_id != "Fons" for material in plan.totals)
     assert _canonical_fork_item_id("WeaponBreakMaterial_02_lv1") == "WeaponBreakMaterial_02_lv1"
 
 
@@ -167,10 +215,11 @@ def test_fork_projection_converts_exp_and_separates_use_from_break_costs() -> No
         ("WeaponUpMaterial_lv1", 1),
         ("WeaponUpMaterial_lv3", 1),
     }
-    assert result.experience_costs[0].item_id == "Fons"
+    assert result.experience_costs[0].item_id == "Gold"
     assert result.experience_costs[0].required_quantity == 3150
     assert result.breakthrough_materials[0].required_quantity == 3
     assert result.breakthrough_costs[0].required_quantity == 16000
+    assert result.breakthrough_costs[0].item_id == "Gold"
     assert result.included_breakthrough_stages == (1,)
 
 
@@ -229,6 +278,6 @@ def test_stamina_plan_reports_merged_total_and_each_section() -> None:
     assert stamina.total.total_stamina == 80
     assert stamina.total.unresolved_item_ids == ()
     assert {item.item_id for item in stamina.total.deficits} == {"material-a"}
-    assert stamina.stamina_item_ids == frozenset({"material-a"})
+    assert stamina.stamina_item_ids == frozenset({"material-a", "Gold"})
     assert [item.result.total_stamina for item in stamina.sections] == [40, 40]
     assert [item.result.deficits[0].owned_quantity for item in stamina.sections] == [3, 0]

@@ -389,7 +389,7 @@ class StaticGameProgressionCatalogTest(unittest.TestCase):
             ("方斯", "/Game/Text/ST_Item.ST_Item", "item_Fons_name", "official_item_catalog"),
             fons,
         )
-        self.assertEqual(("Fons", "product_contract"), alias)
+        self.assertEqual(("Gold", "product_contract"), alias)
         self.assertIsNone(self.connection.execute(
             "SELECT item_id FROM progression_item WHERE item_id = '0'"
         ).fetchone())
@@ -428,9 +428,9 @@ class StaticGameProgressionCatalogTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                ("WeaponUpMaterial_lv1", "Fons", 150),
-                ("WeaponUpMaterial_lv2", "Fons", 750),
-                ("WeaponUpMaterial_lv3", "Fons", 3000),
+                ("WeaponUpMaterial_lv1", "Gold", 150),
+                ("WeaponUpMaterial_lv2", "Gold", 750),
+                ("WeaponUpMaterial_lv3", "Gold", 3000),
             ],
             costs,
         )
@@ -469,7 +469,7 @@ class StaticGameProgressionCatalogTest(unittest.TestCase):
                     "gameplay_effect", "GE_Internal_Only"
                 )
 
-        self.assertEqual(("Fons", "方斯"), (cost.canonical_id, cost.display_name))
+        self.assertEqual(("Gold", "甲硬币"), (cost.canonical_id, cost.display_name))
         self.assertEqual(
             ("Gold", "甲硬币"),
             (capital.canonical_id, capital.display_name),
@@ -609,7 +609,7 @@ class StaticGameProgressionCatalogTest(unittest.TestCase):
             statuses,
         )
         self.assertEqual(("MatA", 6), exact)
-        self.assertEqual(("Fons", 4000), currency)
+        self.assertEqual(("Gold", 4000), currency)
         self.assertEqual(("sequence_not_deterministic",), partial_gap)
 
     def test_failed_import_rolls_back_all_catalog_rows_and_can_retry(self) -> None:

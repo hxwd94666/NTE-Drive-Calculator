@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.domain.progression_stamina import FarmingStage, MaterialYield
+from src.domain.progression_stamina import FarmingStage, MaterialYield, StaminaPlanStatus
+from src.features.toolbox.cultivation_owned_materials import visible_materials
 from src.services.character_progression_requirements import MaterialSummaryStatus
 from src.services.cultivation_batch_planner_service import (
     CultivationBatchPlannerService,
@@ -97,10 +98,10 @@ def test_batch_combines_multi_material_stage_and_reports_saved_stamina() -> None
     assert result.separate_stamina_total == 80
     assert result.saved_stamina == 40
     assert result.combined_stamina.runs[0].runs == 1
-    assert result.stamina_item_ids == frozenset({"a", "b"})
+    assert result.stamina_item_ids == frozenset({"a", "b", "Gold"})
 
 
-def test_stamina_material_ids_require_paid_stage_and_positive_yield() -> None:
+def test_stamina_material_ids_keep_gold_and_require_paid_yields_for_other_items() -> None:
     stages = (
         FarmingStage("paid", "付费副本", 1, 0, 40,
                      (MaterialYield("paid-item", 2), MaterialYield("empty", 0),
@@ -109,7 +110,53 @@ def test_stamina_material_ids_require_paid_stage_and_positive_yield() -> None:
                      (MaterialYield("free-item", 3),)),
     )
 
-    assert stamina_material_ids(stages) == frozenset({"paid-item"})
+    assert stamina_material_ids(stages) == frozenset({"paid-item", "Gold"})
+
+
+def test_gold_uses_paid_stage_yield_with_owned_quantity_and_shared_drops() -> None:
+    stages = (FarmingStage(
+        "paid", "甲硬币副本", 1, 0, 40,
+        (MaterialYield("Gold", 50), MaterialYield("paid-item", 1)),
+    ),)
+    result = calculate_stamina_result(
+        (CultivationMaterial("Gold", "甲硬币", 125),
+         CultivationMaterial("paid-item", "材料", 1)),
+        {"Gold": 25},
+        stages,
+        hunter_level=60,
+        effective_identification_level=7,
+    )
+
+    assert result.status is StaminaPlanStatus.COMPLETE
+    assert result.total_stamina == 80
+    assert result.runs[0].runs == 2
+    assert {item.item_id: item.deficit_quantity for item in result.deficits} == {
+        "Gold": 100, "paid-item": 1,
+    }
+    assert visible_materials(
+        (CultivationMaterial("Gold", "甲硬币", 125),
+         CultivationMaterial("Fons", "方斯", 100)),
+        "stamina", stamina_material_ids(stages),
+    ) == (CultivationMaterial("Gold", "甲硬币", 125),)
+
+
+def test_gold_without_verified_paid_yield_keeps_an_explicit_gap() -> None:
+    result = calculate_stamina_result(
+        (CultivationMaterial("Gold", "甲硬币", 100),),
+        {},
+        (FarmingStage("paid", "其他副本", 1, 0, 40, (MaterialYield("other", 1),)),),
+        hunter_level=60,
+        effective_identification_level=7,
+    )
+
+    assert result.status is StaminaPlanStatus.UNAVAILABLE
+    assert result.unresolved_item_ids == ("Gold",)
+    assert result.total_stamina is None
+    assert "Gold" in stamina_material_ids(())
+    assert visible_materials(
+        (CultivationMaterial("Gold", "甲硬币", 100),),
+        "stamina", stamina_material_ids(()),
+    ) == (CultivationMaterial("Gold", "甲硬币", 100),)
 
 
 def test_fons_does_not_increase_stamina_even_when_stage_drops_it() -> None:

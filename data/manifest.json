@@ -5,13 +5,13 @@
     "filename": "game_static.sqlite3",
     "dataset_id": "cn_retail_20260924_9030b45b",
     "schema_version": 38,
-    "size_bytes": 100655104,
-    "sha256": "87F19FF41AAF2CD374C583FEF06ADA218989A7E0EB8881BB82A1EE605814FA98",
-    "generated_at_utc": "2026-09-24T04:20:18+00:00",
+    "size_bytes": 100663296,
+    "sha256": "E8E45553AD25E85780361BC443602E90697A300AC868CC6E64C82D2A5493747A",
+    "generated_at_utc": "2026-09-25T14:03:51+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_static_database.py",
-    "importer_version": 48
+    "importer_version": 49
   }
 }

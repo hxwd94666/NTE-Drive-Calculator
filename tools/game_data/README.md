@@ -104,6 +104,13 @@ JSON/Markdown 报告与 manifest；`--finalize-only` 只更新候选证据，`--
 `data/game_static.sqlite3` 和 `data/manifest.json`。
 晋升失败、正式库仍被占用或最终报告与实际 SHA 不一致时，本次刷新未完成，不得提交旧 `data` 文件。
 
+旧发行数据集的甲硬币误映射是一次受基线哈希约束的定点数据修复：
+`repair_published_gold_catalog.py` 只在已知旧库与官方掉落组/序列共同证明的范围内制作候选，
+将养成成本和 145 条 `droplist_gold` 付费产出修为 `Gold`，保留玛门 `drop_fons1` 的 `Fons`。
+它不编辑账号库，也不改写 `source_file/source_row` 原始来源事实；候选包含原库备份、SQL 差异、
+逐表核验记录及回滚脚本。`promote_static_release.py` 对其专用 provenance 复核所有其他表不变后，
+才按常规候选流程最终化、只读预检和成对晋升；此例外不替代后续完整来源更新。
+
 角色额外形状不从上一发行库继承。构建器直接关联官方
 `DT_Character.ElementData.EquipmentSlotID`、`DT_CharacterEquipmentSlotsData.ModifyPropID` 与
 `DT_EquipmentModifySlotsEffect.ModifyData`，按逻辑角色写入形状格数和每件匹配驱动提供的属性值。角色变体
@@ -177,7 +184,7 @@ schema v24 从 `DT_CombatAwardQuest` 中带有效大陆服开始/结束时间的
 schema v30 导入角色发行排期、品质、正式卡池成员关系、公共本地化术语和可确定的养成副本掉落投影；
 schema v31 新增 `DT_CharacterUpgradeDataTable` 的人物逐级经验、角色养成包档案、
 `DT_CharacterBreakthroughDataTable` 的结构化突破阶段/成本，以及 `DT_ItemConfig` 中角色经验书的经验值与
-使用成本。`gold` 只在养成成本语境规范为 Fons；构建器对正式包 ID 使用大小写无关的唯一连接，冲突或未知
+使用成本。`gold` 只在养成成本语境精确规范为 Gold/甲硬币；构建器对正式包 ID 使用大小写无关的唯一连接，冲突或未知
 引用继续失败。
 
 规范化导入器不再次读取 Blueprint JSON，

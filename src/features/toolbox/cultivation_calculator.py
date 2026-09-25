@@ -62,6 +62,7 @@ class CultivationCalculatorContent(QWidget):
 
     plan_available = Signal(bool)
     layout_changed = Signal()
+    calculation_completed = Signal()
 
     def __init__(
         self,
@@ -92,6 +93,10 @@ class CultivationCalculatorContent(QWidget):
         )
         self._build()
         self._load_roles()
+
+    @property
+    def owned_materials(self) -> CultivationOwnedMaterials:
+        return self._owned_materials
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -384,6 +389,7 @@ class CultivationCalculatorContent(QWidget):
         self._calculate_button.setText("计算所需材料与体力")
         self.plan_available.emit(True)
         self._render_plan(plan)
+        self.calculation_completed.emit()
 
     def _owned_quantities_changed(self) -> None:
         if self._last_plan is not None and not self._materials_dirty:

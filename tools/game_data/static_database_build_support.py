@@ -85,7 +85,7 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "038_game_static_analysis_projection.sql",
 )
 SCHEMA_VERSION = 38
-IMPORTER_VERSION = 48
+IMPORTER_VERSION = 49
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",

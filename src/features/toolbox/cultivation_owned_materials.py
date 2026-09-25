@@ -1,4 +1,4 @@
-# 提供养成计算器已有材料录入、扣减和同步占位界面。
+# 提供养成计算器已有材料录入、原生归档导入和扣减界面。
 """Owned-material inputs shared by the toolbox cultivation result."""
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class _OwnedQuantitySpinBox(QSpinBox):
 class _OwnedMaterialCanvas(QWidget):
     """Paint all material cards and keep one stable editor for the selected card."""
 
-    quantity_changed = Signal()
+    quantity_changed = Signal(str)
     layout_changed = Signal()
 
     _CARD_HEIGHT = 150
@@ -100,6 +100,12 @@ class _OwnedMaterialCanvas(QWidget):
     def quantities(self) -> dict[str, int]:
         return dict(self._owned)
 
+    def refresh_quantities(self, values: Mapping[str, int]) -> None:
+        self.set_materials(self._materials, values)
+
+    def clear_quantities(self) -> None:
+        self.refresh_quantities({})
+
     def required_quantity(self, item_id: str) -> int | None:
         return next(
             (item.quantity for item in self._materials if item.item_id == item_id),
@@ -123,6 +129,10 @@ class _OwnedMaterialCanvas(QWidget):
             values = self._owned if saved_owned is None else saved_owned
             self._owned = {item.item_id: values.get(item.item_id, 0) for item in materials}
             self._materials = materials
+            if self._selected_id is not None:
+                self._editor.blockSignals(True)
+                self._editor.setValue(self._owned[self._selected_id])
+                self._editor.blockSignals(False)
             for item in materials:
                 if item.item_id not in self._icons:
                     self._icons[item.item_id] = QPixmap(
@@ -239,7 +249,7 @@ class _OwnedMaterialCanvas(QWidget):
         if self._owned.get(self._selected_id) == value:
             return
         self._owned[self._selected_id] = value
-        self.quantity_changed.emit()
+        self.quantity_changed.emit(self._selected_id)
         self.update()
 
     def _advance_selection(self, step: int) -> None:
@@ -286,6 +296,7 @@ class CultivationOwnedMaterials(QFrame):
 
     quantities_changed = Signal()
     layout_changed = Signal()
+    import_requested = Signal()
 
     def __init__(self, icon_lookup: IconLookup, parent: QWidget) -> None:
         super().__init__(parent)
@@ -305,18 +316,30 @@ class CultivationOwnedMaterials(QFrame):
         header.addWidget(title)
         header.addWidget(QLabel("点击材料卡填写已有数量，再重新计算", self))
         header.addStretch(1)
-        sync = QPushButton("同步抓包（待接入）", self)
-        sync.setObjectName("cultivationOwnedSyncPlaceholder")
-        sync.setEnabled(False)
-        sync.setToolTip("当前抓包协议只提供装备背包，材料数量同步尚待组件支持。")
-        header.addWidget(sync)
+        self._import_button = QPushButton("同步材料", self)
+        self._import_button.setObjectName("cultivationOwnedImport")
+        self._import_button.setEnabled(False)
+        self._import_button.setToolTip("读取当前账号最近的原生物品归档；抓包背包暂不提供材料数量。")
+        self._import_button.clicked.connect(lambda _checked=False: self.import_requested.emit())
+        header.addWidget(self._import_button)
+        clear = QPushButton("清空", self)
+        clear.setObjectName("cultivationOwnedClear")
+        clear.setToolTip("清空本次草稿中的全部已有材料数量，不修改账号物品归档。")
+        clear.clicked.connect(lambda _checked=False: self.clear_quantities())
+        header.addWidget(clear)
         root.addLayout(header)
+        self._import_status = QLabel("原生材料需先完成原生背包同步；未观测材料保持手填值。", self)
+        self._import_status.setObjectName("cultivationOwnedImportStatus")
+        self._import_status.setWordWrap(True)
+        self._import_status.setStyleSheet(themed_style("color:#8b949e"))
+        root.addWidget(self._import_status)
         self._placeholder = QLabel("先计算一次目标，随后可填写本次所需材料的已有数量。", self)
         self._placeholder.setObjectName("cultivationOwnedMaterialsPlaceholder")
         self._placeholder.setStyleSheet(themed_style("color:#8b949e"))
         root.addWidget(self._placeholder)
         self._canvas = _OwnedMaterialCanvas(icon_lookup, self)
         self._owned_cache: dict[str, int] = {}
+        self._manual_overrides: set[str] = set()
         self._canvas.quantity_changed.connect(self._quantity_changed)
         self._canvas.layout_changed.connect(self.layout_changed)
         root.addWidget(self._canvas)
@@ -324,8 +347,43 @@ class CultivationOwnedMaterials(QFrame):
     def quantities(self) -> dict[str, int]:
         return dict(self._owned_cache)
 
-    def _quantity_changed(self) -> None:
+    def set_import_available(self, available: bool) -> None:
+        self._import_button.setEnabled(available)
+
+    def set_import_status(self, message: str) -> None:
+        self._import_status.setText(message)
+        self.layout_changed.emit()
+
+    def apply_import(self, quantities: Mapping[str, int]) -> int:
+        """Overlay observed entries only; manual edits and absent IDs remain unchanged."""
+
+        changed = 0
+        for item_id, amount in quantities.items():
+            if item_id in self._manual_overrides:
+                continue
+            if self._owned_cache.get(item_id) != amount:
+                self._owned_cache[item_id] = amount
+                changed += 1
+        if changed:
+            self._canvas.refresh_quantities(self._owned_cache)
+            self.quantities_changed.emit()
+        return changed
+
+    def clear_quantities(self) -> None:
+        """Clear only the draft quantities, including currently hidden materials."""
+
+        changed = any(self._owned_cache.values())
+        self._owned_cache.clear()
+        self._manual_overrides.clear()
+        self._canvas.clear_quantities()
         self._owned_cache.update(self._canvas.quantities())
+        self.set_import_status("已有材料草稿已清空；账号原生归档保持不变。")
+        if changed:
+            self.quantities_changed.emit()
+
+    def _quantity_changed(self, item_id: str) -> None:
+        self._owned_cache.update(self._canvas.quantities())
+        self._manual_overrides.add(item_id)
         self.quantities_changed.emit()
 
     def select_material(self, item_id: str) -> bool:
@@ -347,8 +405,10 @@ class CultivationOwnedMaterials(QFrame):
 
     def clear_materials(self) -> None:
         self._owned_cache.clear()
+        self._manual_overrides.clear()
         self._canvas.set_materials(())
         self._placeholder.setVisible(True)
+        self.set_import_status("原生材料需先完成原生背包同步；未观测材料保持手填值。")
         self.layout_changed.emit()
 
 
