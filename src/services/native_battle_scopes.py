@@ -212,29 +212,47 @@ def select_scope_builds(build, record):
     result = deepcopy(build)
     result.update(snapshot_id=None, profiles={}, stat_snapshots={}, equipment=[])
     result["native_scope_builds"] = {}
+    result["native_scope_validation"] = {}
     reason = None
+    conflict_reason = None
+    conflicted = set()
     equipment = {}
     for scope, attempt in attempts.items():
         entry = saved.get(scope) or {}
         if entry.get("attempt_id") != attempt["attemptId"]:
             reason = "native_scope_snapshot_missing"
+            result["native_scope_validation"][scope] = {"state": "unavailable", "reason": reason}
             continue
         result["native_scope_builds"][scope] = entry
         snapshot = entry["snapshot"]
-        scope_reason = entry.get("calculation_unavailable_reason") or scope_changed(snapshot, attempt, record)
+        scope_reason = entry.get("calculation_unavailable_reason") or (
+            validate_first_hit(snapshot, attempt, record) if snapshot.get("retention") == "dll_pinned"
+            else scope_changed(snapshot, attempt, record))
+        ids = team_character_ids(snapshot)
+        if not scope_reason and (not ids or ids != {int(key) for key in entry["profiles"]}):
+            scope_reason = "native_scope_team_profiles_missing"
+        result["native_scope_validation"][scope] = {
+            "state": "unavailable" if scope_reason else "ready", "reason": scope_reason,
+        }
         if scope_reason:
             reason = scope_reason
-            continue
+            if scope_reason != "native_scope_team_profiles_missing":
+                continue
         for key, profile in entry["profiles"].items():
             cid = int(key)
             if cid in result["profiles"] and result["profiles"][cid] != profile:
-                reason = "native_cross_half_character_configuration_conflict"
+                conflict_reason = "native_cross_half_character_configuration_conflict"
+                conflicted.add(cid)
             result["profiles"][cid] = profile
             result["stat_snapshots"][cid] = entry["stat_snapshots"].get(str(cid), entry["stat_snapshots"].get(cid, []))
         for item in entry["equipment"]:
             uid = (item["uid_serial"], item["uid_slot"])
             if uid in equipment and equipment[uid] != item:
-                reason = "native_cross_half_equipment_configuration_conflict"
+                conflict_reason = "native_cross_half_equipment_configuration_conflict"
+                conflicted.update((item.get("equipped_character_id"), equipment[uid].get("equipped_character_id")))
             equipment[uid] = item
-    result["equipment"] = list(equipment.values())
-    return result, reason
+    result["native_conflict_character_ids"] = sorted(cid for cid in conflicted if cid is not None)
+    result["profiles"] = {cid: row for cid, row in result["profiles"].items() if cid not in conflicted}
+    result["stat_snapshots"] = {cid: rows for cid, rows in result["stat_snapshots"].items() if cid not in conflicted}
+    result["equipment"] = [item for item in equipment.values() if item.get("equipped_character_id") not in conflicted]
+    return result, conflict_reason or reason

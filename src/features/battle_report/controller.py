@@ -106,7 +106,7 @@ class BattleReportController(
         self._history_factory = history_factory
         self._transfer_factory = transfer_factory
         self._marginal_units_provider = marginal_units_provider
-        asset_root = app_context.paths.asset_dir / "game_ui"
+        asset_root = app_context.paths.game_ui_asset_root
         self._asset_root = asset_root
         self._page = BattleReportPage(game_ui_asset_root=asset_root)
         self._overlay = BattleReportOverlay(game_ui_asset_root=asset_root)

@@ -204,15 +204,15 @@ class BattleCaptureService:
                 assert self._raw_capture_directory is not None
                 self._raw_capture_directory.mkdir(parents=True, exist_ok=True)
                 self._prune_raw_captures()
+            client = self._client_factory()
+            self._client = client
             if self._summary_writer is not None:
                 self._summary_writer.begin_capture(
                     capture_operation_id=self._operation_context.operation_id,
                     captured_at_utc=captured_at_utc,
+                    capture_source="native" if getattr(client, "native_capture", False) else "packet",
                 )
                 capture_staged = True
-            self._require_start_permission()
-            client = self._client_factory()
-            self._client = client
             self._require_start_permission()
             client.start()
             source = "native" if getattr(client, "native_capture", False) else "packet"

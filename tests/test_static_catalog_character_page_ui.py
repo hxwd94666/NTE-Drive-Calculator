@@ -169,7 +169,7 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         self.page = build_character_catalog_page(
             service=self.service,
             release_metadata_service=self.release_service,
-            game_ui_asset_root=PROJECT_ROOT / "assets" / "game_ui",
+            game_ui_asset_root=PROJECT_ROOT / "data" / "role_catalog" / "game_ui",
             terminology_service=self.terminology,
         )
         self.page.resize(1280, 900)

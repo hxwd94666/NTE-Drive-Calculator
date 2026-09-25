@@ -28,7 +28,7 @@ from src.ui.equipment_presentation import EquipmentPresentation
 NTE_TEST_TIER = "core"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DATABASE = PROJECT_ROOT / "data" / "game_static.sqlite3"
-ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
+ASSET_ROOT = PROJECT_ROOT / "data" / "role_catalog" / "game_ui"
 
 
 class StaticCatalogEquipmentDataTests(unittest.TestCase):
@@ -81,7 +81,7 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
-        app_context = SimpleNamespace(paths=SimpleNamespace(asset_dir=PROJECT_ROOT / "assets"))
+        app_context = SimpleNamespace(paths=SimpleNamespace(game_ui_asset_root=PROJECT_ROOT / "data" / "role_catalog" / "game_ui"))
         self.presentation = EquipmentPresentation(app_context=app_context, dialog_parent=None)
         self.terminology_dao = StaticGameDataDao(STATIC_DATABASE)
         self.page = build_equipment_catalog_page(
@@ -298,7 +298,7 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
         self.assertEqual(0, self.page.detail.horizontalScrollBar().maximum())
 
     def test_shared_catalog_injects_the_single_public_presentation(self) -> None:
-        app_context = SimpleNamespace(paths=SimpleNamespace(asset_dir=PROJECT_ROOT / "assets"))
+        app_context = SimpleNamespace(paths=SimpleNamespace(game_ui_asset_root=PROJECT_ROOT / "data" / "role_catalog" / "game_ui"))
         specs = build_static_catalog_domain_pages(
             STATIC_DATABASE,
             ASSET_ROOT,

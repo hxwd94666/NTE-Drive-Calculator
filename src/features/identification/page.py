@@ -302,7 +302,7 @@ def render_identify_result_page(window, pages: list[dict]):
             build_identify_result_row(
                 rank,
                 row,
-                game_ui_asset_root=window.app_context.paths.asset_dir / "game_ui",
+                game_ui_asset_root=window.app_context.paths.game_ui_asset_root,
             )
         )
     window.ident_result_layout.addStretch()

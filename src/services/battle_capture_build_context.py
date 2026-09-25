@@ -6,7 +6,6 @@ from copy import deepcopy
 from typing import Any
 
 
-NATIVE_BUILD_WARNING = "本场实际配装或场中配置连续性未确认，计算配装缺失；实测战报和入场原始观测已保留。"
 # Backpack revisions do not describe the frozen equipped items. Environment
 # evidence belongs to target calculation, not character-panel availability.
 PANEL_DOMAINS = ("character", "team")

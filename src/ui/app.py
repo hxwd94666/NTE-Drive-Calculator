@@ -148,7 +148,7 @@ from src.features.inventory.warehouse import configure_warehouse_view_template_r
 configure_warehouse_view_template_roots(
     APP_CONTEXT.paths.template_dir,
     APP_CONTEXT.paths.bundled_config_dir / "templates",
-    asset_root=APP_CONTEXT.paths.asset_dir,
+    asset_root=APP_CONTEXT.paths.game_ui_asset_root,
 )
 
 
@@ -372,7 +372,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         try:
             static_catalog_domains = build_static_catalog_domain_pages(
                 self.app_context.paths.static_database_path,
-                self.app_context.paths.asset_dir / "game_ui",
+                self.app_context.paths.game_ui_asset_root,
                 equipment_presentation=self.equipment_presentation,
                 role_catalog=self.app_context.paths.role_catalog,
                 equipment_inventory_loader=self._load_static_catalog_inventory,
@@ -383,7 +383,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             self.static_catalog_page = StaticCatalogPage(
                 controller=static_catalog_controller,
                 dialog_parent=self,
-                game_ui_asset_root=self.app_context.paths.asset_dir / "game_ui",
+                game_ui_asset_root=self.app_context.paths.game_ui_asset_root,
                 domain_pages=static_catalog_domains,
             )
         except Exception:

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
+ASSET_ROOT = PROJECT_ROOT / "data" / "role_catalog" / "game_ui"
 
 
 class WarehouseInventoryTests(unittest.TestCase):

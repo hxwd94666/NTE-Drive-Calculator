@@ -101,6 +101,8 @@ def _curated_blueprint_paths(root: Path) -> list[Path]:
         "Characters/Monster/mon_01/ParryTest/**/*.json",
         "Characters/Monster/boss_18/boss_18_player01/animation/**/*.json",
         "Blueprints/Abilities/Buff/Common/**/*.json",
+        "Blueprints/Abilities/Buff/Abyss/Phases/P[89]/**/*.json",
+        "Blueprints/Abilities/Buff/Abyss/Phases/P1[012]/**/*.json",
         "Blueprints/Abilities/Buff/element/**/*.json",
         "Blueprints/Abilities/Calculation/**/*.json",
         "Blueprints/Abilities/Condition/Player/**/*.json",

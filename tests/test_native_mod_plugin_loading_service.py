@@ -85,7 +85,7 @@ def test_native_first_start_prepares_only_capture_dll_and_uses_standard_mode(loa
     assert set(service.native_workspace_record.managed_files) == {'NTE_Capture.dll'}
     for deployed_path in NATIVE_PLUGIN_DEPLOYMENT_PATHS.values():
         assert not (args['game_executable_path'].parent / deployed_path).exists()
-    assert not unrelated.exists()
+    assert unrelated.read_bytes() == b'other tool'
     assert not list((root / 'config/native-loader-backups').rglob('dwmapi.dll.bak'))
 
 

@@ -100,6 +100,7 @@ def deploy_native_component_files(
     game_running: Callable[[], bool] | None = None,
     component_roles: tuple[str, ...] = ('capture_plugin', 'host'),
     expected_existing_files: Mapping[str, str | None] | None = None,
+    cleanup_legacy_proxy: bool = False,
 ) -> NativeComponentFilesDeployment:
     probe = game_running or game_process_running
 
@@ -151,7 +152,7 @@ def deploy_native_component_files(
             if expected_existing_files is not None and previous != expected_existing_files[relative]:
                 raise EquipmentPluginDeploymentError('组件目标在自动检测后发生变化，未覆盖现场文件。')
             originals[relative] = previous
-        if 'host' in order:
+        if cleanup_legacy_proxy and 'host' in order:
             remove_legacy_game_proxy(game_directory=directory, require_idle=require_idle)
         for relative, target in targets.items():
             require_idle()
@@ -193,6 +194,7 @@ def deploy_native_plugin(
     operation_guard: Callable[[str], None] | None,
     game_running: Callable[[], bool] | None = None,
     expected_existing_files: Mapping[str, str | None] | None = None,
+    cleanup_legacy_proxy: bool = False,
 ) -> NativePluginDeployment:
     require_operation(operation_guard, 'native_load')
     executable = game_executable(game_executable_path)
@@ -210,6 +212,7 @@ def deploy_native_plugin(
             operation_guard=operation_guard,
             game_running=game_running,
             expected_existing_files=expected_existing_files,
+            cleanup_legacy_proxy=cleanup_legacy_proxy,
         ))
     except NativeComponentFilesPendingCleanup as error:
         raise PluginDeploymentPendingCleanup(str(error), deployment=wrap(error.deployment)) from error

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 
 from tools.game_data.static_database_build_support import *
 
@@ -21,6 +22,17 @@ _DIVINATION_PROPERTIES = {
 }
 
 _AUDITED_OUTER_REALM_BUFF_COMPONENTS = {
+    "Abyss_10": (
+        ("whole_battle_qte", "DamageUpGeneralBase", "Buff_Abyss_Phase_010_Up", None, None, 1),
+        ("observed_recipient_effect", "AtkUp", "Buff_Abyss_Phase_010_Atk", "Buff_Abyss_Phase_010_CD", None, 1),
+    ),
+    "Abyss_11": (
+        ("observed_recipient_effect", "DamageUpGeneralBase", "Buff_Abyss_Phase_011_Up", "Buff_Abyss_Phase_011_CD", None, 1),
+    ),
+    "Abyss_12": (
+        ("whole_battle", "DamageUpLakshanaBase", "Buff_Abyss_Phase_012_Lakshana", None, None, 1),
+        ("whole_battle", "DamageUpPsycheBase", "Buff_Abyss_Phase_012_Psyche", None, None, 1),
+    ),
     "Abyss_8": (
         (
             "corruption_damage_stack",
@@ -359,6 +371,10 @@ class EncounterImportMixin:
                 "WHERE inference_ordinal IS NOT NULL"
             )
         }
+        # Retain supported historical/future definitions for explicitly selected periods.
+        active_configs |= set(_AUDITED_OUTER_REALM_BUFF_COMPONENTS) & {
+            str(row[0]) for row in self.connection.execute("SELECT level_config_id FROM outer_realm_rotation")
+        }
         for config_id in sorted(active_configs):
             components = _AUDITED_OUTER_REALM_BUFF_COMPONENTS.get(config_id)
             if components is None:
@@ -393,7 +409,7 @@ class EncounterImportMixin:
                 trigger_kind, property_id, curve_id, duration_curve, cooldown, limit = component
                 self.connection.execute(
                     "INSERT INTO outer_realm_season_buff_component "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         config_id,
                         ordinal,
@@ -405,6 +421,8 @@ class EncounterImportMixin:
                         limit,
                         curve_id,
                         self.source_row_id("abyss_buff_curves", curve_id),
+                        (gameplay_effect_path.split(".", 1)[0] + "_effect")
+                        if trigger_kind == "observed_recipient_effect" else None,
                     ),
                 )
 
@@ -510,6 +528,21 @@ class EncounterImportMixin:
                     f"轨外配置存在冲突的大陆服生效区间：{config_id}"
                 )
             rotations_by_config[config_id] = rotation
+        # Maintainer-confirmed sequence: season 10 fills the exact gap between
+        # the officially dated seasons 9 and 11. Preserve this as an annotation,
+        # never as a fabricated quest row or a generic numeric-ID fallback.
+        supplemental = False
+        if "Abyss_10" not in rotations_by_config and "Abyss_10" in self.rows["abyss_seasons"]:
+            before, after = rotations_by_config.get("Abyss_9"), rotations_by_config.get("Abyss_11")
+            if (before and after and before[1] == "2026-09-18T04:59:59"
+                    and after[0] == "2026-10-02T05:00:00"):
+                start = datetime.fromisoformat(before[1]) + timedelta(seconds=1)
+                end = datetime.fromisoformat(after[0]) - timedelta(seconds=1)
+                if start < end:
+                    rotations_by_config["Abyss_10"] = (
+                        start.isoformat(), end.isoformat(), self.source_row_id("abyss_seasons", "Abyss_10")
+                    )
+                    supplemental = True
         rotations = [
             (config_id, *values)
             for config_id, values in rotations_by_config.items()
@@ -538,6 +571,11 @@ class EncounterImportMixin:
                     inference_ids.get(config_id),
                     source_row_id,
                 ),
+            )
+        if supplemental:
+            self.connection.execute(
+                "INSERT INTO outer_realm_rotation_annotation VALUES (?,?,?,?)",
+                ("Abyss_10", "maintainer_confirmed_contiguous_period_20260924", "Abyss_9", "Abyss_11"),
             )
 
     def _import_clone_spawn_members(self) -> None:

@@ -318,7 +318,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
 
         QApplication.instance() or QApplication([])
         selector = RoleSelector()
-        assets = GameUiAssetCatalog(Path(__file__).resolve().parents[1] / "assets" / "game_ui")
+        assets = GameUiAssetCatalog(Path(__file__).resolve().parents[1] / "data" / "role_catalog" / "game_ui")
         selector.load_roles(
             {"早雾": {"character_id": 1003}},
             [],

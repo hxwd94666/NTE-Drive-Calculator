@@ -7,6 +7,7 @@ from pathlib import Path
 
 from src.app.constants import APP_VERSION
 from src.integrations.nte_core import NteCoreClient
+from src.integrations.native_allocation import create_allocation_executor
 from src.scanner.batch_processor import BatchProcessor
 from src.solver.orchestrator import NTEPipelineOrchestrator
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -77,6 +78,10 @@ class NTEAppFacade:
     ):
         """使用已经固定的数据集合计算，不要求生成中间库存文件。"""
 
+        allocation_executor = create_allocation_executor(
+            static_database_path=self.allocation_static_database_path,
+            cancel_check=cancel_check,
+        )
         orchestrator = NTEPipelineOrchestrator(
             config_dir=self.config_dir,
             user_database_path=self.user_database_path,
@@ -112,6 +117,7 @@ class NTEAppFacade:
             custom_weapons=custom_weapons or {},
             blueprint_combo_limit=blueprint_combo_limit,
             cancel_check=cancel_check,
+            allocation_executor=allocation_executor,
         )
         return final_plan, None
 

@@ -196,7 +196,7 @@ def show_warehouse_identification_dialog(
                 build_identify_result_row(
                     rank,
                     row,
-                    game_ui_asset_root=owner.app_context.paths.asset_dir / "game_ui",
+                    game_ui_asset_root=owner.app_context.paths.game_ui_asset_root,
                 )
             )
     else:
@@ -255,7 +255,7 @@ def show_warehouse_identification_comparison(
                         rank,
                         row,
                         game_ui_asset_root=(
-                            owner.app_context.paths.asset_dir / "game_ui"
+                            owner.app_context.paths.game_ui_asset_root
                         ),
                     )
                 )

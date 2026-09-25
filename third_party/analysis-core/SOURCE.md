@@ -1,4 +1,4 @@
-# 独立战报分析组件
+# 独立分析与空幕分配组件
 
 本组件由独立的 `analysis-core/Cargo.toml` 构建，产物为 `nte-analysis-core.exe`，许可为 AGPL-3.0-or-later。
 它不链接、启动或替换采集组件 `nte-core.exe`，不接入游戏或抓包。Rust 依赖由独立 Cargo manifest 与 lock
@@ -9,6 +9,9 @@
 轴与来源解析、状态、逐击重放、目标拟合、反事实和候选编排。Python 管理输入、进程、解码及展示；
 Rust 返回的版本化目标派生快照由 Python 在复核账号和静态配置后通过既有 DAO 保存，原始事实不改写。
 低层公式、Buff 投影与批量算法协议继续提供独立调用和差分验证能力，详细契约见独立 crate README。
+
+`allocation_v1` 接收计算按钮冻结的库存、角色配置、图纸与评分目录，执行评分、筛选和角色优先分配；
+该入口不读取账号文件。Python 保留图纸生成、进程取消、结果渲染和预览保存，组件能力缺失时明确拒绝计算。
 
 部署命令为 `python tools/counterfactual/package_rust_core.py --source <analysis-core目录>`。
 该命令核对程序身份，记录独立源码摘要、编译版本、许可与二进制 SHA-256，并生成只含程序、组件清单、

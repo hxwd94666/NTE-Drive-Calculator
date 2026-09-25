@@ -1,4 +1,4 @@
-# 在原生组件管理时核对并直接移除游戏目录的旧代理入口。
+# 仅供明确手动清理的调用方核对并移除游戏目录旧代理入口。
 from __future__ import annotations
 
 from pathlib import Path

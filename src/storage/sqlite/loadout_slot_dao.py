@@ -420,13 +420,15 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
         *,
         received_by_slot_id: int,
         received_by_character_id: int,
+        frozen_inventory: Mapping | None = None,
+        received_by_slots: Mapping[int, int] | None = None,
     ) -> None:
         """Persist the prior slot with virtual placeholders for transferred UIDs."""
 
         source_snapshot_id = _integer(
             plan.get("source_snapshot_id"), "source_snapshot_id", minimum=1
         )
-        inventory = {
+        inventory = frozen_inventory if frozen_inventory is not None else {
             (int(item["uid_slot"]), int(item["uid_serial"])): item
             for item in self.list_inventory_items(source_snapshot_id)
         }
@@ -502,6 +504,11 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
             },
             "assignment_scores": assignment_scores,
         })
+        if received_by_slots is not None:
+            residual_payload["equipment_transfer"]["received_by_slots"] = [
+                {"slot_id": target_slot, "character_id": character_id}
+                for target_slot, character_id in received_by_slots.items()
+            ]
         self.save_loadout_plan(
             name=str(plan["name"]),
             character_id=int(plan["character_id"]),

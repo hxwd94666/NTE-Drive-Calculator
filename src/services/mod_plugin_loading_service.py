@@ -211,7 +211,8 @@ class ModPluginLoadingService:
 
 
     def start_loader(self, *, game_executable_path: str | Path, writable_workspace_path: str | Path,
-                     scoped_guard: Callable[[str], None] | None = None) -> ModPluginLoaderStartResult:
+                     scoped_guard: Callable[[str], None] | None = None,
+                     cleanup_legacy_proxy: bool = False) -> ModPluginLoaderStartResult:
         if Path(writable_workspace_path).expanduser().resolve() != self._native_workspace_root:
             raise ModPluginLoadingError('原生 Loader 必须使用本机配置的专用运行目录。')
         self.require_native_loader_supported()
@@ -231,17 +232,19 @@ class ModPluginLoadingService:
         def require_idle():
             guard('native_load')
             if self._game_running():
-                raise ModPluginLoadingError('游戏正在运行，旧代理清理等待游戏完全退出。')
+                raise ModPluginLoadingError('游戏正在运行，手动旧代理清理等待游戏完全退出。')
         try:
             if current.phase == 'running':
-                remove_legacy_game_proxy(game_directory=executable.parent, require_idle=require_idle)
+                if cleanup_legacy_proxy:
+                    remove_legacy_game_proxy(game_directory=executable.parent, require_idle=require_idle)
                 return ModPluginLoaderStartResult(current, self._native_workspace_root, native_workspace=self._native_workspace)
             prepared = prepare_native_loader_workspace(
                 application_root=self._application_root, workspace_path=self._native_workspace_root,
                 operation_guard=guard, game_running=self._game_running,
             )
             self._retain_native_workspace(prepared)
-            remove_legacy_game_proxy(game_directory=executable.parent, require_idle=require_idle)
+            if cleanup_legacy_proxy:
+                remove_legacy_game_proxy(game_directory=executable.parent, require_idle=require_idle)
             self._require_load_allowed(scoped_guard)
             runtime = self._runtime.start(
                 payload_path=payload, launcher_path=launcher, payload_load_mode='loadlibrary',

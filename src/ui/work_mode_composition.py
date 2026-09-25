@@ -52,6 +52,7 @@ def initialize_mode_runtime(window):
         window=window, policy=window.work_mode_service, runtime=window.work_mode_runtime, navigate=window._go,
         observe_plugins=window.plugin_service.observe,
         apply_plugin_policy=window.plugin_service.apply_mode_policy,
+        apply_plugins=window.plugin_service.apply_current,
     )
     window.auto_sync_controller = AutoSyncController(
         window=window, policy=window.work_mode_service,

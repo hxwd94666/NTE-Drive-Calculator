@@ -11,13 +11,14 @@ import tempfile
 import threading
 import urllib.error
 import urllib.request
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from src.app.constants import APP_VERSION, WORKSHOP_WEIGHT_CONFIGS_API
-from src.domain.recommended_weights import parse_workshop_recommendations
+from src.domain.recommended_weights import parse_workshop_recommendations, workshop_weight_source_ids
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.utils.logger import logger
 
@@ -74,12 +75,14 @@ def effective_workshop_recommended_weights(
         if template_file is not None
         else configured_workshop_weight_template_file()
     )
-    runtime = (
-        template.get("characters", {}).get(str(int(character_id)))
-        if template is not None
-        else None
-    )
-    return runtime if isinstance(runtime, Mapping) else static_recommendation
+    if template is not None:
+        for source_id in workshop_weight_source_ids(character_id):
+            runtime = template["characters"].get(str(source_id))
+            if isinstance(runtime, Mapping):
+                # Keep the public source ID as provenance; only the consuming
+                # role identity is projected, never the cached template itself.
+                return {**deepcopy(runtime), "character_id": int(character_id)}
+    return static_recommendation
 
 
 def workshop_weight_template_revision(
@@ -124,7 +127,7 @@ def start_workshop_weight_template_refresh(
                 missing = [
                     str(row.get("name_zh") or row["character_id"])
                     for row in character_rows
-                    if int(row["character_id"]) not in available
+                    if not available.intersection(workshop_weight_source_ids(int(row["character_id"])))
                 ]
                 if missing:
                     logger.info(
@@ -195,7 +198,10 @@ class WorkshopWeightTemplateService:
         if not isinstance(records, list):
             raise RuntimeError("工坊权重接口 data 不是角色数组")
 
-        known_ids = tuple(dict.fromkeys(int(character_id) for character_id in known_character_ids))
+        known_ids = tuple(dict.fromkeys(
+            source_id for character_id in known_character_ids
+            for source_id in workshop_weight_source_ids(character_id)
+        ))
         parsed = parse_workshop_recommendations(records, known_ids)
         characters = {
             str(character_id): self._runtime_recommendation(recommendation)

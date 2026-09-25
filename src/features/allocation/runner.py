@@ -28,7 +28,6 @@ from src.optimizer.contracts import (
     PLAN_ASSIGNED_TAPE,
     PLAN_BLUEPRINT,
     PLAN_CHANGED_UIDS,
-    PLAN_SCORE,
     PLAN_VALID,
     ROLE_BLUEPRINT_LAYOUT,
     ROLE_EQUIPPED_DRIVES,
@@ -36,13 +35,11 @@ from src.optimizer.contracts import (
     plan_drives,
 )
 from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
-from src.services.allocation_main_value_service import legacy_plan_tape_main_values
 from src.services.allocation_filter_settings import (
     AllocationFilterSettings,
     filter_allocation_candidates,
 )
 from src.features.allocation.slot_plan_diff import (
-    selected_slot_plan_diff,
     single_slot_loadout_state,
 )
 from src.services.allocation_lock_service import (
@@ -50,10 +47,8 @@ from src.services.allocation_lock_service import (
     build_allocation_lock_snapshot,
     filter_allocation_request_for_locks,
     selected_fully_locked_roles,
-    verify_allocation_lock_snapshot,
 )
 from src.services.saved_state_loadout_bridge import (
-    SavedStateLoadoutBridge,
     resolve_character_id_for_allocation_role,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -503,105 +498,8 @@ def _select_allocation_save_slots(
 
 
 def _save_alloc(self: Any, show_message: bool = True) -> bool:
-    if not self.final_plan:
-        return False
-    try:
-        database_path, _, _, _, static_database_path = _allocation_paths(self)
-        snapshot_id = getattr(self, "_pending_allocation_snapshot_id", None)
-        if snapshot_id is None:
-            raise RuntimeError("本次计算未绑定官方背包快照，请重新执行计算。")
-        static_identity = getattr(self, "_pending_allocation_static_identity", None)
-        if not isinstance(static_identity, tuple) or len(static_identity) != 3:
-            raise RuntimeError("本次计算未绑定静态数据集，请重新执行计算。")
-        pinned_path, pinned_dataset_id, pinned_file_identity = static_identity
-        current_stat = static_database_path.stat()
-        if (
-            static_database_path != pinned_path
-            or (current_stat.st_size, current_stat.st_mtime_ns) != pinned_file_identity
-        ):
-            raise RuntimeError("计算使用的静态数据集已更新，请重新执行计算。")
-        saved_roles = []
-        with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
-            if static_dao.summary()["dataset"]["dataset_id"] != pinned_dataset_id:
-                raise RuntimeError("计算使用的静态数据集身份已改变，请重新执行计算。")
-            lock_snapshot = getattr(self, "_allocation_lock_snapshot", None)
-            if not isinstance(lock_snapshot, AllocationLockSnapshot):
-                raise RuntimeError("本次计算缺少配装锁定快照，请重新执行计算。")
-            if lock_snapshot.inventory_snapshot_id != snapshot_id:
-                raise RuntimeError("计算快照与配装锁定快照不一致，请重新执行计算。")
-            verify_allocation_lock_snapshot(user_dao, lock_snapshot)
-            targets = _select_allocation_save_slots(
-                self,
-                user_dao,
-                static_dao,
-                int(snapshot_id),
-            )
-            if targets is None:
-                return False
-            # Selection is made only at save time for multi-slot roles.  Rebuild
-            # the comparison here so slot B never inherits slot A's baseline.
-            selected_slot_diffs = selected_slot_plan_diff(
-                user_dao,
-                self.final_plan,
-                targets,
-            )
-            self.allocation_plan_diff = selected_slot_diffs
-            bridge = SavedStateLoadoutBridge(user_dao, static_dao)
-            for role_name, plan in self.final_plan.items():
-                if not isinstance(plan, dict) or not plan.get(PLAN_VALID):
-                    continue
-                character_id, slot_id = targets[role_name]
-                role_diff = (getattr(self, "allocation_plan_diff", {}) or {}).get(role_name, {})
-                bridge.save_role_plan(
-                    role_name=role_name,
-                    role_state=_role_state_from_plan(plan),
-                    character_id=character_id,
-                    snapshot_id=snapshot_id,
-                    name=f"计算方案：{role_name}",
-                    score=float(plan.get(PLAN_SCORE, 0.0) or 0.0),
-                    payload={
-                        "schema": "allocation-official-snapshot-v1",
-                        "source": "allocation",
-                        "source_role_name": role_name,
-                        "static_dataset_id": pinned_dataset_id,
-                        "strategy": getattr(self, "_pending_strat", ""),
-                        "blueprint_combo_limit": int(
-                            getattr(self, "_pending_blueprint_combo_limit", 500)
-                        ),
-                        "last_diff": _persistable_plan_diff(role_diff),
-                        "changed_uids": sorted(_plan_changed_uids(plan, role_diff)),
-                        "assignment_scores": _plan_assignment_scores(
-                            role_name,
-                            plan,
-                        ),
-                        "tape_main_values": legacy_plan_tape_main_values(plan),
-                    },
-                    slot_id=slot_id,
-                )
-                saved_roles.append(role_name)
-        if not saved_roles:
-            raise RuntimeError("本次计算没有可保存的有效方案。")
-        self._allocation_dirty = False
-        self._render_results(self.final_plan)
-        # Active plans are the character-page equipment source.  Refresh both
-        # projections immediately so a saved calculation is visible as the
-        # role's drive/core context without writing any template/profile data.
-        refresh_roles = getattr(self, "_refresh_my_role", None)
-        if callable(refresh_roles):
-            refresh_roles()
-        refresh_equipment = getattr(self, "_refresh_equip", None)
-        if callable(refresh_equipment):
-            refresh_equipment()
-        if show_message:
-            QMessageBox.information(
-                self.dialog_parent,
-                "保存成功",
-                f"已将 {len(saved_roles)} 个方案保存到官方 SQLite 数据库，并同步到角色与配装页面。",
-            )
-        return True
-    except Exception as e:
-        QMessageBox.critical(self.dialog_parent, "失败", str(e))
-        return False
+    from src.features.allocation.save_workflow import save_allocation
+    return save_allocation(self, show_message=show_message)
 
 
 def _role_state_from_plan(plan: dict[str, Any]) -> dict[str, Any]:
@@ -670,6 +568,9 @@ class AllocationController(QObject):
         self._cancel_event = threading.Event()
         self.btn_run: QPushButton | None = None
         self._worker: WorkerThread | None = None
+        self._save_worker: WorkerThread | None = None
+        self._saving = False
+        self.btn_save: QPushButton | None = None
         self.final_plan: dict = {}
         self.allocation_plan_diff: dict = {}
         self._allocation_dirty = False
@@ -695,6 +596,14 @@ class AllocationController(QObject):
 
     def bind_run_button(self, button: QPushButton) -> None:
         self.btn_run = button
+
+    def bind_save_button(self, button: QPushButton) -> None:
+        self.btn_save = button
+
+    def stop_save(self) -> None:
+        self._cancel_event.set()
+        if self._save_worker is not None and self._save_worker.isRunning():
+            self._save_worker.wait(5000)
 
     def start(
         self,
@@ -746,7 +655,7 @@ class AllocationController(QObject):
         return self._save_alloc(show_message=show_message)
 
     def is_running(self) -> bool:
-        return bool(self._worker is not None and self._worker.isRunning())
+        return self._saving or bool(self._worker is not None and self._worker.isRunning())
 
     def reset_account_state(self) -> None:
         self.final_plan = {}

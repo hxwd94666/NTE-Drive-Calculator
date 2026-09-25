@@ -239,7 +239,7 @@ def _render_results(self, plan):
                     main_weights=main_wts,
                     card_variant="result",
                     item_icon_path=_equipment_item_icon_path(
-                        tape, "core", Path(self.app_context.paths.asset_dir) / "game_ui"
+                        tape, "core", self.app_context.paths.game_ui_asset_root
                     ),
                     main_value=getattr(tape, "main_value", None),
                 )

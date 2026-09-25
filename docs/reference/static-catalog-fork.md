@@ -19,7 +19,7 @@
 
 ## 图鉴组织与角色适配
 
-首屏使用 `assets/game_ui/forks` 和 `GameUiAssetCatalog` 的正式图标渲染全部 49 件弧盘，不创建数据库表格。
+首屏使用 `data/role_catalog/game_ui/forks` 和 `GameUiAssetCatalog` 的正式图标渲染全部 49 件弧盘，不创建数据库表格。
 8 件限定特刊只消费 `StaticCatalogTerminologyService.list_fork_campaigns()` 返回的 DB-backed
 `LocalizedForkCampaign`：正式 `featured_fork_id` 决定限定分组，`release_ordinal` 决定新到旧顺序，
 `title.display_name` 决定多语言标题；标题缺失时显示“名称暂未提供”。页面不保留限定 ID、标题或顺序的
@@ -60,27 +60,22 @@ schema v36 另外通过 `fork_exp_material` / `fork_exp_material_cost` 展示淡
 ID，也不伪装成 0。页面不提供“当前 → 目标”、材料缺口、账号库存、副本次数或活力计算，不公开养成请求
 信号和结果回填接口。
 
-## schema v36 发行只读审计
+## 当前发行只读审计
 
-当前完整游戏 dataset `cn_1_3_13_fork_materials_v36_20260828` 为 schema v36、importer 46。它从已发行 v31
-基线按追加迁移生成：晋升时重新打开基线数据库、基线 manifest、候选数据库和正式来源文件，既有 `source_file`
-与未授权旧表必须保持相同指纹；新增导入只采用与基线 `source_row` 哈希完全相同的行。独立图鉴库和异版本战斗
-Blueprint 不参与该迁移。
+当前主库来自同一正式服导出，经完整构建和正式晋升；精确 dataset、schema、importer、大小与哈希以
+`data/manifest.json` 为准。独立图鉴以 `data/role_catalog/manifest.json` 为准，不向主库混入测试服数据。
+角色、弧盘、技能、Buff 和敌人均按正式 ID、资产绑定及来源哈希关联。
 
-| 内容 | 权威表 / 字段 | 当前行数或覆盖 |
+| 内容 | 权威表 / 字段 | 覆盖规则 |
 | --- | --- | --- |
-| 弧盘/专武目录、品质、类型、资源 | `fork_item`, `fork_type` | 49 件、5 类；49 件均保留 icon/card/painting |
-| 角色关联 | `exclusive_character_ids_json`, `character_cultivation_fork_recommendation` | 9 件含独占角色 ID；46 条养成推荐，覆盖 33 件弧盘、23 个角色 |
-| 1–80 级成长、每级 `NeedExp` 与面板 modify pack | `fork_upgrade_level`, `fork_modify_pack`, `fork_modify_value` | 1,600 条共享成长行；每件弧盘都能解析 80 级 |
-| 0–6 阶突破、等级上限、材料/货币、属性包 | `fork_breakthrough` | 343 条；每件 7 个阶段 |
-| 弧盘技能/混频 1–5 级、描述、消耗、占位参数 | `fork_star_level`, `fork_star_parameter`, `fork_refinement_parameter_value` | 245 级、720 个参数占位、975 个曲线值 |
-| 无条件常驻面板属性 | `fork_permanent_property` | 按弧盘 ID、精炼和来源参数唯一投影；当前数据集为 20 件弧盘、100 条精确数值 |
-| Buff 根资产、属性修改、事件触发、目标效果 | `buff_definition`, `buff_modifier`, `buff_trigger_effect` | 245 个根 Buff 定义、176 个根修改、594 个根触发 |
-| GE 正式 ID/类路径 | `gameplay_effect_catalog` | 仅按精确资产路径关联根 Buff 和触发目标 |
-| 正式材料与货币名称 | `progression_item`、`progression_item_alias`、`localized_term*` | 105 个闭包物品；玩家层显示正式名称，缺名不回退 raw ID |
-| 弧盘升级染剂与使用成本 | `fork_exp_material`、`fork_exp_material_cost` | 3 种染剂；正式单件经验与方斯成本均已闭合 |
-| 限定卡池 | `fork_lottery_campaign` | 8 个限定弧盘、正式活动标题和稳定发行顺序 |
-| 来源追溯 | `source_row`, `source_file` | 47,830 个行键、8,148 个文件及 SHA-256；全部 `payload_json` 均为 NULL |
+| 弧盘目录与资源 | `fork_item`, `fork_type` | 正式品质、类型、icon/card/painting |
+| 角色关联 | `exclusive_character_ids_json`, `character_cultivation_fork_recommendation` | 仅正式独占 ID 或养成推荐 |
+| 升级、突破、混频 | `fork_upgrade_level`, `fork_breakthrough`, `fork_star_level` | 正式等级、属性包、消耗和占位参数 |
+| 常驻面板 | `fork_permanent_property` | 按弧盘、精炼和来源参数唯一投影 |
+| Buff、触发与 GE | `buff_definition`, `buff_modifier`, `buff_trigger_effect`, `gameplay_effect_catalog` | 精确资产路径关联，不由说明猜倍率 |
+| 材料、本地化与染剂 | `progression_item`, `localized_term*`, `fork_exp_material*` | 正式物品身份、名称、经验和成本 |
+| 排期和季节增益 | `outer_realm_rotation*`, `outer_realm_season_buff*` | 官方排期与明确维护者补注分开保存；受益对象证据见战斗覆盖文档 |
+| 来源追溯 | `source_row`, `source_file` | 文件及行哈希；发行库省略原始 payload |
 
 弧盘行来源包括 `DataTable/Fork/DT_ForkItemData.json`、`DT_ForkUpgradeData.json`、
 `DT_ForkBreakthroughData.json`、`DT_ForkUpgradeStarDataTable.json`、`CT_ForkBuff.json` 以及
@@ -88,15 +83,15 @@ Blueprint 不参与该迁移。
 
 ## 当前 importer 边界
 
-- schema v36 没有 `fork_skill` / `fork_skill_level` 表。产品中的“弧盘技能”只能展示混频
+- 当前 schema 没有 `fork_skill` / `fork_skill_level` 表。产品中的“弧盘技能”只能展示混频
   1–5 级描述、参数、Buff 与效果，不可声称另有独立技能目录。
 - `source_payloads_omitted=true`；发行库不能还原原始 JSON 全行，只能展示 importer 保留字段、
   来源文件和校验值。
 - 弧盘到 GA 没有结构化直接绑定。DAO 只在资产路径精确匹配时返回 GA；当前发行库
   审计为 0，不从描述文本、名称或路径前缀推测。
-- 49 件弧盘中 33 件有独占角色 ID 或养成推荐关系，余下 16 件不显示专属/推荐徽记；所有弧盘仍可依据
+- 有正式独占角色 ID 或养成推荐关系的弧盘显示对应徽记，其余不显示；所有弧盘仍可依据
   正式 `group_type` 展示同类型可用角色，不按中文名、描述或效果类型猜专属角色。
-- schema v36 已提供通用养成物品和本地化目录；突破消耗通过稳定 item ID 关联正式名称。缺名仍显示
+- 当前 schema 已提供通用养成物品和本地化目录；突破消耗通过稳定 item ID 关联正式名称。缺名仍显示
   “名称暂未提供”，玩家页面不展示 raw ID。
 - `combat_effect_definition` 和 `combat_effect_buff_link` 是 importer 正规化的项目投影；
   其中描述、参数和 Buff 路径仍可回溯正式行，但投影 ID 不标成官方原始字段。

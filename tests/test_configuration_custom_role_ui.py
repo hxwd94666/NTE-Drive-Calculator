@@ -111,7 +111,7 @@ def test_custom_role_is_loaded_into_calculation_role_selector() -> None:
         with UserDataDao(database, account_id="selector"):
             pass
         custom = create_custom_character(database, "计算自建角色")
-        game_ui_asset_root = Path(__file__).resolve().parents[1] / "assets" / "game_ui"
+        game_ui_asset_root = Path(__file__).resolve().parents[1] / "data" / "role_catalog" / "game_ui"
         suit_id = str(get_weighted_static_catalog(game_ui_asset_root).suits[0]["suit_id"])
         with UserDataDao(database) as user_dao:
             user_dao.save_custom_character_target_suit_id(

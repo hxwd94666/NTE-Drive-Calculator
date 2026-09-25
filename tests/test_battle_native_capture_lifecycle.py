@@ -196,6 +196,7 @@ def test_ui_stop_during_live_snapshot_still_finalizes_and_saves():
     from unittest.mock import patch
     from src.services.native_game_session import NativeGameSession
     core = _NativeCore(auto_end=False)
+    core.is_running = False  # This fixture has no child process for HUD shutdown.
     core.hello_result['capabilities'] = ['native_battle_scope_snapshot_v1']
     session = NativeGameSession(lambda: core, lambda _: None)
     writer = _Writer()

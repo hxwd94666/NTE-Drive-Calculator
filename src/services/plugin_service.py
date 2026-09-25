@@ -15,6 +15,7 @@ class PluginService:
     def __init__(self, *, store, policy, session):
         self.store, self.policy, self.session = store, policy, session
         self._lock = RLock()
+        self._apply_lock = RLock()
         self.status = "未启用"
         self._statuses = {key: "未启用" for key in _PLUGIN_FIELDS}
         self.load_error = ""
@@ -61,11 +62,20 @@ class PluginService:
                 if changed & fields:
                     self._statuses[key] = (
                         "设置已保存，等待应用"
-                        if self._plugin_enabled(updated, key) else "未启用"
+                        if self._plugin_enabled(updated, key) else "关闭显示待确认"
                     )
             self._refresh_aggregate_status(updated)
 
     def observe(self, probe):
+        with self._apply_lock:
+            self._apply(game_running=probe.game_running, connect=True)
+
+    def apply_current(self):
+        """Apply UI changes on the existing connection without a full environment probe."""
+        with self._apply_lock:
+            self._apply(game_running=None, connect=False)
+
+    def _apply(self, *, game_running, connect):
         self.apply_mode_policy()
         with self._lock:
             settings = self.settings
@@ -78,20 +88,24 @@ class PluginService:
             except Exception:
                 status = "关闭显示未确认，等待连接恢复"
             for key in statuses:
-                if self._plugin_enabled(settings, key) or not self.policy.allowed("native_load"):
+                if (status == "关闭显示未确认，等待连接恢复" or self._plugin_enabled(settings, key)
+                        or not self.policy.allowed("native_load")):
                     statuses[key] = status
-        elif not probe.game_running:
+        elif game_running is False:
             status = "等待游戏"
             for key in statuses:
                 if self._plugin_enabled(settings, key):
                     statuses[key] = status
         else:
             try:
-                result = self.session.configure_hud(settings.payload(), connect=True)
+                result = self.session.configure_hud(settings.payload(), connect=connect)
                 status = ("当前游戏版本不支持此显示组件" if result.get("rejected") else
                           "运行中" if result.get("installed") else "等待可操作场景")
             except Exception as error:
                 status = str(error) or "插件连接失败，请重新检测组件"
+                for key in statuses:
+                    if not self._plugin_enabled(settings, key):
+                        statuses[key] = "关闭显示未确认，等待连接恢复"
             for key in statuses:
                 if self._plugin_enabled(settings, key):
                     statuses[key] = status
@@ -99,6 +113,8 @@ class PluginService:
             if settings == self.settings:
                 self._statuses = statuses
                 self._refresh_aggregate_status(settings)
+        if not settings.enabled and not self.policy.allowed("native_sync", automatic=True):
+            self.session.close_if_idle()
 
     def apply_mode_policy(self):
         """Revoke saved switches on downgrade, while retaining display options."""

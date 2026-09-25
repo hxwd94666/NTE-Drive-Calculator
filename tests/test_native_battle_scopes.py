@@ -21,6 +21,60 @@ def test_first_hit_cannot_bind_later_configuration():
     assert validate_first_hit(native_snapshot(), {}) == "first_hit_configuration_unverified"
 
 
+def test_dll_retained_first_hit_build_survives_later_configuration_changes(capture):
+    service, deps, _, _ = capture
+    snapshot = native_snapshot()
+    snapshot["retention"] = "dll_pinned"
+    service.bind_runtime_snapshot(capture_operation_id="capture", snapshot={"state": "scoped", "scopes": {
+        "upper": {"attempt_id": "1", "snapshot": snapshot}}})
+    first = attempt()
+    first["changes"] = [{"character": {"revision": "9", "dirty": True},
+                         "team": {"revision": "9", "dirty": True}}]
+    outcome = finish(service, {"native_capture": {"scopeAttempts": {"upper": first}}})
+    with UserDataDao(deps.user_database_path) as dao:
+        frozen = dao.load_battle_capture_build("capture")
+        assert frozen["settlement_fallback"] == {}
+        assert dao.load_battle_build_snapshot(outcome.battle_record_id)["characters"][0]["character_level"] == 70
+
+
+def test_cross_half_configuration_conflict_remains_explicit(capture):
+    service, deps, _, _ = capture
+    upper, lower = native_snapshot(), native_snapshot()
+    lower["character_projection"]["profiles"][0]["character_level"] = 71
+    lower["character_projection"]["profiles"][0]["breakthrough_stage"] = 6
+    service.bind_runtime_snapshot(capture_operation_id="capture", snapshot={"state": "scoped", "scopes": {
+        "upper": {"attempt_id": "1", "snapshot": upper}, "lower": {"attempt_id": "2", "snapshot": lower}}})
+    outcome = finish(service, {"native_capture": {"scopeAttempts": {"upper": attempt(), "lower": attempt("2")}}})
+    with UserDataDao(deps.user_database_path) as dao:
+        frozen = dao.load_battle_capture_build("capture")
+        assert frozen["calculation_unavailable_reason"] == "native_cross_half_character_configuration_conflict"
+        assert len(frozen["native_scope_builds"]) == 2
+        assert frozen["profiles"] == {}
+        assert frozen["settlement_fallback"] == {}
+        assert "统一计算副本不可用" in outcome.warning_message
+
+
+def test_lower_missing_profile_falls_back_without_replacing_upper(capture):
+    service, deps, _, profiles = capture
+    from tests.test_battle_axis_dao import _profile
+    profiles[1004] = _profile(1004, "fork_Test")
+    upper, lower = native_snapshot(), native_snapshot()
+    lower["domains"]["team"]["records"] = [{"CharacterItems": [{"ItemID": "1004"}]}]
+    lower["character_projection"]["profiles"] = []
+    lower["inventory_projection"]["items"] = []
+    lower["selection"]["character_ids"] = [1004]
+    service.bind_runtime_snapshot(capture_operation_id="capture", snapshot={"state": "scoped", "scopes": {
+        "upper": {"attempt_id": "1", "snapshot": upper}, "lower": {"attempt_id": "2", "snapshot": lower}}})
+    outcome = finish(service, {"native_capture": {"scopeAttempts": {"upper": attempt(), "lower": attempt("2")}}})
+    with UserDataDao(deps.user_database_path) as dao:
+        frozen = dao.load_battle_capture_build("capture")
+        assert set(frozen["settlement_fallback"]) == {"1004"}
+        characters = {row["character_id"]: row for row in dao.load_battle_build_snapshot(outcome.battle_record_id)["characters"]}
+        assert characters[1072]["character_level"] == 70
+        assert characters[1072]["equipment"][0]["uid_serial"] == 202
+        assert characters[1004]["character_level"] == 80
+
+
 @pytest.mark.parametrize("lower_has_hit", [False, True])
 def test_save_after_lower_switch_only_persists_halves_with_hits(capture, lower_has_hit):
     service, deps, _, _ = capture
@@ -115,6 +169,30 @@ def test_restart_lower_rejects_old_snapshot_without_losing_upper():
     assert set(result["native_scope_builds"]) == {"upper"}
     assert result["profiles"][1072]["character_level"] == 70
     assert build["native_scope_builds"]["lower"]["attempt_id"] == "2"
+
+
+def test_missing_half_never_clears_saved_valid_half(capture):
+    service, deps, _, _ = capture
+    with patch.object(service, "_resolve_character_stat_snapshots", return_value={}):
+        service.bind_runtime_snapshot(capture_operation_id="capture", snapshot={"state": "scoped", "scopes": {
+            "upper": {"attempt_id": "1", "snapshot": native_snapshot()}}})
+    outcome = finish(service, {"native_capture": {"scopeAttempts": {
+        "upper": attempt("1"), "lower": attempt("2")}}})
+    assert "下半场" in outcome.warning_message
+    assert "已保留现有证据" in outcome.warning_message
+    with UserDataDao(deps.user_database_path) as dao:
+        build = dao.load_battle_build_snapshot(outcome.battle_record_id)
+        assert [row["character_id"] for row in build["characters"]] == [1072]
+        assert build["characters"][0]["equipment"][0]["uid_serial"] == 202
+
+
+def test_gate_records_missing_team_profiles_instead_of_claiming_ready():
+    entry = {"attempt_id": "1", "snapshot": native_snapshot(), "profiles": {}, "stat_snapshots": {}, "equipment": []}
+    selected, reason = select_scope_builds({"native_scope_builds": {"upper": entry}},
+                                          {"native_capture": {"scopeAttempts": {"upper": attempt()}}})
+    assert reason == "native_scope_team_profiles_missing"
+    assert selected["native_scope_validation"]["upper"]["state"] == "unavailable"
+    assert selected["native_scope_builds"]["upper"]["snapshot"] == entry["snapshot"]
 
 
 def test_world_bonus_uses_frozen_native_levels_without_mutating_account():

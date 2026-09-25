@@ -722,7 +722,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         return build_identify_result_row(
             rank,
             row,
-            game_ui_asset_root=self.app_context.paths.asset_dir / "game_ui",
+            game_ui_asset_root=self.app_context.paths.game_ui_asset_root,
         )
 
     def _on_identify_error(self, err):

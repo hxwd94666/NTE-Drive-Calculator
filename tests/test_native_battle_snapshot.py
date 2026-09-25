@@ -91,7 +91,7 @@ def test_formal_and_raw_pages_share_one_refresh_per_domain():
         assert headers[domain]["snapshotId"] == result["domains"][domain]["snapshotId"]
 
 
-def test_scene_change_restarts_every_domain_instead_of_mixing_snapshots():
+def test_scene_change_after_read_keeps_immutable_observations_for_first_hit_validation():
     core = Core()
     def changed(c):
         c.revision = "2"
@@ -99,15 +99,16 @@ def test_scene_change_restarts_every_domain_instead_of_mixing_snapshots():
     core.on_status = changed
     result = freeze_native_battle_snapshot(core, lambda: None)
     assert result["state"] == "observed"
-    assert {s["revision"] for s in result["domains"].values()} == {"2"}
-    assert sum(m == "native.snapshot.refresh" for m, _ in core.calls) == 8
+    assert {s["revision"] for s in result["domains"].values()} == {"1"}
+    assert sum(m == "native.snapshot.refresh" for m, _ in core.calls) == 4
 
 
-def test_continuously_changing_scene_returns_missing_instead_of_old_snapshot():
+def test_live_revision_changes_do_not_discard_completed_pages():
     core = Core()
     core.on_status = lambda c: setattr(c, "revision", str(int(c.revision) + 1))
     result = freeze_native_battle_snapshot(core, lambda: None)
-    assert result["state"] == "source_changed" and result["domains"] == {}
+    assert result["state"] == "observed"
+    assert {s["revision"] for s in result["domains"].values()} == {"1"}
 
 
 def test_incomplete_page_never_becomes_battle_snapshot():
@@ -146,6 +147,21 @@ def test_unavailable_domain_retains_other_stable_observations():
     assert result["state"] == "observed"
     assert set(result["domains"]) == {"inventory", "team", "environment"}
     assert "character_snapshot_unavailable" in result["missing"]
+
+
+def test_environment_transition_does_not_discard_completed_role_and_equipment():
+    core = Core()
+    call = core.call
+    def transition(method, params, **kwargs):
+        if method == "native.snapshot.refresh" and params["domain"] == "environment":
+            raise NteCoreRpcError({"code": -32001, "message": "source_changed"})
+        return call(method, params, **kwargs)
+    core.call = transition
+    result = freeze_native_battle_snapshot(core, lambda: None)
+    assert result["state"] == "observed"
+    assert set(result["domains"]) == {"character", "inventory", "team"}
+    assert "environment_snapshot_unavailable" in result["missing"]
+    assert sum(m == "native.snapshot.refresh" for m, _ in core.calls) == 3
 
 
 def test_transient_start_not_ready_preserves_native_lease_for_retry():

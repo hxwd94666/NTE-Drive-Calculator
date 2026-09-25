@@ -1,7 +1,7 @@
-# capture component source
+# Native capture component source
 
-Source base: 5d9c0269f60abc968b932e78d0cf1f91c01ea240; modified working-tree input SHA-256: c81da392f422619d6f784861bf7be06b98fd73b762a419c951c07c2f768d5f21. The base alone does not reproduce this build. Release x64. Existing licenses and notices retain their terms.
+Source: https://github.com/kongbaiz/UETools-NTE; base commit 348a0aafe308967fc2b432b8a6395a6a54bfc998; modified working-tree input SHA-256 7f174b9dc007ad54ff448451db90a32e06a00e9a9752b42a6e545e12ca7b692c. The base alone does not reproduce this build.
 
-HUD integration source: 1c3d65a5fa265ac4a176478fe4effd91955bce11. Native E/Q presentation, bounded UI discovery and callback-owned reads are adapted to the existing standalone dispatcher. Attribute replication retains its capture route; HUD notifications do not create hits. Local state-batch ordering and raw-evidence capture remain in the build.
+Release x64 standalone capture and minimal D3D proxy. VMProtect policy and file identities are recorded in capture-component.json. Existing license terms apply. First-hit snapshot bytes are retained across half transitions. Buff baselines are emitted at first hit and confirmed half/reset boundaries; callbacks retain subsequent changes.
 
-Direct/proxy loading, HUD configuration and the existing Core handshake passed in an isolated non-game host. In-game appearance, skill-form transitions and secondary effect-window rendering remain unverified.
+Focused fixtures and exact-binary isolated-host checks passed. Real-game capture, first-hit coverage and save/reopen acceptance remain pending.

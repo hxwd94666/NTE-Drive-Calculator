@@ -81,7 +81,7 @@ def configure_warehouse_view_template_roots(
     )
     _TEMPLATE_ROOTS = roots or (bundled_config_dir() / "templates",)
     if asset_root is not None:
-        _ASSET_ROOT = Path(asset_root).resolve() / "game_ui"
+        _ASSET_ROOT = Path(asset_root).resolve()
     _legacy_character_avatar.cache_clear()
 
 

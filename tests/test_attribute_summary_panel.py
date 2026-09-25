@@ -281,7 +281,7 @@ class AttributeSummaryPanelTests(unittest.TestCase):
     def test_calculation_diff_pairs_old_and_new_drive_in_one_change(self) -> None:
         presentation = EquipmentPresentation(
             app_context=SimpleNamespace(
-                paths=SimpleNamespace(asset_dir=Path(".")),
+                paths=SimpleNamespace(game_ui_asset_root=Path("missing-game-ui")),
                 account=SimpleNamespace(user_database_path=Path("user.sqlite3")),
             ),
             dialog_parent=None,
@@ -326,7 +326,7 @@ class AttributeSummaryPanelTests(unittest.TestCase):
     def test_diff_score_fallback_covers_drive_and_tape(self) -> None:
         presentation = EquipmentPresentation(
             app_context=SimpleNamespace(
-                paths=SimpleNamespace(asset_dir=Path(".")),
+                paths=SimpleNamespace(game_ui_asset_root=Path("missing-game-ui")),
                 account=SimpleNamespace(user_database_path=Path("user.sqlite3")),
             ),
             dialog_parent=None,

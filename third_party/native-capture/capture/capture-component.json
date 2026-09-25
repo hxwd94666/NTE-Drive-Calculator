@@ -3,8 +3,8 @@
   "component": "uetools-native-capture",
   "protocolVersion": 1,
   "sourceRepository": "https://github.com/kongbaiz/UETools-NTE",
-  "sourceCommit": "5d9c0269f60abc968b932e78d0cf1f91c01ea240",
-  "sourceTreeSha256": "c81da392f422619d6f784861bf7be06b98fd73b762a419c951c07c2f768d5f21",
+  "sourceCommit": "348a0aafe308967fc2b432b8a6395a6a54bfc998",
+  "sourceTreeSha256": "7f174b9dc007ad54ff448451db90a32e06a00e9a9752b42a6e545e12ca7b692c",
   "sourceState": "working-tree",
   "configuration": "Release",
   "architecture": "x64",
@@ -20,18 +20,20 @@
     "combat.raw_evidence.v1",
     "character.snapshot.v1",
     "inventory.snapshot.v1",
+    "inventory.all_items.v1",
     "team.snapshot.v1",
     "environment.snapshot.v1",
     "equipment.execute.v1",
     "equipment.state_batch.v1",
     "combat.clock.v1",
-    "snapshot.changes.v1"
+    "snapshot.changes.v1",
+    "snapshot.pinned.v1"
   ],
   "files": [
     {
       "name": "NTE_Capture.dll",
-      "size": 4635648,
-      "sha256": "0ce6ade560b6188803a0b5d9608db91c2135d3498f3b36e94513cec5b3794aa8"
+      "size": 9519104,
+      "sha256": "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819"
     },
     {
       "name": "d3d12.dll",
@@ -49,10 +51,19 @@
       "sha256": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef"
     }
   ],
+  "protection": {
+    "tool": "VMProtect",
+    "policy_sha256": "5b854accb2645200b2299a27f3d324bb8a73c9150ccf4ce16e436651b5445cb8",
+    "binaries": {
+      "NTE_Capture.dll": {
+        "sha256": "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819",
+        "functions": 14
+      }
+    }
+  },
   "validation": {
     "gameRuntime": "not_run",
     "gameDeployment": "not_performed",
-    "nonGame": "direct/proxy exact-binary Core handshake, HUD configuration, batch not-ready rejection and shutdown passed"
-  },
-  "upstreamHudCommit": "1c3d65a5fa265ac4a176478fe4effd91955bce11"
+    "nonGame": "Exact direct/proxy isolated-host checks passed; six focused C++ programs passed."
+  }
 }

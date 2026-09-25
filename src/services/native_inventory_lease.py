@@ -4,13 +4,16 @@ from __future__ import annotations
 from copy import deepcopy
 from contextlib import contextmanager
 from threading import Event
+from time import monotonic
 
+from src.domain.all_item_snapshot import ALL_ITEMS_CAPABILITY
 from src.integrations.native_inventory_snapshot import NativeSnapshotPending
 from src.services.inventory_capture_wait import InventorySyncCancelled
-from src.integrations.nte_core_protocol import NteCoreRpcError, NteCoreProtocolError
+from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError, NteCoreProtocolError
 from src.services.native_snapshot_changes import (
     CHANGES_CAPABILITY, NativeSnapshotChanges, domain_status, snapshot_change_key,
 )
+from src.observability import OperationContext, log_event
 
 
 class NativeInventoryLease:
@@ -24,9 +27,11 @@ class NativeInventoryLease:
         self._handlers = {}
         self._sequence = 0
         self._snapshot_ready = False
-        self._has_inventory_baseline = False
         self._equipment_context = None
         self._changes = NativeSnapshotChanges()
+        self._all_items_pending = None
+        self._all_items_saved_revision = None
+        self._all_items_retry_at = 0.0
 
     @property
     def snapshot_ready(self):
@@ -106,6 +111,8 @@ class NativeInventoryLease:
                 return {"capture_status": "running", "native_snapshot_ready": False,
                         "message": ("本次背包读取超时，等待游戏就绪后自动重试；已保存背包保持不变。"
                                     if error.message == "control_timeout" else
+                                    "读取期间背包有变化，正在自动重读；已保存背包保持不变。"
+                                    if error.message == "source_changed" else
                                     "正在等待游戏提供本次完整背包；已保存背包保持不变。")}
             raise
         self._check()
@@ -126,16 +133,47 @@ class NativeInventoryLease:
         self._check()
         current = self._change_status()
         self._snapshot_ready = current is None or self._changes.is_current(current, "inventory")
-        if self._snapshot_ready:
-            self._has_inventory_baseline = True
         if character is not None and current is not None and not self._changes.is_current(current, "character"):
             character = None
+        all_items = None
+        all_items_error = None
+        if (self.snapshot_ready and snapshot is None and character is None and character_error is None
+                and current is not None and self._equipment_context is None
+                and ALL_ITEMS_CAPABILITY in (self.hello_result or {}).get("capabilities", ())):
+            try:
+                all_items = self._all_items_for_storage(current)
+            except (NativeSnapshotPending, NteCoreError) as error:
+                self._all_items_retry_at = monotonic() + 30.0
+                all_items_error = type(error).__name__
+            self._check()
+            current = self._change_status()
+            self._snapshot_ready = self._changes.is_current(current, "inventory")
         return {"capture_status": "running", "native_snapshot_ready": self.snapshot_ready,
                 "native_change_pending": (not self.snapshot_ready and current is not None
                                           and bool(domain_status(current, "inventory").get("domainKey"))),
                 "message": "背包已同步，正在后台监听变化。" if self.snapshot_ready else "正在等待装备变化稳定。",
                 **({"native_character_snapshot": character} if character is not None else {}),
+                **({"native_all_item_snapshot": all_items} if all_items is not None else {}),
+                **({"native_all_item_error": all_items_error} if all_items_error else {}),
                 **({"native_character_error": character_error} if character_error else {})}
+
+    def _all_items_for_storage(self, status):
+        revision = snapshot_change_key(status, "inventory")
+        if self._all_items_pending is not None:
+            pending_revision = tuple(self._all_items_pending[key] for key in ("providerId", "domainKey", "revision"))
+            if pending_revision == revision:
+                return self._all_items_pending
+            self._all_items_pending = None
+        if revision == self._all_items_saved_revision or monotonic() < self._all_items_retry_at:
+            return None
+        self._all_items_pending = self._owner.read_all_items(self._client, self._check)
+        return self._all_items_pending
+
+    def confirm_all_item_snapshot_saved(self, snapshot):
+        self._check()
+        if self._all_items_pending is snapshot:
+            self._all_items_saved_revision = tuple(snapshot[key] for key in ("providerId", "domainKey", "revision"))
+            self._all_items_pending = None
 
     @staticmethod
     def _pending_error(error):
@@ -154,7 +192,15 @@ class NativeInventoryLease:
     def _refresh_domain(self, domain, status):
         if status is not None and not self._changes.needs_refresh(status, domain):
             return None
-        snapshot = self._owner._read_projection(self._client, domain, self._check)
+        try:
+            snapshot = self._owner._read_projection(self._client, domain, self._check)
+        except (NativeSnapshotPending, NteCoreRpcError) as error:
+            if status is not None and (isinstance(error, NativeSnapshotPending) or self._pending_error(error)):
+                delay = self._changes.defer(status, domain)
+                log_event("INFO", "native_sync.retry_deferred", "同一修订读取未完成，降低重试频率",
+                          OperationContext.create("native_sync"), domain=domain, retry_after_seconds=delay,
+                          error_type=type(error).__name__)
+            raise
         if status is not None:
             latest = self._change_status()
             expected = snapshot.get("providerId"), snapshot.get("domainKey"), snapshot.get("revision")
@@ -210,12 +256,8 @@ class NativeInventoryLease:
             if self._equipment_context is not None:
                 yield self
                 return
-            if not self.snapshot_ready and self._has_inventory_baseline:
-                self._status()
-            if not self.snapshot_ready:
-                code = "EQUIPMENT_PLUGIN_BUSY" if self._has_inventory_baseline else "NATIVE_SNAPSHOT_INCOMPLETE"
-                raise NteCoreRpcError({"code": -32001, "message": "请等待本次完整原生背包就绪后重试。",
-                                       "data": {"domain_code": code}})
+            # The application pins a saved complete inventory before dispatch.
+            # Refresh readiness must not block commands against those known UIDs.
             status = self._owner.equipment_status(self._client)
             if status.get("ready") is not True:
                 raise NteCoreRpcError({"code": -32001, "message": "请等待装备接口就绪后重试。",

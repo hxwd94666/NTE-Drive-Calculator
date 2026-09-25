@@ -600,3 +600,25 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         host._analysis_load_failed(1, request, "组件能力缺失")
         page.clear_analysis.assert_not_called()
         page.show_analysis_detail_error.assert_called_once_with("倾陷归属未完成：组件能力缺失")
+
+    def test_half_hit_and_buff_failures_keep_existing_report_visible(self) -> None:
+        for half in ("first", "second"):
+            for detail_level in ("hit", "buff"):
+                with self.subTest(half=half, detail_level=detail_level):
+                    page = _AsyncPage(QEventLoop())
+                    page.clear_analysis = Mock()
+                    page.show_analysis_detail_error = Mock()
+                    host = self._host(page)
+                    request = SimpleNamespace(
+                        load=BattleReportAnalysisLoadRequest(
+                            battle_record_id=12, detail_level=detail_level, detail_scope=half),
+                        account_id="test-account", generation=3,
+                    )
+                    host._desired_analysis_load_token = 1
+                    host._analysis_load_failed(1, request, "详情不可用")
+                    page.clear_analysis.assert_not_called()
+                    page.show_analysis_detail_error.assert_called_once()
+                    page.show_analysis_detail_error.reset_mock()
+                    host._analysis_load_ready(1, request, BattleReportAnalysisLoadResult(None, None))
+                    page.clear_analysis.assert_not_called()
+                    page.show_analysis_detail_error.assert_called_once()

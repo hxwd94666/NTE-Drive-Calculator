@@ -22,7 +22,7 @@ from src.services.battle_timeline_time_service import (
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
-OUTER_REALM_BUFF_MODEL_VERSION = "battle-outer-realm-buff-v1"
+OUTER_REALM_BUFF_MODEL_VERSION = "battle-outer-realm-buff-v2"
 _TARGET_REQUIREMENT_PREFIX = "battle-target|id="
 
 
@@ -35,6 +35,7 @@ class BattleOuterRealmBuffComponent:
     duration_seconds: float | None = None
     trigger_cooldown_seconds: float | None = None
     stack_limit_count: int = 1
+    effect_asset_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +130,7 @@ class BattleOuterRealmBuffService:
                         else float(component["trigger_cooldown_seconds"])
                     ),
                     stack_limit_count=int(component["stack_limit_count"]),
+                    effect_asset_path=component.get("effect_asset_path"),
                 )
                 for component in row.get("components") or ()
             ),
@@ -160,6 +162,9 @@ class BattleOuterRealmBuffService:
     ) -> tuple[BattleInferredBuffInterval, ...]:
         if config is None or battle_end_us <= 0:
             return ()
+        if any(row.trigger_kind in {"whole_battle_qte", "observed_recipient_effect"}
+               for row in config.components):
+            raise ValueError("新赛季模型需要独立战报分析组件的逐击角色证据入口")
         if (backend := available_battle_compute(compute_backend)) is not None:
             from src.services.battle_team_state_compute import outer_intervals
             return outer_intervals(

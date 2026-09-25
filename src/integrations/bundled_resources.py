@@ -22,7 +22,7 @@ def bundled_config_dir() -> Path:
 
 
 def bundled_game_ui_asset_root() -> Path:
-    return bundled_root() / "assets" / "game_ui"
+    return bundled_root() / "data" / "role_catalog" / "game_ui"
 
 
 def bundled_ocr_model_dir() -> Path:

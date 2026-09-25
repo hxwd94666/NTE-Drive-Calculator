@@ -10,6 +10,7 @@ from typing import Any
 
 from src.observability import log_event
 from src.services.account_settings_service import AccountSettingsService
+from src.services.all_item_snapshot_storage import store_all_item_snapshot
 from src.services.raw_capture_retention import prune_raw_capture_files
 from src.storage.sqlite.inventory_save_error import InventorySnapshotSaveError
 from src.utils.logger import logger
@@ -226,6 +227,7 @@ def run_inventory_sync(service: Any) -> None:
                         0.2 if native_status.get("native_change_pending") else 1.0
                     )
                     _apply_native_profiles(service, native_status)
+                    store_all_item_snapshot(service, dao, client, native_status)
                     if not native_status.get("native_snapshot_ready", False):
                         stabilizer.discard_pending()
                         service._take_latest_event()  # Do not re-offer an observation invalidated during this poll.
@@ -453,7 +455,7 @@ def run_inventory_sync(service: Any) -> None:
                             error=exc,
                         )
                 try:
-                    retention = dao.prune_inventory_snapshots(retain_recent=0 if native else None)
+                    retention = dao.prune_inventory_snapshots(retain_recent=3 if native else None)
                     if retention["deleted_snapshot_count"]:
                         log_event(
                             "INFO",

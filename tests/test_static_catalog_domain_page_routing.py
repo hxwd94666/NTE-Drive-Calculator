@@ -31,7 +31,7 @@ from src.ui.equipment_presentation import EquipmentPresentation
 NTE_TEST_TIER = "core"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DATABASE = PROJECT_ROOT / "data" / "game_static.sqlite3"
-ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
+ASSET_ROOT = PROJECT_ROOT / "data" / "role_catalog" / "game_ui"
 
 
 class StaticCatalogDomainPageRoutingTests(unittest.TestCase):

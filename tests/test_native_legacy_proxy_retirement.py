@@ -1,6 +1,6 @@
-# 验证原生组件接管时直接移除旧代理，以及失败和游戏启动边界。
+# 验证自动管理保留旧代理，手动部署按显式授权清理旧代理。
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -20,13 +20,14 @@ def test_manual_deploy_removes_proxy_without_backup(tmp_path):
         application_root=root, game_executable_path=game,
         operation_guard=lambda _: None,
         game_running=lambda: False,
+        cleanup_legacy_proxy=True,
     )
     assert not target.exists()
     assert not list((tmp_path / 'backups').rglob('dwmapi.dll.bak'))
     assert set(result.managed_files) == {'d3d12.dll', 'NTE_Capture.dll'}
 
 
-def test_automatic_deploy_retires_proxy_even_when_new_files_match(tmp_path):
+def test_automatic_deploy_ignores_proxy_when_new_files_match(tmp_path):
     runtime, _, game, payload, _ = setup_upgrade(tmp_path)
     (game.parent / 'd3d12.dll').write_bytes((runtime.root / payload['roles']['host']).read_bytes())
     target = game.parent / 'dwmapi.dll'
@@ -35,9 +36,11 @@ def test_automatic_deploy_retires_proxy_even_when_new_files_match(tmp_path):
     runtime._native_deployed = inspect_deployed_native_plugin(
         application_root=runtime.root, game_executable_path=game,
     )
-    assert not runtime._native_deployed.files_compatible
-    runtime._automatic_deploy(False)
-    assert not target.exists()
+    assert runtime._native_deployed.files_compatible
+    with patch('src.services.work_mode_runtime.deploy_native_plugin') as deploy:
+        runtime._automatic_deploy(False)
+    deploy.assert_not_called()
+    assert target.read_bytes() == b'residual proxy'
     assert not list(runtime.config_dir.rglob('dwmapi.dll.bak'))
 
 
@@ -58,6 +61,7 @@ def test_proxy_delete_failure_blocks_new_component_writes(tmp_path):
                     application_root=root, game_executable_path=game,
                     operation_guard=lambda _: None,
                     game_running=lambda: False,
+                    cleanup_legacy_proxy=True,
                 )
             replace.assert_not_called()
     assert target.read_bytes() == b'old proxy'
@@ -74,6 +78,7 @@ def test_failed_native_write_does_not_restore_removed_proxy(tmp_path):
                 application_root=root, game_executable_path=game,
                 operation_guard=lambda _: None,
                 game_running=lambda: False,
+                cleanup_legacy_proxy=True,
             )
     assert not target.exists()
     assert not list((tmp_path / 'backups').rglob('dwmapi.dll.bak'))
@@ -86,6 +91,28 @@ def test_running_game_does_not_retire_proxy(tmp_path):
     runtime._automatic_deploy(True)
     assert target.read_bytes() == b'old proxy'
     assert not list(runtime.config_dir.rglob('dwmapi.dll.bak'))
+
+
+@pytest.mark.parametrize('name', ['dwmapi.dll', 'dxgi.dll', 'NTE-Platform.dll', 'unrelated.dll'])
+def test_automatic_upgrade_and_offline_cleanup_preserve_unrelated_dll(tmp_path, name):
+    runtime, policy, game, _, _ = setup_upgrade(tmp_path)
+    target = game.parent / name
+    target.write_bytes(b'other tool')
+    runtime._automatic_deploy(False)
+    assert policy.deployment_record['managed_files']
+    assert target.read_bytes() == b'other tool'
+    policy.select_mode('offline')
+    runtime.loader.stop_loader = Mock()
+    runtime.cleanup(running=False)
+    assert target.read_bytes() == b'other tool'
+
+
+def test_automatic_upgrade_does_not_inspect_unmanaged_proxy_directory(tmp_path):
+    runtime, policy, game, _, _ = setup_upgrade(tmp_path)
+    target = game.parent / 'dwmapi.dll'
+    target.mkdir()
+    runtime._automatic_deploy(False)
+    assert target.is_dir() and policy.deployment_record['managed_files']
 
 
 @pytest.mark.parametrize('change', ['replace', 'game_started', 'revoked'])

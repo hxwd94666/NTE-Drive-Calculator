@@ -291,6 +291,9 @@ class NteCoreClient(NteCoreBattleQueryMixin):
                 try:
                     message = json.loads(line)
                 except json.JSONDecodeError as exc:
+                    from src.integrations.native_transport_diagnostics import invalid_json
+                    invalid_json(line, exc, executable_sha256=self.executable_sha256,
+                                 exit_code=self._process.poll(), core_pid=self._process.pid)
                     raise NteCoreProtocolError(
                         "nte-core emitted invalid JSON on stdout"
                     ) from exc
@@ -336,6 +339,8 @@ class NteCoreClient(NteCoreBattleQueryMixin):
             if not message:
                 continue
             self._recent_stderr.append(message)
+            from src.integrations.native_transport_diagnostics import output_diagnostic
+            output_diagnostic(message, executable_sha256=self.executable_sha256, core_pid=self._process.pid)
             if self.stderr_handler is not None:
                 try:
                     self.stderr_handler(message)

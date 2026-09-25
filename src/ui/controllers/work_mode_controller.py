@@ -12,6 +12,7 @@ from src.features.settings.work_mode_card import (
     MODE_LABELS, ModeReportDialog, confirm_mode, report_summary,
 )
 from src.services.game_observation_service import GameObservationService, ObservationResult
+from src.services.work_mode_diagnostics import detection_failure_detail
 
 
 @dataclass(frozen=True)
@@ -31,14 +32,16 @@ class _PathResult:
 
 class WorkModeController(QObject):
     observed = Signal(object)
+    plugins_applied = Signal(object)
 
     def __init__(self, *, window, policy, runtime, navigate=None, observe_plugins=None,
-                 apply_plugin_policy=None) -> None:
+                 apply_plugin_policy=None, apply_plugins=None) -> None:
         super().__init__(window)
         self.window, self.policy, self.runtime = window, policy, runtime
         self._navigate = navigate
         self._observe_plugins = observe_plugins
         self._apply_plugin_policy = apply_plugin_policy
+        self._apply_plugins = apply_plugins
         self._settings_scroll = None
         self._settings_targets = {}
         self._highlighted_card = None
@@ -56,6 +59,7 @@ class WorkModeController(QObject):
         self._teardown_pending = 0
         self.observed.connect(self._apply)
         self._observer = GameObservationService(tick=self._observe, publish=self.observed.emit)
+        self._plugin_worker = GameObservationService(tick=lambda: None, publish=self.plugins_applied.emit)
 
     def attach_controls(self, *controls) -> None:
         self._controls = controls
@@ -155,8 +159,9 @@ class WorkModeController(QObject):
             if self._observe_plugins is not None:
                 self._observe_plugins(probe)
             return revision, generation, probe, request_id
-        except Exception:
-            return ObservationResult("fault", "检测失败，请重新检测。", revision, generation, request_id)
+        except Exception as error:
+            detail = detection_failure_detail(error, record=bool(request_id or allow_connect))
+            return ObservationResult("fault", detail, revision, generation, request_id)
 
     def _stop_live_work(self) -> None:
         service = self.window._inventory_sync_service
@@ -244,7 +249,12 @@ class WorkModeController(QObject):
 
     def refresh_plugins(self) -> None:
         if not self._closed:
-            self._observer.submit(self._observe, key="plugins")
+            def apply():
+                if self._closed or self._apply_plugins is None:
+                    return None
+                self._apply_plugins()
+                return True
+            self._plugin_worker.submit(apply, key="plugins")
 
     def component_state_changed(self) -> None:
         """Refresh a visible report and the compact summary after manual component work."""
@@ -447,6 +457,7 @@ class WorkModeController(QObject):
             service.request_stop()
             self.window.invalidate_inventory_sync_notifications()
         self.runtime.request_close()
+        self._plugin_worker.close()
         self._observer.close(finalize=lambda: self._finish_live_work(service, shutdown=True))
         detail = self.runtime.cleanup_exit_detail
         if detail:

@@ -427,7 +427,7 @@ def _optimize_saved_equipment(
         # Custom roles intentionally have no official detail or damage model.
         # Their replacement flow ranks only by their current account weights.
         rank_by_damage = False
-    database_path, _, asset_dir = _equipment_paths(self)
+    database_path, _, asset_root = _equipment_paths(self)
     try:
         plan, current, candidates, _plan_drives, _plan_tape = _sqlite_replacement_candidates(
             database_path, role_name, item_kind, uid, plan_id=plan_id
@@ -493,7 +493,7 @@ def _optimize_saved_equipment(
     # Only the visual structure is shared: all items below still come from one
     # stable SQLite snapshot and the replacement is saved as a SQLite plan.
     item_label = current.get(EQUIP_SHAPE_ID) if item_kind == "drive" else current.get(EQUIP_SET_NAME)
-    asset_catalog = GameUiAssetCatalog(asset_dir / "game_ui")
+    asset_catalog = GameUiAssetCatalog(asset_root)
     dialog = QDialog(self)
     dialog.setWindowTitle(f"{role_name} · {title}")
     dialog.resize(850, 650)

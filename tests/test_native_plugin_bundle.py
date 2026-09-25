@@ -122,7 +122,7 @@ def test_deployed_files_are_distinct_from_bundle_and_do_not_touch_registry(tmp_p
     old.write_bytes(b"unrelated legacy file")
     with patch("src.services.equipment_plugin_deployment.mod_workspace_registry_snapshot", side_effect=AssertionError("registry must not be read")):
         result = inspect_deployed_native_plugin(application_root=root, game_executable_path=game)
-    assert not result.files_compatible and result.legacy_proxy_present
+    assert result.files_compatible
     assert set(result.files) == set(NATIVE_PLUGIN_DEPLOYMENT_PATHS.values())
     assert all(item.matches_bundle for item in result.files.values())
     assert old.read_bytes() == b"unrelated legacy file"

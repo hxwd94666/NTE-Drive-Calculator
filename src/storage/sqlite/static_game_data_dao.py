@@ -11,6 +11,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Iterable, NoReturn
 
+from src.domain.recommended_weights import workshop_weight_source_ids
 from .static_game_data_metadata import (
     MINIMUM_SUPPORTED_SCHEMA_VERSION,
     SCHEMA_VERSION,
@@ -375,6 +376,18 @@ class StaticGameDataDao(
         )
 
     def get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
+        """精确工坊记录优先；主角另一形态的工坊记录优先于通用发行兜底。"""
+
+        fallback = None
+        for source_id in workshop_weight_source_ids(character_id):
+            row = self._get_character_recommended_weights(source_id)
+            if source_id == int(character_id):
+                fallback = row
+            if row and row.get("properties") and row.get("source_kind") != "default":
+                return {**row, "character_id": int(character_id)}
+        return fallback
+
+    def _get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
         """读取开发期写入静态库的推荐权重；运行时不会调用外部 API。"""
 
         recommendation = self._one(

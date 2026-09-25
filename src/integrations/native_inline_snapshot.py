@@ -1,5 +1,5 @@
 # 复用正式分页附带的原始记录，按既有快照契约校验后建立共享基线。
-from src.integrations.native_battle_snapshot import read_native_raw_domain
+from src.integrations.native_raw_snapshot import read_native_raw_domain
 from src.integrations.nte_core_protocol import NteCoreProtocolError
 
 

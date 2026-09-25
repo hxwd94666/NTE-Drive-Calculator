@@ -54,6 +54,14 @@ DEFAULT_RECOMMENDED_WEIGHTS = (
 )
 
 
+def workshop_weight_source_ids(character_id: int) -> tuple[int, ...]:
+    """主角两种性别形态共用推荐权重；精确 ID 优先，不改账号角色身份。"""
+
+    actual_id = int(character_id)
+    counterpart = {1046: 1051, 1051: 1046}.get(actual_id)
+    return (actual_id, counterpart) if counterpart is not None else (actual_id,)
+
+
 def _positive(value: Any) -> float:
     try:
         number = float(value)

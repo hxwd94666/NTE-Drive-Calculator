@@ -115,6 +115,21 @@ def test_close_with_unverified_path_does_not_report_cleanup_failure(controller, 
     assert policy.settings.pending_cleanup
 
 
+def test_plugin_toggle_does_not_queue_behind_environment_detection(controller):
+    c, _window, _policy, _events, _popups, _probe = controller
+    applied = []
+    c._apply_plugins = lambda: applied.append(True)
+    c.check()
+    environment_jobs = len(c._observer.jobs)
+    c.refresh_plugins()
+    assert len(c._observer.jobs) == environment_jobs
+    c._plugin_worker.tick = lambda: None
+    _key, job = c._plugin_worker.jobs.pop()
+    assert job() is True and applied == [True]
+    c.close()
+    assert c._plugin_worker.closed
+
+
 def test_home_guidance_navigates_to_workbench_instead_of_settings(controller, monkeypatch):
     c, _window, _policy, _events, _popups, _probe = controller
     routes = []

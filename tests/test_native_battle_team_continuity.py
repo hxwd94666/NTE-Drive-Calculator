@@ -164,12 +164,13 @@ def test_restore_empty_calculation_copy_uses_saved_equipment_and_is_idempotent(c
     snapshot, _, record = observed_team()
     with patch.object(service, "_resolve_character_stat_snapshots", return_value={}):
         service.bind_runtime_snapshot(capture_operation_id="capture", snapshot=scoped(snapshot))
-    with patch("src.services.battle_report_persistence_service.select_scope_builds") as select:
-        with UserDataDao(deps.user_database_path) as dao:
-            frozen = dao.load_battle_capture_build("capture")
-        select.return_value = (frozen, "first_hit_configuration_unverified")
-        outcome = finish(service, record)
+    outcome = finish(service, record)
     with UserDataDao(deps.user_database_path) as dao:
+        # Model an old report whose raw scope evidence survived but whose
+        # materialized calculation copy is missing, independent of save policy.
+        dao._db().execute("DELETE FROM battle_character_build_snapshot WHERE battle_record_id=?",
+                          (outcome.battle_record_id,))
+        dao._db().commit()
         before = dao.load_finalized_battle_capture_record(outcome.battle_record_id)
     assert service.restore_missing_native_build(outcome.battle_record_id)
     assert not service.restore_missing_native_build(outcome.battle_record_id)
@@ -210,9 +211,9 @@ def pending_refresh():
 def test_first_poll_missing_context_does_not_permanently_reject_saved_build(capture):
     from src.services.native_game_session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
+
     service, deps, _, _ = capture
     snapshot, _, record = pending_refresh()
-    # The immutable read finishes while Core receives more context evidence.
     first_poll = deepcopy(record)
     first_poll["native_capture"]["contextEvents"] = []
     session = NativeGameSession(FakeNativeCore, lambda _cap: None)
@@ -220,10 +221,10 @@ def test_first_poll_missing_context_does_not_permanently_reject_saved_build(capt
     try:
         lease.start_capture(profile="combat")
         with patch("src.integrations.native_battle_snapshot.freeze_native_battle_snapshot", return_value=deepcopy(snapshot)):
-            frozen = lease.observe_battle_scopes(first_poll)
+            assert lease.observe_battle_scopes(first_poll) is None
+        frozen = lease.observe_battle_scopes(record, final=True)
         with patch.object(service, "_resolve_character_stat_snapshots", return_value={}):
             service.bind_runtime_snapshot(capture_operation_id="capture", snapshot=frozen)
-        assert lease.observe_battle_scopes(record, final=True) is None
         outcome = finish(service, record)
         with UserDataDao(deps.user_database_path) as dao:
             build = dao.load_battle_build_snapshot(outcome.battle_record_id)
@@ -233,6 +234,8 @@ def test_first_poll_missing_context_does_not_permanently_reject_saved_build(capt
     finally:
         lease.close()
         session.close()
+
+
 
 
 @pytest.mark.parametrize("condition", ["same_epoch", "new_epoch", "after_read", "missing_time", "missing_context", "provider"])

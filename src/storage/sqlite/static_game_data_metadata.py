@@ -1,7 +1,7 @@
 # 静态游戏数据库版本与摘要表清单。
 """Shared metadata for the normalized static game database."""
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 38
 MINIMUM_SUPPORTED_SCHEMA_VERSION = 31
 
 SUMMARY_TABLES = (

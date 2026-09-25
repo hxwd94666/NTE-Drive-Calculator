@@ -104,6 +104,10 @@ class NteAnalysisCoreClient:
             self.supports_battle_page
             and capabilities is not None and "battle_topple_composition_v1" in capabilities
         )
+        self.supports_allocation = (
+            engine_version == ENGINE_VERSION
+            and capabilities is not None and "allocation_v1" in capabilities
+        )
         self.timeout = timeout
         self.cancelled = cancelled
         self._lock = threading.Lock()
@@ -253,6 +257,28 @@ class NteAnalysisCoreClient:
         if self.supports_battle_page_identity and "battle_page_identity_v1" not in value.get("capabilities", []):
             raise NativeAnalysisError("独立分析核心缺少战报输入身份能力")
         return value
+
+    def allocate(
+        self, payload: Mapping[str, Any], *,
+        checkpoint: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        """Execute one frozen allocation without reading account files."""
+        self._checkpoint(checkpoint)
+        if not self.supports_allocation:
+            raise NativeAnalysisError("分析组件缺少空幕分配能力，请更新分析组件")
+        if payload.get("batch_kind") != "allocation_v1":
+            raise NativeAnalysisError("空幕分配请求类型无效")
+        encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False,
+                             separators=(",", ":")).encode("utf-8")
+        if len(encoded) > MAX_BYTES:
+            raise NativeAnalysisError("空幕分配输入超过大小限制")
+        response = _json_object(self._run(encoded, checkpoint=checkpoint))
+        if (response.get("batch_kind") != "allocation_v1"
+                or type(response.get("version")) is not int or response["version"] != 1
+                or not isinstance(response.get("plans"), dict)):
+            raise NativeAnalysisError("空幕分配响应协议不匹配")
+        self._checkpoint(checkpoint)
+        return response["plans"]
 
     def compute_batch(
         self, operation: str, inputs: Sequence[dict[str, Any]], *,

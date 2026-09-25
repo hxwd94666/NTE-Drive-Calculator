@@ -119,6 +119,10 @@ class PluginsPage(QWidget):
     @staticmethod
     def _status_presentation(raw: str, checked: bool) -> tuple[str, str]:
         if not checked:
+            if raw == "关闭显示待确认":
+                return "正在关闭", "active"
+            if raw == "关闭显示未确认，等待连接恢复":
+                return "关闭待确认", "warning"
             return "已关闭", "neutral"
         if raw == "等待游戏":
             return "等待启动游戏", "warning"

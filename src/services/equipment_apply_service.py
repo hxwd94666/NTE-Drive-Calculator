@@ -189,10 +189,10 @@ class EquipmentApplyService:
         raise EquipmentApplyError(f"{operation} 未能提交到装备 MOD")
 
     def require_stable_snapshot(self) -> int:
-        """Validate the live sync once and return the snapshot to pin for a job."""
+        """Pin the latest saved complete snapshot independently of refresh progress."""
         state = self.sync_service.state
-        if not self.sync_service.is_running or state.phase not in {"listening", "collecting"}:
-            raise EquipmentApplyError("背包同步必须处于稳定监听状态才能一键装配")
+        if not self.sync_service.is_running:
+            raise EquipmentApplyError("装配连接尚未启动，请开启同步后重试")
         snapshot_id = self.user_dao.current_inventory_snapshot_id()
         if snapshot_id is None:
             raise EquipmentApplyError("当前账号还没有可用于极速装配的稳定背包快照")

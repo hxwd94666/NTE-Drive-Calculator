@@ -247,6 +247,7 @@ class MainWindowDataMixin:
             open_settings=self.work_mode_controller.open_settings, parent=self,
         )
         self.work_mode_controller.observed.connect(self.plugins_page.refresh)
+        self.work_mode_controller.plugins_applied.connect(self.plugins_page.refresh)
         return self.plugins_page
 
     def _refresh_plugins(self):

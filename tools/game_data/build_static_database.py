@@ -216,6 +216,8 @@ def build_database(
             ) if populate_templates else 0
         finally:
             connection.close()
+        from tools.game_data.build_analysis_catalogs import populate_analysis_catalogs
+        counts["battle_analysis_catalog"] = populate_analysis_catalogs(temporary)
         os.replace(temporary, output)
     except BaseException:
         temporary.unlink(missing_ok=True)

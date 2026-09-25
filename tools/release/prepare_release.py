@@ -40,12 +40,12 @@ INSTALLER_NAME = f"NTE_Drive_Calc_Setup_{__version__}.exe"
 INSTALLER_PATH = ROOT / "installer" / "output" / INSTALLER_NAME
 STATIC_DATABASE = ROOT / "data" / "game_static.sqlite3"
 STATIC_MANIFEST = ROOT / "data" / "manifest.json"
-GAME_UI_ASSET_ROOT = ROOT / "assets" / "game_ui"
+GAME_UI_ASSET_ROOT = ROOT / "data" / "role_catalog" / "game_ui"
 GAME_UI_ASSET_MANIFEST = GAME_UI_ASSET_ROOT / "manifest.json"
 APP_INTERNAL = ROOT / "dist" / "NTE_Drive_Calc" / "_internal"
 BUNDLED_STATIC_DATABASE = APP_INTERNAL / "data" / "game_static.sqlite3"
 BUNDLED_STATIC_MANIFEST = APP_INTERNAL / "data" / "manifest.json"
-BUNDLED_GAME_UI_ASSET_ROOT = APP_INTERNAL / "assets" / "game_ui"
+BUNDLED_GAME_UI_ASSET_ROOT = APP_INTERNAL / "data" / "role_catalog" / "game_ui"
 BUNDLED_GAME_UI_ASSET_MANIFEST = BUNDLED_GAME_UI_ASSET_ROOT / "manifest.json"
 LOCAL_CONFIG_ENV = "NTE_LOCAL_CONFIG"
 def run(command: Sequence[str]) -> None:
@@ -253,7 +253,7 @@ def validate_packaged_release_artifacts(
         BUNDLED_GAME_UI_ASSET_MANIFEST,
     )
     if sha256(BUNDLED_GAME_UI_ASSET_MANIFEST) != sha256(GAME_UI_ASSET_MANIFEST):
-        raise RuntimeError("安装包输入目录中的游戏 UI 资源 manifest 与 assets/ 不一致")
+        raise RuntimeError("安装包输入目录中的游戏 UI 资源 manifest 与 data/role_catalog/game_ui 不一致")
     validate_packaged_ocr_models(APP_INTERNAL)
 
 

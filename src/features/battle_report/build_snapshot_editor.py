@@ -55,7 +55,11 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
 
-        note = QLabel(self._note_text())
+        source_note = ""
+        if any((detail.get("profile") or {}).get("capture_equipment_source") == "packet_settlement_account_snapshot"
+               for detail in self._details):
+            source_note = "低风险来源：结算时数据库配装，按本场观测角色冻结，未确认首击时的实时装备。\n"
+        note = QLabel(source_note + self._note_text())
         note.setWordWrap(True)
         note.setStyleSheet(themed_style("color:#58a6ff;font-weight:600"))
         layout.addWidget(note)

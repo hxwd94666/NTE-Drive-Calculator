@@ -413,9 +413,20 @@ class SavedStateLoadoutBridge:
         self,
         user_dao: UserDataDao,
         static_dao: StaticGameDataDao,
+        *, frozen_snapshot_id: int | None = None,
     ) -> None:
         self.user_dao = user_dao
         self.static_dao = static_dao
+        self._frozen_snapshot_id = frozen_snapshot_id
+        self._frozen_items = (
+            {(item["uid_slot"], item["uid_serial"]): item
+             for item in user_dao.list_inventory_items(frozen_snapshot_id)}
+            if frozen_snapshot_id is not None else None
+        )
+        self._frozen_shapes = (
+            {shape["shape_id"]: shape for shape in static_dao.list_shapes()}
+            if frozen_snapshot_id is not None else None
+        )
 
     def save_role_plan(
         self,
@@ -485,11 +496,17 @@ class SavedStateLoadoutBridge:
                 f"静态数据库中不存在角色 ID {character_id}（{role_name}）"
             )
 
-        inventory = self.user_dao.list_inventory_items(selected_snapshot_id)
-        items_by_uid = {
-            (item["uid_slot"], item["uid_serial"]): item for item in inventory
-        }
-        shapes = {shape["shape_id"]: shape for shape in self.static_dao.list_shapes()}
+        if self._frozen_snapshot_id is not None:
+            if selected_snapshot_id != self._frozen_snapshot_id:
+                raise SavedStateLoadoutError("不能在同一次保存中切换冻结背包快照")
+            items_by_uid = self._frozen_items
+            shapes = self._frozen_shapes
+        else:
+            items_by_uid = {
+                (item["uid_slot"], item["uid_serial"]): item
+                for item in self.user_dao.list_inventory_items(selected_snapshot_id)
+            }
+            shapes = {shape["shape_id"]: shape for shape in self.static_dao.list_shapes()}
 
         assignments: list[dict[str, Any]] = []
         blocks = extract_drive_blocks_from_state({role_name: dict(role_state)})

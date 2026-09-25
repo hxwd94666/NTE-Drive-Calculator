@@ -44,11 +44,12 @@ from src.services.official_role_attribute_service import (
 from src.services.official_role_page_service import load_official_role_detail
 from src.services.native_role_profile_projection import project_native_role_profile
 from src.services.battle_capture_build_context import (
-    NATIVE_BUILD_WARNING, native_build_unavailable_reason, native_equipment_projection, native_profile_observations,
+    native_build_unavailable_reason, native_equipment_projection, native_profile_observations,
 )
 from src.services.world_bonus_settings_service import WORLD_BONUS_SETTING_KEY, WorldBonusSettings
 from src.services.native_battle_scopes import select_scope_builds
 from src.services.native_battle_world_bonus import native_world_bonus
+from src.services.battle_native_settlement import complete_native_build, settlement_warning
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
 
@@ -103,8 +104,9 @@ class BattleReportPersistenceService:
         *,
         capture_operation_id: str,
         captured_at_utc: str,
+        capture_source: Literal["native", "packet"] = "packet",
     ) -> None:
-        """Freeze equipped items, profiles and stats before capture."""
+        """Freeze native fallback context; packet builds are selected at settlement."""
 
         dependencies = self._dependencies
         if not self._context_is_current(dependencies):
@@ -124,9 +126,20 @@ class BattleReportPersistenceService:
                                                  captured_at_utc=captured_at_utc,
                                                  account_generation=dependencies.generation)
                 return
-            frozen_build = self._freeze_capture_build(user_dao)
+            if capture_source == "native":
+                frozen_build = self._freeze_capture_build(user_dao)
+            else:
+                if dependencies.static_database_path is None:
+                    raise UserDataError("战报采集缺少静态数据库路径")
+                with StaticGameDataDao(dependencies.static_database_path) as static_dao:
+                    static_summary = static_dao.summary()
+                frozen_build = {"freeze_phase": "capture_start", "snapshot_id": None,
+                                "dataset_id": (static_summary.get("dataset") or {}).get("dataset_id"),
+                                "static_schema_version": int(static_summary["schema_version"]),
+                                "profiles": {}, "stat_snapshots": {}, "equipment": []}
             if not self._context_is_current(dependencies):
                 raise UserDataError("战报账号上下文已经变化")
+            frozen_build["capture_source"] = capture_source
             user_dao.begin_battle_axis_capture(
                 capture_operation_id=capture_operation_id,
                 captured_at_utc=captured_at_utc,
@@ -134,7 +147,8 @@ class BattleReportPersistenceService:
                 frozen_build=frozen_build,
             )
 
-    def _freeze_capture_build(self, user_dao: UserDataDao) -> dict[str, Any]:
+    def _freeze_capture_build(self, user_dao: UserDataDao, character_ids: tuple[int, ...] | None = None,
+                              *, resolve_stats: bool = True) -> dict[str, Any]:
         dependencies = self._dependencies
         if dependencies.static_database_path is None:
             raise UserDataError("战报采集缺少静态数据库路径")
@@ -147,12 +161,15 @@ class BattleReportPersistenceService:
             static_summary = static_dao.summary()
             dataset = dict(static_summary.get("dataset") or {})
             profiles = self._load_effective_profiles(static_dao=static_dao, user_dao=user_dao)
+            if character_ids is not None:
+                profiles = {cid: value for cid, value in profiles.items() if cid in character_ids}
+                equipment = [item for item in equipment if item.get("equipped_character_id") in character_ids]
             if snapshot_id is None:
                 freeze_graduation_assumptions(static_dao, profiles, tuple(profiles))
             stats = self._resolve_character_stat_snapshots(
                 dependencies=dependencies, user_dao=user_dao, snapshot_id=snapshot_id,
                 character_ids=tuple(profiles), profiles=profiles, frozen_equipment=equipment, frozen_world_bonus=world_bonus,
-            )
+            ) if resolve_stats else {}
         return {
             "schema_version": 1, "freeze_phase": "capture_start", "snapshot_id": snapshot_id,
             "dataset_id": str(dataset.get("dataset_id") or "") or None,
@@ -193,35 +210,38 @@ class BattleReportPersistenceService:
                 if not ids:
                     reason = reason or "native_team_members_unavailable"
                 profiles = {int(key): deepcopy(value) for key, value in build["profiles"].items() if int(key) in ids}
-                if ids - profiles.keys():
-                    reason = reason or "native_team_profile_unavailable"
                 world_bonus, bonus_evidence = native_world_bonus(runtime, build["world_bonus"])
                 observations = native_profile_observations(runtime)
                 from src.services.native_role_profile_projection import validate_native_cultivation
                 selected_equipment = [item for item in equipment or [] if item.get("equipped_character_id") in ids]
                 stats = {}
-                try:
-                    validate_native_cultivation(tuple(observations.values()), static_database_path=dependencies.static_database_path)
-                    for character_id, profile in profiles.items():
+                unavailable_characters = []
+                for character_id, profile in tuple(profiles.items()):
+                    try:
+                        observation = observations.get(character_id)
+                        if not observation:
+                            unavailable_characters.append(character_id)
+                            profiles.pop(character_id, None)
+                            continue
+                        validate_native_cultivation((observation,), static_database_path=dependencies.static_database_path)
                         profile.pop("equipment_assumption", None)
                         profiles[character_id] = project_native_role_profile(
-                            profile, observations.get(character_id), persisted=profile.get("profile_source") == "account_role_page",
+                            profile, observation, persisted=profile.get("profile_source") == "account_role_page",
                         )
                         profiles[character_id]["capture_equipment_source"] = "native_first_hit_projection"
-                    selected_equipment = [item for item in equipment or [] if item.get("equipped_character_id") in ids]
-                    stats = {}
-                    if reason is None:
-                        stats = self._resolve_character_stat_snapshots(
-                            dependencies=dependencies, user_dao=user_dao, snapshot_id=None,
-                            character_ids=tuple(profiles), profiles=profiles, frozen_equipment=selected_equipment,
-                            frozen_world_bonus=world_bonus,
-                        )
-                except (UserDataError, ValueError, KeyError, TypeError):
-                    reason = "native_calculation_projection_unavailable"
-                    profiles, stats, selected_equipment = {}, {}, []
+                        if reason is None:
+                            stats.update(self._resolve_character_stat_snapshots(
+                                dependencies=dependencies, user_dao=user_dao, snapshot_id=None,
+                                character_ids=(character_id,), profiles=profiles, frozen_equipment=selected_equipment,
+                                frozen_world_bonus=world_bonus,
+                            ))
+                    except (UserDataError, ValueError, KeyError, TypeError):
+                        unavailable_characters.append(character_id)
+                        profiles.pop(character_id, None)
                 scoped[scope] = {**entry, "profiles": profiles, "equipment": selected_equipment,
                                  "stat_snapshots": stats, "world_bonus": world_bonus,
-                                 "world_bonus_evidence": bonus_evidence, "calculation_unavailable_reason": reason}
+                                 "world_bonus_evidence": bonus_evidence, "calculation_unavailable_reason": reason,
+                                 "unavailable_character_ids": unavailable_characters}
             build["native_scope_builds"] = scoped
             if not self._context_is_current(dependencies):
                 raise UserDataError("战报账号上下文已经变化")
@@ -488,8 +508,26 @@ class BattleReportPersistenceService:
                     warning_message = GRADUATION_ASSUMPTION_WARNING
             elif capture_state is not None:
                 post_battle_build = user_dao.load_battle_capture_build(capture_operation_id)
-                if post_battle_build is None or post_battle_build.get("freeze_phase") != "capture_start":
-                    raise UserDataError("战报缺少采集开始时冻结的配装，不能使用结束时的数据代替")
+                native = ((post_battle_build or {}).get("capture_source") == "native"
+                          or (raw_record_payload or {}).get("source") == "native_dll"
+                          or isinstance((raw_record_payload or {}).get("native_capture"), Mapping))
+                if not native and not (post_battle_build or {}).get("native_runtime_snapshot"):
+                    if (post_battle_build or {}).get("freeze_phase") != "settlement_database":
+                        frozen = self._freeze_capture_build(user_dao, character_ids)
+                        if post_battle_build and frozen["dataset_id"] != post_battle_build["dataset_id"]:
+                            raise UserDataError("战报静态数据集已经变化")
+                        frozen["freeze_phase"] = "settlement_database"
+                        frozen["capture_source"] = "packet"
+                        if frozen["equipment_source"] != "graduation_assumed":
+                            frozen["equipment_source"] = "packet_settlement_account_snapshot"
+                        for profile in frozen["profiles"].values():
+                            profile["capture_equipment_source"] = "packet_settlement_account_snapshot"
+                        if not self._context_is_current(dependencies):
+                            return BattleSummaryPersistenceOutcome(status="discarded_stale")
+                        post_battle_build = user_dao.freeze_battle_settlement_build(
+                            capture_operation_id, frozen, account_generation=dependencies.generation)
+                if post_battle_build is None or post_battle_build.get("freeze_phase") not in {"capture_start", "settlement_database", "settlement_native"}:
+                    raise UserDataError("战报缺少冻结配装，不能使用其他战斗的数据代替")
                 post_battle_build["profiles"] = {
                     int(key): value for key, value in post_battle_build["profiles"].items()
                 }
@@ -498,20 +536,12 @@ class BattleReportPersistenceService:
                 }
                 if post_battle_build.get("equipment_source") == "graduation_assumed":
                     warning_message = GRADUATION_ASSUMPTION_WARNING
-                runtime = post_battle_build.get("native_runtime_snapshot")
                 unavailable = post_battle_build.get("calculation_unavailable_reason")
-                if isinstance(runtime, Mapping) and runtime.get("state") == "scoped":
-                    post_battle_build, unavailable = select_scope_builds(post_battle_build, raw_record_payload or {})
-                elif isinstance((raw_record_payload or {}).get("native_capture"), Mapping):
-                    unavailable = "native_first_hit_snapshot_missing"
-                    post_battle_build["profiles"] = {
-                        key: value
-                        for key, value in post_battle_build["profiles"].items()
-                        if key in character_ids
-                    }
-                    post_battle_build["stat_snapshots"] = {}
-                    post_battle_build["equipment"] = []
-                    post_battle_build["snapshot_id"] = None
+                if native:
+                    post_battle_build = complete_native_build(
+                        self, user_dao, post_battle_build, raw_record_payload or {}, character_ids, capture_operation_id)
+                    unavailable = post_battle_build.get("calculation_unavailable_reason")
+                    warning_message = settlement_warning(post_battle_build) or warning_message
                 else:
                     # Packet evidence only identifies the observed participants;
                     # retain their equipped items, never an account-wide pool.
@@ -521,11 +551,6 @@ class BattleReportPersistenceService:
                                                           if key in character_ids}
                     post_battle_build["equipment"] = [item for item in post_battle_build["equipment"]
                                                      if item.get("equipped_character_id") in character_ids]
-                if unavailable:
-                    if unavailable != "native_first_hit_snapshot_missing":
-                        post_battle_build["profiles"] = {}
-                    post_battle_build.update(stat_snapshots={}, equipment=[], snapshot_id=None)
-                    warning_message = NATIVE_BUILD_WARNING
                 if not self._context_is_current(dependencies):
                     return BattleSummaryPersistenceOutcome(status="discarded_stale")
             result = user_dao.insert_auto_summary_snapshot(

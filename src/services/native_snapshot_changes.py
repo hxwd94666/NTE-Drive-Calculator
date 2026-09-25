@@ -43,9 +43,13 @@ class NativeSnapshotChanges:
         self._clock = clock
         self._seen = {}
         self._accepted = {}
+        self._retry = {}
 
     def needs_refresh(self, status, domain):
         key, now = snapshot_change_key(status, domain), self._clock()
+        retry = self._retry.get(domain)
+        if retry is not None and retry[0] == key and now < retry[2]:
+            return False
         if domain_status(status, domain)["ready"] is False:
             self._accepted.pop(domain, None)
         previous = self._seen.get(domain)
@@ -62,6 +66,16 @@ class NativeSnapshotChanges:
         key, now = snapshot_change_key(status, domain), self._clock()
         self._seen[domain] = key, now
         self._accepted[domain] = key, now
+        self._retry.pop(domain, None)
+
+    def defer(self, status, domain):
+        """Back off repeated incomplete reads; a new revision bypasses the delay."""
+        key, now = snapshot_change_key(status, domain), self._clock()
+        previous = self._retry.get(domain)
+        attempt = min(previous[1] + 1, 5) if previous and previous[0] == key else 1
+        seconds = min(10, 2 ** (attempt - 1))
+        self._retry[domain] = key, attempt, now + seconds
+        return seconds
 
     def is_current(self, status, domain):
         accepted = self._accepted.get(domain)

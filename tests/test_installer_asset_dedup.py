@@ -1,4 +1,4 @@
-# 验证安装包资源去重后仍能恢复两套图鉴路径及内容。
+# 验证安装包资源去重后仍能恢复图鉴清单中全部路径及内容。
 import hashlib
 import shutil
 import tempfile
@@ -15,11 +15,9 @@ from tools.release.installer_asset_dedup import (
 class InstallerAssetDedupTests(unittest.TestCase):
     def _fixture(self, root: Path) -> Path:
         internal = root / "dist" / "app" / "_internal"
-        main = internal / "assets" / "game_ui"
         catalog = internal / "data" / "role_catalog" / "game_ui"
-        (main / "characters").mkdir(parents=True)
         (catalog / "characters").mkdir(parents=True)
-        (main / "characters" / "main.png").write_bytes(b"same image bytes")
+        (catalog / "characters" / "00-main.png").write_bytes(b"same image bytes")
         (catalog / "characters" / "alias.png").write_bytes(b"same image bytes")
         (catalog / "characters" / "unique.png").write_bytes(b"other image bytes")
         (catalog / "manifest.json").write_text("{}", encoding="utf-8")

@@ -1,22 +1,54 @@
 # 提前准备有界原生战报快照，首击按修订冻结，不提升未知来源覆盖。
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 from time import monotonic
 
+from src.integrations.native_raw_snapshot import MAX_BUNDLE_BYTES, read_native_raw_domain
 from src.integrations.native_inventory_snapshot import NativeSnapshotPending, read_native_projection
 from src.integrations.nte_core_protocol import NteCoreProtocolError, NteCoreRpcError, NteCoreTimeoutError
 
 
 DOMAINS = ("character", "inventory", "team", "environment")
-MAX_BUNDLE_BYTES = 64 * 1024 * 1024
-MAX_RECORDS = 32768
 FREEZE_TIMEOUT_SECONDS = 60.0
-IDENTITY_FIELDS = ("providerId", "domain", "snapshotId", "generation", "domainKey", "revision",
-                   "observedUnixUs", "observedMonotonicMs", "ready", "enabled", "dirty",
-                   "recordCount", "enumerationComplete", "complete", "sourceCoverage", "changeCoverage",
-                   "failed", "truncated", "missing")
+
+
+def read_first_hit_snapshot(client, check, references):
+    """Read the DLL-owned immutable observations, including after a half transition."""
+    bundle = {"schema_version": 1, "binding": "first_hit_revision", "state": "observed",
+              "domains": {}, "missing": [], "retention": "dll_pinned"}
+    deadline = monotonic() + FREEZE_TIMEOUT_SECONDS
+
+    def call(method, params):
+        check()
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise NteCoreTimeoutError("native.first_hit_snapshot", FREEZE_TIMEOUT_SECONDS)
+        return client.call(method, params, timeout=remaining, check_cancelled=check)
+
+    for domain in DOMAINS:
+        reference = references.get(domain)
+        if not isinstance(reference, dict) or not reference.get("snapshotId"):
+            bundle["missing"].append(f"{domain}_first_hit_unavailable")
+            continue
+        try:
+            header = call("native.snapshot.open", {"domain": domain, "snapshotId": reference["snapshotId"]})
+            if any(header.get(key) != reference.get(key) for key in (
+                "providerId", "domain", "snapshotId", "generation", "domainKey", "revision",
+                "observedUnixUs", "observedMonotonicMs",
+            )):
+                raise NteCoreProtocolError("首击固定快照身份不匹配。")
+            bundle["domains"][domain] = read_native_raw_domain(call, check, domain, header=header)
+            if domain in ("character", "inventory"):
+                bundle[f"{domain}_projection"] = read_native_projection(call, check, domain=domain, header=header)
+        except (NativeSnapshotPending, NteCoreRpcError) as error:
+            if not _retryable(error):
+                raise
+            bundle["missing"].append(f"{domain}_first_hit_unavailable")
+    if len(json.dumps(bundle, ensure_ascii=False).encode("utf-8")) > MAX_BUNDLE_BYTES:
+        raise NteCoreProtocolError("首击快照超过大小限制。")
+    check()
+    return bundle
 
 
 class _SnapshotChanged(NativeSnapshotPending):
@@ -30,63 +62,21 @@ def _retryable(error):
         } or error.domain_code in {"NATIVE_SNAPSHOT_INCOMPLETE", "NATIVE_MAPPING_UNSUPPORTED"}))
 
 
-def read_native_raw_domain(call, check, domain, *, header=None):
-    if header is None:
-        header = call("native.snapshot.refresh", {"domain": domain})
-    if not isinstance(header, dict) or any(k not in header for k in IDENTITY_FIELDS):
-        raise NteCoreProtocolError("战报角色快照缺少来源身份或变化修订。")
-    if header["domain"] != domain:
-        raise NteCoreProtocolError("战报快照返回了错误的数据域。")
-    if (header["ready"] is not True or header["enabled"] is not True or header["dirty"] is not False
-            or header["failed"] is not False or header["truncated"] is not False
-            or header["enumerationComplete"] is not True):
-        raise NativeSnapshotPending("战报入场快照尚未完成。")
-    count = header["recordCount"]
-    if type(count) is not int or not 0 <= count <= MAX_RECORDS:
-        raise NteCoreProtocolError("战报快照条目数量超限。")
-    records, offset, size = [], 0, 0
-    while True:
-        check()
-        page = call("native.snapshot.page", {"domain": domain, "snapshotId": header["snapshotId"],
-                                             "offset": offset, "limit": 64})
-        if not isinstance(page, dict) or any(type(page.get(k)) is not type(header[k]) or page.get(k) != header[k]
-                                            for k in IDENTITY_FIELDS):
-            raise NteCoreProtocolError("战报原生快照分页身份发生变化。")
-        rows, next_offset = page.get("records"), page.get("nextOffset")
-        end = count if next_offset is None else next_offset
-        if ("nextOffset" not in page or not isinstance(rows, list)
-                or type(end) is not int or not offset <= end <= min(offset + 64, count)
-                or any(not isinstance(row, dict) for row in rows) or len(rows) != end - offset
-                or (next_offset is not None and (end == offset or end >= count))):
-            raise NteCoreProtocolError("战报原生快照分页范围不完整。")
-        size += len(json.dumps(page, ensure_ascii=False).encode("utf-8"))
-        if size > MAX_BUNDLE_BYTES:
-            raise NteCoreProtocolError("战报原生快照超过大小限制。")
-        records.extend(deepcopy(rows))
-        offset = end
-        if next_offset is None:
-            break
-    return {**deepcopy(header), "records": records}
-
-
 def validate_native_snapshot_current(bundle, status):
     if not isinstance(status, dict) or not isinstance(status.get("domains"), list):
         raise NteCoreProtocolError("战报快照复核状态无效。")
     observations = list(bundle["domains"].values())
     observations.extend(bundle[key] for key in ("inventory_projection", "character_projection") if key in bundle)
     for snapshot in observations:
-        # The equipped-item observation is already frozen and internally bound
-        # to its raw page. Later backpack refreshes must not discard that panel.
-        if snapshot["domain"] == "inventory":
-            continue
+        # Completed pages are immutable observations, not a promise that the live
+        # cache still points to them. First-hit and in-scope evidence validates
+        # their use later; switching actors or exiting after the last hit must
+        # not destroy a successfully read observation here.
         matches = [row for row in status["domains"] if isinstance(row, dict) and row.get("domain") == snapshot["domain"]]
         if len(matches) != 1:
             raise NteCoreProtocolError("战报快照复核缺少唯一数据域。")
-        current = matches[0]
-        if (status.get("providerId") != snapshot["providerId"] or current.get("dirty") is not False
-                or current.get("ready") is not True or current.get("enabled") is not True
-                or any(current.get(key) != snapshot[key] for key in ("domainKey", "revision"))):
-            raise _SnapshotChanged("战报准备期间场景、队伍或配置发生变化。")
+        if status.get("providerId") != snapshot["providerId"]:
+            raise _SnapshotChanged("战报准备期间采集提供方发生变化。")
 
 
 def freeze_native_battle_snapshot(client, check, *, baseline=None):
@@ -141,7 +131,7 @@ def freeze_native_battle_snapshot(client, check, *, baseline=None):
                         else:
                             bundle["domains"][domain] = read_native_raw_domain(call, check, domain)
                 except (NativeSnapshotPending, NteCoreRpcError) as error:
-                    if isinstance(error, NteCoreRpcError) and error.message == "source_changed":
+                    if domain != "environment" and isinstance(error, NteCoreRpcError) and error.message == "source_changed":
                         raise _SnapshotChanged("读取期间数据域已变化。") from error
                     if not _retryable(error):
                         raise

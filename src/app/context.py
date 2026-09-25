@@ -46,14 +46,18 @@ class ApplicationPaths:
         )
 
     @property
-    def cultivation_asset_root(self) -> Path:
-        """Keep cultivation portraits and materials on the same dataset."""
+    def game_ui_asset_root(self) -> Path:
+        """Share catalog artwork without changing any calculation dataset."""
 
         return (
             self.role_catalog.asset_root
             if self.role_catalog is not None
-            else self.asset_dir / "game_ui"
+            else self.static_database_path.parent / "role_catalog" / "game_ui"
         )
+
+    @property
+    def cultivation_asset_root(self) -> Path:
+        return self.game_ui_asset_root
 
     @property
     def equipment_allocation_database_path(self) -> Path:
@@ -68,12 +72,7 @@ class ApplicationPaths:
 
     @property
     def equipment_allocation_asset_root(self) -> Path:
-        catalog = self.role_catalog
-        return (
-            catalog.asset_root
-            if catalog is not None and catalog.scope == "reference"
-            else self.asset_dir / "game_ui"
-        )
+        return self.game_ui_asset_root
 
     @classmethod
     def from_roots(

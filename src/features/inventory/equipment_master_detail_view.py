@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPoint, QSize, QTimer, Qt
@@ -130,14 +129,12 @@ def _clear_layout(layout: QLayout) -> None:
 
 def _asset_catalog(window: Any) -> GameUiAssetCatalog | None:
     context = getattr(window, "app_context", None)
-    asset_dir = (
-        getattr(getattr(context, "paths", None), "asset_dir", None)
-        if context is not None
-        else getattr(window, "asset_dir", None)
-    )
-    if asset_dir is None:
-        return None
-    return GameUiAssetCatalog(Path(asset_dir) / "game_ui")
+    paths = getattr(context, "paths", None)
+    reference_root = getattr(paths, "equipment_allocation_asset_root", None)
+    if reference_root is not None:
+        return GameUiAssetCatalog(reference_root)
+    asset_root = getattr(window, "game_ui_asset_root", None)
+    return GameUiAssetCatalog(asset_root) if asset_root is not None else None
 
 
 def _role_status(state: dict[str, Any]) -> str:

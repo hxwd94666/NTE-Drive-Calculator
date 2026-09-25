@@ -32,6 +32,7 @@ class EquipmentPluginDeploymentTests(unittest.TestCase):
             result = cleanup_managed_plugin(
                 game_executable_path=self.executable,
                 game_running=lambda: False,
+                cleanup_legacy_proxy=True,
             )
         self.assertEqual(result.status, "cleaned")
         self.assertFalse((self.game / "dwmapi.dll").exists())

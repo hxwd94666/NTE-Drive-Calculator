@@ -66,6 +66,36 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.runtime._bundle = self.bundle_value
         self.runtime._native_deployed = self.deployed_value
 
+    def test_inspection_failure_preserves_shared_reason_and_unknown_handshake(self):
+        from src.integrations.nte_core_protocol import NteCoreTimeoutError
+        self.enable_auto()
+        self.policy.set_cleanup_pending(False)
+        self.process.return_value = True
+        self.deployed_value.files_compatible = True
+        self.stub("native_capture_game_pid", return_value=123)
+        self.native.inspect = MagicMock(side_effect=NteCoreTimeoutError("native.snapshot.status", 10))
+        with patch.object(self.runtime, "_inspect_component_files"), patch.object(self.runtime, "_automatic_deploy"):
+            probe = self.runtime.tick(allow_connect=True)
+        self.assertIn("native.snapshot.status", probe.native_diagnostic)
+        self.assertTrue(probe.native_load.files)
+        self.assertTrue(probe.native_inventory.pipe)
+        self.assertIsNone(probe.native_inventory.handshake)
+        self.assertIsNone(probe.native_inventory.ready)
+        self.assertEqual(probe.native_inventory.fault, "")
+
+    def test_endpoint_probe_failure_keeps_file_report_and_reason(self):
+        self.enable_auto()
+        self.policy.set_cleanup_pending(False)
+        self.process.return_value = True
+        self.deployed_value.files_compatible = True
+        self.stub("native_capture_game_pid", side_effect=PermissionError("private text"))
+        with patch.object(self.runtime, "_inspect_component_files"), patch.object(self.runtime, "_automatic_deploy"):
+            probe = self.runtime.tick(allow_connect=True)
+        self.assertIn("权限", probe.native_diagnostic)
+        self.assertNotIn("private text", probe.native_diagnostic)
+        self.assertTrue(probe.native_load.files)
+        self.assertIsNone(probe.native_inventory.pipe)
+
     def deployment(self):
         return NativePluginDeployment(self.game, self.root / "d3d12.dll", "a" * 64,
             self.root, None, {"d3d12.dll": "a" * 64})
@@ -113,6 +143,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
             mod_workspace_path=None,
             game_running=self.process,
             allow_unrecorded_workspace_adoption=True,
+            cleanup_legacy_proxy=True,
         )
         self.assertFalse(self.policy.settings.pending_cleanup)
 
@@ -293,6 +324,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
             mod_workspace_path=None,
             game_running=self.process,
             allow_unrecorded_workspace_adoption=False,
+            cleanup_legacy_proxy=False,
         )
         self.assertEqual(self.policy.deployment_record, {"loading_method": "native-capture"})
         self.assertFalse(self.policy.settings.pending_cleanup)
@@ -308,6 +340,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
             mod_workspace_path=None,
             game_running=self.process,
             allow_unrecorded_workspace_adoption=False,
+            cleanup_legacy_proxy=False,
         )
         self.assertFalse(probe.game_path_valid)
         self.assertFalse(self.policy.settings.pending_cleanup)
@@ -386,12 +419,21 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.assertIn("等待游戏退出", self.runtime.cleanup_detail)
         self.deploy.assert_not_called()
 
-    def test_automatic_management_never_replaces_unknown_modified_proxy(self):
+    def test_automatic_management_replaces_fixed_names_without_prior_hash_registration(self):
         self.enable_auto()
-        self.deployed_value.files = {"d3d12.dll": SimpleNamespace(present=True, matches_bundle=False, matches_record=False, matches_predecessor=False)}
+        self.deploy.return_value = self.deployment()
+        self.deployed_value.files = {
+            "d3d12.dll": SimpleNamespace(present=True, sha256="b" * 64,
+                matches_bundle=False, matches_record=False, matches_predecessor=False),
+            "NTE_Capture.dll": SimpleNamespace(present=False, sha256=None,
+                matches_bundle=False, matches_record=False, matches_predecessor=False),
+        }
         self.runtime._automatic_deploy(False)
-        self.deploy.assert_not_called()
-        self.assertIn("未匹配部署记录", self.runtime.cleanup_detail)
+        self.deploy.assert_called_once()
+        self.assertEqual({"d3d12.dll": "b" * 64, "NTE_Capture.dll": None},
+                         self.deploy.call_args.kwargs["expected_existing_files"])
+        self.assertEqual("a" * 64, self.policy.deployment_record["deployed_sha256"])
+        self.assertIn("已部署", self.runtime.cleanup_detail)
 
     def test_auto_update_does_not_run_during_battle(self):
         self.enable_auto()
@@ -471,4 +513,9 @@ class WorkModeRuntimeTests(unittest.TestCase):
             self.assertTrue(fact.supported)
             self.assertEqual(checks[name].state.value, "available")
         self.native.inspect.assert_called_once_with(refresh=True, check_equipment=True)
+        self.native.inspect.reset_mock()
+        self.policy.set_auto_sync_enabled(True)
+        with patch.object(self.runtime, "_inspect_component_files"), patch.object(self.runtime, "_automatic_deploy"):
+            self.runtime.tick()
+        self.native.inspect.assert_called_once_with(refresh=False, check_equipment=False)
         self.deploy.assert_not_called()

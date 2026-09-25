@@ -80,7 +80,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
-        cls.asset_root = Path("assets/game_ui").resolve()
+        cls.asset_root = Path("data/role_catalog/game_ui").resolve()
 
     def test_menu_exposes_only_the_five_player_facing_entries(self) -> None:
         menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)

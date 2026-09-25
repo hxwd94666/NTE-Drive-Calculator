@@ -69,6 +69,7 @@ class BattleSummaryWriter(Protocol):
         *,
         capture_operation_id: str,
         captured_at_utc: str,
+        capture_source: Literal["native", "packet"] = "packet",
     ) -> None: ...
 
     def append_axis_page(
@@ -100,4 +101,3 @@ class BattleSummaryWriter(Protocol):
         raw_record_payload: Mapping[str, Any] | None = None,
         nte_core_provenance: Mapping[str, Any] | None = None,
     ) -> BattleSummaryPersistenceOutcome: ...
-

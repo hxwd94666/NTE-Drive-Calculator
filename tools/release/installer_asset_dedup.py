@@ -1,4 +1,4 @@
-# 为安装包复用内容相同的图鉴图片，同时保留安装后的两套独立资源路径。
+# 为安装包复用内容相同的图鉴图片，同时保留清单内的独立图片路径。
 """Prepare an Inno staging tree with duplicate role-catalog images omitted."""
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def prepare_installer_asset_stage(
 ) -> list[InstallerAssetCopy]:
     """Copy a validated app bundle, omitting only byte-identical catalog images.
 
-    Inno references the retained source image a second time at the omitted
+    Inno references the retained catalog image a second time at the omitted
     destination. Its installer owns both installed paths, so upgrades and
     uninstall continue to use the normal [Files] lifecycle.
     """
@@ -56,20 +56,17 @@ def prepare_installer_asset_stage(
     stage.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, stage)
 
-    main_root = stage / "assets" / "game_ui"
     catalog_root = stage / "data" / "role_catalog" / "game_ui"
-    main_by_digest: dict[str, Path] = {}
-    for image in sorted(main_root.rglob("*")):
-        if image.is_file() and image.suffix.lower() in IMAGE_SUFFIXES:
-            main_by_digest.setdefault(_digest(image), image)
+    images_by_digest: dict[str, Path] = {}
 
     copies: list[InstallerAssetCopy] = []
     for image in sorted(catalog_root.rglob("*")):
         if not image.is_file() or image.suffix.lower() not in IMAGE_SUFFIXES:
             continue
         digest = _digest(image)
-        original = main_by_digest.get(digest)
+        original = images_by_digest.get(digest)
         if original is None:
+            images_by_digest[digest] = image
             continue
         copies.append(
             InstallerAssetCopy(

@@ -401,6 +401,7 @@ Source: "{_inno_path(package_internal)}\\*"; DestDir: "{{app}}\\_internal"; Flag
 {vigem_file_line}
 
 [InstallDelete]
+Type: filesandordirs; Name: "{{app}}\\_internal\\assets\\game_ui"
 {stale_runtime_delete_lines}
 
 [Dirs]

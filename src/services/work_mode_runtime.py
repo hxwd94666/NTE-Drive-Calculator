@@ -25,6 +25,7 @@ from src.services.equipment_plugin_deployment import (
 )
 from src.services.managed_plugin_cleanup import cleanup_managed_plugin
 from src.services.mod_plugin_loading_service import ModPluginLoadingError
+from src.services.work_mode_diagnostics import detection_failure_detail
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,6 @@ class WorkModeRuntime:
         self.path_detail = ""
         self.cleanup_detail = ""
         self._cleanup_observation: _CleanupObservation | None = None
-        self._refresh_at = 0.0
         self._closed = False
         self._analysis_available = False
         self._last_analysis = float("-inf")
@@ -292,6 +292,7 @@ class WorkModeRuntime:
             allow_unrecorded_workspace_adoption=(
                 allow_unrecorded_legacy_workspace and not workspace
             ),
+            cleanup_legacy_proxy=allow_unrecorded_legacy_workspace,
         )
         self._record_cleanup(
             CheckState.FAULT if result.status == "conflict" else CheckState.CLEANUP_PENDING,
@@ -326,12 +327,6 @@ class WorkModeRuntime:
             return
         if running:
             self.cleanup_detail = "游戏运行中，原生组件更新等待游戏退出。"
-            return
-        if self._native_deployed is not None and any(
-            item.present and not (item.matches_bundle or item.matches_record or item.matches_predecessor)
-            for item in self._native_deployed.files.values()
-        ):
-            self.cleanup_detail = "目标组件未匹配部署记录或已核实旧版本，自动更新等待手动核对。"
             return
         executable = self.policy.settings.game_executable
         if not executable or monotonic() - self._last_auto_attempt < 15:
@@ -420,7 +415,7 @@ class WorkModeRuntime:
             record = self.policy.deployment_record
             self._restore_native_workspace(record)
             if (self.loader.snapshot().phase == "running" and not frozen.pending_cleanup
-                    and not legacy_game_proxy_present(Path(executable).parent)):
+                    and (automatic or not legacy_game_proxy_present(Path(executable).parent))):
                 return None
             self.native_session.close()
             guard("native_load")
@@ -443,6 +438,7 @@ class WorkModeRuntime:
                     game_executable_path=executable,
                     writable_workspace_path=self.config_dir / "native-loader",
                     scoped_guard=guard,
+                    cleanup_legacy_proxy=not automatic,
                 )
                 guard("native_load")
             except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as error:
@@ -611,18 +607,19 @@ class WorkModeRuntime:
                     or not (allow_connect or self.policy.allowed("native_sync", automatic=True)
                             or self.native_session.battle_active)):
                 return probe
-            pipe = native_capture_game_pid() is not None
+            try:
+                pipe = native_capture_game_pid() is not None
+            except Exception as error:
+                return replace(probe, native_diagnostic=detection_failure_detail(error, record=allow_connect))
             native = replace(native, pipe=pipe)
             values = {key: replace(value, pipe=pipe) for key, value in domain_files.items()}
             values["native_battle"] = replace(battle_files, pipe=pipe)
             values["native_equipment"] = replace(equipment_files, pipe=pipe)
             if pipe:
                 try:
-                    refresh = (allow_connect or (self.policy.allowed("native_sync", automatic=True)
-                               and monotonic() - self._refresh_at > 15))
-                    response = self.native_session.inspect(refresh=refresh, check_equipment=allow_connect)
-                    if refresh:
-                        self._refresh_at = monotonic()
+                    # Background checks only observe readiness. An explicit check
+                    # may still collect evidence for manual feature readiness.
+                    response = self.native_session.inspect(refresh=allow_connect, check_equipment=allow_connect)
                     caps = response["hello"].get("capabilities", [])
                     equipment = response.get("equipment") or {}
                     inventory_ready = response.get("inventory_snapshot_ready") is True
@@ -656,14 +653,11 @@ class WorkModeRuntime:
                             source_coverage=str(item.get("sourceCoverage") or "unknown"),
                         )
                     probe = replace(probe, logged_in=battle.get("ready") is True)
-                except Exception:
-                    values["native_equipment"] = replace(values["native_equipment"], handshake=False,
-                        fault="原生装备接口检测失败，请重新检测。")
-                    values = {key: replace(value, handshake=False,
-                              fault="原生连接或业务检测失败，请重新检测；未切换抓包。")
-                              for key, value in values.items() if key != "native_equipment"} | {
-                                  "native_equipment": values["native_equipment"],
-                              }
+                except Exception as error:
+                    # The failure may occur after hello; do not invent a failed handshake
+                    # or retain partially projected results from this incomplete inspection.
+                    values = {key: replace(getattr(probe, key), pipe=pipe) for key in values}
+                    probe = replace(probe, native_diagnostic=detection_failure_detail(error, record=allow_connect))
             return replace(probe, **values)
 
     def request_close(self) -> None:

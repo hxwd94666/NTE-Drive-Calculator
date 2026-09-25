@@ -20,7 +20,7 @@ def test_cultivation_uses_one_verified_role_catalog_for_data_and_images(tmp_path
         app_icon_path=tmp_path / "assets" / "app_icon.ico",
     )
     assert paths.cultivation_database_path == paths.static_database_path
-    assert paths.cultivation_asset_root == paths.asset_dir / "game_ui"
+    assert paths.cultivation_asset_root == tmp_path / "data" / "role_catalog" / "game_ui"
 
     release = RoleCatalogRelease(
         database_path=tmp_path / "role_catalog" / "game_static.sqlite3",
@@ -33,6 +33,11 @@ def test_cultivation_uses_one_verified_role_catalog_for_data_and_images(tmp_path
     assert with_catalog.cultivation_database_path == release.database_path
     assert with_catalog.cultivation_asset_root == release.asset_root
     assert with_catalog.static_database_path == paths.static_database_path
+    assert with_catalog.game_ui_asset_root == release.asset_root
+    assert with_catalog.equipment_allocation_asset_root == release.asset_root
+    role_only = replace(with_catalog, role_catalog=replace(release, scope="role_page"))
+    assert role_only.equipment_allocation_database_path == paths.static_database_path
+    assert role_only.equipment_allocation_asset_root == release.asset_root
 
 
 def _dispose_widget(widget) -> None:

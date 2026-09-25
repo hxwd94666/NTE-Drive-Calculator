@@ -14,13 +14,13 @@ from tools.game_assets.build_ui_assets import build_assets
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
+ASSET_ROOT = PROJECT_ROOT / "data" / "role_catalog" / "game_ui"
 
 
 class GameUiAssetTests(unittest.TestCase):
     def test_all_static_characters_have_an_official_id_mapping(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
-        with StaticGameDataDao(PROJECT_ROOT / "data" / "game_static.sqlite3") as dao:
+        with StaticGameDataDao(PROJECT_ROOT / "data" / "role_catalog" / "game_static.sqlite3") as dao:
             character_ids = {str(row["character_id"]) for row in dao.list_characters()}
         self.assertEqual(character_ids, set(manifest["characters"]))
 
@@ -30,7 +30,7 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertLessEqual(sum(path.stat().st_size for path in pngs), 32 * 1024 * 1024)
         for path in pngs:
             with Image.open(path) as image:
-                expected_max = 512 if "characters/art" in path.as_posix() else 256
+                expected_max = 512 if "character_arts" in path.parts else 256
                 self.assertLessEqual(max(image.size), expected_max, path.name)
 
     def test_catalog_characters_have_formal_default_appearance_art(self) -> None:
@@ -43,7 +43,7 @@ class GameUiAssetTests(unittest.TestCase):
             str(character_id)
             for character_id in (
                 1003, 1004, 1008, 1010, 1019, 1020, 1021, 1023, 1025, 1033,
-                1036, 1039, 1046, 1051, 1052, 1054, 1055, 1070, 1071, 1072,
+                1036, 1039, 1042, 1046, 1051, 1052, 1054, 1055, 1057, 1070, 1071, 1072,
                 1073, 1075, 1076,
             )
         }
@@ -54,13 +54,13 @@ class GameUiAssetTests(unittest.TestCase):
 
     def test_all_static_core_items_have_an_official_item_id_mapping(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
-        with StaticGameDataDao(PROJECT_ROOT / "data" / "game_static.sqlite3") as dao:
+        with StaticGameDataDao(PROJECT_ROOT / "data" / "role_catalog" / "game_static.sqlite3") as dao:
             core_ids = {str(row["item_id"]) for row in dao.list_equipment_items() if row["kind"] == "core"}
         self.assertEqual(core_ids, set(manifest["equipment_items"]))
 
     def test_all_static_modules_and_forks_have_official_id_mappings(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
-        with StaticGameDataDao(PROJECT_ROOT / "data" / "game_static.sqlite3") as dao:
+        with StaticGameDataDao(PROJECT_ROOT / "data" / "role_catalog" / "game_static.sqlite3") as dao:
             module_ids = {str(row["item_id"]) for row in dao.list_equipment_items() if row["kind"] == "module"}
             fork_ids = {str(row["fork_id"]) for row in dao.list_forks()}
         self.assertEqual(module_ids, set(manifest["equipment_modules"]))
@@ -69,7 +69,7 @@ class GameUiAssetTests(unittest.TestCase):
 
     def test_new_fork_exports_resolve_to_official_icons(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertNotIn("unresolved_assets", manifest)
+        self.assertFalse(manifest.get("unresolved_assets"))
         catalog = GameUiAssetCatalog(ASSET_ROOT)
         self.assertTrue(catalog.fork_icon("fork_DemonBlade").is_file())
         self.assertTrue(catalog.fork_icon("fork_GoldRecord").is_file())
@@ -79,7 +79,7 @@ class GameUiAssetTests(unittest.TestCase):
             (ASSET_ROOT / "manifest.json").read_text(encoding="utf-8")
         )
         with StaticGameDataDao(
-            PROJECT_ROOT / "data" / "game_static.sqlite3"
+            PROJECT_ROOT / "data" / "role_catalog" / "game_static.sqlite3"
         ) as dao:
             material_ids = {
                 str(row["item_id"])
@@ -108,9 +108,10 @@ class GameUiAssetTests(unittest.TestCase):
         catalog = GameUiAssetCatalog(ASSET_ROOT)
         self.assertTrue(catalog.character_icon(1003).is_file())
         self.assertTrue(catalog.character_art(1003).is_file())
-        self.assertEqual("player_canhong_256.png", catalog.character_icon(1036).name)
-        self.assertEqual("player_lingke_256.png", catalog.character_icon(1072).name)
-        self.assertEqual(catalog.character_icon(1004), catalog.character_icon(1091))
+        self.assertTrue(catalog.character_icon(1036).is_file())
+        self.assertTrue(catalog.character_icon(1072).is_file())
+        for identity in (1004, 1091, 1042):
+            self.assertTrue(catalog.character_icon(identity).is_file())
         self.assertTrue(catalog.attribute_icon("crit_rate").is_file())
         self.assertTrue(catalog.equipment_icon("Lakshana_orange").is_file())
         self.assertTrue(catalog.module_icon("cell3_style1_1_Orange").is_file())

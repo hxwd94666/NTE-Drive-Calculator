@@ -37,7 +37,7 @@ from src.ui.progression_material_card import ProgressionMaterialCard
 
 ROOT = Path(__file__).resolve().parents[1]
 DATABASE = ROOT / "data" / "game_static.sqlite3"
-ASSETS = ROOT / "assets" / "game_ui"
+ASSETS = ROOT / "data" / "role_catalog" / "game_ui"
 ROLE_DATABASE = ROOT / "data" / "role_catalog" / "game_static.sqlite3"
 ROLE_ASSETS = ROOT / "data" / "role_catalog" / "game_ui"
 

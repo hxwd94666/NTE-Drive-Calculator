@@ -17,7 +17,7 @@ from src.solver.dfs_puzzle import DFSPuzzleSolver
 from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 from src.solver.set_effects import normalize_set_effect_mode, set_piece_options_for_mode
 from src.optimizer.scoring import ScoringEngine
-from src.optimizer.allocation_kernel import AllocationKernel, AllocationKernelRequest, estimate_candidate_pool_limits
+from src.optimizer.allocation_kernel import AllocationKernelRequest, estimate_candidate_pool_limits
 from src.utils.visualizer import BoardVisualizer
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
@@ -225,7 +225,7 @@ class NTEPipelineOrchestrator:
                             crit_rate_baselines: Dict[str, float] = None,
                             custom_weapons: Dict[str, str] = None,
                             blueprint_combo_limit: int = 500,
-                            cancel_check=None):
+                            cancel_check=None, *, allocation_executor):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
@@ -312,7 +312,7 @@ class NTEPipelineOrchestrator:
 
         logger.info(f"\n[阶段 4] 启动调度模式: [{mode}]...")
         stage_t0 = time.perf_counter()
-        final_plan = AllocationKernel(scoring_engine).execute(kernel_request)
+        final_plan = allocation_executor(kernel_request, scoring_engine)
         logger.info(f"[计时] 调度阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         stage_t0 = time.perf_counter()

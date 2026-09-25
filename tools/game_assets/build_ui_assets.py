@@ -17,7 +17,7 @@ from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = Path(__file__).with_name("ui_asset_manifest.json")
-DEFAULT_OUTPUT = PROJECT_ROOT / "assets" / "game_ui"
+DEFAULT_OUTPUT = PROJECT_ROOT / "build" / "game_ui"
 CONTENT_ROOT_ENV = "NTE_OFFICIAL_CONTENT_ROOT"
 STATIC_DATABASE_ENV = "NTE_GAME_STATIC_DB"
 MANIFEST_ENV = "NTE_UI_ASSET_MANIFEST"

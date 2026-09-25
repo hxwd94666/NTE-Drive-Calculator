@@ -78,7 +78,8 @@ def deploy_native_plugin_from_settings(window) -> None:
     generation = window.operation_generation()
     if QMessageBox.question(
         window, "确认部署原生组件",
-        "将更新游戏内组件，并清理本程序管理的旧版组件。已有组件会直接替换，不保留备份。\n"
+        "将更新 d3d12.dll 和 NTE_Capture.dll，并清理游戏主程序同目录的旧 dwmapi.dll。\n"
+        "这是手动部署的清理操作；自动部署会保留 dwmapi.dll。已有组件会直接替换，不保留备份。\n"
         "请先完全退出游戏。\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
     ) != QMessageBox.Yes:
@@ -103,6 +104,7 @@ def deploy_native_plugin_from_settings(window) -> None:
             application_root=window.app_context.paths.root,
             game_executable_path=executable,
             operation_guard=guard,
+            cleanup_legacy_proxy=True,
         )
         window.work_mode_runtime.save_deployment(deployed)
         window._refresh_equipment_plugin_status()

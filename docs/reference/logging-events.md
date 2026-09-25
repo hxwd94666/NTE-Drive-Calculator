@@ -44,6 +44,7 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 | 倒带 | `rewind.*` | 推荐请求、八槽保存、OCR 阶段、十连计划和停止 |
 | 战报 | `battle_report.*` | capture 生命周期、摘要持久化、历史恢复和保留策略 |
 | 环境 | `environment.*` | Npcap、nte-core、dwmapi、Mod Loader、VC Runtime、SDK 缓存、pipe、部署与恢复 |
+| 手动环境检测 | `environment.detection_failed` | 固定原因、下一步、异常类型和已识别错误码；不写原始异常、RPC 数据或 stderr，后台轮询不重复记录。 |
 | 更新 | `update.*` | 检查、下载、取消、失败、完成和安装器启动 |
 
 同步与仓库允许记录驱动、卡带、已装备、锁定和角色实例的聚合数量，不记录 UID 列表。战报允许字段包括
@@ -67,6 +68,16 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 总发出事件数或合并前回调次数；零次只表示本会话尚未处理库存事件，不能单独证明网卡没有流量。
 拒绝原因码区分不完整快照、声明数量不符、重复装备/角色实例、其他结构无效、装配库存守卫不匹配、
 过期/重复序号，以及角色列表升级期间忽略旧格式事件。日志不记录可含 UID 的原始校验异常文本。
+
+原生同步与通信另记录以下脱敏诊断，不要求保存完整原始采集文件：
+
+- `native_sync.projection_read`：状态、刷新、分页耗时与次数；失败时记录所在阶段、固定域错误码或异常类型，不写 RPC 错误正文。
+- `native_sync.refresh_finished`：分别记录装备、角色和 `all_items` 刷新耗时、布尔就绪状态、条目数及固定白名单的未完成原因。新版 DLL 的可选 `collectionWork` 提供批次数、扫描/验证单位数、总历时、批内累计耗时、最长批次及角色关联装备详情读取次数；不含 UID、字段原文或返回正文，旧 DLL 未提供的计数不补零。总历时包含批间等待，批内耗时是墙钟观测，不等于 CPU 时间或游戏帧率。
+- `native_sync.retry_deferred`：同一来源修订未完成时的 1、2、4、8、10 秒重试等待；来源修订变化不沿用旧等待，不提交残缺集合。
+- `native_sync.runtime_cost`：支持该字段的 DLL 返回游戏线程快照周期与读取批次的累计次数、累计微秒和最大单次微秒；最多每 30 秒记录变化。可选 `inventory_notifications` 仅保留通知类型（0–255）、累计次数、Items 条数、空数组/无效数组头次数、最后单调毫秒；拒绝负数、非法类型并丢弃额外字段，不记录成员、UID、物品数量值或正文。计数归 DLL 生命周期，互有包含关系，不相加、不当作游戏 FPS；旧 DLL 未提供时不补零。通知计数不证明增量事件完整。
+- `native_session.idle_closed`：自动同步与插件关闭、且无战报、库存租约或进行中读取时释放共享连接。
+- `native_core.invalid_json`：响应字符数、完整换行标记、解析失败位置、Core 哈希及可获得的退出码；不记录响应片段或原始解析异常。
+- `native_core.output`：仅消费 Core 固定诊断前缀与白名单字段，记录输出总字节、已写字节、耗时及 slow/timeout/failed；其他 stderr 不直接转入常驻日志。
 
 `inventory_sync.snapshot_commit_retry` 还记录本会话保存尝试次数与候选件数。SQLite 保存失败诊断包括 `save_error_code`、`save_stage`、
 `sqlite_exception_type`、`sqlite_errorcode`、`sqlite_errorname`、`sqlite_message` 和 `rollback_status`；

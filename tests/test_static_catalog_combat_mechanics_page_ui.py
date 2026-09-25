@@ -43,7 +43,7 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
         self.external_links: list[CatalogLink] = []
         self.page = build_combat_mechanics_catalog_page(
             database_path=PROJECT_ROOT / "data" / "game_static.sqlite3",
-            game_ui_asset_root=PROJECT_ROOT / "assets" / "game_ui",
+            game_ui_asset_root=PROJECT_ROOT / "data" / "role_catalog" / "game_ui",
             open_catalog_link=self.external_links.append,
         )
         self.page.resize(1280, 850)

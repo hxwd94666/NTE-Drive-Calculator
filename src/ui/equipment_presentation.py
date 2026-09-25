@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
@@ -250,7 +249,7 @@ def _equip_card(
             )
             if item_icon_path
             else _representative_drive_pixmap(
-                Path(self.app_context.paths.asset_dir) / "game_ui",
+                self.app_context.paths.game_ui_asset_root,
                 shape_id,
                 quality or "Gold",
             )

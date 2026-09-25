@@ -75,28 +75,24 @@ def test_background_runtime_defers_equipment_probe_until_explicit_detection(tmp_
     assert runtime.native_session.inspect.call_args.kwargs["check_equipment"] is True
 
 
-def test_equipment_requires_this_leases_complete_inventory_and_preserves_ack():
+def test_equipment_dispatch_does_not_wait_for_new_inventory_refresh():
     core = EquipmentCore()
     session = NativeGameSession(lambda: core, lambda _cap: None)
     lease = session.inventory_client()
     lease.start_capture(profile="inventory")
     command = {"character": {"slot": 700, "serial": 701}, "equipment": {"slot": 8, "serial": 1}}
     try:
-        with pytest.raises(NteCoreRpcError, match="本次完整"):
-            lease.equip_core(**command)
-        core.equip_core.assert_not_called()
-        assert lease.status()["native_snapshot_ready"]
+        assert not lease.snapshot_ready
+        core.calls.clear()
         assert lease.equip_core(**command) == {"status": "rpc_dispatched"}
         assert lease.move_core_to_character(**command) == {"status": "rpc_dispatched"}
         core.equip_core.assert_called_once_with(**command)
         core.move_core_to_character.assert_called_once_with(**command)
-        assert not session.inspect()["inventory_snapshot_ready"]
-        assert lease.status()["native_snapshot_ready"]
+        assert not any(method == "native.snapshot.refresh" for method, _params in core.calls)
         core.projection_complete = False
         assert not lease.status()["native_snapshot_ready"]
-        with pytest.raises(NteCoreRpcError, match="EQUIPMENT_PLUGIN_BUSY"):
-            lease.equip_core(**command)
-        assert core.equip_core.call_count == 1
+        assert lease.equip_core(**command) == {"status": "rpc_dispatched"}
+        assert core.equip_core.call_count == 2
     finally:
         lease.close()
         session.close()
@@ -166,5 +162,5 @@ def test_native_runtime_uses_shared_status_and_current_inventory_without_legacy_
     assert probe.native_equipment.ready and probe.native_equipment.supported
     report = build_work_mode_report(policy.settings, probe)
     equipment = next(row for row in report.features if row.feature == "native_equipment")
-    assert equipment.state.value == ("available" if inventory_ready else "waiting")
+    assert equipment.state.value == "available"
     legacy.assert_not_called()

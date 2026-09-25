@@ -202,6 +202,7 @@ class ScanningController(QObject):
             role_selector=self.role_selector,
         )
         self._allocation_controller.bind_run_button(self.btn_run)
+        self._allocation_controller.bind_save_button(self.btn_save)
         return self._page
 
     def is_running(self) -> bool:
@@ -225,6 +226,7 @@ class ScanningController(QObject):
     def stop(self) -> None:
         """Stop account-bound workers, retaining the existing shutdown deadline."""
         self.request_stop()
+        self._allocation_controller.stop_save()
         for worker in (self._scan_worker, self._gamepad_worker, self._vision_worker):
             if worker is not None and worker.isRunning():
                 worker.wait(5000)

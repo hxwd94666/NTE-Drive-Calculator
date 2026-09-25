@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot, BattleInferredBuffInterval
-from src.integrations.native_battle_page_wire import _decode_snapshot, decode, decode_derived_snapshot
+from src.integrations.native_battle_page_wire import _decode_snapshot, decode, decode_derived_snapshot, decode_page
 from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_native_page_service import BattleNativePageService
 from src.services.battle_report_analysis_load_service import BattleReportAnalysisLoadRequest
@@ -100,6 +100,9 @@ class NativeBattlePageTests(unittest.TestCase):
         }
         self.assertEqual(decode_derived_snapshot(snapshot, battle_record_id=7,
                          dataset_version='fixture'), snapshot)
+        self.assertEqual(decode_derived_snapshot(
+            {**snapshot, 'future_metadata': {'unknown': True}},
+            battle_record_id=7, dataset_version='fixture'), snapshot)
         for key, value in (('battle_record_id', 8), ('payload_schema_version', 2),
                            ('static_dataset_id', 'other'), ('algorithm_version', '')):
             with self.subTest(key=key), self.assertRaises(NativeAnalysisError):
@@ -167,11 +170,17 @@ class NativeBattlePageTests(unittest.TestCase):
         with patch('src.services.battle_native_page_service.decode_page', return_value='rendered'):
             self.assertEqual(service.load(BattleReportAnalysisLoadRequest(7)), 'rendered')
 
-    def test_wire_rejects_unrecognized_fields(self):
+    def test_wire_accepts_additional_fields_without_changing_known_results(self):
         raw = json.loads(json.dumps(asdict(_snapshot())))
         raw['made_up_damage'] = 123
+        self.assertEqual(decode(raw, BattleAnalysisSnapshot), _snapshot())
+        page = dict(analysis=raw, target_catalog=None, target_catalog_error=None,
+                    marginal_benefits=None, marginal_panel=None, candidate_display_analysis=None,
+                    future_extension={'unsupported': ['value']})
+        self.assertEqual(decode_page(page).analysis, _snapshot())
+        del raw['battle_record_id']
         with self.assertRaises(NativeAnalysisError):
-            decode(raw, BattleAnalysisSnapshot)
+            decode_page(page)
 
     def test_native_buff_window_survives_full_page_analysis_decode(self):
         interval = dict(
@@ -180,7 +189,11 @@ class NativeBattlePageTests(unittest.TestCase):
             source_character_name='fixture', target_scope='self', start_us=0, end_us=200,
             stacks=1, duration_policy='duration', state_confidence='medium',
             value_confidence='unknown', inference_basis='fixture', trigger_event_type='',
-            evidence_action_ids=[], evidence_event_ids=[], modifiers=[], native_window_end_us=100,
+            evidence_action_ids=[], evidence_event_ids=[], modifiers=[dict(
+                property_id='future_property', modifier_operation='future_operation',
+                magnitude_kind='unknown', magnitude_value=None, calculation_asset_path='',
+                value_confidence='unknown', application_group_ordinal=1, modifier_ordinal=1,
+            )], native_window_end_us=100,
         )
         raw = json.loads(json.dumps(asdict(_snapshot())))
         raw['buff_intervals'] = [interval]
@@ -188,6 +201,8 @@ class NativeBattlePageTests(unittest.TestCase):
         decoded = decode(raw, BattleAnalysisSnapshot | None)
         self.assertEqual(decoded.buff_intervals[0].native_window_end_us, 100)
         self.assertEqual(decoded.timeline_buff_intervals[0].native_window_end_us, 100)
+        self.assertEqual(decoded.buff_intervals[0].modifiers[0].property_id, 'future_property')
+        self.assertIsNone(decoded.buff_intervals[0].modifiers[0].magnitude_value)
         for invalid in (True, '100', 100.5):
             with self.subTest(invalid_type=type(invalid).__name__):
                 with self.assertRaises(NativeAnalysisError):

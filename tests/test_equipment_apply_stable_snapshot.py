@@ -32,3 +32,18 @@ def test_follow_up_apply_allows_collecting_state_with_a_stable_snapshot() -> Non
     service = EquipmentApplyService(Dao(), Sync())
 
     assert service.require_stable_snapshot() == 17
+
+
+def test_pending_refresh_pins_latest_saved_complete_snapshot():
+    sync = SimpleNamespace(is_running=True, state=SimpleNamespace(phase="waiting", last_snapshot_id=None))
+    dao = SimpleNamespace(current_inventory_snapshot_id=lambda: 17)
+    assert EquipmentApplyService(dao, sync).require_stable_snapshot() == 17
+
+
+def test_pending_refresh_without_saved_snapshot_cannot_apply():
+    import pytest
+    from src.services.equipment_apply_service import EquipmentApplyError
+    sync = SimpleNamespace(is_running=True, state=SimpleNamespace(phase="waiting", last_snapshot_id=None))
+    dao = SimpleNamespace(current_inventory_snapshot_id=lambda: None)
+    with pytest.raises(EquipmentApplyError, match="还没有"):
+        EquipmentApplyService(dao, sync).require_stable_snapshot()

@@ -56,7 +56,7 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
                 self.queries,
                 self.terminology,
             ),
-            game_ui_asset_root=PROJECT_ROOT / "assets" / "game_ui",
+            game_ui_asset_root=PROJECT_ROOT / "data" / "role_catalog" / "game_ui",
             terminology_service=self.terminology,
         )
         self.page.resize(1200, 900)

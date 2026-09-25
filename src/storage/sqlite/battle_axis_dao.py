@@ -139,6 +139,8 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             build = raw.get("calc_capture_context")
             if not isinstance(build, dict):
                 raise UserDataValidationError("采集缺少开始时冻结的配装输入")
+            if build.get("freeze_phase") in {"settlement_database", "settlement_native"}:
+                raise UserDataValidationError("结算输入已经冻结，不能重新绑定原生快照")
             if snapshot.get("state") != "scoped" and "native_runtime_snapshot" in build and build["native_runtime_snapshot"] != dict(snapshot):
                 raise UserDataValidationError("原生入场快照已经绑定，不能覆盖")
             if frozen_build is not None and (snapshot.get("state") == "scoped" or "native_runtime_snapshot" not in build):
@@ -148,6 +150,42 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             connection.execute("UPDATE battle_axis_capture SET raw_record_json = ?, source_inventory_snapshot_id = ? WHERE capture_id = ?",
                                (_json_object(raw, "capture build"), build.get("snapshot_id"), row["capture_id"]))
             connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+
+    def freeze_battle_settlement_build(self, capture_operation_id: str, frozen_build: Mapping[str, Any],
+                                       *, account_generation: int) -> dict[str, Any]:
+        """Persist settlement inputs once so failed saves retry the same snapshot."""
+        connection = self._db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT capture_id, raw_record_json FROM battle_axis_capture WHERE capture_operation_id=? "
+                "AND capture_state='capturing' AND account_generation=?",
+                (capture_operation_id, account_generation),
+            ).fetchone()
+            if row is None:
+                raise UserDataValidationError("结算配装对应的采集已结束或账号代次失效")
+            raw = _decoded(row["raw_record_json"], {})
+            previous = raw.get("calc_capture_context") or {}
+            if previous.get("freeze_phase") in {"settlement_database", "settlement_native"}:
+                connection.rollback()
+                return previous
+            native = previous.get("capture_source") == "native" or previous.get("native_runtime_snapshot")
+            if native:
+                if frozen_build.get("freeze_phase") != "settlement_native" or any(
+                    frozen_build.get(key) != previous.get(key)
+                    for key in ("native_runtime_snapshot", "native_scope_builds")
+                ):
+                    raise UserDataValidationError("结算补缺不能替换原生首击证据")
+            elif frozen_build.get("freeze_phase") != "settlement_database":
+                raise UserDataValidationError("结算配装来源不匹配")
+            raw["calc_capture_context"] = dict(frozen_build)
+            connection.execute("UPDATE battle_axis_capture SET raw_record_json=?, source_inventory_snapshot_id=? WHERE capture_id=?",
+                               (_json_object(raw, "capture build"), frozen_build.get("snapshot_id"), row["capture_id"]))
+            connection.commit()
+            return dict(frozen_build)
         except BaseException:
             connection.rollback()
             raise

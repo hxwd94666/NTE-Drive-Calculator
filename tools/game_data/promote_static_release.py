@@ -432,6 +432,10 @@ def _validate_candidate_database(
             "候选 importer 与当前代码不一致："
             f"候选={summary['importer_version']}，代码={IMPORTER_VERSION}"
         )
+    if summary.get("catalog_scope") not in {"role_page", "reference"}:
+        from tools.game_data.build_analysis_catalogs import validate_catalog_inputs
+
+        validate_catalog_inputs(database_path)
     provenance_path = candidate_dir / PROVENANCE_FILENAME
     repack_path = candidate_dir / STORAGE_REPACK_PROVENANCE_FILENAME
     if provenance_path.is_file() and repack_path.is_file():

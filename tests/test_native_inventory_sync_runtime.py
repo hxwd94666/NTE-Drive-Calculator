@@ -121,3 +121,26 @@ def test_native_poll_cannot_persist_after_late_revocation(tmp_path, change):
     assert service.state.last_snapshot_id is None
     with UserDataDao(service.database_path) as dao:
         assert dao.current_inventory_snapshot_id() is None
+
+
+def test_native_sync_keeps_three_recent_snapshots_and_referenced_history(tmp_path):
+    lease = NativeLease()
+    emit = lease.emit
+    def emit_latest(message):
+        emit(snapshot(item(5), sequence=5) if message.get("method") == "event.inventory.snapshot" else message)
+    lease.emit = emit_latest
+    service = native_service(tmp_path, lease, operation_guard=lambda _cap: None)
+    with UserDataDao(service.database_path, account_id="test") as dao:
+        ids = [dao.import_inventory_snapshot(snapshot(item(n), sequence=n)) for n in range(1, 5)]
+        dao.save_loadout_plan(name="saved", character_id=1003, source_snapshot_id=ids[0],
+                             status="ready", assignments=[])
+    try:
+        service.start()
+        current = service.wait_for_snapshot(after_snapshot_id=ids[-1], timeout=3).last_snapshot_id
+    finally:
+        service.stop()
+    with UserDataDao(service.database_path, account_id="test") as dao:
+        assert dao.current_inventory_snapshot_id() == current
+        assert dao.inventory_snapshot_summary(ids[0]) is not None
+        assert dao.inventory_snapshot_summary(ids[1]) is None
+        assert all(dao.inventory_snapshot_summary(key) is not None for key in (*ids[2:], current))

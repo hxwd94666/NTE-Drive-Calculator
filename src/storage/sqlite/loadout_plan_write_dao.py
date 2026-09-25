@@ -13,7 +13,7 @@ from src.services.virtual_equipment_service import (
     make_virtual_equipment_assignment,
 )
 
-from .protocols import UserDataDaoMixinHost
+from .allocation_plan_batch_dao import AllocationPlanBatchDaoMixin
 from .user_data_support import (
     UserDataError,
     UserDataValidationError,
@@ -24,7 +24,7 @@ from .user_data_support import (
     _utc_now,
 )
 
-class LoadoutPlanWriteDaoMixin(UserDataDaoMixinHost):
+class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
     def save_loadout_plan(
         self,
         *,

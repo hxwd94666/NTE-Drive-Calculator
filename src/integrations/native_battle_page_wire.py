@@ -22,7 +22,7 @@ def _dataclass_fields(cls):
 
 
 def decode(value: object, annotation: Any):
-    """Accept only the declared wire shape; unknowns stay None, never zero."""
+    """Read known fields from extensible objects; missing values never become zero."""
     origin, args = get_origin(annotation), get_args(annotation)
     if annotation is Any:
         return value
@@ -61,9 +61,6 @@ def decode(value: object, annotation: Any):
         if not isinstance(value, dict):
             raise NativeAnalysisError('分析核心结果对象无效')
         declared = _dataclass_fields(annotation)
-        known = {field.name for field, _ in declared}
-        if value.keys() - known:
-            raise NativeAnalysisError('分析核心响应包含未知字段')
         result = {}
         for field, typ in declared:
             if field.name not in value:
@@ -81,7 +78,7 @@ def decode_page(value: dict):
 
     required = {'analysis', 'target_catalog', 'target_catalog_error',
                 'marginal_benefits', 'marginal_panel', 'candidate_display_analysis'}
-    if not required <= value.keys() or value.keys() - required - {'derived_snapshot', 'hit_details'}:
+    if not isinstance(value, dict) or not required <= value.keys():
         raise NativeAnalysisError('分析核心页面响应字段不匹配')
     catalog = value['target_catalog']
     if catalog is not None and not isinstance(catalog, dict):
@@ -111,7 +108,7 @@ def _decode_snapshot(value):
             evidence = hit.get('native_evidence') if isinstance(hit, dict) else None
             if isinstance(evidence, dict) and 'reference_event_id' in evidence:
                 identifier = evidence['reference_event_id']
-                if (set(evidence) != {'reference_event_id'} or not isinstance(identifier, str)
+                if ('payload_json' in evidence or not isinstance(identifier, str)
                         or identifier != hit.get('event_id')
                         or not isinstance(selected.get(identifier), dict)
                         or 'payload_json' not in selected[identifier]):
@@ -131,9 +128,9 @@ def decode_derived_snapshot(value: object, *, battle_record_id: int, dataset_ver
         return None
     string_fields = ('algorithm_version', 'static_dataset_id', 'inference_status',
                      'environment_kind', 'environment_ref', 'environment_name', 'source_kind', 'confidence')
-    if (not isinstance(value, dict) or set(value) != {
-            'battle_record_id', 'payload_schema_version', 'static_schema_version', 'inferred_payload',
-            *string_fields}
+    required = {'battle_record_id', 'payload_schema_version', 'static_schema_version',
+                'inferred_payload', *string_fields}
+    if (not isinstance(value, dict) or not required <= value.keys()
             or any(type(value[key]) is not str for key in string_fields)
             or type(value['battle_record_id']) is not int or value['battle_record_id'] != battle_record_id
             or type(value['payload_schema_version']) is not int or value['payload_schema_version'] != 1
@@ -149,4 +146,4 @@ def decode_derived_snapshot(value: object, *, battle_record_id: int, dataset_ver
             'algorithm_version', 'environment_kind', 'environment_ref', 'environment_name',
             'source_kind', 'confidence')):
         raise NativeAnalysisError('分析核心派生快照内容与元数据不匹配')
-    return value
+    return {key: value[key] for key in required}

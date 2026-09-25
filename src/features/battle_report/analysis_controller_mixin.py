@@ -287,7 +287,9 @@ class BattleReportAnalysisControllerMixin:
         record_id = request.load.battle_record_id
         if analysis is None or not analysis.timeline_hits:
             self._page.end_analysis_details()
-            if request.load.detail_level != "marginal":
+            if request.load.detail_level in {"hit", "buff", "composition"}:
+                self._page.show_analysis_detail_error("当前详情没有可用的逐击分析结果。")
+            elif request.load.detail_level != "marginal":
                 self._page.clear_analysis(
                     "当前记录只有聚合摘要，或所选时段没有正式逐击证据。"
                 )
@@ -359,6 +361,8 @@ class BattleReportAnalysisControllerMixin:
             return
         if request.load.detail_level == "composition":
             self._page.show_analysis_detail_error(f"倾陷归属未完成：{message}")
+        elif request.load.detail_level in {"hit", "buff"}:
+            self._page.show_analysis_detail_error(f"当前详情未完成：{message}")
         elif request.load.detail_level != "marginal":
             self._page.clear_analysis(f"读取战报逐击分析失败：{message}")
         log_event(

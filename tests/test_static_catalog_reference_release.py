@@ -126,8 +126,8 @@ class ReferenceCatalogTests(unittest.TestCase):
         digest = hashlib.sha256(MAIN.read_bytes()).hexdigest()
         release = read_role_catalog(CATALOG)
         owner = QWidget()
-        context = SimpleNamespace(paths=SimpleNamespace(asset_dir=ROOT / "assets"))
-        specs = build_static_catalog_domain_pages(MAIN, ROOT / "assets/game_ui", role_catalog=release,
+        context = SimpleNamespace(paths=SimpleNamespace(game_ui_asset_root=ROOT / "data" / "role_catalog" / "game_ui"))
+        specs = build_static_catalog_domain_pages(MAIN, ROOT / "data/role_catalog/game_ui", role_catalog=release,
             equipment_presentation=EquipmentPresentation(app_context=context, dialog_parent=owner))
         try:
             for key, identity, name in (("character", "1042", "黑羽"), ("character", "1057", "明音凛"),

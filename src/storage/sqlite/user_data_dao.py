@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from .account_data_dao import AccountDataDaoMixin
+from .all_item_snapshot_dao import AllItemSnapshotDaoMixin
 from .battle_report_dao import BattleReportDaoMixin
 from .battle_report_transfer_dao import BattleReportTransferDaoMixin
 from .battle_axis_dao import BattleAxisDaoMixin
@@ -39,6 +40,7 @@ from .user_data_support import (
 
 
 class UserDataDao(
+    AllItemSnapshotDaoMixin,
     NativeCharacterProfileDaoMixin,
     CustomCharacterDaoMixin,
     AccountDataDaoMixin,

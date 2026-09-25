@@ -1,4 +1,4 @@
-# 按游戏目录旧代理文件名清理，并核对加载登记和游戏退出状态。
+# 默认只清理拥有的加载登记，手动授权时额外清理旧代理文件。
 """Managed-file lifecycle facts; never infer pipe or business readiness."""
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from src.services.equipment_plugin_deployment import (
 @dataclass(frozen=True)
 class ManagedPluginInspection:
     target_path: Path
-    dll_state: Literal["missing", "managed", "conflict"]
+    dll_state: Literal["missing", "managed", "conflict", "unmanaged"]
     registry_state: Literal["absent", "owned", "conflict"]
     registered_workspace: str | None
     game_running: bool
@@ -46,11 +46,14 @@ def inspect_managed_plugin(
     game_executable_path: str | Path,
     mod_workspace_path: str | Path | None = None,
     game_running: Callable[[], bool] | None = None,
+    inspect_legacy_proxy: bool = True,
 ) -> ManagedPluginInspection:
     """Inspect the game-local legacy filename and registration without hashing."""
     target = _target_path(game_executable_path)
     process_running = (game_running or game_process_running)()
-    if target.is_symlink() or (target.exists() and not target.is_file()):
+    if not inspect_legacy_proxy:
+        dll_state = "unmanaged"
+    elif target.is_symlink() or (target.exists() and not target.is_file()):
         dll_state = "conflict"
     elif not target.exists():
         dll_state = "missing"
@@ -74,12 +77,14 @@ def cleanup_managed_plugin(
     mod_workspace_path: str | Path | None = None,
     game_running: Callable[[], bool] | None = None,
     allow_unrecorded_workspace_adoption: bool = False,
+    cleanup_legacy_proxy: bool = False,
 ) -> ManagedPluginCleanupResult:
-    """Remove the game-local dwmapi.dll regardless of its version or recorded hash."""
+    """Clean owned registration; remove dwmapi.dll only for an explicit manual action."""
     probe = game_running or game_process_running
     facts = inspect_managed_plugin(
         game_executable_path=game_executable_path,
         mod_workspace_path=mod_workspace_path, game_running=probe,
+        inspect_legacy_proxy=cleanup_legacy_proxy,
     )
     if facts.game_running:
         return ManagedPluginCleanupResult(
@@ -119,9 +124,12 @@ def cleanup_managed_plugin(
     final = inspect_managed_plugin(
         game_executable_path=game_executable_path,
         mod_workspace_path=mod_workspace_path, game_running=probe,
+        inspect_legacy_proxy=cleanup_legacy_proxy,
     )
     if final.game_running:
-        return ManagedPluginCleanupResult("waiting_game_exit", final, "文件已清理，但游戏仍需退出以结束已加载组件。")
-    if final.dll_state != "missing" or final.registry_state != "absent":
+        return ManagedPluginCleanupResult("waiting_game_exit", final, "加载登记已处理，游戏仍需退出以结束已加载会话。")
+    if (cleanup_legacy_proxy and final.dll_state != "missing") or final.registry_state != "absent":
         return ManagedPluginCleanupResult("conflict", final, "清理后组件或加载配置发生变化，请重新核对。")
-    return ManagedPluginCleanupResult("cleaned", final, "本程序管理的游戏目录组件与加载登记已清理。")
+    return ManagedPluginCleanupResult("cleaned", final,
+        "旧代理与本程序拥有的加载登记已清理。" if cleanup_legacy_proxy else
+        "本程序拥有的旧加载登记已清理；非当前组件文件保持原样。")

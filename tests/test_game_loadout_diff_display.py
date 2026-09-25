@@ -191,7 +191,7 @@ def test_diff_tape_card_renders_its_projected_item_icon(tmp_path) -> None:
     assert pixmap.save(str(icon_path))
     presentation = EquipmentPresentation(
         app_context=SimpleNamespace(
-            paths=SimpleNamespace(asset_dir=tmp_path),
+            paths=SimpleNamespace(game_ui_asset_root=tmp_path),
             account=SimpleNamespace(user_database_path=tmp_path / "user.sqlite3"),
         ),
         dialog_parent=None,
@@ -294,7 +294,7 @@ def test_virtual_core_diff_is_hydrated_and_grouped_as_one_tape_swap() -> None:
 
     presentation = EquipmentPresentation(
         app_context=SimpleNamespace(
-            paths=SimpleNamespace(asset_dir=Path(".")),
+            paths=SimpleNamespace(game_ui_asset_root=Path("missing-game-ui")),
             account=SimpleNamespace(user_database_path=Path("user.sqlite3")),
         ),
         dialog_parent=None,

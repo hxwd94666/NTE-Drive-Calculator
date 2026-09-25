@@ -105,6 +105,7 @@ class WorkModeProbe:
     native_load: NativeFeatureProbe = NativeFeatureProbe()
     cleanup_detail: str = ""
     cleanup_state: CheckState | None = None
+    native_diagnostic: str = ""
 
 
 @dataclass(frozen=True)

@@ -38,7 +38,7 @@ from src.services.static_catalog_terminology_service import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DATABASE = PROJECT_ROOT / "data" / "game_static.sqlite3"
-ASSET_ROOT = PROJECT_ROOT / "assets" / "game_ui"
+ASSET_ROOT = PROJECT_ROOT / "data" / "role_catalog" / "game_ui"
 MAINLAND_SNAPSHOT = datetime(2026, 8, 30, 12, 0, 0)
 
 

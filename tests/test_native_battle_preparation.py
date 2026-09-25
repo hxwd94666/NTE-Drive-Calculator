@@ -118,7 +118,8 @@ def test_snapshot_rpc_rejection_keeps_safe_diagnostic_and_capture_alive():
             record = waiting()
             record["native_capture"]["scopeAttempts"] = {"combat": attempt()}
             with patch("src.integrations.native_battle_snapshot.freeze_native_battle_snapshot", side_effect=error):
-                result = lease.observe_battle_scopes(record)
+                assert lease.observe_battle_scopes(record) is None
+                result = lease.observe_battle_scopes(record, final=True)
             frozen = result["scopes"]["combat"]["snapshot"]
             assert frozen["state"] == "unavailable"
             assert frozen["diagnostic"] == {"error_type": "NteCoreRpcError", "rpc_code": -32000,

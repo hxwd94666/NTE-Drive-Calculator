@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "core_rebuilt": false,
-  "core_sha256": "231ac64485d4794f65fcabdea36a504e794fc89e20487b83727bcc560c936776",
-  "capture_sha256": "0ce6ade560b6188803a0b5d9608db91c2135d3498f3b36e94513cec5b3794aa8",
+  "core_rebuilt": true,
+  "core_sha256": "bc1a48ff5d284c53808f22b624b8c53d79d277e16213e4526834a49d74213da4",
+  "capture_sha256": "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819",
   "proxy_sha256": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
   "protocol_version": 1,
   "provider_capabilities": [
@@ -16,12 +16,14 @@
     "combat.raw_evidence.v1",
     "character.snapshot.v1",
     "inventory.snapshot.v1",
+    "inventory.all_items.v1",
     "team.snapshot.v1",
     "environment.snapshot.v1",
     "equipment.execute.v1",
     "equipment.state_batch.v1",
     "combat.clock.v1",
-    "snapshot.changes.v1"
+    "snapshot.changes.v1",
+    "snapshot.pinned.v1"
   ],
   "core_capabilities": [
     "capture",
@@ -40,6 +42,8 @@
     "team.snapshot.v1",
     "environment.snapshot.v1",
     "snapshot.changes.v1",
+    "inventory.all_items.v1",
+    "snapshot.pinned.v1",
     "equipment",
     "native_equipment_v1",
     "native_equipment_state_batch_v1",
@@ -48,14 +52,19 @@
     "native_inventory_dto_v1"
   ],
   "validation": {
-    "build": "Release x64, frozen inputs verified",
-    "non_game": "direct/proxy exact binaries: HUD configuration, four snapshot domains, ordered batch validation, not-ready rejection and shutdown passed",
-    "game": "not_run_for_exact_binaries"
+    "build": "Release x64 protected standalone capture, proxy and rebuilt Core; source input digests recorded.",
+    "non_game": "Exact direct/proxy isolated-host handshake, refusal and shutdown checks passed.",
+    "capture_integration": "Six C++ focused programs and fourteen Rust focused checks passed.",
+    "calc": "97 focused tests and Ruff hard checks passed. Missing calculation inputs use labeled durable settlement fallback; original native evidence is preserved.",
+    "game": "not_run_for_exact_binaries; newly recorded first-hit and two-half acceptance pending"
   },
   "limits": [
-    "Game acceptance pending.",
+    "Counterfactual modifier and formula evidence remains partial; capability advertisement does not prove runtime coverage.",
     "Unknown restart callbacks do not delete battle data.",
     "Witch raw evidence is saved; activation remains unverified.",
-    "Conflicting configurations across halves cannot yet be replayed as multiple versions."
+    "Conflicting configurations across halves cannot yet be replayed as multiple versions.",
+    "Retail SDK removed OnAbyssStateChangeLogCallBack; only existing supported callbacks are captured.",
+    "All-items collection proves the observed client containers, not complete server account assets.",
+    "Final protected standalone binaries and Calc application require user final in-game regression."
   ]
 }

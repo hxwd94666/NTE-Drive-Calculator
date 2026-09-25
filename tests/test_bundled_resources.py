@@ -34,7 +34,7 @@ class BundledResourcesTests(TestCase):
             self.assertEqual(bundled_config_dir(), package_dir.resolve().parent / "config")
             self.assertEqual(
                 bundled_game_ui_asset_root(),
-                package_dir.resolve().parent / "assets" / "game_ui",
+                package_dir.resolve().parent / "data" / "role_catalog" / "game_ui",
             )
             self.assertEqual(
                 bundled_ocr_model_dir(),

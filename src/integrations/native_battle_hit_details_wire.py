@@ -66,7 +66,7 @@ def decode_hit_details(value, analysis, candidate):
                                 indices(strings,row[3]),indices(strings,row[4]),row[5],indices(decisions,row[6])))
         jobs = {}
         for row in table("results"):
-            if not isinstance(row,dict) or set(row) != {"job_id","projection_index"} or type(row["job_id"]) is not str:
+            if not isinstance(row,dict) or not {"job_id","projection_index"} <= row.keys() or type(row["job_id"]) is not str:
                 raise ValueError
             section, kind, event_id = row["job_id"].split(":",2)
             projection = ref(projections,row["projection_index"])

@@ -36,7 +36,7 @@ class ManagedPluginCleanupTests(unittest.TestCase):
     def clean(self, **kwargs):
         return cleanup_managed_plugin(
             game_executable_path=self.game,
-            mod_workspace_path=self.workspace, **kwargs,
+            mod_workspace_path=self.workspace, cleanup_legacy_proxy=True, **kwargs,
         )
 
     def test_running_game_defers_every_mutation_and_retry_cleans(self) -> None:
@@ -46,6 +46,16 @@ class ManagedPluginCleanupTests(unittest.TestCase):
         self.assertEqual(self.clean(game_running=lambda: False).status, "cleaned")
         self.assertFalse(self.dll.exists())
 
+    def test_automatic_cleanup_does_not_manage_legacy_dll_or_directory(self) -> None:
+        for directory in (False, True):
+            if directory:
+                self.dll.unlink()
+                self.dll.mkdir()
+            result = cleanup_managed_plugin(game_executable_path=self.game, game_running=lambda: False)
+            self.assertEqual(result.status, 'cleaned')
+            self.assertEqual(result.inspection.dll_state, 'unmanaged')
+            self.assertTrue(self.dll.exists())
+
     def test_missing_executable_and_dll_are_already_cleaned(self) -> None:
         self.game.unlink()
         self.dll.unlink()
@@ -53,7 +63,8 @@ class ManagedPluginCleanupTests(unittest.TestCase):
         self.assertEqual(self.clean(game_running=lambda: False).status, "cleaned")
 
     def test_old_proxy_without_deployment_record_is_removed(self) -> None:
-        result = cleanup_managed_plugin(game_executable_path=self.game, game_running=lambda: False)
+        result = cleanup_managed_plugin(game_executable_path=self.game, game_running=lambda: False,
+                                        cleanup_legacy_proxy=True)
         self.assertEqual(result.status, "cleaned")
         self.assertFalse(self.dll.exists())
         self.clear_registry.assert_called_once()
@@ -83,6 +94,7 @@ class ManagedPluginCleanupTests(unittest.TestCase):
             game_executable_path=self.game,
             game_running=lambda: False,
             allow_unrecorded_workspace_adoption=True,
+            cleanup_legacy_proxy=True,
         )
         self.assertEqual(result.status, "cleaned")
         self.assertFalse(self.dll.exists())

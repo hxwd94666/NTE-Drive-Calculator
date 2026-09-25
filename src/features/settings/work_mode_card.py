@@ -1,11 +1,14 @@
 # 构建统一工作模式入口、逐功能检查结果与必要处理操作。
+from datetime import datetime
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
+    QApplication, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
     QLabel, QPushButton, QProgressBar, QScrollArea, QVBoxLayout,
 )
 from src.app.theme import theme_color
 from src.app.window_geometry import fit_dialog_to_available_screen
+from src.app.version import __version__
 from src.ui.widgets import NoWheelComboBox
 
 MODE_LABELS = {"offline": "离线", "low": "低风险", "medium": "中风险", "developer": "开发"}
@@ -53,17 +56,36 @@ STATE_LABELS = {"available": "可用", "waiting": "正常等待", "missing": "�
                 "fault": "故障", "cleanup_pending": "清理待完成"}
 
 
+def _check_state_label(item) -> str:
+    if dict(item.facts).get("inspection_incomplete") is True:
+        return "未完成检测"
+    return STATE_LABELS[item.state.value]
+
+
 def report_text(report) -> str:
     rows = []
-    for item in report.features:
-        rows.append(f"{item.label}：{STATE_LABELS[item.state.value]}\n{item.detail}")
+    # Put failures first while retaining the original order within each group.
+    for item in sorted(report.features, key=lambda item: item.state.value != "fault"):
+        row = f"{item.label}：{_check_state_label(item)}\n{item.detail}"
+        facts = dict(item.facts)
+        labels = (
+            ("game_running", "游戏进程"), ("core_available", "配套 Core"),
+            ("files", "文件核对"), ("pipe", "管道"), ("handshake", "握手"),
+            ("supported", "能力声明"), ("snapshot", "快照"), ("ready", "业务就绪"),
+            ("complete", "完整性"),
+        )
+        values = [f"{label}：{'是' if facts[key] is True else '否' if facts[key] is False else '未确认'}"
+                  for key, label in labels if key in facts]
+        if values:
+            row += "\n检测事实：" + " · ".join(values)
+        rows.append(row)
     return "\n\n".join(rows)
 
 
 def report_summary(report) -> str:
     counts = {}
     for item in report.features:
-        label = STATE_LABELS[item.state.value]
+        label = _check_state_label(item)
         counts[label] = counts.get(label, 0) + 1
     return " · ".join(f"{label} {count} 项" for label, count in counts.items()) or "暂无检测结果"
 
@@ -80,6 +102,8 @@ class ModeReportDialog(QDialog):
         self.label.setTextFormat(Qt.PlainText)
         self.label.setWordWrap(True)
         self.label.setAlignment(Qt.AlignTop)
+        self.label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        self._copy_text = ""
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setTextVisible(False)
@@ -88,6 +112,13 @@ class ModeReportDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.label)
         layout.addWidget(scroll, 1)
+        copy_row = QHBoxLayout()
+        self.copy_button = QPushButton("复制检测结果")
+        self.copy_button.setEnabled(False)
+        self.copy_button.clicked.connect(self._copy_result)
+        copy_row.addWidget(self.copy_button)
+        copy_row.addStretch()
+        layout.addLayout(copy_row)
         footer = QHBoxLayout()
         self.actions = QHBoxLayout()
         footer.addLayout(self.actions)
@@ -114,6 +145,8 @@ class ModeReportDialog(QDialog):
         self.setWindowTitle(f"{MODE_LABELS[mode]}模式检测")
         self._clear_actions()
         self.retry_button.setEnabled(False)
+        self.copy_button.setEnabled(False)
+        self._copy_text = ""
         detail = ("正在结束原生连接并清理游戏组件…" if mode in {"offline", "low"}
                   else "正在检测环境并部署或更新配套组件…")
         self.label.setText(detail + "\n完成后将在此显示检测结果。\n关闭窗口不会取消已确认的模式切换和组件处理。")
@@ -134,7 +167,7 @@ class ModeReportDialog(QDialog):
         self.progress.hide()
         self._clear_actions()
         self.retry_button.setEnabled(True)
-        self.label.setText(report_text(report))
+        self._set_result(report_text(report))
         available = {action for item in report.features for action in item.actions}
         for key, title, callback in (
             ("download_npcap", "下载 Npcap", lambda: self.parentWidget()._open_npcap_download()),
@@ -148,7 +181,18 @@ class ModeReportDialog(QDialog):
         self.progress.hide()
         self._clear_actions()
         self.retry_button.setEnabled(True)
-        self.label.setText(detail)
+        self._set_result(detail)
+
+    def _set_result(self, detail):
+        header = (f"NTE Drive Calc {__version__} · {self.windowTitle()}\n"
+                  f"检测时间：{datetime.now().astimezone().isoformat(timespec='seconds')}")
+        self._copy_text = header + "\n\n" + detail
+        self.label.setText(self._copy_text)
+        self.copy_button.setEnabled(True)
+
+    def _copy_result(self):
+        if self._copy_text:
+            QApplication.clipboard().setText(self._copy_text)
 
 
 def build_work_mode_card(window):

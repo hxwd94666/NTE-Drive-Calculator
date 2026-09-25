@@ -149,6 +149,7 @@ def _validate_analysis_component(binary: Path, manifest_path: Path) -> None:
         or manifest.get("sha256") != digest
         or not isinstance(capabilities, list)
         or "battle_page_v1" not in capabilities
+        or "main_static_catalog_v1" not in capabilities
     ):
         raise RuntimeError("独立分析组件缺少战报数据库直读能力或哈希不匹配")
 
@@ -264,12 +265,13 @@ static_manifest_path = _required_build_file("发行版静态数据库清单", ST
 _append_add_data(static_manifest_path, "data")
 from src.integrations.role_catalog_release import resolve_role_catalog, validate_role_assets
 role_catalog = resolve_role_catalog(static_database_path)
-if role_catalog is not None:
-    role_assets = validate_role_assets(role_catalog.asset_root, role_catalog.dataset_id, role_catalog.sha256)
-    for relative in ("game_static.sqlite3", "manifest.json", "game_ui/manifest.json",
-                     *("game_ui/" + path for path in role_assets["files"])):
-        source = role_catalog.database_path.parent / relative
-        _append_add_data(source, (Path("data/role_catalog") / Path(relative).parent).as_posix())
+if role_catalog is None:
+    raise FileNotFoundError("发行构建需要完整图鉴与统一界面图片，请先晋升 data/role_catalog")
+role_assets = validate_role_assets(role_catalog.asset_root, role_catalog.dataset_id, role_catalog.sha256)
+for relative in ("game_static.sqlite3", "manifest.json", "game_ui/manifest.json",
+                 *("game_ui/" + path for path in role_assets["files"])):
+    source = role_catalog.database_path.parent / relative
+    _append_add_data(source, (Path("data/role_catalog") / Path(relative).parent).as_posix())
 if not STATIC_MIGRATION_DATA_DIR.is_dir():
     raise FileNotFoundError(f"静态数据迁移基线目录不存在：{STATIC_MIGRATION_DATA_DIR}")
 _append_add_data(STATIC_MIGRATION_DATA_DIR, "data/migrations")

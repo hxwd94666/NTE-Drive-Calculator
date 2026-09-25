@@ -92,7 +92,7 @@ class WeightedAllocationBoundaryTests(unittest.TestCase):
             dependencies.user_database_path,
         )
         self.assertEqual(
-            context.paths.asset_dir / "game_ui",
+            context.paths.game_ui_asset_root,
             dependencies.game_ui_asset_root,
         )
         self.assertIs(context.account_settings, dependencies.account_settings)

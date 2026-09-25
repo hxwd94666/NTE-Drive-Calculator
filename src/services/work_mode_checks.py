@@ -36,6 +36,12 @@ def _native_check(
         return result(CheckState.MISSING, "采集组件缺失或尚未核对兼容性。", "recheck")
     if not probe.game_running:
         return result(CheckState.WAITING, "等待启动游戏。", "recheck")
+    if probe.native_diagnostic:
+        return FeatureCheck(
+            feature, label, CheckState.WAITING,
+            "本次未完成检测；共同失败原因见“原生连接与业务检测”，不代表本项已单独确认故障。",
+            ("recheck",), facts + (("inspection_incomplete", True),),
+        )
     if native.pipe is not True:
         return result(CheckState.WAITING, "等待游戏内组件建立管道。", "recheck")
     if native.handshake is False:
@@ -59,9 +65,9 @@ def _native_check(
     if feature == "native_equipment" and native.projection_complete is not None:
         if native.reason == "equipment_check_required":
             return result(CheckState.WAITING, "后台同步不反复检测装配接口；点击重新检测可核对，实际装配前仍会检查。", "recheck")
-        if native.ready is True and native.projection_complete is True:
-            return result(CheckState.AVAILABLE, "原生装备接口与本次完整背包已就绪；操作后仍由后续背包确认。")
-        return result(CheckState.WAITING, "等待原生装备接口和本次完整背包；已保存的历史背包不能替代。", "recheck")
+        if native.ready is True:
+            return result(CheckState.AVAILABLE, "原生装备接口已就绪；装配使用最近已保存的完整背包，操作后确认结果。")
+        return result(CheckState.WAITING, "等待原生装备接口就绪。", "recheck")
     if feature == "native_character" and native.profile_projection_supported is True and native.ready is True:
         return result(CheckState.AVAILABLE, "可同步组件已支持的角色状态字段；未观测字段保持原值。")
     observation_details = {
@@ -148,6 +154,12 @@ def build_work_mode_report(settings: WorkModeSettings, probe: WorkModeProbe) -> 
             ("npcap", probe.npcap_available), ("listening", probe.packet_listening),
             ("snapshot", probe.packet_snapshot),
         )))
+    if probe.native_diagnostic and Capability.NATIVE_SYNC in allowed:
+        items.append(FeatureCheck(
+            "native_connection", "原生连接与业务检测", CheckState.FAULT,
+            probe.native_diagnostic, ("recheck",),
+            (("game_running", probe.game_running), ("core_available", probe.core_available)),
+        ))
     for capability, label, needs_snapshot in (
         (Capability.NATIVE_LOAD, "游戏内组件文件", False),
         (Capability.NATIVE_BATTLE, "DLL 战报", False),

@@ -11,8 +11,11 @@ from src.integrations.nte_core import NteCoreClient
 from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError, NteCoreTimeoutError, NteCoreProtocolError
 from src.integrations.native_inventory_snapshot import NativeSnapshotPending, read_native_projection
 from src.integrations.native_snapshot_baseline import NativeSnapshotBaseline
+from src.integrations.native_raw_snapshot import read_native_raw_domain
 from src.services.inventory_capture_wait import InventorySyncCancelled
+from src.services.native_snapshot_changes import domain_status, snapshot_change_key
 from src.observability import OperationContext, log_event
+from src.integrations.native_transport_diagnostics import RuntimeCostLog, snapshot_refresh_diagnostic
 
 
 SNAPSHOT_DOMAINS = ("character", "inventory", "team", "environment")
@@ -32,6 +35,7 @@ class NativeGameSession:
         self._diagnostics_enabled = diagnostics_enabled
         self._diagnostics_applied = None
         self._hud_applied = None
+        self._runtime_cost_log = RuntimeCostLog()
         self._connected_context: object = None
         self._client: NteCoreClient | None = None
         self._lock = RLock()
@@ -88,6 +92,7 @@ class NativeGameSession:
                 client.close()
                 raise
             self._client = client
+            self._runtime_cost_log = RuntimeCostLog()
             self._baseline = NativeSnapshotBaseline()
             client.add_event_handler("event.native.diagnostics.error", self._archive_failed)
             self._connected_context = context
@@ -146,6 +151,7 @@ class NativeGameSession:
             self._snapshot_lock.release()
 
     def _refresh_snapshot(self, client, params, check):
+        started = monotonic()
         token = object()
         with self._lock:
             check()
@@ -156,6 +162,7 @@ class NativeGameSession:
             result = client.call("native.snapshot.refresh", params, timeout=NATIVE_REFRESH_TIMEOUT_SECONDS,
                                  check_cancelled=check)
             check()
+            snapshot_refresh_diagnostic(result, params, (monotonic() - started) * 1000)
             return result
         except (InventorySyncCancelled, CancelledError, PermissionError, NteCoreTimeoutError):
             # Battle acquisition is excluded while this refresh owns the client.
@@ -180,6 +187,7 @@ class NativeGameSession:
             capabilities = (client.hello_result or {}).get("capabilities", [])
             # Status calls must not hold the lock needed by a battle stop timeout abort.
             status = client.status()
+            self._runtime_cost_log.observe(status)
             domains = {}
             domain_errors: dict[str, dict[str, Any]] = {}
             if any(f"{domain}.snapshot.v1" in capabilities for domain in SNAPSHOT_DOMAINS):
@@ -202,7 +210,7 @@ class NativeGameSession:
                                       or (domain == "inventory" and "native_inventory_dto_v1" in capabilities)):
                                     self._read_projection(client, domain, check)
                                 else:
-                                    from src.integrations.native_battle_snapshot import read_native_raw_domain, validate_native_snapshot_current
+                                    from src.integrations.native_battle_snapshot import validate_native_snapshot_current
                                     baseline = self._baseline
                                     current = client.call("native.snapshot.status", {}, check_cancelled=check)
                                     if baseline.get(domain, current) is None:
@@ -296,14 +304,18 @@ class NativeGameSession:
             baseline = self._baseline
             timings, counts = {}, {}
             completed = False
+            failure_code = None
+            failure_stage = None
+            active_stage = None
             started = monotonic()
             refreshed_header = None
             try:
                 def call(method, params):
-                    nonlocal refreshed_header
+                    nonlocal refreshed_header, active_stage
                     stage = {"native.snapshot.refresh": "refresh", "native.snapshot.status": "status",
                              "native.snapshot.page": "raw_pages"}.get(method, "projection_pages")
                     before = monotonic()
+                    active_stage = stage
                     try:
                         if method == "native.snapshot.refresh":
                             refreshed_header = self._refresh_snapshot(client, params, current)
@@ -322,15 +334,27 @@ class NativeGameSession:
                           (client.hello_result or {}).get("capabilities", ()) else None)
                 projection = read_native_projection(inline.call if inline else call, current, domain=domain)
                 if tracked:
-                    from src.integrations.native_battle_snapshot import read_native_raw_domain, validate_native_snapshot_current
-                    validate_native_snapshot_current({"domains": {domain: projection}}, call("native.snapshot.status", {}))
+                    self._require_current_sync_revision(projection, call("native.snapshot.status", {}))
                     raw = (inline.read(projection, current) if inline else
                            read_native_raw_domain(call, current, domain, header=refreshed_header))
-                    validate_native_snapshot_current({"domains": {domain: raw}}, call("native.snapshot.status", {}))
+                    self._require_current_sync_revision(raw, call("native.snapshot.status", {}))
                     baseline.put(domain, raw, projection)
                 completed = True
                 return projection
+            except NativeSnapshotPending:
+                failure_code, failure_stage = "snapshot_pending", active_stage
+                raise
+            except (InventorySyncCancelled, CancelledError, PermissionError):
+                failure_code, failure_stage = "cancelled", active_stage
+                raise
             except NteCoreError as error:
+                failure_stage = active_stage
+                failure_code = (error.domain_code or error.message if isinstance(error, NteCoreRpcError)
+                                else type(error).__name__)
+                if failure_code not in {"NATIVE_MAPPING_UNSUPPORTED", "NATIVE_SNAPSHOT_INCOMPLETE",
+                                        "NATIVE_CAPABILITY_MISSING", "not_ready", "source_changed",
+                                        "snapshot_not_found", "disabled", "control_timeout"}:
+                    failure_code = type(error).__name__
                 if isinstance(error, NteCoreRpcError) and (
                     error.domain_code in {"NATIVE_MAPPING_UNSUPPORTED", "NATIVE_SNAPSHOT_INCOMPLETE", "NATIVE_CAPABILITY_MISSING"}
                     or error.message in {"not_ready", "source_changed", "snapshot_not_found", "disabled"}
@@ -349,8 +373,34 @@ class NativeGameSession:
                     log_event("INFO", "native_sync.projection_read", "原生同步读取分段耗时",
                               OperationContext.create("native_sync"), domain=domain, completed=completed,
                               duration_ms=round((monotonic() - started) * 1000, 2),
+                              failure_code=failure_code, failure_stage=failure_stage,
                               stage_duration_ms={key: round(value, 2) for key, value in timings.items()},
                               stage_call_count=counts)
+
+    @staticmethod
+    def _require_current_sync_revision(snapshot, status):
+        domain = snapshot["domain"]
+        expected = tuple(snapshot[key] for key in ("providerId", "domainKey", "revision"))
+        row = domain_status(status, domain)
+        if (snapshot_change_key(status, domain) != expected or row.get("ready") is not True
+                or row.get("dirty") is not False or row.get("enabled") is not True):
+            raise NativeSnapshotPending("同步读取期间来源发生变化，等待重新采集。")
+
+    def read_all_items(self, client, check):
+        from src.domain.all_item_snapshot import ALL_ITEMS_CAPABILITY
+        from src.integrations.native_all_item_snapshot import read_all_item_snapshot
+        current = lambda: self._check_projection(client, check)
+        with self._snapshot_scope(current):
+            current()
+            if ALL_ITEMS_CAPABILITY not in (client.hello_result or {}).get("capabilities", ()):
+                raise NativeSnapshotPending("当前组件未声明全部物品读取能力。")
+
+            def call(method, params):
+                if method == "native.snapshot.refresh":
+                    return self._refresh_snapshot(client, params, current)
+                return client.call(method, params, check_cancelled=current)
+
+            return read_all_item_snapshot(call, current)
 
     def read_character_profiles(self, *, check=None):
         with self._lock:
@@ -464,6 +514,28 @@ class NativeGameSession:
             self._disable_snapshots()
             if self._lease is None:
                 self._finish_close()
+
+    def close_if_idle(self) -> bool:
+        """Release an unused connection without cancelling another feature's work."""
+        if not self._snapshot_lock.acquire(blocking=False):
+            return False
+        try:
+            with self._lock:
+                if (self._client is None or self._lease is not None or self._inventory_lease is not None
+                        or self._refresh_active is not None or self._battle_requested.is_set()):
+                    return False
+                if self._hud_applied is not None:
+                    options = self._hud_applied[1]
+                    if options.get("cooldown") or options.get("enemy_bars"):
+                        return False
+                # Disconnect is the provider's cancellation boundary, including
+                # pending snapshot jobs. No per-domain RPC waits on the idle path.
+                self._finish_close()
+                log_event("INFO", "native_session.idle_closed", "已释放无功能使用的原生连接",
+                          OperationContext.create("native_session"), reason="no_active_consumers")
+                return True
+        finally:
+            self._snapshot_lock.release()
 
     def request_close(self, *, permanent: bool = False) -> None:
         """Nonblocking revocation; the observer owner performs RPC teardown later."""
@@ -579,26 +651,40 @@ class NativeBattleLease:
 
     def observe_battle_scopes(self, record, *, final=False, stop_requested=None):
         from src.services.native_battle_scopes import scope_attempts
+        from src.services.native_battle_preparation import first_hit_snapshot_ready, retain_scope_pending_snapshot
         from copy import deepcopy
         attempts = scope_attempts(record)
+        if "snapshot.pinned.v1" in (self.hello_result or {}).get("capabilities", ()):
+            from src.services.native_battle_preparation import observe_pinned_scopes
+            return observe_pinned_scopes(self, record, attempts, final, stop_requested)
+        pending = {scope: entry["snapshot"] for scope, entry in self._scope_snapshots.items()
+                   if scope in attempts and entry["attempt_id"] == attempts[scope]["attemptId"]
+                   and entry["snapshot"].get("binding") == "pending_first_hit"}
         candidates = {scope: self._preparation.take_matching(attempt, record)
-                      for scope, attempt in attempts.items() if scope not in self._scope_snapshots}
+                      for scope, attempt in attempts.items() if scope not in self._scope_snapshots or scope in pending}
         prepared = None
-        if not final:
+        needs_snapshot = not attempts or any(
+            scope not in self._scope_snapshots or scope in pending
+            or self._scope_snapshots[scope]["attempt_id"] != attempt["attemptId"]
+            for scope, attempt in attempts.items())
+        if not final and needs_snapshot:
             prepared = self._preparation.prepare(record, attempts, lambda: self._read_battle_snapshot(stop_requested))
         changed = False
         for scope in tuple(self._scope_snapshots):
             if scope not in attempts or self._scope_snapshots[scope]["attempt_id"] != attempts[scope]["attemptId"]:
+                changed |= self._scope_snapshots[scope]["snapshot"].get("binding") != "pending_first_hit"
                 del self._scope_snapshots[scope]
-                changed = True
         for scope, attempt in attempts.items():
-            if scope in self._scope_snapshots:
+            if scope in self._scope_snapshots and scope not in pending:
                 continue
             frozen = candidates.get(scope) or self._preparation.take_matching(attempt, record)
+            if scope in pending and first_hit_snapshot_ready(pending[scope], attempt, record):
+                frozen = deepcopy(pending[scope])
             if frozen is not None:
                 frozen["binding"] = "first_hit_revision"
             elif final:
-                frozen = {"state": "unavailable", "domains": {}, "missing": ["first_hit_not_observed_live"]}
+                frozen = deepcopy(pending.get(scope)) or {
+                    "state": "unavailable", "domains": {}, "missing": ["first_hit_not_observed_live"]}
             else:
                 if prepared is not None:
                     frozen = deepcopy(prepared)
@@ -609,27 +695,44 @@ class NativeBattleLease:
                 else:
                     frozen = self._read_battle_snapshot(stop_requested)
                 if frozen.get("state") == "source_changed" or (frozen.get("state") == "observed" and
-                        (len(frozen.get("domains") or {}) != 4 or
+                        (not {"character", "inventory", "team"} <= (frozen.get("domains") or {}).keys() or
                          "inventory_projection" not in frozen or "character_projection" not in frozen)):
                     continue
-                frozen["binding"] = "first_hit_revision"
-                # Preserve the immutable observation. First-hit/continuity validation
-                # uses the final retained context evidence in select_scope_builds;
-                # this record predates the blocking read and can still be incomplete.
+                # A read can finish before the matching context reaches Core.
+                # Retain its evidence but allow later polls to establish binding.
+                frozen = retain_scope_pending_snapshot(pending.get(scope), frozen, attempt, record)
+                frozen["binding"] = ("first_hit_revision" if first_hit_snapshot_ready(frozen, attempt, record)
+                                     else "pending_first_hit")
+            if self._scope_snapshots.get(scope) == {"attempt_id": attempt["attemptId"], "snapshot": frozen}:
+                changed |= final and scope in pending
+                continue
             self._scope_snapshots[scope] = {"attempt_id": attempt["attemptId"], "snapshot": frozen}
-            changed = True
-        return {"state": "scoped", "scopes": dict(self._scope_snapshots)} if changed else None
+            changed |= final or frozen.get("binding") != "pending_first_hit"
+        # Pending reads remain lease-owned. Publish once confirmed, or at stop
+        # as unresolved evidence, so the DAO's immutable-attempt rule stays intact.
+        published = {scope: entry for scope, entry in self._scope_snapshots.items()
+                     if final or entry["snapshot"].get("binding") != "pending_first_hit"}
+        return {"state": "scoped", "scopes": published} if changed else None
 
-    def _read_battle_snapshot(self, stop_requested):
-        from src.integrations.native_battle_snapshot import freeze_native_battle_snapshot
+    def _read_battle_snapshot(self, stop_requested, *, references=None):
+        from src.integrations.native_battle_snapshot import freeze_native_battle_snapshot, read_first_hit_snapshot
+        started = False
+        stop_deadline = None
         def check():
+            nonlocal started, stop_deadline
             self._check(new_work=True)
             if stop_requested is not None and stop_requested():
-                raise CancelledError("战报停止，取消未完成的配置读取。")
+                if stop_deadline is None:
+                    stop_deadline = monotonic() + 5.0
+                if not started or monotonic() >= stop_deadline:
+                    raise CancelledError("战报停止，配置读取收尾超时。")
         try:
             with self._owner._snapshot_scope(check):
-                frozen = freeze_native_battle_snapshot(self._client, check, baseline=self._owner._baseline)
+                started = True
+                frozen = (freeze_native_battle_snapshot(self._client, check, baseline=self._owner._baseline)
+                          if references is None else read_first_hit_snapshot(self._client, check, references))
         except CancelledError:
+            self._check(new_work=True)
             if stop_requested is None or not stop_requested():
                 raise
             frozen = {"state": "unavailable", "domains": {}, "missing": ["snapshot_read_cancelled_by_stop"]}

@@ -83,6 +83,9 @@ class NativeHitDetailTests(unittest.TestCase):
 
     def test_raw_and_formula_views_share_tables_without_mixing_attribution(self):
         value,analysis,hit,interval=tables()
+        value['future_extension'] = {'unresolved': True}
+        for row in value['results']:
+            row['future_evidence'] = ['unknown']
         details=decode_hit_details(value,analysis,analysis)
         raw,_=details.analysis.for_hit(hit,formula=False)
         formula,intervals=details.analysis.for_hit(hit,formula=True)

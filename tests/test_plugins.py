@@ -15,7 +15,7 @@ class Policy:
         self.enabled = True
         self.settings = SimpleNamespace(paused=False)
 
-    def allowed(self, _):
+    def allowed(self, _, *, automatic=False):
         return self.enabled
 
 
@@ -33,6 +33,49 @@ def test_defaults_do_not_start_native_client(tmp_path):
     service.observe(SimpleNamespace(game_running=True))
     assert not core.is_running
     assert not core.calls
+
+
+def test_both_plugins_and_auto_sync_off_release_existing_idle_connection(tmp_path):
+    service, session, core, policy = make_service(tmp_path)
+    session.inspect()
+    policy.allowed = lambda _, automatic=False: not automatic
+    service.observe(SimpleNamespace(game_running=True))
+    assert core.closed
+    assert not core.is_running
+
+
+def test_direct_plugin_change_uses_existing_session_without_starting_capture(tmp_path):
+    service, session, core, _ = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True)
+    service.apply_current()
+    assert not core.is_running  # No second connection or automatic load for a switch.
+    service.observe(SimpleNamespace(game_running=True))
+    lease = session.battle_client()
+    before = len(core.calls)
+    service.update(cooldown=False)
+    assert service.status_for("cooldown") == "关闭显示待确认"
+    service.apply_current()
+    assert core.calls[before:] == [("native.hud.configure", service.settings.payload())]
+    assert not core.calls[-1][1]["cooldown"] and core.calls[-1][1]["enemy_bars"]
+    assert session.battle_active and not core.closed
+    lease.close()
+    session.close()
+
+
+def test_failed_hud_disable_is_not_reported_as_closed(tmp_path):
+    from src.features.plugins.page import PluginsPage
+    service, session, core, _ = make_service(tmp_path)
+    service.update(cooldown=True)
+    service.observe(SimpleNamespace(game_running=True))
+    core.on_call = lambda *_: (_ for _ in ()).throw(RuntimeError("busy"))
+    service.update(cooldown=False)
+    service.apply_current()
+    assert PluginsPage._status_presentation(service.status_for("cooldown"), False) == (
+        "关闭待确认", "warning")
+    core.on_call = None
+    service.apply_current()
+    assert PluginsPage._status_presentation(service.status_for("cooldown"), False)[0] == "已关闭"
+    session.close()
 
 
 def test_global_preferences_and_independent_switches(tmp_path):
