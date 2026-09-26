@@ -1,12 +1,15 @@
 # 在现有设置部署入口展示原生插件配套状态并提交游戏退出后的整套部署。
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 
+from src.app.theme import theme_color
+from src.app.window_geometry import fit_dialog_to_available_screen
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
 from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError
 from src.services.native_plugin_deployment import PluginDeploymentPendingCleanup
 from src.services.native_plugin_deployment import deploy_native_plugin
-from src.services.mod_plugin_loading_service import ModPluginLoadingError
+from src.services.mod_plugin_loading_service import ModPluginLoadingError, ModPluginLoadingWaiting
 
 
 def _refresh_work_mode_detection(window) -> None:
@@ -59,6 +62,49 @@ def refresh_native_plugin_status(window) -> None:
                           if result.files_compatible else "组件未准备好：" + "；".join(result.issues))
 
 
+def _confirm_d3d_deployment(window) -> bool:
+    dialog = QDialog(window)
+    dialog.setObjectName("d3dDeploymentConfirmation")
+    dialog.setWindowTitle("部署 D3D 原生组件")
+    dialog.setWindowModality(Qt.WindowModal)
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(22, 20, 22, 18)
+    layout.setSpacing(14)
+
+    warning = QLabel("部署前，请完全退出游戏", dialog)
+    warning.setObjectName("d3dDeploymentExitWarning")
+    warning.setStyleSheet(f"color:{theme_color('#f85149')};font-size:17px;font-weight:700")
+    layout.addWidget(warning)
+    guidance = QLabel("确认游戏窗口和游戏进程均已关闭，再继续部署。", dialog)
+    guidance.setWordWrap(True)
+    layout.addWidget(guidance)
+    detail = QLabel(
+        "本次将替换 d3d12.dll、NTE_Capture.dll，并清理旧 dwmapi.dll。\n"
+        "已有组件直接替换，不保留备份。",
+        dialog,
+    )
+    detail.setObjectName("d3dDeploymentChanges")
+    detail.setWordWrap(True)
+    detail.setStyleSheet(f"color:{theme_color('#8b949e')}")
+    layout.addWidget(detail)
+
+    actions = QHBoxLayout()
+    actions.addStretch()
+    cancel = QPushButton("取消", dialog)
+    cancel.setDefault(True)
+    cancel.setFocus()
+    cancel.clicked.connect(dialog.reject)
+    actions.addWidget(cancel)
+    proceed = QPushButton("已退出游戏，继续部署", dialog)
+    proceed.setObjectName("d3dDeploymentProceed")
+    proceed.setAutoDefault(False)
+    proceed.clicked.connect(dialog.accept)
+    actions.addWidget(proceed)
+    layout.addLayout(actions)
+    fit_dialog_to_available_screen(dialog, QSize(560, 250))
+    return dialog.exec() == QDialog.Accepted
+
+
 def deploy_native_plugin_from_settings(window) -> None:
     bundle = inspect_game_component_bundle(window.app_context.paths.root)
     if not bundle.ready:
@@ -76,13 +122,7 @@ def deploy_native_plugin_from_settings(window) -> None:
         return
     executable = window.work_mode_service.settings.game_executable
     generation = window.operation_generation()
-    if QMessageBox.question(
-        window, "确认部署原生组件",
-        "将更新 d3d12.dll 和 NTE_Capture.dll，并清理游戏主程序同目录的旧 dwmapi.dll。\n"
-        "这是手动部署的清理操作；自动部署会保留 dwmapi.dll。已有组件会直接替换，不保留备份。\n"
-        "请先完全退出游戏。\n\n是否继续？",
-        QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-    ) != QMessageBox.Yes:
+    if not _confirm_d3d_deployment(window):
         return
 
     def guard(capability):
@@ -128,6 +168,13 @@ def start_native_loader_from_settings(window) -> None:
         _refresh_work_mode_detection(window)
         QMessageBox.information(window, "原生 Loader 已启动",
                                 "请正常启动游戏，随后重新检测连接和各项能力。")
+    except ModPluginLoadingWaiting as error:
+        window._refresh_equipment_plugin_status()
+        QMessageBox.warning(
+            window, "Loader 等待关闭程序",
+            "状态：尚未启动 Loader\n原因：" + str(error) +
+            "\n下一步：完全退出启动器和游戏，再点击“启动原生 Loader”。",
+        )
     except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as error:
         window._refresh_equipment_plugin_status()
         window.operation_unavailable("启动原生 Loader", str(error), target="deployment")

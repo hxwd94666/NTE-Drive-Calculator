@@ -61,14 +61,13 @@ class ApplicationPaths:
 
     @property
     def equipment_allocation_database_path(self) -> Path:
-        """Use one reference dataset for equipment-only allocation when installed."""
+        """Freeze the complete game dataset for scoring and native allocation.
 
-        catalog = self.role_catalog
-        return (
-            catalog.database_path
-            if catalog is not None and catalog.scope == "reference"
-            else self.static_database_path
-        )
+        The optional reference catalog lacks verified fork permanent properties
+        and graduation benchmarks, so it cannot supply calculation inputs.
+        """
+
+        return self.static_database_path
 
     @property
     def equipment_allocation_asset_root(self) -> Path:

@@ -34,6 +34,7 @@ def test_cultivation_uses_one_verified_role_catalog_for_data_and_images(tmp_path
     assert with_catalog.cultivation_asset_root == release.asset_root
     assert with_catalog.static_database_path == paths.static_database_path
     assert with_catalog.game_ui_asset_root == release.asset_root
+    assert with_catalog.equipment_allocation_database_path == paths.static_database_path
     assert with_catalog.equipment_allocation_asset_root == release.asset_root
     role_only = replace(with_catalog, role_catalog=replace(release, scope="role_page"))
     assert role_only.equipment_allocation_database_path == paths.static_database_path

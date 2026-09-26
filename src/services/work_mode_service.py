@@ -94,6 +94,17 @@ class WorkModeService:
                 replace(self._settings, auto_sync_enabled=enabled), revoke_first=not enabled,
             )
 
+    def enable_auto_sync_after_preflight(self) -> None:
+        """Commit both opt-ins together after the visible preparation step."""
+        with self._lock:
+            self._save(replace(
+                self._settings, auto_sync_enabled=True, component_auto_ready=True,
+            ))
+
+    def set_component_auto_ready(self, ready: bool) -> None:
+        with self._lock:
+            self._save(replace(self._settings, component_auto_ready=bool(ready)), revoke_first=not ready)
+
     def set_cleanup_pending(self, pending: bool) -> None:
         with self._lock:
             self._save(replace(self._settings, pending_cleanup=bool(pending)), revoke_first=pending)
@@ -122,7 +133,7 @@ class WorkModeService:
         if capability in {Capability.PACKET_CAPTURE, Capability.NATIVE_SYNC}:
             return settings.auto_sync_enabled
         # Automatic synchronization never starts battle recording or input actions.
-        return capability == Capability.NATIVE_LOAD
+        return capability == Capability.NATIVE_LOAD and settings.component_auto_ready
 
     def require(self, capability: Capability | str, *, automatic: bool = False) -> None:
         if not self.allowed(capability, automatic=automatic):

@@ -60,6 +60,8 @@ def owner(tmp_path):
     window._stop_inventory_sync = lambda: setattr(window, "_inventory_sync_service", None)
     policy = WorkModeService(tmp_path / "mode.json")
     policy.select_mode("low", risk_confirmed=True)
+    policy.enable_auto_sync_after_preflight()
+    policy.set_cleanup_pending(False)
 
     def watcher_factory(on_change):
         watcher = Watcher(on_change)
@@ -115,6 +117,19 @@ def test_toggle_off_only_stops_inventory_not_manual_battle(owner):
     jobs.pop(0)()
     c.refresh()
     assert len(starts) == 1
+
+
+def test_first_enable_waits_for_visible_preflight_confirmation(owner):
+    c, _window, policy, _starts, _jobs, _watchers, _app = owner
+    c.set_enabled(False)
+    pending = []
+    c._request_enable_preflight = pending.append
+    c.set_enabled(True)
+    assert len(pending) == 1
+    assert not policy.settings.auto_sync_enabled
+    assert pending[0]() is True
+    assert policy.settings.auto_sync_enabled
+    assert policy.settings.component_auto_ready
 
 
 def test_packet_sync_can_start_while_packet_battle_runs(owner):
@@ -419,19 +434,49 @@ def test_home_sync_help_keeps_usage_steps_and_mode_boundaries():
     offline = _home_sync_help_text("offline")
 
     expected = (
-        "1. 开启“自动同步”。\n"
-        "2. 启动并登录游戏，程序会自动读取并保存数据。\n"
-        "3. 若未收到完整背包，点击“重启同步”，按提示返回登录页，待抓包监听就绪后重新登录。\n\n"
-        "同步功能使用后，无需再使用扫描模式获取数据！！！"
+        "1. 开启“自动同步”，按提示确认抓包环境。\n"
+        "2. 启动游戏，等待抓包监听就绪后再登录；完整背包会自动保存。\n"
+        "3. 数据未更新？点“重启同步”，按提示重新登录；仍有问题时看“检测详情”。"
     )
     assert low == expected
-    assert '完全退出游戏' in native
-    assert '部署完成后' in native
+    assert '先退出游戏' in native
+    assert '退出启动器' in native
     assert '游戏场景' in native
     assert '退回登录界面' not in native
     assert _home_sync_help_text('developer') == native
-    assert '离线模式不连接游戏' in offline
+    assert '离线模式' in offline and '工作模式设置' in offline
     assert '登录界面' not in offline and '登录页' not in offline
+
+
+@pytest.mark.parametrize('action, target', [
+    ('工作模式设置', 'mode'), ('环境设置', 'game_path'), ('关闭', None),
+])
+def test_home_sync_help_routes_only_on_selected_button(monkeypatch, action, target):
+    from PySide6.QtWidgets import QDialog, QLabel, QPushButton
+    from src.features.home.page import _show_home_sync_help
+
+    application()
+    window = QWidget()
+    window.work_mode_service = SimpleNamespace(
+        settings=SimpleNamespace(mode=SimpleNamespace(value='low')),
+    )
+    routes = []
+    window.work_mode_controller = SimpleNamespace(open_settings=routes.append)
+
+    def interact(dialog):
+        assert dialog.objectName() == 'homeSyncHelpDialog'
+        assert '抓包监听' in dialog.findChild(QLabel, 'homeSyncHelpInstructions').text()
+        buttons = dialog.findChildren(QPushButton)
+        assert {button.text() for button in buttons} == {'工作模式设置', '环境设置', '关闭'}
+        next(button for button in buttons if button.text() == action).click()
+        return dialog.result()
+
+    monkeypatch.setattr(QDialog, 'exec', interact)
+    try:
+        _show_home_sync_help(window)
+        assert routes == ([target] if target is not None else [])
+    finally:
+        dispose(window)
 
 
 @pytest.mark.parametrize('mode', ['medium', 'developer'])

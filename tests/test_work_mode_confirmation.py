@@ -90,7 +90,7 @@ def test_low_mode_report_offers_download_only_for_confirmed_missing_npcap(tmp_pa
         buttons = {b.text(): b for b in dialog.findChildren(QPushButton)}
         assert ('下载 Npcap' in buttons) == (installed is False)
         if installed is False:
-            assert '安装完成后' in dialog.findChild(QLabel).text()
+            assert any('安装完成后' in label.text() for label in dialog.findChildren(QLabel))
             buttons['下载 Npcap'].click()
             parent._open_npcap_download.assert_called_once()
         else:

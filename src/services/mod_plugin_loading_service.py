@@ -13,8 +13,10 @@ from src.integrations.mod_loader import (
     ModLoaderRuntime,
     ModLoaderRuntimeError,
     ModLoaderRuntimeSnapshot,
+    game_launcher_candidates,
     game_launcher_executable,
 )
+from src.integrations.launcher_process import LauncherProcessProbeError, selected_launcher_running
 from src.integrations.operation_guard import require_operation
 from src.integrations.legacy_game_proxy import remove_legacy_game_proxy
 from src.integrations.game_component_bundle import inspect_game_component_bundle
@@ -33,6 +35,10 @@ from src.services.equipment_plugin_deployment import (
 
 class ModPluginLoadingError(RuntimeError):
     """The requested loading-method transition is unsafe or unavailable."""
+
+
+class ModPluginLoadingWaiting(ModPluginLoadingError):
+    """A running or unverified launcher requires a later retry."""
 
 
 class ModPluginLoadingPendingCleanup(ModPluginLoadingError):
@@ -219,6 +225,11 @@ class ModPluginLoadingService:
         self._require_load_allowed(scoped_guard)
         executable = game_executable(game_executable_path)
         launcher = game_launcher_executable(executable)
+        try:
+            if any(selected_launcher_running(candidate) for candidate in game_launcher_candidates(executable)):
+                raise ModPluginLoadingWaiting("官方启动器仍在运行；请关闭启动器和游戏后再启动 Loader。")
+        except (LauncherProcessProbeError, OSError) as error:
+            raise ModPluginLoadingWaiting(str(error)) from error
         payload = self._native_workspace_root / NATIVE_LOADER_PAYLOAD_RELATIVE_PATH
         current = self._runtime.snapshot(payload_path=payload)
         if current.phase not in {'running', 'stopped', 'missing_payload'}:
@@ -258,6 +269,12 @@ class ModPluginLoadingService:
             raise ModPluginLoadingError(str(error)) from error
         self._active_payload_sha256 = self._native_workspace.managed_files[NATIVE_LOADER_PAYLOAD_RELATIVE_PATH]
         return ModPluginLoaderStartResult(runtime, self._native_workspace_root, native_workspace=self._native_workspace)
+
+    def launcher_running(self, game_executable_path: str | Path) -> bool:
+        return any(
+            selected_launcher_running(candidate)
+            for candidate in game_launcher_candidates(game_executable_path)
+        )
 
 
     def stop_loader(

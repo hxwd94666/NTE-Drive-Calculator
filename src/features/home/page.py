@@ -6,14 +6,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from src.app.constants import APP_VERSION
 from src.app.theme import themed_style
+from src.app.window_geometry import fit_dialog_to_available_screen
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 from src.ui.image_scaling import asset_pixmap
@@ -169,28 +170,66 @@ def _section(title: str, description: str = "") -> tuple[QFrame, QVBoxLayout]:
 
 
 def _home_sync_help_text(mode: str) -> str:
-    """Return the product-approved synchronization instructions."""
+    """Keep the next action clear for the current synchronization source."""
 
     if mode == "offline":
-        return "离线模式不连接游戏，使用已保存数据。需要同步时，请先到设置中选择并确认工作模式。"
+        return (
+            "当前是离线模式，只使用已保存数据。\n"
+            "要同步：先到“工作模式设置”选择并确认可同步的模式，"
+            "再返回工作台开启“自动同步”。"
+        )
     if mode in {"medium", "developer"}:
         return (
-            "1. 如需部署或更新组件，请先完全退出游戏，等待部署完成后再启动。\n"
-            "2. 开启“自动同步”，登录并进入游戏场景，等待程序读取并保存背包与角色数据。\n"
-            "3. 同步异常或数据未更新时，点击“重启同步”；组件长时间未就绪时查看“检测详情”。\n\n"
-            "同步功能使用后，无需再使用扫描模式获取数据！！！"
+            "1. 开启“自动同步”，按提示准备组件；若需部署，先退出游戏（Loader 还需退出启动器）。\n"
+            "2. 登录并进入游戏场景，等待背包和角色数据保存。\n"
+            "3. 数据未更新？点“重启同步”；仍有问题时看“检测详情”。"
         )
     return (
-        "1. 开启“自动同步”。\n"
-        "2. 启动并登录游戏，程序会自动读取并保存数据。\n"
-        "3. 若未收到完整背包，点击“重启同步”，按提示返回登录页，待抓包监听就绪后重新登录。\n\n"
-        "同步功能使用后，无需再使用扫描模式获取数据！！！"
+        "1. 开启“自动同步”，按提示确认抓包环境。\n"
+        "2. 启动游戏，等待抓包监听就绪后再登录；完整背包会自动保存。\n"
+        "3. 数据未更新？点“重启同步”，按提示重新登录；仍有问题时看“检测详情”。"
     )
 
 
 def _show_home_sync_help(window) -> None:
     mode = getattr(window.work_mode_service.settings.mode, "value", "offline")
-    QMessageBox.information(window, "背包同步如何使用", _home_sync_help_text(str(mode)))
+    dialog = QDialog(window)
+    dialog.setObjectName("homeSyncHelpDialog")
+    dialog.setWindowTitle("自动同步 · 如何使用")
+    dialog.setWindowModality(Qt.WindowModal)
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(20, 20, 20, 16)
+    layout.setSpacing(18)
+    instructions = QLabel(_home_sync_help_text(str(mode)), dialog)
+    instructions.setObjectName("homeSyncHelpInstructions")
+    instructions.setWordWrap(True)
+    instructions.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+    layout.addWidget(instructions)
+    actions = QHBoxLayout()
+    actions.addStretch()
+    selected = {"target": ""}
+
+    def choose(target: str) -> None:
+        selected["target"] = target
+        dialog.accept()
+
+    mode_button = QPushButton("工作模式设置", dialog)
+    mode_button.setObjectName("homeSyncHelpModeSettings")
+    mode_button.clicked.connect(lambda: choose("mode"))
+    actions.addWidget(mode_button)
+    environment_button = QPushButton("环境设置", dialog)
+    environment_button.setObjectName("homeSyncHelpEnvironmentSettings")
+    environment_button.clicked.connect(lambda: choose("game_path"))
+    actions.addWidget(environment_button)
+    close_button = QPushButton("关闭", dialog)
+    close_button.setDefault(True)
+    close_button.setFocus()
+    close_button.clicked.connect(dialog.reject)
+    actions.addWidget(close_button)
+    layout.addLayout(actions)
+    fit_dialog_to_available_screen(dialog, QSize(570, 250))
+    if dialog.exec() == QDialog.Accepted and selected["target"]:
+        window.work_mode_controller.open_settings(selected["target"])
 
 
 def build_home_page(window) -> QScrollArea:
@@ -236,6 +275,23 @@ def build_home_page(window) -> QScrollArea:
     set_status_badge(window.home_sync_badge, "未启动", "neutral")
     hero_layout.addWidget(window.home_sync_badge)
     root.addWidget(hero)
+
+    window.home_upgrade_banner = QFrame(page)
+    window.home_upgrade_banner.setObjectName("homeUpgradeBanner")
+    window.home_upgrade_banner.setStyleSheet(themed_style(
+        "QFrame#homeUpgradeBanner{background:#2a2112;border:1px solid #d29922;border-radius:8px}"
+    ))
+    upgrade_row = QHBoxLayout(window.home_upgrade_banner)
+    upgrade_row.setContentsMargins(16, 12, 16, 12)
+    window.home_upgrade_summary = QLabel("旧组件升级：请按引导处理。", window.home_upgrade_banner)
+    window.home_upgrade_summary.setWordWrap(True)
+    upgrade_row.addWidget(window.home_upgrade_summary, 1)
+    upgrade_button = QPushButton("继续处理", window.home_upgrade_banner)
+    upgrade_button.setObjectName("btnNew")
+    upgrade_button.clicked.connect(window.work_mode_controller.show_upgrade_guide)
+    upgrade_row.addWidget(upgrade_button)
+    window.home_upgrade_banner.hide()
+    root.addWidget(window.home_upgrade_banner)
 
     metrics = QGridLayout()
     metrics.setHorizontalSpacing(12)

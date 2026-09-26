@@ -89,7 +89,12 @@ class _MirrorInstallerDownloadWorker(WorkerThread):
 def _maybe_check_updates_on_startup(self):
     if self._update_config.get("never_remind"):
         return
-    QTimer.singleShot(1200, lambda: self._check_updates(manual=False))
+    def check_when_idle():
+        if QApplication.activeModalWidget() is not None:
+            QTimer.singleShot(1200, check_when_idle)
+        else:
+            self._check_updates(manual=False)
+    QTimer.singleShot(1200, check_when_idle)
 
 
 def _mirror_cdk_value(self):
@@ -168,7 +173,20 @@ def _on_update_checked(self, info):
     if info.get("newer"):
         self._update_status.setText(f"发现新版本: {latest}（当前 {APP_VERSION}）")
         if manual or self._should_show_startup_update(info):
-            self._show_update_dialog(info, manual=manual)
+            if manual:
+                self._show_update_dialog(info, manual=True)
+            else:
+                def show_when_idle():
+                    try:
+                        if not self.isVisible():
+                            return
+                    except RuntimeError:
+                        return
+                    if QApplication.activeModalWidget() is not None:
+                        QTimer.singleShot(1200, show_when_idle)
+                    else:
+                        self._show_update_dialog(info, manual=False)
+                show_when_idle()
     else:
         self._update_status.setText(f"当前已是最新版本: {APP_VERSION}")
         if manual:

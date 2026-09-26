@@ -8,6 +8,7 @@ from pathlib import Path
 from src.integrations.mod_loader import (
     ModLoaderRuntimeError,
     _managed_stop_event_name,
+    game_launcher_candidates,
     game_launcher_executable,
     packaged_mod_loader,
 )
@@ -52,6 +53,15 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
         self.assertEqual(
             game_launcher_executable(self.game),
             self.launcher.resolve(),
+        )
+
+    def test_launcher_candidates_include_secondary_entry_in_same_installation(self) -> None:
+        secondary = self.root / 'NTELauncher' / 'NTEGlobalLauncher.exe'
+        secondary.parent.mkdir()
+        secondary.write_bytes(b'launcher')
+        self.assertEqual(
+            game_launcher_candidates(self.game),
+            (self.launcher.resolve(), secondary.resolve()),
         )
 
     def test_launcher_resolution_rejects_a_nonstandard_game_layout(self) -> None:

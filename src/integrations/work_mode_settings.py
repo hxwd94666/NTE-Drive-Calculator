@@ -29,14 +29,16 @@ class WorkModeSettingsStore:
             deployment = raw.get("deployment", {})
             if not isinstance(deployment, dict):
                 raise ValueError("invalid deployment record")
+            guided = type(raw.get("sync_guidance_version")) is int and raw["sync_guidance_version"] == 1
             return WorkModeSettings(
                 mode=mode,
                 risk_confirmed=confirmed and mode != WorkMode.OFFLINE,
                 paused=raw.get("paused") is True,
-                auto_sync_enabled=(
-                    raw.get("auto_sync_enabled") is True
-                    if "auto_sync_enabled" in raw else raw.get("paused") is not True
-                ),
+                # The first guided release starts with synchronization disabled,
+                # even when an earlier release stored an enabled preference.
+                auto_sync_enabled=guided and raw.get("auto_sync_enabled") is True,
+                sync_guidance_version=1,
+                component_auto_ready=guided and raw.get("component_auto_ready") is True,
                 pending_cleanup=(raw.get("pending_cleanup") is not False),
                 game_executable=str(raw.get("game_executable", "")),
                 deployment_json=json.dumps(deployment, ensure_ascii=False),

@@ -63,8 +63,20 @@ class WorkModeRuntimeTests(unittest.TestCase):
 
     def enable_auto(self):
         self.policy.select_mode("medium", risk_confirmed=True)
+        self.policy.enable_auto_sync_after_preflight()
         self.runtime._bundle = self.bundle_value
         self.runtime._native_deployed = self.deployed_value
+
+    def test_preflight_preview_does_not_clean_deploy_or_close_session(self):
+        self.enable_auto()
+        self.policy.set_cleanup_pending(True)
+        with patch.object(self.runtime, "cleanup") as cleanup, patch.object(
+            self.runtime, "_automatic_deploy",
+        ) as deploy:
+            self.runtime.tick(preview=True)
+        cleanup.assert_not_called()
+        deploy.assert_not_called()
+        self.native.close.assert_not_called()
 
     def test_inspection_failure_preserves_shared_reason_and_unknown_handshake(self):
         from src.integrations.nte_core_protocol import NteCoreTimeoutError
@@ -146,6 +158,85 @@ class WorkModeRuntimeTests(unittest.TestCase):
             cleanup_legacy_proxy=True,
         )
         self.assertFalse(self.policy.settings.pending_cleanup)
+
+    def test_explicit_cleanup_persists_registered_legacy_workspace_before_dispatch(self):
+        old = self.root / "old-workspace"
+        current = self.root / "registered-workspace"
+        record = {"game_executable": str(self.game), "workspace_path": str(old),
+                  "deployed_sha256": "a" * 64}
+        self.policy.update_deployment(record)
+        self.policy.set_cleanup_pending(True)
+        snapshot = self.stub("mod_workspace_registry_snapshot", return_value=(True, str(current)))
+
+        def cleaned(**kwargs):
+            stored = json.loads((self.root / "work-mode.json").read_text(encoding="utf-8"))
+            self.assertEqual(stored["deployment"], {**record, "workspace_path": str(current)})
+            self.assertTrue(stored["pending_cleanup"])
+            self.assertEqual(kwargs["mod_workspace_path"], str(current))
+            self.assertTrue(kwargs["cleanup_legacy_proxy"])
+            return SimpleNamespace(status="cleaned", detail="cleaned")
+
+        self.clean.side_effect = cleaned
+        self.runtime.cleanup(allow_unrecorded_legacy_workspace=True)
+        snapshot.assert_called_once_with()
+        self.assertEqual(self.policy.deployment_record, {"loading_method": "native-capture"})
+        self.assertFalse(self.policy.settings.pending_cleanup)
+
+    def test_background_cleanup_keeps_mismatched_workspace_pending(self):
+        old = self.root / "old-workspace"
+        self.policy.update_deployment({"game_executable": str(self.game), "workspace_path": str(old)})
+        self.policy.set_cleanup_pending(True)
+        snapshot = self.stub("mod_workspace_registry_snapshot", return_value=(True, str(self.root / "other")))
+        self.clean.return_value = SimpleNamespace(status="conflict", detail="workspace conflict")
+        self.runtime.cleanup()
+        snapshot.assert_not_called()
+        self.assertEqual(self.clean.call_args.kwargs["mod_workspace_path"], str(old))
+        self.assertEqual(self.policy.deployment_record["workspace_path"], str(old))
+        self.assertTrue(self.policy.settings.pending_cleanup)
+
+    def test_explicit_reconciliation_preserves_retry_record_on_late_conflict(self):
+        old = self.root / "old-workspace"
+        current = self.root / "registered-workspace"
+        self.policy.update_deployment({"game_executable": str(self.game), "workspace_path": str(old)})
+        self.policy.set_cleanup_pending(True)
+        self.stub("mod_workspace_registry_snapshot", return_value=(True, str(current)))
+        self.clean.return_value = SimpleNamespace(status="conflict", detail="registry changed")
+        self.runtime.cleanup(allow_unrecorded_legacy_workspace=True)
+        self.assertEqual(self.policy.deployment_record["workspace_path"], str(current))
+        self.assertTrue(self.policy.settings.pending_cleanup)
+        self.assertEqual(self.runtime.cleanup_state, CheckState.FAULT)
+
+    def test_explicit_reconciliation_waits_for_game_exit_before_record_write(self):
+        old = self.root / "old-workspace"
+        self.policy.update_deployment({"game_executable": str(self.game), "workspace_path": str(old)})
+        self.policy.set_cleanup_pending(True)
+        snapshot = self.stub("mod_workspace_registry_snapshot", return_value=(True, str(self.root / "other")))
+        self.runtime.cleanup(running=True, allow_unrecorded_legacy_workspace=True)
+        snapshot.assert_not_called()
+        self.clean.assert_not_called()
+        self.assertEqual(self.policy.deployment_record["workspace_path"], str(old))
+
+    def test_game_start_during_reconciliation_preserves_original_record(self):
+        old = self.root / "old-workspace"
+        self.policy.update_deployment({"game_executable": str(self.game), "workspace_path": str(old)})
+        self.policy.set_cleanup_pending(True)
+        self.stub("mod_workspace_registry_snapshot", return_value=(True, str(self.root / "other")))
+        self.process.side_effect = [False, True]
+        self.runtime.cleanup(allow_unrecorded_legacy_workspace=True)
+        self.clean.assert_not_called()
+        self.assertEqual(self.policy.deployment_record["workspace_path"], str(old))
+        self.assertEqual(self.runtime.cleanup_state, CheckState.CLEANUP_PENDING)
+
+    def test_explicit_reconciliation_rejects_relative_registry_workspace(self):
+        old = self.root / "old-workspace"
+        self.policy.update_deployment({"game_executable": str(self.game), "workspace_path": str(old)})
+        self.policy.set_cleanup_pending(True)
+        self.stub("mod_workspace_registry_snapshot", return_value=(True, "relative-workspace"))
+        with self.assertRaises(EquipmentPluginDeploymentError):
+            self.runtime.cleanup(allow_unrecorded_legacy_workspace=True)
+        self.clean.assert_not_called()
+        self.assertEqual(self.policy.deployment_record["workspace_path"], str(old))
+        self.assertTrue(self.policy.settings.pending_cleanup)
 
     def test_default_pending_is_unverified_not_an_exit_warning(self):
         self.policy.set_cleanup_pending(True)
@@ -391,6 +482,33 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.loader.cleanup_native_workspace.assert_called_once()
         self.assertEqual(self.policy.deployment_record, {"loading_method": "native-capture"})
         self.assertFalse(self.policy.settings.pending_cleanup)
+
+    def test_explicit_native_cleanup_also_retires_leftover_legacy_proxy(self):
+        (self.root / "dwmapi.dll").write_bytes(b"old proxy")
+        old = self.root / "old-workspace"
+        current = self.root / "registered-workspace"
+        record = {
+            "deployment_layout": "native-capture-v1",
+            "game_executable": str(self.game),
+            "managed_files": {"d3d12.dll": "a" * 64},
+            "workspace_path": str(old),
+        }
+        self.policy.update_deployment(record)
+        self.policy.set_cleanup_pending(True)
+        self.stub("cleanup_native_plugin", return_value=SimpleNamespace(status="cleaned", detail="native cleaned"))
+        self.stub("mod_workspace_registry_snapshot", return_value=(True, str(current)))
+
+        def clean_legacy(**kwargs):
+            stored = json.loads((self.root / "work-mode.json").read_text(encoding="utf-8"))
+            self.assertEqual(stored["deployment"]["workspace_path"], str(current))
+            self.assertEqual(kwargs["mod_workspace_path"], str(current))
+            self.assertTrue(kwargs["cleanup_legacy_proxy"])
+            return SimpleNamespace(status="cleaned", detail="legacy cleaned")
+
+        self.clean.side_effect = clean_legacy
+        self.runtime.cleanup(allow_unrecorded_legacy_workspace=True)
+        self.assertFalse(self.policy.settings.pending_cleanup)
+        self.assertEqual(self.policy.deployment_record, {"loading_method": "native-capture"})
 
     def test_shutdown_during_discovery_never_saves_candidate(self):
         self.policy.set_game_executable("")

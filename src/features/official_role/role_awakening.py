@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import re
-from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QSpinBox, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QVBoxLayout
 from src.services.official_role_awakening_service import render_awaken_effect_description
+from src.ui.widgets import NoWheelSpinBox
 from .role_calculation import _mark_dirty, _refresh_role_calculations
 
 
@@ -30,11 +31,21 @@ def _build_awakening_group(
         str(effect_id)
         for effect_id in detail["profile"].get("selected_awaken_effect_ids") or ()
     }
-    awakening_level = QSpinBox()
+    awakening_level = NoWheelSpinBox()
+    awakening_level.setObjectName("officialRoleAwakeningLevel")
     awakening_level.setRange(0, 6)
     awakening_level.setPrefix("觉醒等级：")
+    awakening_level.setToolTip(
+        "已解锁的觉醒槽位数，可留空；三觉和六觉共鸣按此等级激活。滚轮仅滚动页面。"
+    )
     awakening_level.setValue(int(detail["profile"].get("awakening_level") or 0))
     layout.addWidget(awakening_level)
+    explanation = QLabel(
+        "等级＝已解锁槽位；下方勾选＝实际启用的普通效果。空槽可保留，三／六觉共鸣按等级激活。"
+    )
+    explanation.setWordWrap(True)
+    explanation.setStyleSheet("color:#8b949e;")
+    layout.addWidget(explanation)
     editor["awakening_level"] = awakening_level
     checks: dict[str, QCheckBox] = {}
     description_labels: list[tuple[dict, QLabel]] = []

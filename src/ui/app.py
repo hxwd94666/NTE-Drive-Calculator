@@ -442,6 +442,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.work_mode_controller.start()
         self._on_log("系统就绪")
         self.onboarding_guide.maybe_show()
+        self.work_mode_controller.start_upgrade_guidance()
         self._maybe_check_updates_on_startup()
 
     def _load_static_catalog_inventory(self):

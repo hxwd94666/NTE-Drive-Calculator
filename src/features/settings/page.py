@@ -179,6 +179,7 @@ def _build_environment_card(window):
     card.layout().addWidget(npcap_title)
     npcap_row = QHBoxLayout()
     npcap_install_button = QPushButton("下载 Npcap 1.88")
+    window._npcap_install_button = npcap_install_button
     npcap_install_button.clicked.connect(window._open_npcap_download)
     npcap_row.addWidget(npcap_install_button)
     npcap_status_button = QPushButton("检测 Npcap 状态")
@@ -616,5 +617,9 @@ def build_settings_page(
     window.work_mode_controller.attach_settings_targets(
         scroll=scroll, mode_card=mode_card, component_card=plugin_card,
         component_focus=window._equipment_plugin_primary_button,
+        game_path_focus=window._equipment_plugin_game_executable_edit,
+        loading_method_focus=window._equipment_plugin_loading_method_combo,
+        npcap_focus=window._npcap_install_button,
+        core_focus=window._nte_core_diagnostic_button,
     )
     return scroll

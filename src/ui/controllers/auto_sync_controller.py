@@ -16,10 +16,11 @@ class AutoSyncController(QObject):
     preparation_changed = Signal(object)
 
     def __init__(self, *, window, policy, request_check, watcher_factory=GameProcessWatcher,
-                 submit_stop=None):
+                 submit_stop=None, request_enable_preflight=None):
         super().__init__(window)
         self.window, self.policy = window, policy
         self._request_check = request_check
+        self._request_enable_preflight = request_enable_preflight
         self._watcher_factory = watcher_factory
         self._submit_stop = submit_stop or self._background
         self._closed = False
@@ -68,6 +69,10 @@ class AutoSyncController(QObject):
         if self._stop_failed or self._retry_cancelled:
             return None
         if self.policy.allowed('native_sync'):
+            if self.policy.settings.pending_cleanup:
+                if self._probe_context != self._context() or self._probe is None:
+                    return 'checking_game'
+                return 'waiting_game_exit' if self._probe.game_running else 'waiting_deployment'
             if self._probe_context != self._context() or self._probe is None:
                 return 'checking_game'
             if self._probe.native_load.files is False:
@@ -149,6 +154,10 @@ class AutoSyncController(QObject):
     def set_enabled(self, enabled):
         if self._closed:
             return
+        if enabled and not self.policy.settings.auto_sync_enabled and self._request_enable_preflight:
+            self.render()  # Keep the persisted off state visible until confirmation.
+            self._request_enable_preflight(self._confirm_enable)
+            return
         if enabled and not (self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")):
             self.window.operation_entry("game_sync", "自动同步")
             self.render()
@@ -166,6 +175,22 @@ class AutoSyncController(QObject):
         self.refresh()
         if self.policy.settings.auto_sync_enabled:
             self._request_check()
+
+    def _confirm_enable(self) -> bool:
+        if self._closed or self.policy.settings.auto_sync_enabled:
+            return False
+        if (self.policy.settings.paused or not (
+            self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")
+        )):
+            self.render()
+            return False
+        try:
+            self.policy.enable_auto_sync_after_preflight()
+        except OSError:
+            self.render()
+            return False
+        self.refresh()
+        return True
 
     def refresh(self):
         if self._closed or not self._started:
@@ -195,6 +220,7 @@ class AutoSyncController(QObject):
         else:
             probe = self._probe
             ready = bool(self._probe_context == key and probe and probe.game_running
+                         and not self.policy.settings.pending_cleanup
                          and probe.native_load.files is not False
                          and probe.core_available and probe.native_inventory.handshake)
             identity = "native"
@@ -354,8 +380,8 @@ class AutoSyncController(QObject):
         button.setToolTip(
             "停止当前同步连接并重新建立；用于同步异常或背包未更新。已保存数据不会删除。"
             if settings.auto_sync_enabled else
-            "开启后，进入游戏场景时自动读取并保存数据。" if native else
-            "开启后，登录游戏时自动读取并保存数据。"
+            "先显示环境检测，确认准备后进入游戏场景自动读取并保存数据。" if native else
+            "先显示抓包条件检测，确认后登录游戏并自动保存数据。"
         )
         button.setEnabled(not self._stopping and (not battle or not settings.auto_sync_enabled))
         hint = "请先结束战报，再重启同步。" if battle and settings.auto_sync_enabled else ""

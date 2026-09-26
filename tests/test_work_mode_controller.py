@@ -7,7 +7,8 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QWidget, QPushButton
 
 from auto_sync_ui_fixture import application, dispose
 
@@ -66,7 +67,7 @@ def controller(tmp_path, monkeypatch, qt_app):
     monkeypatch.setattr(module.QMessageBox, "information", lambda *args: popups.append("info"))
     monkeypatch.setattr(module, "confirm_mode", lambda *args: True)
     window = QWidget()
-    window.app_context = SimpleNamespace(generation=1)
+    window.app_context = SimpleNamespace(generation=1, paths=SimpleNamespace(config_dir=tmp_path, root=tmp_path))
     window.global_hotkey_manager = SimpleNamespace(request_stop=lambda: events.append("input_stop"))
     window.battle_report_controller = SimpleNamespace(
         stop=lambda: events.append("battle_stop"), is_running=lambda: False,
@@ -128,6 +129,100 @@ def test_plugin_toggle_does_not_queue_behind_environment_detection(controller):
     assert job() is True and applied == [True]
     c.close()
     assert c._plugin_worker.closed
+
+
+def test_sync_preflight_is_read_only_until_confirmed(controller):
+    c, _window, _policy, _events, _popups, _probe = controller
+    calls = []
+    original_tick = c.runtime.tick
+    c.runtime.tick = lambda **kwargs: (calls.append(kwargs), original_tick(**kwargs))[1]
+    confirmed = []
+    c.begin_sync_enable(lambda: (confirmed.append(True), True)[1])
+    c._observer.run_jobs()
+    assert calls and calls[-1]["preview"] is True
+    assert calls[-1]["allow_connect"] is False
+    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
+    assert "确认处理并开启同步" in buttons
+    buttons["确认处理并开启同步"].click()
+    assert confirmed == []
+    c._observer.run_jobs()
+    assert confirmed == [True]
+    assert any(call["allow_connect"] is True for call in calls)
+    assert calls[-1]["preview"] is True
+
+
+@pytest.mark.parametrize("action, expected_route", [("取消", []), ("前往设置", ["mode"])])
+def test_offline_sync_shows_only_compact_guidance(controller, monkeypatch, action, expected_route):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("offline")
+    routes, confirms, shown = [], [], []
+    monkeypatch.setattr(c, "open_settings", routes.append)
+    monkeypatch.setattr(c.runtime, "tick", lambda **_kwargs: pytest.fail("offline sync must not inspect"))
+
+    def choose_action():
+        dialog = QApplication.activeModalWidget()
+        try:
+            assert isinstance(dialog, QDialog)
+            assert dialog.objectName() == "offlineSyncModeDialog"
+            buttons = dialog.findChildren(QPushButton)
+            assert sorted(button.text() for button in buttons) == ["前往设置", "取消"]
+            guidance = dialog.findChild(QLabel, "offlineSyncModeGuidance")
+            assert guidance is not None
+            assert [line.split("：", 1)[0] for line in guidance.text().splitlines()] == [
+                "状态", "原因", "下一步",
+            ]
+            shown.append(True)
+            next(button for button in buttons if button.text() == action).click()
+        finally:
+            if isinstance(dialog, QDialog) and dialog.isVisible():
+                dialog.reject()
+
+    QTimer.singleShot(0, choose_action)
+    c.begin_sync_enable(lambda: confirms.append(True))
+    assert shown == [True]
+    assert routes == expected_route
+    assert confirms == []
+    assert c._observer.jobs == []
+    assert not policy.settings.auto_sync_enabled
+
+
+def test_sync_preflight_close_and_failed_apply_keep_preference_off(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    called = []
+    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    c._observer.run_jobs()
+    c._report_dialog.reject()
+    assert not policy.settings.auto_sync_enabled
+    assert not policy.settings.component_auto_ready
+    assert called == []
+
+    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    c._observer.run_jobs()
+    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(core_available=False, npcap_available=False)
+    buttons["确认处理并开启同步"].click()
+    c._observer.run_jobs()
+    assert not policy.settings.auto_sync_enabled
+    assert not policy.settings.component_auto_ready
+    assert called == []
+
+
+def test_loader_preflight_prompts_to_close_running_launcher(controller, monkeypatch):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.update_deployment({"loading_method": "loader"})
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(
+        game_path_valid=True, core_available=True, launcher_running=True,
+    )
+    warnings = []
+    monkeypatch.setattr(module.QMessageBox, "warning",
+                        lambda _owner, title, message: warnings.append((title, message)))
+    c.begin_sync_enable(lambda: pytest.fail("sync must remain off"))
+    c._observer.run_jobs()
+    assert len(warnings) == 1
+    assert warnings[0][0] == "Loader 等待关闭程序"
+    assert "退出启动器和游戏" in warnings[0][1]
+    assert not policy.settings.auto_sync_enabled
 
 
 def test_home_guidance_navigates_to_workbench_instead_of_settings(controller, monkeypatch):
@@ -303,19 +398,38 @@ def test_plugin_preference_save_failure_still_requests_native_shutdown(controlle
     assert 'native_request' in events and popups == ['warning']
 
 
-def test_explicit_cleanup_disables_auto_redeployment(controller):
-    c, _window, policy, _events, _popups, probe = controller
-    observed = []
-    c.runtime.tick = lambda **kwargs: observed.append(kwargs) or probe
+def test_explicit_cleanup_has_own_result_without_opening_detection(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    calls = []
+    c.runtime.tick = lambda **kwargs: pytest.fail("cleanup must not open detection")
+    def clean(**kwargs):
+        calls.append(kwargs)
+        c.runtime.cleanup_detail = "本程序管理的组件已清理。"
+        policy.set_cleanup_pending(False)
+    c.runtime.cleanup = clean
     c.cleanup()
     assert policy.settings.paused
     assert not policy.allowed("native_load", automatic=True)
     assert policy.settings.pending_cleanup
+    assert c._report_dialog is None
+    assert c._cleanup_dialog is not None
     c._observer.run_jobs()
-    assert observed == [{
-        "allow_connect": False,
-        "allow_unrecorded_legacy_cleanup": True,
-    }]
+    assert calls == [{"allow_unrecorded_legacy_workspace": True}]
+    assert "状态：已清理" in c._cleanup_dialog.message.text()
+    assert not policy.settings.pending_cleanup
+    assert c._report_dialog is None
+
+
+def test_explicit_cleanup_reports_waiting_without_claiming_success(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    c.runtime.cleanup = lambda **_kwargs: setattr(
+        c.runtime, "cleanup_detail", "游戏未关闭，请先退出游戏。",
+    )
+    c.cleanup()
+    c._observer.run_jobs()
+    assert policy.settings.pending_cleanup
+    assert "状态：等待继续清理" in c._cleanup_dialog.message.text()
+    assert "退出游戏" in c._cleanup_dialog.message.text()
 
 
 def test_mode_change_does_not_take_runtime_lock_on_ui_thread(controller):

@@ -17,6 +17,7 @@ def setup_runtime(tmp_path, monkeypatch, *, deployed=True):
             (game.parent / relative).unlink()
     policy = WorkModeService(tmp_path / "mode.json")
     policy.select_mode("medium", risk_confirmed=True)
+    policy.enable_auto_sync_after_preflight()
     policy.set_game_executable(str(game))
     policy.set_cleanup_pending(False)
     native = SimpleNamespace(battle_active=False, close=Mock())
@@ -127,8 +128,8 @@ def test_manual_deployment_ui_ignores_config_saves_and_cleans_old_pending_record
     def confirm(*_args):
         policy.update_deployment(policy.deployment_record)
         policy.set_auto_sync_enabled(False)
-        return ui.QMessageBox.Yes
-    monkeypatch.setattr(ui.QMessageBox, 'question', confirm)
+        return True
+    monkeypatch.setattr(ui, '_confirm_d3d_deployment', confirm)
     information = Mock()
     monkeypatch.setattr(ui.QMessageBox, 'information', information)
     monkeypatch.setattr(ui, 'deploy_native_plugin',

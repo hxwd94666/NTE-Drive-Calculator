@@ -2,13 +2,41 @@
 import os
 from types import SimpleNamespace
 from unittest.mock import Mock
+import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QPushButton, QWidget
 
 from src.ui.controllers.native_plugin_deployment_ui import refresh_native_plugin_status
 from src.ui.controllers.mod_loader_controller import activate_equipment_plugin_loading_method
 from src.services.work_mode_service import WorkModeService
 from tests.test_native_plugin_bundle import make_bundle
+
+
+@pytest.mark.parametrize('action, accepted', [
+    ('取消', False), ('已退出游戏，继续部署', True),
+])
+def test_d3d_confirmation_leads_with_game_exit_and_defaults_to_cancel(monkeypatch, action, accepted):
+    from src.ui.controllers.native_plugin_deployment_ui import _confirm_d3d_deployment
+
+    app = QApplication.instance() or QApplication([])
+    parent = QWidget()
+
+    def inspect(dialog):
+        assert dialog.objectName() == 'd3dDeploymentConfirmation'
+        assert '完全退出游戏' in dialog.findChild(QLabel, 'd3dDeploymentExitWarning').text()
+        assert 'd3d12.dll' in dialog.findChild(QLabel, 'd3dDeploymentChanges').text()
+        buttons = {button.text(): button for button in dialog.findChildren(QPushButton)}
+        assert set(buttons) == {'取消', '已退出游戏，继续部署'}
+        assert buttons['取消'].isDefault()
+        buttons[action].click()
+        return dialog.result()
+
+    monkeypatch.setattr(QDialog, 'exec', inspect)
+    try:
+        assert _confirm_d3d_deployment(parent) is accepted
+    finally:
+        parent.close()
+        app.processEvents()
 
 
 def test_native_status_preserves_loader_and_routes_only_selected_entry(tmp_path):
@@ -60,6 +88,24 @@ def test_native_manual_start_uses_same_mode_owner_and_skips_legacy_workspace(tmp
     monkeypatch.setattr(native_ui.QMessageBox, 'information', Mock())
     start_equipment_mod_loader(window)
     window.work_mode_runtime.start_native_loader.assert_called_once_with()
+    window.operation_unavailable.assert_not_called()
+
+
+def test_manual_loader_wait_shows_close_launcher_prompt(monkeypatch):
+    from src.ui.controllers import native_plugin_deployment_ui as native_ui
+    from src.services.mod_plugin_loading_service import ModPluginLoadingWaiting
+    window = SimpleNamespace(
+        _stop_inventory_sync=Mock(),
+        character_profile_sync_controller=SimpleNamespace(request_stop=Mock()),
+        work_mode_runtime=SimpleNamespace(start_native_loader=Mock(
+            side_effect=ModPluginLoadingWaiting('官方启动器仍在运行。'),
+        )),
+        _refresh_equipment_plugin_status=Mock(), operation_unavailable=Mock(),
+    )
+    warning = Mock()
+    monkeypatch.setattr(native_ui.QMessageBox, 'warning', warning)
+    native_ui.start_native_loader_from_settings(window)
+    assert '退出启动器和游戏' in warning.call_args.args[2]
     window.operation_unavailable.assert_not_called()
 
 

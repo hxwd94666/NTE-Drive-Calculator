@@ -164,9 +164,8 @@ def mod_loader_arguments(*, payload_path: Path, event_name: str, owner_pid: int,
             f'--stop-event "{event_name}" --owner-pid {owner_pid}')
 
 
-def game_launcher_executable(game_executable_path: str | Path) -> Path:
-    """Resolve a trusted launcher from the user-selected HTGame installation."""
-
+def game_launcher_candidates(game_executable_path: str | Path) -> tuple[Path, ...]:
+    """List only launcher images in the selected HTGame installation."""
     game = Path(game_executable_path).expanduser().resolve()
     if not game.is_file() or game.name.casefold() != "htgame.exe":
         raise ModLoaderRuntimeError("未选择有效的 HTGame.exe，无法定位官方启动器")
@@ -186,12 +185,17 @@ def game_launcher_executable(game_executable_path: str | Path) -> Path:
         install_root / "NTELauncher" / name
         for name in _LAUNCHER_NAMES
     )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate.resolve()
+    found = tuple(candidate.resolve() for candidate in candidates if candidate.is_file())
+    if found:
+        return found
     raise ModLoaderRuntimeError(
         "所选 HTGame.exe 的安装根中未找到官方启动器，请修复游戏安装或重新选择游戏"
     )
+
+
+def game_launcher_executable(game_executable_path: str | Path) -> Path:
+    """Resolve the primary trusted launcher used by the Loader."""
+    return game_launcher_candidates(game_executable_path)[0]
 
 
 class ModLoaderRuntime:

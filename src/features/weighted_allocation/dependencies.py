@@ -38,8 +38,8 @@ class WeightedAllocationDependencies:
             account_settings=context.account_settings,
             static_database_path=context.paths.equipment_allocation_database_path,
             equipment_only=(
-                context.paths.role_catalog is not None
-                and context.paths.role_catalog.scope == "reference"
+                context.paths.equipment_allocation_database_path
+                != context.paths.static_database_path
             ),
         )
 

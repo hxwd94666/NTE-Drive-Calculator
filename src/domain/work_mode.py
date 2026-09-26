@@ -35,7 +35,9 @@ class WorkModeSettings:
     mode: WorkMode = WorkMode.OFFLINE
     risk_confirmed: bool = False
     paused: bool = False
-    auto_sync_enabled: bool = True
+    auto_sync_enabled: bool = False
+    sync_guidance_version: int = 1
+    component_auto_ready: bool = False
     pending_cleanup: bool = True  # Reconciliation request, not proof of leftover files or a failed cleanup.
     game_executable: str = ""
     # JSON text keeps the frozen settings genuinely immutable across callers.
@@ -89,6 +91,8 @@ class WorkModeProbe:
     component_update_detail: str = ""
     game_path_valid: bool | None = None
     game_running: bool = False
+    launcher_running: bool | None = None
+    launcher_probe_error: str = ""
     logged_in: bool = False
     core_available: bool | None = None
     npcap_available: bool | None = None

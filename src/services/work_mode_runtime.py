@@ -14,17 +14,19 @@ from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.legacy_game_proxy import legacy_game_proxy_present
 from src.integrations.game_path_discovery import running_game_executables
 from src.integrations.native_capture_process import native_capture_game_pid
+from src.integrations.launcher_process import LauncherProcessProbeError, selected_launcher_running
+from src.integrations.mod_loader import ModLoaderRuntimeError, game_launcher_candidates
 from src.integrations.nte_core import resolve_nte_core_executable
 from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
 from src.services.native_plugin_deployment import PluginDeploymentPendingCleanup
 from src.services.native_plugin_deployment import deploy_native_plugin, cleanup_native_plugin, NativePluginCleanupResult
 from src.services.equipment_plugin_deployment import (
     find_game_executables, game_process_running, game_executable,
-    npcap_installation_present,
+    mod_workspace_registry_snapshot, npcap_installation_present,
     EquipmentPluginDeploymentError,
 )
 from src.services.managed_plugin_cleanup import cleanup_managed_plugin
-from src.services.mod_plugin_loading_service import ModPluginLoadingError
+from src.services.mod_plugin_loading_service import ModPluginLoadingError, ModPluginLoadingWaiting
 from src.services.work_mode_diagnostics import detection_failure_detail
 
 
@@ -111,7 +113,7 @@ class WorkModeRuntime:
         except (OSError, ValueError):
             return ""
 
-    def discover(self, *, force: bool = True) -> tuple[str, ...]:
+    def discover(self, *, force: bool = True, persist: bool = True) -> tuple[str, ...]:
         with self._lock:
             if self._closed:
                 return ()
@@ -138,8 +140,9 @@ class WorkModeRuntime:
                 return ()
             self.path_candidates = paths
             if len(paths) == 1:
-                self.policy.set_game_executable(paths[0])
-                self.path_detail = ""
+                if persist:
+                    self.policy.set_game_executable(paths[0])
+                self.path_detail = "" if persist else "已发现唯一游戏目录，请在环境设置中确认。"
             else:
                 self.path_detail = (
                     "发现多个游戏目录，尚无法确认使用哪一个；请检测并选择 HTGame.exe。" if paths else
@@ -258,6 +261,24 @@ class WorkModeRuntime:
                 game_running=self._game_running,
             ) if record.get("managed_files") else NativePluginCleanupResult("cleaned", "没有待清理的游戏目录组件。")
             self.cleanup_detail = result.detail
+            if (result.status == "cleaned" and allow_unrecorded_legacy_workspace and path
+                    and (legacy_game_proxy_present(Path(path).parent) or record.get("workspace_path"))):
+                legacy_workspace = record.get("workspace_path")
+                registered, current = mod_workspace_registry_snapshot()
+                if registered and current and legacy_workspace:
+                    if not Path(current).expanduser().is_absolute():
+                        raise EquipmentPluginDeploymentError("当前注册的 Mod 工作区路径无效，已保留部署记录。")
+                    if Path(legacy_workspace).expanduser().resolve() != Path(current).expanduser().resolve():
+                        record = {**record, "workspace_path": current}
+                        self.policy.update_deployment(record)
+                        legacy_workspace = current
+                result = cleanup_managed_plugin(
+                    game_executable_path=path, mod_workspace_path=legacy_workspace,
+                    game_running=self._game_running,
+                    allow_unrecorded_workspace_adoption=not bool(legacy_workspace),
+                    cleanup_legacy_proxy=True,
+                )
+                self.cleanup_detail = result.detail
             if result.status == "cleaned" and record.get("native_workspace_root"):
                 result = self.loader.cleanup_native_workspace()
                 self.cleanup_detail = result.detail
@@ -271,9 +292,6 @@ class WorkModeRuntime:
                 self.invalidate()
             return
         workspace = record.get("workspace_path")
-        if workspace and not record.get("workspace_path"):
-            record = {**record, "workspace_path": str(workspace)}
-            self.policy.update_deployment(record)
         self.loader.stop_loader()
         if running is None:
             running = self._game_running()
@@ -285,6 +303,26 @@ class WorkModeRuntime:
                 notify=bool(has_deployment or workspace),
             )
             return
+        if allow_unrecorded_legacy_workspace and workspace:
+            registered, current = mod_workspace_registry_snapshot()
+            if registered and current:
+                registered_path = Path(current).expanduser()
+                if not registered_path.is_absolute():
+                    raise EquipmentPluginDeploymentError("当前注册的 Mod 工作区路径无效，已保留部署记录。")
+                if Path(workspace).expanduser().resolve() != registered_path.resolve():
+                    if self._game_running():
+                        self._record_cleanup(
+                            CheckState.CLEANUP_PENDING,
+                            "游戏在清理前启动，加载配置尚未调整。请退出游戏后重新检测。",
+                            notify=True,
+                        )
+                        return
+                    # Explicit cleanup adopts only the dedicated legacy registry
+                    # value. Persist it before dispatch so a later retry uses the
+                    # same observed workspace; deletion rechecks the registry.
+                    record = {**record, "workspace_path": current}
+                    self.policy.update_deployment(record)
+                    workspace = current
         result = cleanup_managed_plugin(
             game_executable_path=path,
             mod_workspace_path=workspace,
@@ -395,10 +433,17 @@ class WorkModeRuntime:
             if self.policy.deployment_record.get("loading_method") != "loader":
                 raise ModPluginLoadingError("当前未选择 Loader 加载方式。")
             if self._game_running():
-                raise ModPluginLoadingError("请先完全退出游戏，再启动 Loader。")
+                raise ModPluginLoadingWaiting("请先关闭启动器并完全退出游戏，再启动 Loader。")
             frozen = self.policy.settings
             executable = frozen.game_executable
             operation_revision = self.policy.operation_revision
+            launcher_running = getattr(self.loader, "launcher_running", None)
+            if callable(launcher_running):
+                try:
+                    if launcher_running(executable):
+                        raise ModPluginLoadingWaiting("官方启动器仍在运行；请关闭启动器和游戏后再启动 Loader。")
+                except (LauncherProcessProbeError, ModLoaderRuntimeError, OSError) as error:
+                    raise ModPluginLoadingWaiting(str(error)) from error
 
             def guard(capability):
                 self.policy.require(capability, automatic=automatic)
@@ -464,6 +509,8 @@ class WorkModeRuntime:
         self._last_auto_attempt = monotonic()
         try:
             self.start_native_loader(automatic=True)
+        except ModPluginLoadingWaiting as error:
+            self.cleanup_detail = str(error)
         except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as error:
             self.cleanup_detail = "自动 Loader 启动失败：" + str(error)
             self._auto_error = self.cleanup_detail
@@ -491,11 +538,12 @@ class WorkModeRuntime:
     def tick(
         self, *, allow_connect: bool = False,
         allow_unrecorded_legacy_cleanup: bool = False,
+        preview: bool = False,
     ) -> WorkModeProbe:
         with self._lock:
             if self._closed:
                 return WorkModeProbe()
-            self.discover(force=False)
+            self.discover(force=False, persist=not preview)
             if self._closed:
                 return WorkModeProbe()
             path_valid = bool(self._validated_game_path(self.policy.settings.game_executable))
@@ -523,7 +571,7 @@ class WorkModeRuntime:
                     and not record.get("managed_files")
                     and bool(record.get("native_workspace_root"))
                 )
-                if self.policy.settings.pending_cleanup and (recorded_cleanup_path or workspace_only):
+                if not preview and self.policy.settings.pending_cleanup and (recorded_cleanup_path or workspace_only):
                     running = self._game_running()
                     if not self.native_session.battle_active:
                         self.native_session.close()
@@ -550,7 +598,7 @@ class WorkModeRuntime:
                 )
             running = self._game_running()
             settings = self.policy.settings
-            if settings.pending_cleanup:
+            if settings.pending_cleanup and not preview:
                 if self.native_session.battle_active:
                     self.cleanup(
                         running=running,
@@ -571,10 +619,20 @@ class WorkModeRuntime:
                         )
             settings = self.policy.settings
             self._inspect_component_files(path_valid=path_valid, running=running)
-            if path_valid and not settings.pending_cleanup:
+            if path_valid and not settings.pending_cleanup and not preview:
                 self._automatic_deploy(running)
             files = (self._loader_files if self.policy.deployment_record.get("loading_method") == "loader"
                      else bool(self._native_deployed and self._native_deployed.files_compatible))
+            launcher_running = None
+            launcher_error = ""
+            if self.policy.deployment_record.get("loading_method") == "loader" and (settings.pending_cleanup or not files):
+                try:
+                    launcher_running = any(
+                        selected_launcher_running(candidate)
+                        for candidate in game_launcher_candidates(settings.game_executable)
+                    )
+                except (LauncherProcessProbeError, ModLoaderRuntimeError, OSError) as error:
+                    launcher_error = str(error)
             current_package = loading = files
             capabilities = self._bundle.native_capabilities
             core_available = self._bundle.ready
@@ -596,12 +654,14 @@ class WorkModeRuntime:
                                          else "当前配套组件已部署。" if current_package
                                          else self.cleanup_detail or "等待部署或更新当前配套组件。")),
                 game_path_valid=path_valid, game_running=running,
+                launcher_running=launcher_running, launcher_probe_error=launcher_error,
                 core_available=core_available,
                 native_load=native, **domain_files, native_battle=battle_files,
                 native_equipment=equipment_files, cleanup_detail=self.cleanup_detail, cleanup_state=self.cleanup_state,
             )
             if not running:
-                self.native_session.close()
+                if not preview:
+                    self.native_session.close()
                 return probe
             if (not self.policy.allowed("native_sync") or settings.pending_cleanup or settings.paused
                     or not (allow_connect or self.policy.allowed("native_sync", automatic=True)

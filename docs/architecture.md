@@ -83,9 +83,10 @@ Domain / Optimizer       DAO / Integration
 计算偏好、倒带偏好、方案、锁和任务只属于当前账号。schema 迁移只追加。
 
 `ApplicationPaths` 保持 `static_database_path` 为完整游戏库，并通过 Integration 一次校验可选角色包的
-用途、数据库身份、文件哈希和图片清单，冻结 `RoleCatalogRelease`。`OfficialRoleDependencies` 只为角色页
-选择该目录和配套图片；战报等默认工厂继续使用完整库。Service 返回 `catalog_scope`，页面据此展示已支持
-的养成功能。目录成套晋升与回滚由 Integration/构建工具负责，UI 不探测路径或合并跨版本数据。
+用途、数据库身份、文件哈希和图片清单，冻结 `RoleCatalogRelease`。角色页与配装分配各自整次使用完整
+游戏库的可计算模型；独立目录提供已校验的展示图片、养成工具和只读图鉴，不将缺少弧盘常驻属性及
+毕业模板的 `reference` 数据集用于角色直伤或 Rust 分配。战报的静态库选择独立保持完整库。
+目录成套晋升与回滚由 Integration/构建工具负责，UI 不探测路径或逐字段合并跨版本数据。
 
 ## 5. 快照与来源能力
 

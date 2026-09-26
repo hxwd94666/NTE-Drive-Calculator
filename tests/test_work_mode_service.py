@@ -15,6 +15,7 @@ def test_first_install_and_legacy_plugin_risk_do_not_grant_mode(tmp_path):
     path = tmp_path / "work_mode.json"
     service = WorkModeService(path)
     assert service.settings.mode == WorkMode.OFFLINE
+    assert not service.settings.auto_sync_enabled
     assert not service.allowed("native_sync", automatic=True)
     assert not service.allowed("native_load", automatic=True)
     path.write_text(json.dumps({"plugin_risk_confirmed": True}), encoding="utf-8")
@@ -23,6 +24,28 @@ def test_first_install_and_legacy_plugin_risk_do_not_grant_mode(tmp_path):
     assert service.load_error
     assert service.allowed("local")
     assert not service.allowed("native_sync")
+
+
+def test_old_enabled_preference_is_disabled_once_but_explicit_new_choice_survives(tmp_path):
+    path = tmp_path / "work_mode.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "mode": "medium", "risk_confirmed": True,
+        "auto_sync_enabled": True, "pending_cleanup": False, "revision": 7,
+        "game_executable": "fixture.exe", "deployment": {"loading_method": "loader"},
+    }), encoding="utf-8")
+    service = WorkModeService(path)
+    assert service.settings.mode == WorkMode.MEDIUM
+    assert not service.settings.auto_sync_enabled
+    assert not service.allowed("native_load", automatic=True)
+    assert service.deployment_record == {"loading_method": "loader"}
+    service.enable_auto_sync_after_preflight()
+    assert service.settings.auto_sync_enabled
+    assert service.allowed("native_load", automatic=True)
+    restarted = WorkModeService(path)
+    assert restarted.settings.auto_sync_enabled
+    restarted.set_auto_sync_enabled(False)
+    assert not WorkModeService(path).settings.auto_sync_enabled
+    assert WorkModeService(path).allowed("native_load", automatic=True)
 
 
 @pytest.mark.parametrize("mode,packet,native,compare", [
@@ -34,6 +57,7 @@ def test_first_install_and_legacy_plugin_risk_do_not_grant_mode(tmp_path):
 def test_mode_execution_matrix(tmp_path, mode, packet, native, compare):
     service = WorkModeService(tmp_path / "settings.json")
     service.select_mode(mode, risk_confirmed=True)
+    service.enable_auto_sync_after_preflight()
     assert service.allowed(Capability.PACKET_CAPTURE) == packet
     assert service.allowed(Capability.NATIVE_SYNC) == native
     assert service.allowed(Capability.NATIVE_LOAD) == native
@@ -75,7 +99,7 @@ def test_legacy_options_are_retired_without_losing_mode_or_deployment(tmp_path, 
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert not {"developer_source", "auto_manage_components", "auto_sync"}.intersection(saved)
     assert not service.allowed("native_sync", automatic=True)
-    assert service.allowed("native_load", automatic=True) is confirmed
+    assert not service.allowed("native_load", automatic=True)
     assert saved["auto_sync_enabled"] is False
     assert saved["revision"] == 8 and saved["deployment"] == original["deployment"]
     assert WorkModeService(path).settings == service.settings
@@ -86,6 +110,7 @@ def test_auto_sync_switch_does_not_revoke_manual_capture_or_component_management
     path = tmp_path / "settings.json"
     service = WorkModeService(path)
     service.select_mode(mode, risk_confirmed=True)
+    service.enable_auto_sync_after_preflight()
     service.set_auto_sync_enabled(False)
     assert not service.allowed(sync, automatic=True)
     assert service.allowed(sync)
@@ -104,6 +129,7 @@ def test_explicit_auto_sync_preference_survives_restart(tmp_path, paused, enable
     path.write_text(json.dumps({
         "schema_version": 1, "mode": "low", "risk_confirmed": True,
         "paused": paused, "auto_sync_enabled": enabled,
+        "sync_guidance_version": 1, "component_auto_ready": True,
     }), encoding="utf-8")
     service = WorkModeService(path)
     assert service.settings.auto_sync_enabled is enabled
@@ -134,7 +160,7 @@ def test_sync_preference_survives_mode_selection(tmp_path):
     service.set_auto_sync_enabled(False)
     service.select_mode("medium", risk_confirmed=True)
     assert not service.settings.auto_sync_enabled
-    assert service.allowed("native_load", automatic=True)
+    assert not service.allowed("native_load", automatic=True)
     assert not service.allowed("native_sync", automatic=True)
 
 
@@ -217,10 +243,13 @@ def test_each_risk_selection_requires_explicit_confirmation(tmp_path):
     assert service.settings.mode == WorkMode.MEDIUM
 
 
-def test_mode_automatically_allows_sync_and_pause_and_cleanup_persist(tmp_path):
+def test_guided_enable_allows_sync_and_pause_and_cleanup_persist(tmp_path):
     path = tmp_path / "settings.json"
     service = WorkModeService(path)
     service.select_mode("medium", risk_confirmed=True)
+    assert not service.allowed("native_load", automatic=True)
+    assert not service.allowed("native_sync", automatic=True)
+    service.enable_auto_sync_after_preflight()
     assert service.allowed("native_load")
     assert service.allowed("native_load", automatic=True)
     assert service.allowed("native_sync", automatic=True)

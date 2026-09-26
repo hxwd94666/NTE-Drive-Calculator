@@ -80,7 +80,7 @@ def test_shared_failure_does_not_claim_every_business_failed_handshake():
 
 def test_report_can_be_copied_and_clears_stale_result_on_recheck():
     from auto_sync_ui_fixture import application, dispose
-    from PySide6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QFrame, QLabel, QWidget
     from src.features.settings.work_mode_card import ModeReportDialog
 
     app = application()
@@ -92,6 +92,18 @@ def test_report_can_be_copied_and_clears_stale_result_on_recheck():
         dialog.begin('medium')
         assert not dialog.copy_button.isEnabled()
         dialog.set_report(failed_report())
+        dialog.set_report(failed_report())  # A refreshed result must replace existing rows safely.
+        assert dialog.overview.text().startswith('需处理')
+        rows = dialog.results.findChildren(QFrame, 'modeReportFeatureRow')
+        assert '原生连接与业务检测' in rows[0].findChild(QLabel).text()
+        assert any('DLL 战报' in row.findChild(QLabel).text() and
+                   'DLL 装配' in row.findChild(QLabel).text() for row in rows)
+        assert dialog.label.isHidden()
+        assert dialog.diagnostic_toggle.text() == '展开排查信息（开发/反馈用）'
+        assert dialog.layout().itemAt(0).layout().indexOf(dialog.copy_button) >= 0
+        assert dialog.footer.indexOf(dialog.copy_button) == -1
+        dialog.diagnostic_toggle.click()
+        assert dialog.label.isVisible()
         dialog.copy_button.click()
         copied = app.clipboard().text()
         assert 'core.hello' in copied and '检测时间' in copied
@@ -99,6 +111,7 @@ def test_report_can_be_copied_and_clears_stale_result_on_recheck():
         assert '握手：未确认' in copied and '管道：是' in copied
         dialog.begin('medium')
         assert not dialog.copy_button.isEnabled()
+        assert dialog.label.isHidden()
         dialog.set_error('检测未完成')
         dialog.copy_button.click()
         assert '检测未完成' in app.clipboard().text()

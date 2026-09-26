@@ -57,6 +57,22 @@ class NativeAllocationTests(unittest.TestCase):
         self.assertEqual(freeze(request, scorer)["request"]["combo_limit"], 200001)
         self.assertTrue(all(p["valid"] for p in self.executor()(request, scorer).values()))
 
+    def test_wire_preserves_selected_fork_crit_projection_for_native_solver(self):
+        request, scorer = inputs()
+        roles = {
+            **request.roles_db,
+            "A": {
+                **request.roles_db["A"],
+                "active_fork_crit_rate_bonus": 32.0,
+                "fork_crit_rate": 32.0,
+            },
+        }
+        request = replace(request, roles_db=roles)
+        payload = freeze(request, scorer)
+        role = next(row for row in payload["request"]["roles"] if row["name"] == "A")
+        self.assertEqual(32.0, role["data"]["active_fork_crit_rate_bonus"])
+        self.assertEqual(32.0, role["data"]["fork_crit_rate"])
+
     def test_missing_component_has_no_python_fallback(self):
         with patch("src.integrations.native_allocation.create_bundled_analysis_client", return_value=None):
             with self.assertRaisesRegex(NativeAnalysisError, "空幕分配"):

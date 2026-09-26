@@ -10,6 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -59,7 +60,12 @@ class OnboardingGuide:
     def maybe_show(self) -> None:
         seen_file = self._app_context.account.user_config_dir / "guide_seen.json"
         if not seen_file.exists():
-            QTimer.singleShot(500, lambda: self.show(auto=True))
+            def show_when_idle() -> None:
+                # A user-initiated preparation dialog takes precedence over the
+                # optional image tutorial. The menu can reopen it later.
+                if QApplication.activeModalWidget() is None:
+                    self.show(auto=True)
+            QTimer.singleShot(500, show_when_idle)
 
     def show(self, auto: bool = False) -> None:
         images = self.image_files()

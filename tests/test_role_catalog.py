@@ -60,7 +60,9 @@ class RoleCatalogTests(unittest.TestCase):
         account = SimpleNamespace(active_account_id="a", user_database_path=self.user)
         deps = OfficialRoleDependencies.from_app_context(SimpleNamespace(paths=paths, account=account, generation=7))
         self.assertEqual(game, paths.static_database_path)
-        self.assertEqual(target / "game_static.sqlite3", deps.static_database_path)
+        self.assertEqual(game, deps.static_database_path)
+        self.assertEqual(target / "game_ui", deps.asset_root)
+        self.assertEqual(game, paths.equipment_allocation_database_path)
         self.assertEqual(b"untouched game database", game.read_bytes())
         self.assertEqual(paths.static_database_path, OfficialRoleDependencies.from_app_context(
             SimpleNamespace(paths=replace(paths, role_catalog=None), account=account, generation=8)).static_database_path)
@@ -157,8 +159,16 @@ class RoleCatalogTests(unittest.TestCase):
         with StaticGameDataDao(ROOT / "data/game_static.sqlite3") as dao:
             self.assertEqual("game", dao.get_catalog_scope())
 
-    def test_preview_widgets_keep_editing_and_hide_unverified_calculations(self):
-        controller = OfficialRoleController(self.dependencies())
+    def test_complete_game_role_page_shows_calculation_sections(self):
+        release = read_role_catalog(CATALOG)
+        controller = OfficialRoleController(OfficialRoleDependencies(
+            "role-catalog-test", 7, self.user, ROOT / "data/game_static.sqlite3",
+            self.root / "shared.sqlite3", release.asset_root, release.sha256,
+        ))
+        detail = controller.load_detail(1042)
+        self.assertEqual("game", detail["catalog_scope"])
+        self.assertIsNotNone(detail["graduation_template"])
+        self.assertIsNotNone(detail["equipment_plan"])
         window = SimpleNamespace(_official_role_editors={}, _official_role_dirty_ids=set(), _my_role_dirty=False)
         scroll = QScrollArea()
         self.addCleanup(scroll.close)
@@ -168,7 +178,10 @@ class RoleCatalogTests(unittest.TestCase):
         editor["growth"].setValue(70)
         self.assertIn(1042, window._official_role_dirty_ids)
         self.assertGreaterEqual(editor["fork"].findData("fork_twinbirds"), 0)
-        self.assertFalse(scroll.findChildren(QGroupBox, "officialRoleMarginalGroup"))
+        self.assertTrue(scroll.findChildren(QGroupBox, "officialRoleMarginalGroup"))
+        self.assertTrue(scroll.findChildren(QGroupBox, "officialRoleDriveGroup"))
+        self.assertTrue(scroll.findChildren(QGroupBox, "officialRoleDamageFormulaGroup"))
+        self.assertTrue(scroll.findChildren(QGroupBox, "officialRoleWeightGroup"))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 # 验证原生 Loader 从模式入口启动、持久化及退出后按所有权清理。
 import pytest
-from src.services.mod_plugin_loading_service import ModPluginLoadingService, ModPluginLoadingError
+from src.services.mod_plugin_loading_service import (
+    ModPluginLoadingService, ModPluginLoadingError, ModPluginLoadingWaiting,
+)
 from tests.test_native_plugin_runtime import setup_runtime
 from tests.test_native_mod_plugin_loading_service import Runtime
 
@@ -11,6 +13,7 @@ def setup_loader(tmp_path, monkeypatch):
     launcher = game.parent / 'NTELauncher.exe'
     launcher.write_bytes(b'synthetic launcher')
     monkeypatch.setattr('src.services.mod_plugin_loading_service.game_launcher_executable', lambda _game: launcher)
+    monkeypatch.setattr('src.services.mod_plugin_loading_service.game_launcher_candidates', lambda _game: (launcher,))
     process = Runtime()
     service = ModPluginLoadingService(application_root=runtime.root, runtime=process,
         native_workspace_path=runtime.config_dir / 'native-loader',
@@ -19,6 +22,31 @@ def setup_loader(tmp_path, monkeypatch):
     runtime.loader = service
     policy.update_deployment({'loading_method': 'loader'})
     return runtime, policy, game, process
+
+
+def test_running_selected_launcher_blocks_loader_before_workspace_changes(tmp_path, monkeypatch):
+    runtime, policy, _game, process = setup_loader(tmp_path, monkeypatch)
+    monkeypatch.setattr('src.services.mod_plugin_loading_service.selected_launcher_running', lambda _path: True)
+    with pytest.raises(ModPluginLoadingWaiting, match='启动器'):
+        runtime.start_native_loader()
+    assert not process.calls
+    assert not runtime.loader.native_workspace_path.exists()
+    assert not policy.settings.pending_cleanup
+
+
+def test_secondary_selected_launcher_also_blocks_loader(tmp_path, monkeypatch):
+    runtime, policy, _game, process = setup_loader(tmp_path, monkeypatch)
+    primary = tmp_path / 'NTELauncher.exe'
+    secondary = tmp_path / 'NTEGlobalLauncher.exe'
+    monkeypatch.setattr('src.services.mod_plugin_loading_service.game_launcher_candidates',
+                        lambda _game: (primary, secondary))
+    monkeypatch.setattr('src.services.mod_plugin_loading_service.selected_launcher_running',
+                        lambda path: path == secondary)
+    with pytest.raises(ModPluginLoadingWaiting, match='启动器'):
+        runtime.start_native_loader()
+    assert not process.calls
+    assert not runtime.loader.native_workspace_path.exists()
+    assert not policy.settings.pending_cleanup
 
 
 def test_manual_start_persists_actual_stage_and_offline_cleans_it(tmp_path, monkeypatch):

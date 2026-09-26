@@ -399,13 +399,6 @@ def _page_my_role(window) -> QWidget:
     header.addWidget(sync)
     header.addWidget(save)
     root.addLayout(header)
-    if _role_controller(window).dependencies.catalog_identity:
-        notice = QLabel("角色资料预览：支持养成编辑和弧盘选择。弧盘面板仅计等级／突破属性；"
-                        "精炼常驻效果、配装收益及毕业率待验证。战报继续使用原数据集。")
-        notice.setWordWrap(True)
-        notice.setObjectName("officialRoleCatalogNotice")
-        root.addWidget(notice)
-
     sync_result = QPlainTextEdit()
     sync_result.setReadOnly(True)
     sync_result.setAccessibleName('角色同步结果')

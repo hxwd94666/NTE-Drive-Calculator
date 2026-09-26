@@ -57,6 +57,7 @@ def initialize_mode_runtime(window):
     window.auto_sync_controller = AutoSyncController(
         window=window, policy=window.work_mode_service,
         request_check=window.work_mode_controller.check,
+        request_enable_preflight=window.work_mode_controller.begin_sync_enable,
     )
     window.operation_entry = window.work_mode_controller.operation_entry
     window.operation_unavailable = window.work_mode_controller.operation_unavailable

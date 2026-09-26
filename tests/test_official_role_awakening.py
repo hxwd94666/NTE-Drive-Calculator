@@ -1,5 +1,9 @@
 # 验证觉醒多选、共鸣门槛和旧账号兼容映射。
+import os
 import unittest
+from types import SimpleNamespace
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from src.services.official_role_awakening_service import (
     active_awaken_effects,
@@ -32,6 +36,43 @@ def _effects():
 
 
 class OfficialRoleAwakeningTests(unittest.TestCase):
+    def test_role_awaken_level_ignores_wheel_without_losing_effects(self):
+        from PySide6.QtWidgets import QApplication
+        from src.features.official_role.role_awakening import _build_awakening_group
+        from src.ui.widgets import NoWheelSpinBox
+
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        window = SimpleNamespace(_official_role_dirty_ids=set(), _my_role_dirty=False)
+        editor = {}
+        group = _build_awakening_group(window, 1001, {
+            "profile": {
+                "awakening_level": 3,
+                "selected_awaken_effect_ids": ["Effect1", "Effect4", "Effect6"],
+            },
+            "awakenings": _effects(),
+        }, editor)
+        self.addCleanup(group.close)
+        level = editor["awakening_level"]
+        self.assertIsInstance(level, NoWheelSpinBox)
+
+        class WheelEvent:
+            ignored = False
+
+            def ignore(self):
+                self.ignored = True
+
+        event = WheelEvent()
+        level.wheelEvent(event)
+        self.assertTrue(event.ignored)
+        self.assertEqual(3, level.value())
+        self.assertEqual(
+            ["Effect1", "Effect4", "Effect6"],
+            [effect_id for effect_id, check in editor["awakening_checks"].items()
+             if check.isChecked()],
+        )
+        self.assertFalse(window._official_role_dirty_ids)
+
     def test_legacy_numeric_awakening_resolves_to_ordered_selection(self):
         profile = resolve_awakening_profile({"awakening_level": 3}, _effects())
         self.assertEqual(
