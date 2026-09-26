@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "core_rebuilt": true,
+  "core_rebuilt": false,
   "core_sha256": "bc1a48ff5d284c53808f22b624b8c53d79d277e16213e4526834a49d74213da4",
-  "capture_sha256": "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819",
+  "capture_sha256": "e3711292bbeba7ce08d43cc5998383098c95b2e64b744cb97da6b8a29947330f",
   "proxy_sha256": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
   "protocol_version": 1,
   "provider_capabilities": [
@@ -52,11 +52,11 @@
     "native_inventory_dto_v1"
   ],
   "validation": {
-    "build": "Release x64 protected standalone capture, proxy and rebuilt Core; source input digests recorded.",
-    "non_game": "Exact direct/proxy isolated-host handshake, refusal and shutdown checks passed.",
-    "capture_integration": "Six C++ focused programs and fourteen Rust focused checks passed.",
-    "calc": "97 focused tests and Ruff hard checks passed. Missing calculation inputs use labeled durable settlement fallback; original native evidence is preserved.",
-    "game": "not_run_for_exact_binaries; newly recorded first-hit and two-half acceptance pending"
+    "build": "Release x64 protected standalone capture and proxy rebuilt for 2.3.2.test; existing Core retained.",
+    "non_game": "Exact candidate direct/proxy isolated-host handshake, refusal and shutdown checks passed.",
+    "capture_integration": "Deterministic C++ snapshot timing fixture passed; other capture integration suites not rerun.",
+    "calc": "20 focused native diagnostic and lifecycle tests passed.",
+    "game": "not_run_for_exact_binaries; synchronization performance and capture acceptance pending"
   },
   "limits": [
     "Counterfactual modifier and formula evidence remains partial; capability advertisement does not prove runtime coverage.",

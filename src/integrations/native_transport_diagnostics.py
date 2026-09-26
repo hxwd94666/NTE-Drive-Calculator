@@ -3,6 +3,8 @@ import json
 from time import monotonic
 
 from src.observability import OperationContext, log_event
+from src.integrations.native_snapshot_timing import SnapshotTimingLog
+from src.integrations.native_hud_interaction import HudInteractionLog
 
 
 def invalid_json(line, error, *, executable_sha256, exit_code, core_pid=None):
@@ -37,12 +39,18 @@ class RuntimeCostLog:
     def __init__(self):
         self._last = float("-inf")
         self._previous = {}
+        self._timing = SnapshotTimingLog()
+        self._hud_interaction = HudInteractionLog()
 
     def observe(self, status):
         native = status.get("native_status") if isinstance(status, dict) else None
         costs = native.get("runtimePerformance") if isinstance(native, dict) else None
         if (not isinstance(costs, dict) or type(costs.get("version")) is not int
-                or costs["version"] != 1 or monotonic() - self._last < 30):
+                or costs["version"] != 1):
+            return
+        self._timing.observe(costs.get("snapshot_diagnostics"))
+        self._hud_interaction.observe(costs.get("hud_interaction"))
+        if monotonic() - self._last < 30:
             return
         safe = {}
         for name in ("snapshot_pulse", "snapshot_read"):
@@ -81,6 +89,9 @@ def snapshot_refresh_diagnostic(result, params, duration_ms):
               if type(result.get(key)) is bool}
     fields.update({key: result[key] for key in ("recordCount", "sourceRecordCount")
                    if type(result.get(key)) is int and 0 <= result[key] < 2**63})
+    for source, target in (("diagnosticJob", "diagnostic_job"), ("diagnosticStep", "diagnostic_step")):
+        if type(result.get(source)) is int and 0 <= result[source] < 2**63:
+            fields[target] = result[source]
     known = {"object_domain_not_ready", "source_changed", "collection_not_finished",
              "collection_coverage_unverified", "change_coverage_unverified",
              "collection_spans_multiple_pulses", "equip_container_unavailable", "card_container_unavailable",

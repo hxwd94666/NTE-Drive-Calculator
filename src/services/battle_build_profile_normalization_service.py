@@ -20,11 +20,16 @@ def normalize_inferred_battle_profile(
     normalized = dict(profile)
     if str(normalized.get("profile_source") or "") != _GRADUATION_SOURCE:
         return normalized
-    normalized.update({
+    sources = normalized.get("field_sources") or {}
+    defaults = {
         "awakening_level": 0,
         "selected_awaken_effect_ids": [],
         "awakening_selection_initialized": True,
-    })
+    }
+    # 模板是配置的底板；逐字段原生观测才是该字段的实际来源。
+    for field, default in defaults.items():
+        if sources.get(field) != "native_observed":
+            normalized[field] = default
     if (
         normalized.get("fork_id")
         and normalized.get("fork_level") is not None
@@ -52,9 +57,9 @@ def normalize_inferred_battle_build(
             profile["profile_source"] = _GRADUATION_SOURCE
             profile = normalize_inferred_battle_profile(profile)
             character.update({
-                "awakening_level": 0,
-                "selected_awaken_effect_ids": (),
-                "awakening_selection_initialized": True,
+                "awakening_level": profile["awakening_level"],
+                "selected_awaken_effect_ids": tuple(profile["selected_awaken_effect_ids"]),
+                "awakening_selection_initialized": profile["awakening_selection_initialized"],
                 "profile": profile,
             })
         characters.append(character)

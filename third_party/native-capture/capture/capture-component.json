@@ -3,8 +3,8 @@
   "component": "uetools-native-capture",
   "protocolVersion": 1,
   "sourceRepository": "https://github.com/kongbaiz/UETools-NTE",
-  "sourceCommit": "348a0aafe308967fc2b432b8a6395a6a54bfc998",
-  "sourceTreeSha256": "7f174b9dc007ad54ff448451db90a32e06a00e9a9752b42a6e545e12ca7b692c",
+  "sourceCommit": "dc96e0a9448fc77eb63867645199783bc110b413",
+  "sourceTreeSha256": "635f01ece55a3bb96fabcfe68ab1e9773fd9278808b3c415e7eb399720f1e1e6",
   "sourceState": "working-tree",
   "configuration": "Release",
   "architecture": "x64",
@@ -32,8 +32,8 @@
   "files": [
     {
       "name": "NTE_Capture.dll",
-      "size": 9519104,
-      "sha256": "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819"
+      "size": 9472000,
+      "sha256": "e3711292bbeba7ce08d43cc5998383098c95b2e64b744cb97da6b8a29947330f"
     },
     {
       "name": "d3d12.dll",
@@ -56,14 +56,13 @@
     "policy_sha256": "5b854accb2645200b2299a27f3d324bb8a73c9150ccf4ce16e436651b5445cb8",
     "binaries": {
       "NTE_Capture.dll": {
-        "sha256": "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819",
+        "sha256": "e3711292bbeba7ce08d43cc5998383098c95b2e64b744cb97da6b8a29947330f",
         "functions": 14
       }
     }
   },
   "validation": {
     "gameRuntime": "not_run",
-    "gameDeployment": "not_performed",
-    "nonGame": "Exact direct/proxy isolated-host checks passed; six focused C++ programs passed."
+    "gameDeployment": "not_performed"
   }
 }

@@ -75,6 +75,9 @@ duration；取消、过期丢弃、待确认和降级使用独立事件，不伪
 - `native_sync.refresh_finished`：分别记录装备、角色和 `all_items` 刷新耗时、布尔就绪状态、条目数及固定白名单的未完成原因。新版 DLL 的可选 `collectionWork` 提供批次数、扫描/验证单位数、总历时、批内累计耗时、最长批次及角色关联装备详情读取次数；不含 UID、字段原文或返回正文，旧 DLL 未提供的计数不补零。总历时包含批间等待，批内耗时是墙钟观测，不等于 CPU 时间或游戏帧率。
 - `native_sync.retry_deferred`：同一来源修订未完成时的 1、2、4、8、10 秒重试等待；来源修订变化不沿用旧等待，不提交残缺集合。
 - `native_sync.runtime_cost`：支持该字段的 DLL 返回游戏线程快照周期与读取批次的累计次数、累计微秒和最大单次微秒；最多每 30 秒记录变化。可选 `inventory_notifications` 仅保留通知类型（0–255）、累计次数、Items 条数、空数组/无效数组头次数、最后单调毫秒；拒绝负数、非法类型并丢弃额外字段，不记录成员、UID、物品数量值或正文。计数归 DLL 生命周期，互有包含关系，不相加、不当作游戏 FPS；旧 DLL 未提供时不补零。通知计数不证明增量事件完整。
+- `native_sync.timing_summary`：可选 DLL `snapshot_diagnostics` 的分段累计计时，最多每 30 秒记录变化；仅接受 version=1、固定阶段名和有界非负整数。保留次数、总/最大微秒、超过 8333/20000 微秒次数，以及慢调用总数和缓冲区竞争丢弃数。阈值是诊断分桶，不是实测帧预算；嵌套阶段不能求和，缺失阶段不补零。
+- `native_sync.hud_interaction` / `native_sync.hud_interaction_event`：可选 `hud_interaction` version=1 的 HUD 开关、角色读取、技能查询、HUD 绘制活动计数、捕获到的异常码及有界事件。沿现有状态读取观测，最多每秒接收一次；状态变化立即记录，累计摘要最多每 30 秒一次，不增加游戏轮询。最近事件最多 32 条，以序号和单调时间去重；拒绝未知阶段、未知事件、越界数字与额外字段。觉醒通知、HUD 开关和任意角色 E/Q 选择状态变化后 10 秒内，各阶段最多每秒采样一对开始/结束。技能选择只记录 E/Q、候选数和固定原因，不记录角色实例、技能类、对象地址或 UID。`active_mask` 的 control/character/skill_query/hud 位为 1/2/4/8，重叠可能来自嵌套调用，不能解释为线程竞争。环形覆盖、竞争丢弃和进程崩溃前尚未送达的记录均可能缺失；它不是崩溃转储，也不能由一条 begin 缺少 end 认定该函数崩溃。旧组件缺字段时不补零。
+- `native_sync.slow_pulse`：同一低频观测最多接收最近 8 次加生命周期最慢一次的去重慢调用，保留固定域、all_items、回调序号、单调起点、临时采集 job/step 及分段耗时。回调序号与单调起点共同去重，允许 DLL 重启后序号从头开始；不记录 provider、对象、UID、路径或响应正文。缓冲区不可读或超界时不输出样本。它是有界留样，不是完整逐帧记录；`native_sync.refresh_finished` 可选 `diagnostic_job/diagnostic_step` 用于关联同一 DLL 会话内的刷新任务，旧组件缺字段时省略。
 - `native_session.idle_closed`：自动同步与插件关闭、且无战报、库存租约或进行中读取时释放共享连接。
 - `native_core.invalid_json`：响应字符数、完整换行标记、解析失败位置、Core 哈希及可获得的退出码；不记录响应片段或原始解析异常。
 - `native_core.output`：仅消费 Core 固定诊断前缀与白名单字段，记录输出总字节、已写字节、耗时及 slow/timeout/failed；其他 stderr 不直接转入常驻日志。

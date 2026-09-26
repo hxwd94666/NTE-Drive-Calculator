@@ -3,12 +3,12 @@
   "capture_protocol_version": 1,
   "layout": "native-capture-v1",
   "source_commits": {
-    "capture": "348a0aafe308967fc2b432b8a6395a6a54bfc998",
+    "capture": "dc96e0a9448fc77eb63867645199783bc110b413",
     "core": "cfa384983304e8a8e20dc4ad050a2f6ce6f348e7",
     "loader": "3e3bcd05583c369cfecc477aaa0adc933591841b"
   },
   "input_digests": {
-    "capture": "7f174b9dc007ad54ff448451db90a32e06a00e9a9752b42a6e545e12ca7b692c",
+    "capture": "635f01ece55a3bb96fabcfe68ab1e9773fd9278808b3c415e7eb399720f1e1e6",
     "core": "7c98ad8a69fbecc17e38515c844f7d9c546c03864515a75fe3e932ef87942fcc"
   },
   "capabilities": [
@@ -49,13 +49,13 @@
     "loader_source": "third_party/mod-loader/SOURCE.md"
   },
   "files": {
-    "third_party/native-capture/capture/capture-component.json": "a464d5cf0e5f1738d052a9791cf76df8971b555a1192ea9d81bea3ebdf263120",
+    "third_party/native-capture/capture/capture-component.json": "8f62208304ee6bf7b244b9fa6f04d5512bd5a2ce94ddfe4cc3b03817df649161",
     "third_party/native-capture/capture/d3d12.dll": "6a714f2e633b22942f0efade16a5f0a623c435d98446d681e7182fa5683a5293",
     "third_party/native-capture/capture/Detours-LICENSE.md": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef",
     "third_party/native-capture/capture/LICENSE.txt": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-    "third_party/native-capture/capture/NTE_Capture.dll": "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819",
-    "third_party/native-capture/capture/SOURCE.md": "e94271b91cf82a9c35501fe92377858bf38e0b2862018d179e443a9f8665d2e5",
-    "third_party/native-capture/compatibility.json": "23a33e712726946a897c55e5796fb1d4f3878e367933f712b2e8c077963e7aad",
+    "third_party/native-capture/capture/NTE_Capture.dll": "e3711292bbeba7ce08d43cc5998383098c95b2e64b744cb97da6b8a29947330f",
+    "third_party/native-capture/capture/SOURCE.md": "e007de39fdabecc865cc47d67f28c56053f4f032cdffb96d6a5472810ee0e312",
+    "third_party/native-capture/compatibility.json": "ce106c9ed4b4f6cdc384c33e5896a62e8c66f9c8af14f1d8a5d33de19922b79f",
     "third_party/native-capture/core/LICENSE": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e",
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-APACHE": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-MIT": "f7e8ab639afef15573680c97f796166835cbeb3865175882fea41c60d106b733",
@@ -168,13 +168,13 @@
     "third_party/mod-loader/licenses/ManualMap-LICENSE.txt": "9c87c453a4de71dd3370aabc698d00bb6c83ea95bbecee49c4574117777a70b1"
   },
   "file_sizes": {
-    "third_party/native-capture/capture/capture-component.json": 2130,
+    "third_party/native-capture/capture/capture-component.json": 1962,
     "third_party/native-capture/capture/d3d12.dll": 15360,
     "third_party/native-capture/capture/Detours-LICENSE.md": 1122,
     "third_party/native-capture/capture/LICENSE.txt": 35823,
-    "third_party/native-capture/capture/NTE_Capture.dll": 9519104,
-    "third_party/native-capture/capture/SOURCE.md": 777,
-    "third_party/native-capture/compatibility.json": 2928,
+    "third_party/native-capture/capture/NTE_Capture.dll": 9472000,
+    "third_party/native-capture/capture/SOURCE.md": 624,
+    "third_party/native-capture/compatibility.json": 2805,
     "third_party/native-capture/core/LICENSE": 35184,
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-APACHE": 10849,
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-MIT": 1057,
@@ -340,7 +340,8 @@
       "4acc370fd7c40ae9bfc5d7d63bba2b2610dc969035d3918da2f3ba582db662f1",
       "b313b972e1881a545d76ae92d154b9ee2cbc972799f5b660cd9f0ba35cdbd355",
       "4e0dead50988a3f84fb080ae7126e42c3375fb1e8edfbf3067b904602e866c86",
-      "25ce1309de85fb0bb559ceb52a3e26609dcf7b9cae80d99e2c6322a6df2b0156"
+      "25ce1309de85fb0bb559ceb52a3e26609dcf7b9cae80d99e2c6322a6df2b0156",
+      "ac67a4cb8ccf03211e1331d9078629dd9fde0f9a717b9c7168b4b505c6a0c819"
     ]
   }
 }

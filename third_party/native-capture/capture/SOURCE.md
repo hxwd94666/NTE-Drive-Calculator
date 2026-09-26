@@ -1,7 +1,9 @@
-# Native capture component source
+# Native capture source
 
-Source: https://github.com/kongbaiz/UETools-NTE; base commit 348a0aafe308967fc2b432b8a6395a6a54bfc998; modified working-tree input SHA-256 7f174b9dc007ad54ff448451db90a32e06a00e9a9752b42a6e545e12ca7b692c. The base alone does not reproduce this build.
+Source repository: https://github.com/kongbaiz/UETools-NTE
+Base commit: dc96e0a9448fc77eb63867645199783bc110b413
+Modified working-tree input SHA-256: 635f01ece55a3bb96fabcfe68ab1e9773fd9278808b3c415e7eb399720f1e1e6
 
-Release x64 standalone capture and minimal D3D proxy. VMProtect policy and file identities are recorded in capture-component.json. Existing license terms apply. First-hit snapshot bytes are retained across half transitions. Buff baselines are emitted at first hit and confirmed half/reset boundaries; callbacks retain subsequent changes.
+Release x64 standalone capture and minimal D3D proxy for Calc 2.3.2.test. Adds bounded in-memory snapshot phase timings and slow-call samples. Collection semantics are unchanged. Binary hashes and protection policy are recorded in capture-component.json.
 
-Focused fixtures and exact-binary isolated-host checks passed. Real-game capture, first-hit coverage and save/reopen acceptance remain pending.
+Build and deterministic diagnostic fixture passed. Real-game timing, capture and synchronization acceptance remain unverified.
