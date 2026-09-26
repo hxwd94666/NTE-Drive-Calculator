@@ -132,6 +132,50 @@ def test_first_enable_waits_for_visible_preflight_confirmation(owner):
     assert policy.settings.component_auto_ready
 
 
+def test_confirmed_preflight_can_resume_existing_cleanup_pause(owner):
+    c, _window, policy, _starts, _jobs, _watchers, _app = owner
+    c.set_enabled(False)
+    policy.set_paused(True)
+    pending = []
+    c._request_enable_preflight = pending.append
+    c.set_enabled(True)
+    assert len(pending) == 1
+    assert policy.settings.paused and not policy.settings.auto_sync_enabled
+    assert pending[0]() is True
+    assert not policy.settings.paused and policy.settings.auto_sync_enabled
+
+
+def test_existing_enabled_preference_still_rechecks_before_resuming_pause(owner):
+    c, _window, policy, _starts, _jobs, _watchers, _app = owner
+    policy.set_paused(True)
+    pending = []
+    c._request_enable_preflight = pending.append
+    c.set_enabled(True)
+    assert len(pending) == 1
+    assert policy.settings.auto_sync_enabled and policy.settings.paused
+    assert pending[0]() is True
+    assert policy.settings.auto_sync_enabled and not policy.settings.paused
+
+
+def test_paused_workbench_shows_effective_off_state_and_resume_action(owner):
+    from PySide6.QtWidgets import QCheckBox, QLabel, QPushButton
+
+    c, window, policy, _starts, _jobs, _watchers, _app = owner
+    window.home_auto_sync_toggle = QCheckBox(window)
+    window.home_restart_sync_button = QPushButton(window)
+    for name in ('home_sync_source_label', 'home_sync_action_hint', 'home_sync_detail', 'home_sync_badge'):
+        setattr(window, name, QLabel(window))
+    policy.set_paused(True)
+    c.render()
+    assert not window.home_auto_sync_toggle.isChecked()
+    assert window.home_restart_sync_button.text() == '恢复自动同步'
+    assert '无需重选工作模式' in window.home_sync_detail.text()
+    pending = []
+    c._request_enable_preflight = pending.append
+    c.open_restart()
+    assert len(pending) == 1
+
+
 def test_packet_sync_can_start_while_packet_battle_runs(owner):
     c, window, _policy, starts, _jobs, watchers, _app = owner
     window.battle_report_controller.is_running = lambda: True

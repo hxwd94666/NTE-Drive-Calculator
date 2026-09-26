@@ -154,7 +154,7 @@ class AutoSyncController(QObject):
     def set_enabled(self, enabled):
         if self._closed:
             return
-        if enabled and not self.policy.settings.auto_sync_enabled and self._request_enable_preflight:
+        if enabled and (not self.policy.settings.auto_sync_enabled or self.policy.settings.paused) and self._request_enable_preflight:
             self.render()  # Keep the persisted off state visible until confirmation.
             self._request_enable_preflight(self._confirm_enable)
             return
@@ -164,7 +164,7 @@ class AutoSyncController(QObject):
             return
         if enabled and self.policy.settings.paused:
             self.window.operation_unavailable(
-                "自动同步", "连接已暂停，请在设置中重新确认工作模式后恢复。", target="mode",
+                "自动同步", "连接已暂停，请查看检测详情并完成同步条件核对。", target="detection",
             )
             self.render()
             return
@@ -177,16 +177,16 @@ class AutoSyncController(QObject):
             self._request_check()
 
     def _confirm_enable(self) -> bool:
-        if self._closed or self.policy.settings.auto_sync_enabled:
+        if self._closed or (self.policy.settings.auto_sync_enabled and not self.policy.settings.paused):
             return False
-        if (self.policy.settings.paused or not (
-            self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")
-        )):
+        if not (self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")):
             self.render()
             return False
         try:
-            self.policy.enable_auto_sync_after_preflight()
-        except OSError:
+            self.policy.enable_auto_sync_after_preflight(
+                resume_paused=self.policy.settings.paused,
+            )
+        except (OSError, PermissionError):
             self.render()
             return False
         self.refresh()
@@ -276,9 +276,7 @@ class AutoSyncController(QObject):
         if self._closed:
             return
         if self.policy.settings.paused:
-            self.window.operation_unavailable(
-                "自动同步", "连接已暂停，请在设置中重新确认工作模式后恢复。", target="mode",
-            )
+            self.set_enabled(True)
             return
         if not self.policy.settings.auto_sync_enabled:
             self.set_enabled(True)
@@ -346,7 +344,7 @@ class AutoSyncController(QObject):
             return
         settings = self.policy.settings
         toggle.blockSignals(True)
-        toggle.setChecked(settings.auto_sync_enabled)
+        toggle.setChecked(settings.auto_sync_enabled and not settings.paused)
         toggle.blockSignals(False)
         native = self.policy.allowed("native_sync")
         online = native or self.policy.allowed("packet_capture")
@@ -376,8 +374,11 @@ class AutoSyncController(QObject):
                 role_detail.setText(error)
         battle = self.window.battle_report_controller.is_running()
         button = self.window.home_restart_sync_button
-        button.setText("重启同步" if settings.auto_sync_enabled else "开启自动同步")
+        button.setText("恢复自动同步" if settings.paused else
+                       "重启同步" if settings.auto_sync_enabled else "开启自动同步")
         button.setToolTip(
+            "先核对同步条件；组件已准备好且清理完成时恢复同步，无需重选工作模式。"
+            if settings.paused else
             "停止当前同步连接并重新建立；用于同步异常或背包未更新。已保存数据不会删除。"
             if settings.auto_sync_enabled else
             "先显示环境检测，确认准备后进入游戏场景自动读取并保存数据。" if native else
@@ -391,7 +392,7 @@ class AutoSyncController(QObject):
         if not online:
             detail = "离线模式，使用已保存背包。"
         elif settings.paused:
-            detail = "连接已暂停，请在设置中重新确认工作模式后恢复。"
+            detail = "连接已暂停；点击“恢复自动同步”核对条件，无需重选工作模式。"
         elif not settings.auto_sync_enabled:
             detail = "自动同步已关闭，已保存背包仍可用于计算。"
         elif self._stopping or self._stop_failed or self._retry_cancelled:

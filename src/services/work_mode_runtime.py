@@ -637,8 +637,13 @@ class WorkModeRuntime:
             capabilities = self._bundle.native_capabilities
             core_available = self._bundle.ready
             native = NativeFeatureProbe(files=files)
-            domain_files = {"native_" + name: NativeFeatureProbe(files=loading and f"{name}.snapshot.v1" in capabilities)
-                            for name in ("character", "inventory", "team", "environment")}
+            domain_files = {
+                "native_" + name: NativeFeatureProbe(
+                    files=loading and f"{name}.snapshot.v1" in capabilities,
+                    reason=("packaged_capability_missing" if loading and
+                            f"{name}.snapshot.v1" not in capabilities else ""),
+                ) for name in ("character", "inventory", "team", "environment")
+            }
             battle_supported = {"combat.hit_buff.v1", "combat.context.v1"}.issubset(capabilities)
             battle_files = NativeFeatureProbe(files=files, supported=battle_supported,
                 reason="" if battle_supported else "packaged_capability_missing")
@@ -708,7 +713,9 @@ class WorkModeRuntime:
                             ),
                             profile_projection_supported=domain == "character" and "native_character_profile_v1" in caps,
                             ready=False if error else item.get("ready"),
-                            reason=str(error.get("reason") or error["message"]) if error else str(item.get("readyReason") or ""),
+                            reason=(values["native_" + domain].reason or
+                                    (str(error.get("reason") or error["message"]) if error else
+                                     str(item.get("readyReason") or ""))),
                             snapshot=bool(item.get("snapshotId")), complete=item.get("complete"),
                             source_coverage=str(item.get("sourceCoverage") or "unknown"),
                         )

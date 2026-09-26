@@ -225,9 +225,6 @@ class ModeReportDialog(QDialog):
         content_layout.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
-        self.actions = QHBoxLayout()
-        self.actions.setSpacing(8)
-        layout.addLayout(self.actions)
         footer = QHBoxLayout()
         footer.addStretch()
         self.settings_button = QPushButton("前往环境设置")
@@ -243,6 +240,9 @@ class ModeReportDialog(QDialog):
         footer.addWidget(self.close_button)
         self.footer = footer
         layout.addLayout(footer)
+        self.actions = QVBoxLayout()
+        self.actions.setSpacing(8)
+        layout.addLayout(self.actions)
         fit_dialog_to_available_screen(self, QSize(760, 560))
 
     def _toggle_diagnostics(self, expanded):
@@ -383,10 +383,10 @@ class ModeReportDialog(QDialog):
         for key, title, callback in (
             ("download_npcap", "下载 Npcap", lambda: self.parentWidget()._open_npcap_download()),
             ("detect_game_path", "重新检测路径", self._controller.detect_path),
-            ("manual_deploy", "手动部署 DLL", lambda: self.parentWidget()._deploy_equipment_plugin()),
+            ("manual_deploy", "前往部署组件", self._open_environment_settings),
         ):
             if key in available and not (self._preview and key == "manual_deploy"):
-                self._add_action(title, callback, close=True)
+                self._add_action(title, callback, close=key != "manual_deploy")
 
     def set_error(self, detail):
         self.progress.hide()
@@ -399,20 +399,20 @@ class ModeReportDialog(QDialog):
         if self._preview:
             self.preflight_summary.setText("状态：检测未完成\n原因：" + detail + "\n下一步：重新检测或前往环境设置。")
 
-    def set_sync_preflight(self, decision, confirm):
+    def set_sync_preflight(self, decision):
         self._settings_target = decision.target
         self.preflight_summary.setText(
             ("状态：可开启同步" if decision.ready else "状态：等待处理") +
             "\n原因：" + decision.detail +
-            ("\n下一步：确认处理并开启同步。" if decision.ready else
-             "\n下一步：按上述提示处理后重新检测，或前往环境设置。")
+            ("\n下一步：自动开启同步。" if decision.ready else
+             "\n下一步：" + (decision.action_label or "处理后重新检测。"))
         )
         if decision.target == "mode":
             self.settings_button.setText("前往工作模式设置")
         self._copy_text += "\n\n开启同步：" + decision.detail
         self.label.setText(self._copy_text)
-        if decision.ready:
-            self._add_action("确认处理并开启同步", confirm)
+        if decision.action_label:
+            self._add_action(decision.action_label, self._open_environment_settings)
 
     def set_activation_result(self, ready, detail):
         self.progress.hide()

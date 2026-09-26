@@ -48,6 +48,18 @@ def test_old_enabled_preference_is_disabled_once_but_explicit_new_choice_survive
     assert WorkModeService(path).allowed("native_load", automatic=True)
 
 
+def test_preflight_resumes_confirmed_mode_pause_only_after_cleanup(tmp_path):
+    service = WorkModeService(tmp_path / "work_mode.json")
+    service.select_mode("medium", risk_confirmed=True)
+    service.set_paused(True)
+    with pytest.raises(WorkModeDenied):
+        service.enable_auto_sync_after_preflight(resume_paused=True)
+    assert service.settings.paused and not service.settings.auto_sync_enabled
+    service.set_cleanup_pending(False)
+    service.enable_auto_sync_after_preflight(resume_paused=True)
+    assert service.settings.auto_sync_enabled and not service.settings.paused
+
+
 @pytest.mark.parametrize("mode,packet,native,compare", [
     ("offline", False, False, False),
     ("low", True, False, False),

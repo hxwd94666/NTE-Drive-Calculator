@@ -361,6 +361,14 @@ class WorkModeController(ComponentUpgradeGuideMixin, QObject):
         self._show_request_id = None
         self._sync_preflight_request = None
         self._sync_preflight_callback = None
+        if self._sync_activation_callback is not None:
+            self._sync_activation_callback = None
+            if not self._sync_activation_prior_ready:
+                try:
+                    self.policy.set_component_auto_ready(False)
+                except OSError:
+                    pass  # The in-process automatic authority was revoked before saving.
+                self.refresh_controls()
         if dialog is not None:
             dialog.deleteLater()
 
@@ -607,13 +615,10 @@ class WorkModeController(ComponentUpgradeGuideMixin, QObject):
                     decision = decide_sync_enable(
                         self.policy.settings, self.policy.deployment_record, probe,
                     )
-                    self._report_dialog.set_sync_preflight(decision, self._confirm_sync_enable)
-                    if not decision.ready and decision.target == "loading_method":
-                        QMessageBox.warning(
-                            self._report_dialog, "Loader 等待关闭程序",
-                            "状态：尚未部署 Loader\n原因：" + decision.detail +
-                            "\n下一步：完全退出启动器和游戏后，重新检测并开启同步。",
-                        )
+                    if decision.ready:
+                        self._confirm_sync_enable()
+                    else:
+                        self._report_dialog.set_sync_preflight(decision)
         if request_id == self._sync_activation_request:
             self._finish_sync_activation(probe)
 
@@ -691,11 +696,14 @@ class WorkModeController(ComponentUpgradeGuideMixin, QObject):
                 pass  # revoke_first already removed the in-process automatic authority.
             self.refresh_controls()
         if self._report_dialog is not None:
-            self._report_dialog.set_activation_result(
-                success,
-                (decision.detail if decision is not None and (success or not decision.ready)
-                 else error or "同步偏好未能保存，请重新检测。"),
-            )
+            if success:
+                self._report_dialog.accept()
+            else:
+                self._report_dialog.set_activation_result(
+                    False,
+                    (decision.detail if decision is not None and not decision.ready
+                     else error or "同步偏好未能保存，请重新检测。"),
+                )
 
     def close(self) -> None:
         if self._closed:

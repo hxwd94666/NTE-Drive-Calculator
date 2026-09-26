@@ -50,7 +50,7 @@ def _start_inventory_sync(self, *, automatic: bool = False):
         return
     if policy.settings.paused:
         if not automatic:
-            self.operation_unavailable("背包同步", "连接已暂停，请在设置中重新确认工作模式后恢复。", target="detection")
+            self.operation_unavailable("背包同步", "连接已暂停，请先在工作台恢复自动同步并完成条件核对。", target="detection")
         return
     frozen = self.app_context.account.active_account_id, self.app_context.generation
     try:

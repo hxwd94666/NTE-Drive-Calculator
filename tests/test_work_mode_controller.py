@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QLabel, QWidget, QPushButto
 
 from auto_sync_ui_fixture import application, dispose
 
-from src.domain.work_mode import WorkModeProbe
+from src.domain.work_mode import NativeFeatureProbe, WorkModeProbe
 from src.services.game_observation_service import GameObservationService, ObservationResult
 from src.services.work_mode_service import WorkModeService
 from src.ui.controllers import work_mode_controller as module
@@ -131,24 +131,25 @@ def test_plugin_toggle_does_not_queue_behind_environment_detection(controller):
     assert c._plugin_worker.closed
 
 
-def test_sync_preflight_is_read_only_until_confirmed(controller):
+def test_ready_sync_preflight_activates_without_guidance_click(controller):
     c, _window, _policy, _events, _popups, _probe = controller
     calls = []
     original_tick = c.runtime.tick
     c.runtime.tick = lambda **kwargs: (calls.append(kwargs), original_tick(**kwargs))[1]
     confirmed = []
     c.begin_sync_enable(lambda: (confirmed.append(True), True)[1])
-    c._observer.run_jobs()
-    assert calls and calls[-1]["preview"] is True
-    assert calls[-1]["allow_connect"] is False
+    _key, preflight = c._observer.jobs.pop(0)
+    c.observed.emit(preflight())
+    assert calls and calls[0]["preview"] is True
+    assert calls[0]["allow_connect"] is False
     buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
-    assert "确认处理并开启同步" in buttons
-    buttons["确认处理并开启同步"].click()
+    assert "确认处理并开启同步" not in buttons
     assert confirmed == []
     c._observer.run_jobs()
     assert confirmed == [True]
     assert any(call["allow_connect"] is True for call in calls)
     assert calls[-1]["preview"] is True
+    assert c._report_dialog is None
 
 
 @pytest.mark.parametrize("action, expected_route", [("取消", []), ("前往设置", ["mode"])])
@@ -189,6 +190,7 @@ def test_offline_sync_shows_only_compact_guidance(controller, monkeypatch, actio
 def test_sync_preflight_close_and_failed_apply_keep_preference_off(controller):
     c, _window, policy, _events, _popups, _probe = controller
     called = []
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(core_available=True, npcap_available=False)
     c.begin_sync_enable(lambda: (called.append(True), True)[1])
     c._observer.run_jobs()
     c._report_dialog.reject()
@@ -196,32 +198,90 @@ def test_sync_preflight_close_and_failed_apply_keep_preference_off(controller):
     assert not policy.settings.component_auto_ready
     assert called == []
 
+    calls = []
+    def changing_probe(**_kwargs):
+        calls.append(True)
+        return WorkModeProbe(core_available=len(calls) == 1, npcap_available=len(calls) == 1)
+    c.runtime.tick = changing_probe
     c.begin_sync_enable(lambda: (called.append(True), True)[1])
-    c._observer.run_jobs()
-    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
-    c.runtime.tick = lambda **_kwargs: WorkModeProbe(core_available=False, npcap_available=False)
-    buttons["确认处理并开启同步"].click()
     c._observer.run_jobs()
     assert not policy.settings.auto_sync_enabled
     assert not policy.settings.component_auto_ready
     assert called == []
 
 
-def test_loader_preflight_prompts_to_close_running_launcher(controller, monkeypatch):
+def test_closing_report_during_auto_activation_keeps_sync_off(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    called = []
+    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    _key, preflight = c._observer.jobs.pop(0)
+    c.observed.emit(preflight())
+    assert c._sync_activation_request is not None
+    c._report_dialog.reject()
+    c._observer.run_jobs()
+    assert called == []
+    assert not policy.settings.auto_sync_enabled
+    assert not policy.settings.component_auto_ready
+
+
+def test_missing_medium_component_offers_deploy_guidance_even_when_paused(controller, monkeypatch):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.set_paused(True)
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(
+        game_path_valid=True, core_available=True,
+        native_load=NativeFeatureProbe(files=False),
+    )
+    routes = []
+    monkeypatch.setattr(c, "open_settings", routes.append)
+    c.begin_sync_enable(lambda: pytest.fail("missing component must not enable sync"))
+    c._observer.run_jobs()
+    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
+    assert "前往部署组件" in buttons
+    assert "确认处理并开启同步" not in buttons
+    buttons["前往部署组件"].click()
+    QApplication.processEvents()
+    assert routes == ["deployment"]
+    assert not policy.settings.auto_sync_enabled
+
+
+def test_confirmed_medium_mode_resumes_cleanup_pause_without_mode_guidance(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.set_paused(True)
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(
+        game_path_valid=True, core_available=True,
+        native_load=NativeFeatureProbe(files=True),
+    )
+
+    def enable():
+        policy.enable_auto_sync_after_preflight(resume_paused=policy.settings.paused)
+        return True
+
+    c.begin_sync_enable(enable)
+    c._observer.run_jobs()
+    assert policy.settings.auto_sync_enabled
+    assert not policy.settings.paused
+    assert c._report_dialog is None
+
+
+def test_loader_preflight_guides_deployment_without_duplicate_warning(controller, monkeypatch):
     c, _window, policy, _events, _popups, _probe = controller
     policy.select_mode("medium", risk_confirmed=True)
     policy.update_deployment({"loading_method": "loader"})
     c.runtime.tick = lambda **_kwargs: WorkModeProbe(
         game_path_valid=True, core_available=True, launcher_running=True,
+        native_load=NativeFeatureProbe(files=False),
     )
     warnings = []
     monkeypatch.setattr(module.QMessageBox, "warning",
                         lambda _owner, title, message: warnings.append((title, message)))
     c.begin_sync_enable(lambda: pytest.fail("sync must remain off"))
     c._observer.run_jobs()
-    assert len(warnings) == 1
-    assert warnings[0][0] == "Loader 等待关闭程序"
-    assert "退出启动器和游戏" in warnings[0][1]
+    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
+    assert "前往部署组件" in buttons
+    assert "关闭启动器" in c._report_dialog.preflight_summary.text()
+    assert warnings == []
     assert not policy.settings.auto_sync_enabled
 
 

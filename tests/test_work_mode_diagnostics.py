@@ -78,6 +78,74 @@ def test_shared_failure_does_not_claim_every_business_failed_handshake():
         assert dict(checks[name].facts)['handshake'] is None
 
 
+def test_unconfirmed_or_unsupported_business_does_not_offer_deploy_action():
+    from src.domain.work_mode import NativeFeatureProbe
+
+    settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
+                                pending_cleanup=False)
+    probe = WorkModeProbe(
+        game_path_valid=True, core_available=True,
+        native_load=NativeFeatureProbe(files=True),
+        native_inventory=NativeFeatureProbe(files=None),
+        native_character=NativeFeatureProbe(files=False, reason='packaged_capability_missing'),
+    )
+    checks = {item.feature: item for item in build_work_mode_report(settings, probe).features}
+    assert checks['native_inventory'].state == CheckState.WAITING
+    assert 'manual_deploy' not in checks['native_inventory'].actions
+    assert checks['native_character'].state == CheckState.MISSING
+    assert 'manual_deploy' not in checks['native_character'].actions
+
+
+def test_unknown_game_path_does_not_offer_path_detection_as_a_fix():
+    from src.domain.work_mode import NativeFeatureProbe
+
+    settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
+                                pending_cleanup=False)
+    probe = WorkModeProbe(game_path_valid=None, native_load=NativeFeatureProbe(files=None))
+    checks = {item.feature: item for item in build_work_mode_report(settings, probe).features}
+    assert checks['native_load'].state == CheckState.WAITING
+    assert 'detect_game_path' not in checks['native_load'].actions
+
+
+def test_missing_package_does_not_offer_unusable_deployment():
+    from src.domain.work_mode import NativeFeatureProbe
+
+    settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
+                                pending_cleanup=False)
+    probe = WorkModeProbe(game_path_valid=True, core_available=False,
+                          native_load=NativeFeatureProbe(files=False))
+    checks = {item.feature: item for item in build_work_mode_report(settings, probe).features}
+    assert checks['native_load'].state == CheckState.MISSING
+    assert 'manual_deploy' not in checks['native_load'].actions
+
+
+def test_missing_component_guides_to_selected_deployment_instead_of_forcing_d3d():
+    from auto_sync_ui_fixture import application, dispose
+    from PySide6.QtWidgets import QPushButton, QWidget
+    from src.domain.work_mode import NativeFeatureProbe
+    from src.features.settings.work_mode_card import ModeReportDialog
+
+    app = application()
+    parent = QWidget()
+    controller = SimpleNamespace(check=Mock(), detect_path=Mock(), open_settings=Mock())
+    report = build_work_mode_report(
+        WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True, pending_cleanup=False),
+        WorkModeProbe(game_path_valid=True, core_available=True,
+                      native_load=NativeFeatureProbe(files=False)),
+    )
+    dialog = ModeReportDialog(parent, controller)
+    try:
+        dialog.begin('medium')
+        dialog.set_report(report)
+        buttons = {button.text(): button for button in dialog.findChildren(QPushButton)}
+        assert '前往部署组件' in buttons
+        buttons['前往部署组件'].click()
+        app.processEvents()
+        controller.open_settings.assert_called_once_with('deployment')
+    finally:
+        dispose(parent)
+
+
 def test_report_can_be_copied_and_clears_stale_result_on_recheck():
     from auto_sync_ui_fixture import application, dispose
     from PySide6.QtWidgets import QFrame, QLabel, QWidget
@@ -116,5 +184,34 @@ def test_report_can_be_copied_and_clears_stale_result_on_recheck():
         dialog.copy_button.click()
         assert '检测未完成' in app.clipboard().text()
         assert 'core.hello' not in app.clipboard().text()
+    finally:
+        dispose(parent)
+
+
+def test_guided_actions_stay_below_secondary_buttons_and_fill_dialog_width():
+    from auto_sync_ui_fixture import application, dispose
+    from PySide6.QtWidgets import QPushButton, QWidget
+    from src.features.settings.work_mode_card import ModeReportDialog
+
+    app = application()
+    parent = QWidget()
+    controller = SimpleNamespace(check=Mock(), detect_path=Mock())
+    dialog = ModeReportDialog(parent, controller)
+    try:
+        dialog.begin('low')
+        dialog._add_action('处理第一项', Mock())
+        dialog._add_action('处理第二项', Mock())
+        app.processEvents()
+        actions = {button.text(): button for button in dialog.findChildren(QPushButton)}
+        first, second = actions['处理第一项'], actions['处理第二项']
+        first_top = first.mapTo(dialog, first.rect().topLeft()).y()
+        second_top = second.mapTo(dialog, second.rect().topLeft()).y()
+        footer_bottom = max(
+            button.mapTo(dialog, button.rect().bottomLeft()).y()
+            for button in (dialog.settings_button, dialog.retry_button, dialog.close_button)
+        )
+        assert footer_bottom < first_top < second_top
+        assert first.width() >= dialog.width() * 0.8
+        assert second.width() >= dialog.width() * 0.8
     finally:
         dispose(parent)

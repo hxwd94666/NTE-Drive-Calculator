@@ -22,16 +22,26 @@ def _native_check(
 
     if native.fault:
         return result(CheckState.FAULT, native.fault, "recheck")
-    if not probe.game_path_valid:
+    if probe.game_path_valid is None:
+        return result(CheckState.WAITING, "正在核对游戏目录。", "recheck")
+    if probe.game_path_valid is False:
         return result(CheckState.MISSING, "尚未确认游戏目录。", "detect_game_path")
     external_connection = (external_provider_allowed and feature != "native_load"
                            and native.pipe is True and native.handshake is True)
-    if native.files is not True and not external_connection:
+    if native.reason == "packaged_capability_missing":
+        return result(CheckState.MISSING, "当前配套原生插件未提供此项功能所需的完整能力；其他已支持功能可单独使用。", "recheck")
+    if native.files is None and not external_connection:
+        return result(CheckState.WAITING, "尚未完成游戏内组件文件核对。", "recheck")
+    if native.files is False and not external_connection:
+        if probe.core_available is not True:
+            return result(
+                CheckState.MISSING if probe.core_available is False else CheckState.WAITING,
+                "配套组件包尚未通过核对，暂不能部署。" if probe.core_available is False else
+                "正在核对配套组件包。", "recheck",
+            )
         return result(CheckState.MISSING, "尚未核对兼容的游戏内组件。", "manual_deploy", "recheck")
     if feature == "native_load":
         return result(CheckState.AVAILABLE, "已核对组件文件；手动管理可用。")
-    if native.reason == "packaged_capability_missing":
-        return result(CheckState.MISSING, "当前配套原生插件未提供此项功能所需的完整能力；其他已支持功能可单独使用。", "recheck")
     if probe.core_available is not True:
         return result(CheckState.MISSING, "采集组件缺失或尚未核对兼容性。", "recheck")
     if not probe.game_running:
@@ -45,11 +55,11 @@ def _native_check(
     if native.pipe is not True:
         return result(CheckState.WAITING, "等待游戏内组件建立管道。", "recheck")
     if native.handshake is False:
-        return result(CheckState.FAULT, "管道存在，但握手未通过兼容性检查。", "manual_deploy", "recheck")
+        return result(CheckState.FAULT, "管道存在，但握手未通过兼容性检查。", "recheck")
     if native.handshake is None:
         return result(CheckState.WAITING, "管道存在，等待实际握手核对。", "recheck")
     if native.supported is not True:
-        return result(CheckState.MISSING, "握手已通过，尚未确认此项业务能力。", "manual_deploy", "recheck")
+        return result(CheckState.MISSING, "握手已通过，尚未确认此项业务能力。", "recheck")
     if native.ready is not True and native.reason in {"not_ready", "source_changed"}:
         return result(CheckState.WAITING, "此域尚未就绪或刷新期间来源发生变化，请重新检测。", "recheck")
     if native.ready is not True and native.reason in (

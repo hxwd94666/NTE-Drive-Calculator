@@ -94,11 +94,14 @@ class WorkModeService:
                 replace(self._settings, auto_sync_enabled=enabled), revoke_first=not enabled,
             )
 
-    def enable_auto_sync_after_preflight(self) -> None:
+    def enable_auto_sync_after_preflight(self, *, resume_paused: bool = False) -> None:
         """Commit both opt-ins together after the visible preparation step."""
         with self._lock:
+            if resume_paused and (not self._settings.risk_confirmed or self._settings.pending_cleanup):
+                raise WorkModeDenied("工作模式未确认或组件仍待清理，不能恢复同步。")
             self._save(replace(
-                self._settings, auto_sync_enabled=True, component_auto_ready=True,
+                self._settings, paused=False if resume_paused else self._settings.paused,
+                auto_sync_enabled=True, component_auto_ready=True,
             ))
 
     def set_component_auto_ready(self, ready: bool) -> None:
