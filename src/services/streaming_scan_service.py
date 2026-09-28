@@ -51,6 +51,20 @@ def _equipment_screenshot_state(image_path: str) -> str:
         return "normal"
 
 
+def _is_stale_result(result_is_current: Callable[[], bool] | None) -> bool:
+    """Report whether the frozen account/generation of this run is out of date."""
+
+    return result_is_current is not None and not result_is_current()
+
+
+def _stale_scan_stats(scan_result: Any) -> dict[str, Any]:
+    """Build the stats payload for a run whose result must be discarded."""
+
+    stats = scan_result.to_stats()
+    stats["discarded_stale"] = True
+    return stats
+
+
 def run_streaming_scan_parse(
     scanner: Any,
     processor: Any,
@@ -95,10 +109,8 @@ def run_streaming_scan_parse(
     if parse_done_callback is not None:
         parse_done_callback()
 
-    if result_is_current is not None and not result_is_current():
-        stats = scan_result.to_stats()
-        stats["discarded_stale"] = True
-        return stats
+    if _is_stale_result(result_is_current):
+        return _stale_scan_stats(scan_result)
 
     effective_post_config = post_actions_config
     effective_post_config = merge_post_action_config(effective_post_config) if effective_post_config else None
@@ -107,11 +119,13 @@ def run_streaming_scan_parse(
         post_action_filter_summary = {}
         post_action_summary = summarize_state_changes([])
     elif scan_result.captured_count == int(total_drives):
+        # 提交会真实搬移截图并删除临时目录，不可回退。解析与回调期间账号代次可能
+        # 已经推进，因此必须先复核再落盘，否则过期结果会留下无法回收的副作用。
+        if _is_stale_result(result_is_current):
+            return _stale_scan_stats(scan_result)
         ScanInventoryCommitService(processor, scanner).commit()
-        if result_is_current is not None and not result_is_current():
-            stats = scan_result.to_stats()
-            stats["discarded_stale"] = True
-            return stats
+        if _is_stale_result(result_is_current):
+            return _stale_scan_stats(scan_result)
         if allow_post_actions:
             evaluation = PostActionEvaluator(
                 post_actions_config=effective_post_config,

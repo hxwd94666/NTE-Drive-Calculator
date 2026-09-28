@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from loguru import logger
+
 from src.services.account_settings_service import AccountSettingsService
 from src.storage.sqlite.shared_data_dao import SharedDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -283,7 +285,12 @@ class AppContext:
         return unregister
 
     def switch_account(self, account: AccountContext) -> AccountChangedEvent | None:
-        """Stop, switch, rebuild, notify and then resume account-bound services."""
+        """Stop, switch, rebuild, notify and then resume account-bound services.
+
+        停止、重建、通知与恢复各自隔离：单点失败只记录并跳过，不得让切换停在
+        中途。调用方通常会先把新账号持久化到账号索引，若这里半途抛错，内存代次
+        与账号文件会长期不一致，后续所有代次复核都失去基准。
+        """
 
         if account.active_account_id == self._account.active_account_id:
             return None
@@ -293,14 +300,17 @@ class AppContext:
         running_before = {id(item): bool(item.is_running()) for item in lifecycles}
 
         for lifecycle in lifecycles:
-            lifecycle.stop()
+            self._run_switch_step("stop", lifecycle.stop)
 
         self._account = account
         self._generation += 1
         self._account_settings = self._build_account_settings(account)
 
         for lifecycle in lifecycles:
-            lifecycle.rebuild(account)
+            self._run_switch_step(
+                "rebuild",
+                lambda lifecycle=lifecycle: lifecycle.rebuild(account),
+            )
 
         event = AccountChangedEvent(
             previous=previous,
@@ -308,12 +318,24 @@ class AppContext:
             generation=self._generation,
         )
         for handler in tuple(self._account_changed_handlers):
-            handler(event)
+            self._run_switch_step("notify", lambda handler=handler: handler(event))
 
         for lifecycle in lifecycles:
             if running_before[id(lifecycle)]:
-                lifecycle.start()
+                self._run_switch_step("start", lifecycle.start)
         return event
+
+    @staticmethod
+    def _run_switch_step(step: str, action: Callable[[], None]) -> None:
+        """Run one account-switch step in isolation so the rest can proceed."""
+
+        try:
+            action()
+        except Exception as exc:
+            logger.warning(
+                f"账号切换步骤失败，已继续后续步骤 | step={step} "
+                f"error_type={type(exc).__name__} error={exc}"
+            )
 
     def _build_account_settings(
         self,

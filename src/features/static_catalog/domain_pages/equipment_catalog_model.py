@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
+
 from src.services.static_catalog_terminology_service import (
     StaticCatalogTerminologyService,
 )
@@ -272,32 +275,30 @@ class ReleaseEquipmentCatalogSource:
 
     def item_curves(self, item_id: str) -> tuple[AttributeCurve, ...]:
         item = next(
-            row for row in self.archive().equipment if row.item_id == item_id
+            (row for row in self.archive().equipment if row.item_id == item_id),
+            None,
         )
+        if item is None:
+            # 图鉴缺少该物品时返回空曲线，而不是让详情页抛 StopIteration。
+            logger.warning(f"装备图鉴没有该物品，无法生成成长曲线 | item_id={item_id}")
+            return ()
         category = "Core" if item.kind == "core" else str(item.area)
+        levels = tuple(range(item.max_level + 1))
         curves: list[AttributeCurve] = []
         with StaticGameDataDao(self._database_path) as dao:
             for property_id, label, show_percent in self.archive().attributes:
                 curve_id = (
                     f"{property_id}_{category}_ITEM_QUALITY_{item.quality}"
                 )
-                if dao.evaluate_equipment_base_attribute_curve(
-                    curve_id,
-                    item.max_level,
-                ) is None:
+                # 每条属性曲线只读一次，再在内存中求值全部等级。
+                values = dao.evaluate_equipment_base_attribute_curve_levels(
+                    curve_id, levels,
+                )
+                if values[-1] is None:
                     continue
                 points = tuple(
-                    (
-                        level,
-                        float(
-                            dao.evaluate_equipment_base_attribute_curve(
-                                curve_id,
-                                level,
-                            )
-                            or 0.0
-                        ),
-                    )
-                    for level in range(item.max_level + 1)
+                    (level, float(value or 0.0))
+                    for level, value in zip(levels, values)
                 )
                 curves.append(
                     AttributeCurve(property_id, label, show_percent, points)

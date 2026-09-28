@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QObject, QTimer
+from tests.qt_application_fixture import ensure_qt_application
 
 from src.features.battle_report.analysis_controller_mixin import (
     BattleReportAnalysisControllerMixin,
@@ -459,7 +460,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         )
 
     def test_latest_scope_replaces_a_running_stale_request(self) -> None:
-        app = QCoreApplication.instance() or QCoreApplication([])
+        app = ensure_qt_application()
         loop = QEventLoop()
         page = _AsyncPage(loop)
         host = self._host(page)
@@ -495,7 +496,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         self.assertEqual(["second"], [row.phase for row in page.progress_updates])
 
     def test_returning_to_active_scope_reuses_running_request(self) -> None:
-        app = QCoreApplication.instance() or QCoreApplication([])
+        app = ensure_qt_application()
         loop = QEventLoop()
         page = _AsyncPage(loop)
         host = self._host(page)
@@ -528,7 +529,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         self.assertEqual([1], page.loaded_ranges)
 
     def test_invalidated_active_request_is_not_reused(self) -> None:
-        app = QCoreApplication.instance() or QCoreApplication([])
+        app = ensure_qt_application()
         loop = QEventLoop()
         page = _AsyncPage(loop)
         host = self._host(page)

@@ -1,13 +1,11 @@
-# 测试静态数据库连接复用、PRAGMA 优化与资产缓存。
-"""Unit tests verifying SQLite static DB connection reuse, PRAGMAs, and asset caching."""
+# 测试静态数据库连接复用与 PRAGMA 优化。
+"""Unit tests verifying SQLite static DB connection reuse and PRAGMAs."""
 
-import sqlite3
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
-from src.features.inventory.warehouse import _legacy_character_avatar, _role_avatar_index
 from src.storage.sqlite.static_game_data_dao import (
     StaticGameDataDao,
     _SHARED_STATIC_CONNECTIONS,
@@ -59,17 +57,6 @@ class StaticStoragePerfTests(unittest.TestCase):
         temp_store = conn.execute("PRAGMA temp_store").fetchone()[0]
         # 2 = MEMORY
         self.assertEqual(temp_store, 2)
-
-    def test_role_avatar_index_avoids_repeated_disk_scans(self):
-        """_role_avatar_index is cached and returns indexed png files."""
-        # Call multiple times with the same root
-        root = str(Path(__file__).resolve().parents[1] / "assets")
-        idx1 = _role_avatar_index(root)
-        idx2 = _role_avatar_index(root)
-        self.assertIs(idx1, idx2)
-        index_dict, name_list = idx1
-        self.assertIsInstance(index_dict, dict)
-        self.assertIsInstance(name_list, list)
 
     def test_temp_database_not_reused_by_default(self):
         """Databases in temporary directories do not reuse connections by default."""

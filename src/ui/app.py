@@ -582,6 +582,12 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             except Exception:
                 pass
             self._qt_log_sink_id = None
+        # 进程退出前回收静态库共享只读连接；该入口此前在生产代码里没有调用点，
+        # 连接会一直留到解释器结束。
+        try:
+            StaticGameDataDao.close_shared_connections()
+        except Exception as exc:
+            logger.warning(f"关闭静态库共享连接失败: {exc}")
         super().closeEvent(e)
 
     def _tb_press(self, e):
@@ -761,25 +767,9 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.blueprint_page.reset_account_state()
         self.scanning_controller.reset_account_state()
         self.reset_equipment_account_state()
-        self._load_data()
-        if hasattr(self, "weighted_role_selector"):
-            self._refresh_weighted_allocation()
-        active_page = self._nav_key_for_index(self.stack.currentIndex())
-        if active_page not in {"home", "execute"}:
-            self.refresh_current_account_page()
-        self._refresh_account_combo()
-        if hasattr(self, "_ss_info"):
-            self._refresh_ss()
-        self._refresh_home()
-        log_event(
-            "INFO",
-            "account.switch_succeeded",
-            "账号切换完成",
-            operation,
-            target_account_id=event.current.active_account_id,
-            new_context_generation=event.generation,
-        )
-        self._account_switch_operation = None
+        # 目录加载已改为后台 worker：刷新页面与「切换完成」日志必须在目录就绪之后，
+        # 否则会宣称已完成而执行页仍在使用旧目录。
+        self._load_data(on_finished=lambda: self._finish_account_switch(operation, event))
 
     def _manage_accounts(self):
         show_account_manager_dialog(

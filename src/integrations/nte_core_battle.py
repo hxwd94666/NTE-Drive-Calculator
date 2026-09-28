@@ -587,6 +587,10 @@ def parse_battle_axis(value: Any) -> dict[str, Any]:
         "battle_record_id": _text(item.get("battle_record_id"), "battle_record_id"),
         "generation": _decimal_text(item.get("generation"), "generation"),
         "finalized": _boolean(item.get("finalized"), "finalized", default=False),
+        # 缺字段时按「已完成」处理：这里是分页终止条件的实际决策点，而最终化
+        # 路径（battle_axis_finalization_dao）用 `get("complete", False)`，两者
+        # 相反。统一默认值需要实机/上游协议证据确认设备是否总会发送该字段，
+        # 详见 docs/audit-report.md 的 N2；在拿到证据前保持现状并有测试固化。
         "complete": _boolean(item.get("complete"), "complete", default=True),
         "first_available_cursor": _decimal_text(
             item.get("first_available_cursor"),

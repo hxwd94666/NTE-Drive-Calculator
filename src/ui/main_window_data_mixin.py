@@ -18,6 +18,7 @@ from src.features.scanning.file_lifecycle import (
 )
 from src.features.settings.page import build_settings_page
 from src.optimizer.scoring import ScoringEngine
+from src.observability import log_event
 from src.observability.redaction import format_local_exception
 from src.services.dashboard_service import DashboardService
 from src.services.game_ui_asset_catalog import GameUiAssetCatalog
@@ -245,10 +246,31 @@ class MainWindowDataMixin:
             cards_rebuilt=not role_cards_unchanged,
         )
 
-    def _load_data(self, reload_priority=True):
+    def _load_data(self, reload_priority=True, *, on_finished=None):
+        """Rebuild the allocation catalog without blocking the calling thread.
+
+        账号切换与启动都由 GUI 线程调用这里；一次重建实测约 1.2 秒（会执行上千条
+        SQL 与逐角色查询）。GUI 宿主统一走后台 worker，非 QWidget 宿主（测试替身）
+        保持同步，避免依赖 Qt 事件循环。``on_finished`` 在目录加载结束（成功、失败
+        或结果已过期）后于调用线程执行，用于把依赖已就绪目录的后续步骤排在后面。
+        """
+
+        source_key = self._allocation_catalog_source_key()
+        if not isinstance(self, QWidget):
+            self._read_and_apply_allocation_catalog(
+                source_key, reload_priority=reload_priority,
+            )
+            self._run_catalog_finished(on_finished)
+            return
+        self._start_allocation_catalog_worker(
+            source_key, reload_priority=reload_priority, on_finished=on_finished,
+        )
+
+    def _read_and_apply_allocation_catalog(self, source_key, *, reload_priority: bool) -> None:
+        """Synchronous read+apply used by non-widget hosts and worker fallbacks."""
+
         self._allocation_catalog_request = object()
         self._allocation_catalog_pending_key = None
-        source_key = self._allocation_catalog_source_key()
         try:
             config_dir = self.app_context.paths.config_dir
             user_database_path = self.app_context.account.user_database_path
@@ -263,6 +285,104 @@ class MainWindowDataMixin:
         except Exception as e:
             logger.error(f"allocation.catalog_load_failed | {format_local_exception(e)}")
 
+    def _start_allocation_catalog_worker(self, source_key, *, reload_priority, on_finished=None):
+        """Read the catalog in a worker thread and apply it on the calling thread."""
+
+        if on_finished is not None:
+            queued = list(getattr(self, "_allocation_catalog_finished", ()))
+            queued.append(on_finished)
+            self._allocation_catalog_finished = queued
+        if getattr(self, "_allocation_catalog_pending_key", None) == source_key:
+            return  # 同一份输入已在读取；排队的回调会在它结束时统一触发。
+        self._allocation_catalog_pending_key = source_key
+        if hasattr(self, "btn_run"):
+            self.btn_run.setEnabled(False)
+            self.btn_run.setToolTip("正在更新计算数据，请稍候。")
+        selector = getattr(getattr(self, "scanning_controller", None), "role_selector", None)
+        if selector is not None and hasattr(selector, "setEnabled"):
+            selector.setEnabled(False)
+        request = object()
+        self._allocation_catalog_request = request
+        paths = self.app_context.paths
+        user_db = self.app_context.account.user_database_path
+        worker = WorkerThread(
+            target=lambda: self._read_allocation_catalog(
+                paths.config_dir, user_db,
+                paths.equipment_allocation_database_path,
+                paths.equipment_allocation_asset_root,
+            ), parent=self,
+        )
+        self._allocation_catalog_worker = worker
+
+        def apply(loaded):
+            if request is not self._allocation_catalog_request:
+                return
+            self._allocation_catalog_pending_key = None
+            if source_key != self._allocation_catalog_source_key():
+                self._refresh_execute()
+            else:
+                self._apply_allocation_catalog(
+                    loaded, reload_priority=reload_priority, source_key=source_key,
+                )
+            self._flush_catalog_finished()
+
+        def failed(_error):
+            if request is self._allocation_catalog_request:
+                self._allocation_catalog_pending_key = None
+                logger.warning("计算目录刷新失败；本次未应用新目录")
+                if hasattr(self, "btn_run"):
+                    self.btn_run.setEnabled(True)
+                    self.btn_run.setToolTip("计算数据更新失败，请重新进入计算页重试。")
+                self._flush_catalog_finished()
+
+        worker.result_ready.connect(apply)
+        worker.error.connect(failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _flush_catalog_finished(self) -> None:
+        """Run and clear the queued 'catalog load settled' callbacks."""
+
+        callbacks = list(getattr(self, "_allocation_catalog_finished", ()))
+        self._allocation_catalog_finished = []
+        for callback in callbacks:
+            self._run_catalog_finished(callback)
+
+    @staticmethod
+    def _run_catalog_finished(callback) -> None:
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception as exc:
+            logger.warning(f"计算目录加载完成回调失败 | {exc}")
+
+    def _finish_account_switch(self, operation, event) -> None:
+        """Finish an account switch after the allocation catalog has settled.
+
+        账号切换完成日志与页面刷新都必须晚于配装目录就绪；否则会向用户与日志宣称
+        「已完成」，而执行页仍在使用旧目录。
+        """
+
+        if hasattr(self, "weighted_role_selector"):
+            self._refresh_weighted_allocation()
+        active_page = self._nav_key_for_index(self.stack.currentIndex())
+        if active_page not in {"home", "execute"}:
+            self.refresh_current_account_page()
+        self._refresh_account_combo()
+        if hasattr(self, "_ss_info"):
+            self._refresh_ss()
+        self._refresh_home()
+        log_event(
+            "INFO",
+            "account.switch_succeeded",
+            "账号切换完成",
+            operation,
+            target_account_id=event.current.active_account_id,
+            new_context_generation=event.generation,
+        )
+        self._account_switch_operation = None
+
     def _refresh_execute(self):
         """Rebuild role cards only when their persisted sources have changed."""
 
@@ -273,51 +393,9 @@ class MainWindowDataMixin:
             if not isinstance(self, QWidget):
                 self._load_data(reload_priority=False)
                 return
-            source_key = self._allocation_catalog_source_key()
-            if getattr(self, "_allocation_catalog_pending_key", None) == source_key:
-                return
-            self._allocation_catalog_pending_key = source_key
-            if hasattr(self, "btn_run"):
-                self.btn_run.setEnabled(False)
-                self.btn_run.setToolTip("正在更新计算数据，请稍候。")
-            selector = self.scanning_controller.role_selector
-            if hasattr(selector, "setEnabled"):
-                selector.setEnabled(False)
-            request = object()
-            self._allocation_catalog_request = request
-            paths = self.app_context.paths
-            user_db = self.app_context.account.user_database_path
-            worker = WorkerThread(
-                target=lambda: self._read_allocation_catalog(
-                    paths.config_dir, user_db,
-                    paths.equipment_allocation_database_path,
-                    paths.equipment_allocation_asset_root,
-                ), parent=self,
+            self._start_allocation_catalog_worker(
+                self._allocation_catalog_source_key(), reload_priority=False,
             )
-            self._allocation_catalog_worker = worker
-
-            def apply(loaded):
-                if request is not self._allocation_catalog_request:
-                    return
-                self._allocation_catalog_pending_key = None
-                if source_key != self._allocation_catalog_source_key():
-                    self._refresh_execute()
-                    return
-                self._apply_allocation_catalog(
-                    loaded, reload_priority=False, source_key=source_key,
-                )
-
-            def failed(_error):
-                if request is self._allocation_catalog_request:
-                    self._allocation_catalog_pending_key = None
-                    logger.warning("计算目录刷新失败；本次未应用新目录")
-                    if hasattr(self, "btn_run"):
-                        self.btn_run.setToolTip("计算数据更新失败，请重新进入计算页重试。")
-
-            worker.result_ready.connect(apply)
-            worker.error.connect(failed)
-            worker.finished.connect(worker.deleteLater)
-            worker.start()
 
 
     def _update_inventory_status(self):

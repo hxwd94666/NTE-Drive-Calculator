@@ -5,6 +5,7 @@ import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -60,6 +61,41 @@ class StaticCatalogEquipmentDataTests(unittest.TestCase):
         for item_id, value in expected.items():
             hp = next(row for row in self.source.item_curves(item_id) if row.property_id == "HPMaxAdd")
             self.assertEqual(value, hp.max_value, item_id)
+
+    def test_unknown_item_id_returns_no_curves_instead_of_raising(self) -> None:
+        """图鉴缺少该物品时返回空曲线，而不是抛 StopIteration。"""
+
+        self.assertEqual((), self.source.item_curves("no_such_item_id"))
+
+    def test_item_curves_reads_each_attribute_curve_once(self) -> None:
+        """每条属性曲线只读取一次，不按等级重复查询同一条曲线。"""
+
+        from src.features.static_catalog.domain_pages import equipment_catalog_model
+
+        real_dao = equipment_catalog_model.StaticGameDataDao
+        reads: list[str] = []
+        original_single = real_dao.evaluate_equipment_base_attribute_curve
+        original_batch = real_dao.evaluate_equipment_base_attribute_curve_levels
+
+        def counted_single(self, curve_id, level, _original=original_single):
+            reads.append(str(curve_id))
+            return _original(self, curve_id, level)
+
+        def counted_batch(self, curve_id, levels, _original=original_batch):
+            reads.append(str(curve_id))
+            return _original(self, curve_id, levels)
+
+        with patch.object(
+            real_dao, "evaluate_equipment_base_attribute_curve", counted_single,
+        ), patch.object(
+            real_dao,
+            "evaluate_equipment_base_attribute_curve_levels",
+            counted_batch,
+        ):
+            curves = self.source.item_curves("cell3_style1_1_Orange")
+
+        self.assertTrue(curves)
+        self.assertEqual(len(self.archive.attributes), len(reads))
 
     def test_suit_shapes_effects_and_graduations_close_formal_relations(self) -> None:
         suit = next(row for row in self.archive.suits if row.suit_id == "Suit10")

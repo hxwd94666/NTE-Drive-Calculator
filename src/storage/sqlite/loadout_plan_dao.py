@@ -195,6 +195,52 @@ class LoadoutPlanDaoMixin(LoadoutPlanWriteDaoMixin):
             connection.rollback()
             raise UserDataError("无法删除配装方案") from exc
 
+    def deactivate_loadout_plans(self, plan_ids: Sequence[int]) -> int:
+        """Detach several current slot plans atomically.
+
+        逐个调用会在中途失败时留下「部分已去激活」的持久状态；这里先整体校验，再
+        用单个事务写入，失败即全部回滚，调用方无需猜测哪些方案已经生效。
+        """
+
+        normalized: list[int] = []
+        for plan_id in plan_ids:
+            raw_plan_id = _integer(plan_id, "plan_id", minimum=1)
+            if raw_plan_id in normalized:
+                continue
+            plan = self.get_loadout_plan(raw_plan_id)
+            if plan is None:
+                raise UserDataValidationError(f"配装方案不存在：{raw_plan_id}")
+            if plan.get("allocation_locked") and self.is_current_loadout_slot_plan(raw_plan_id):
+                raise UserDataValidationError("锁定方案不能删除；请先解除锁定")
+            normalized.append(raw_plan_id)
+        if not normalized:
+            return 0
+
+        connection = self._db()
+        now = _utc_now()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            detached_count = 0
+            for raw_plan_id in normalized:
+                detached = connection.execute(
+                    """
+                    UPDATE role_loadout_slot
+                    SET current_plan_id = NULL, updated_at_utc = ?
+                    WHERE current_plan_id = ? AND is_archived = 0
+                    """,
+                    (now, raw_plan_id),
+                )
+                detached_count += int(detached.rowcount > 0)
+                connection.execute(
+                    "UPDATE loadout_plan SET is_active = 0, updated_at_utc = ? WHERE plan_id = ?",
+                    (now, raw_plan_id),
+                )
+            connection.commit()
+            return detached_count
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise UserDataError("无法批量删除配装方案") from exc
+
     def summary(self) -> dict[str, Any]:
         schema_row = self._one(
             "SELECT MAX(version) AS version FROM schema_migration"

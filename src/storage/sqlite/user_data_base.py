@@ -147,6 +147,14 @@ class UserDataDaoCore:
                         "INSERT INTO schema_migration(version, applied_at_utc) VALUES (?, ?)",
                         (target_version, _utc_now()),
                     )
+                    # 外键校验必须在提交前完成：提交后再报错既无法回滚，也会让
+                    # schema_migration 记录目标版本，使后续启动跳过该迁移。
+                    if rebuilds_foreign_key_parent:
+                        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+                        if violations:
+                            raise UserDataError(
+                                f"用户数据库迁移 v{target_version} 产生外键错误"
+                            )
                     connection.commit()
                 except BaseException:
                     connection.rollback()
@@ -154,12 +162,6 @@ class UserDataDaoCore:
                 finally:
                     if rebuilds_foreign_key_parent:
                         connection.execute("PRAGMA foreign_keys = ON")
-                if rebuilds_foreign_key_parent:
-                    violations = connection.execute("PRAGMA foreign_key_check").fetchall()
-                    if violations:
-                        raise UserDataError(
-                            f"用户数据库迁移 v{target_version} 产生外键错误"
-                        )
         except (OSError, sqlite3.Error) as exc:
             connection.rollback()
             raise UserDataError("无法升级用户数据库结构") from exc

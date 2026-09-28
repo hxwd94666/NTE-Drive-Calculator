@@ -148,11 +148,7 @@ def _show_saved_plan_diff_dialog(self, role_name, diff):
 def _clear_all_equipment(self):
     database_path = _equipment_paths(self)[0]
     with UserDataDao(database_path) as dao:
-        slot_rows: list[dict[str, Any]] = getattr(
-            dao,
-            "list_current_loadout_slot_plans",
-            lambda: [],
-        )()
+        slot_rows: list[dict[str, Any]] = dao.list_current_loadout_slot_plans()
         plans = [
             (
                 str((row.get("plan", {}).get("payload") or {}).get("source_role_name") or "未知角色"),
@@ -178,15 +174,29 @@ def _clear_all_equipment(self):
     )
     if ret != QMessageBox.Yes:
         return
-    skipped_locked = []
-    with UserDataDao(database_path) as dao:
-        for role_name, slot_name, plan in plans:
-            if plan.get("allocation_locked"):
-                skipped_locked.append(f"{role_name} · {slot_name}")
-                continue
-            dao.deactivate_loadout_plan(plan["plan_id"])
-    self.invalidate_saved_equipment_cache()
-    self._refresh_equip()
+    skipped_locked: list[str] = []
+    plan_ids: list[int] = []
+    for role_name, slot_name, plan in plans:
+        if plan.get("allocation_locked"):
+            skipped_locked.append(f"{role_name} · {slot_name}")
+            continue
+        plan_ids.append(int(plan["plan_id"]))
+    failure: str | None = None
+    try:
+        with UserDataDao(database_path) as dao:
+            dao.deactivate_loadout_plans(plan_ids)
+    except Exception as exc:
+        # 批量写入在单个事务内完成：失败时持久状态未改变，界面与缓存只需回到与
+        # 数据库一致的状态，不再残留「部分已清空」的假象。
+        failure = str(exc)
+    finally:
+        self.invalidate_saved_equipment_cache()
+        self._refresh_equip()
+    if failure is not None:
+        QMessageBox.warning(
+            self, "清空配装", f"清空配装失败，未改动任何方案。\n{failure}",
+        )
+        return
     if skipped_locked:
         QMessageBox.information(
             self,

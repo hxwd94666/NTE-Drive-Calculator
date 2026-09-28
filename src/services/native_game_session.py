@@ -468,14 +468,14 @@ class NativeGameSession:
         return status
 
     def _disable_snapshots(self) -> None:
-        if self._client is None or self._snapshots_disabled:
+        if self._client is None or self._snapshots_disabled or not self._client.is_running:
             return
         self._snapshots_disabled = True
         capabilities = (self._client.hello_result or {}).get("capabilities", [])
         for domain in SNAPSHOT_DOMAINS:
             if f"{domain}.snapshot.v1" in capabilities:
                 try:
-                    self._client.call("native.snapshot.disable", {"domain": domain}, timeout=1.5)
+                    self._client.call("native.snapshot.disable", {"domain": domain}, timeout=0.4)
                 except Exception:
                     self._failed = True
 
@@ -499,7 +499,7 @@ class NativeGameSession:
                 result = cached[2]
                 if result.get("installed") or result.get("rejected") or not (options["cooldown"] or options["enemy_bars"]):
                     return result
-            result = client.call("native.hud.configure", options, timeout=2.0)
+            result = client.call("native.hud.configure", options, timeout=0.5)
             self._hud_applied = (client, dict(options), result)
             return result
 

@@ -16,7 +16,6 @@ from src.models.equipment import DriveShape
 from src.optimizer.scoring import ScoringEngine
 from src.services.advancement_stage_service import fork_active_panel_stats
 from src.services.sqlite_allocation_inventory import legacy_shape_id
-from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.services.official_role_page_service import load_official_role_detail
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -77,16 +76,16 @@ def _custom_weight_labels(
 
 
 def _likeability_crit_rate_bonus(
-    static_dao: StaticGameDataDao,
-    user_dao: UserDataDao | None,
-    character_id: int,
+    bonus: dict[str, Any] | None,
+    profile: dict[str, Any] | None,
 ) -> float:
-    """Return this account's enabled level-10 affinity CritBase bonus."""
+    """Return this account's enabled level-10 affinity CritBase bonus.
 
-    bonus = static_dao.get_character_likeability_bonus(character_id)
+    加成规则由调用方批量预取；逐角色读取静态库会把一次重建放大成上百条 SQL。
+    """
+
     if not bonus:
         return 0.0
-    profile = user_dao.get_character_profile(character_id) if user_dao else None
     enabled = (
         bool(profile.get("likeability_level_10_enabled"))
         if profile is not None
@@ -173,6 +172,13 @@ def build_legacy_allocation_static_catalog(
             int(template["character_id"]): template
             for template in static_dao.list_character_graduation_templates()
         }
+        # 逐角色查询会把一次重建放大到上千条 SQL；这些数据与角色无关或可整表读取，
+        # 因此统一预取成「按 character_id 索引」的映射后再进循环。
+        plans_by_character = {
+            int(plan["character_id"]): plan for plan in static_dao.list_equipment_plans()
+        }
+        default_suits_by_character = static_dao.list_character_default_suits()
+        shape_bonuses_by_character = static_dao.list_character_shape_bonuses()
         user_dao = (
             UserDataDao(user_database_path)
             if user_database_path is not None and Path(user_database_path).is_file()
@@ -180,19 +186,20 @@ def build_legacy_allocation_static_catalog(
         )
         try:
             detail_cache: dict[object, Any] = {}
+            likeability_bonuses_by_character = (
+                static_dao.list_character_likeability_bonuses()
+            )
             for character in characters:
                 character_id = int(character["character_id"])
                 role_name = str(character.get("name_zh") or character_id)
-                plan = static_dao.get_equipment_plan(character_id)
-                default_suit = static_dao.get_character_default_suit(character_id)
+                plan = plans_by_character.get(character_id)
+                default_suit = default_suits_by_character.get(character_id)
                 if plan is None or default_suit is None:
                     continue
                 suit_name = str(default_suit["suit_name_zh"])
                 if suit_name not in sets_db:
                     raise ValueError(f"角色 [{role_name}] 的官方默认套装不存在：{suit_name}")
-                shape_bonus = get_effective_character_shape_bonus(
-                    static_dao, character_id,
-                ) or {}
+                shape_bonus = shape_bonuses_by_character.get(character_id) or {}
                 extra_shape_label = str(shape_bonus.get("shape_label") or "")
                 extra_shape_buffs = {
                     attributes[str(row["property_id"])]: float(row["display_value"])
@@ -214,6 +221,7 @@ def build_legacy_allocation_static_catalog(
                             include_inventory_contexts=False,
                             static_database_path=static_dao.database_path,
                             request_cache=detail_cache,
+                            user_dao=user_dao,
                         )
                         calculation_projection = _current_role_calculation_projection(
                             detail,
@@ -227,7 +235,10 @@ def build_legacy_allocation_static_catalog(
                     "default_set": suit_name,
                     "default_weapon": default_weapon,
                     "likeability_crit_rate_bonus": _likeability_crit_rate_bonus(
-                        static_dao, user_dao, character_id,
+                        likeability_bonuses_by_character.get(character_id),
+                        user_dao.get_character_profile(character_id)
+                        if user_dao is not None
+                        else None,
                     ),
                     "active_fork_crit_rate_bonus": (
                         calculation_projection["active_fork_crit_rate_bonus"]

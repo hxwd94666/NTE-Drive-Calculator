@@ -543,6 +543,24 @@ class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
             (int(character_id),),
         )
 
+    def list_character_default_suits(self) -> dict[int, dict[str, Any]]:
+        """批量返回全部官方配装图纸的默认套装，键为属性名以匹配逐角色调用。"""
+
+        return {
+            int(row["character_id"]): {
+                "suit_id": row["suit_id"],
+                "suit_name_zh": row["suit_name_zh"],
+            }
+            for row in self._rows(
+                """
+                SELECT plan.character_id, core.suit_id, suit.name_zh AS suit_name_zh
+                FROM equipment_plan AS plan
+                JOIN equipment_item AS core ON core.item_id = plan.core_item_id
+                JOIN equipment_suit AS suit ON suit.suit_id = core.suit_id
+                """
+            )
+        }
+
     def get_combat_level_curve(self, curve_id: str) -> dict[str, Any] | None:
         curve = self._one(
             """
@@ -716,6 +734,32 @@ class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
             (int(character_id),),
         )
         return bonus
+
+    def list_character_likeability_bonuses(self) -> dict[int, dict[str, Any]]:
+        """批量返回全部角色的好感度加成，供逐角色装配前一次性读取。"""
+
+        properties: dict[int, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """
+            SELECT character_id, ordinal, property_id, value, modifier_operation,
+                   source_row_id
+            FROM character_likeability_bonus_property
+            ORDER BY character_id, ordinal
+            """
+        ):
+            properties.setdefault(int(row.pop("character_id")), []).append(row)
+        bonuses: dict[int, dict[str, Any]] = {}
+        for row in self._rows(
+            """
+            SELECT character_id, required_level, modify_data_id,
+                   source_row_id, modifier_source_row_id
+            FROM character_likeability_bonus
+            """
+        ):
+            character_key = int(row["character_id"])
+            row["properties"] = properties.get(character_key, [])
+            bonuses[character_key] = row
+        return bonuses
 
     def get_character_likeability_identity(self, character_id: int) -> dict[str, Any] | None:
         """Use the source row key, including official alternate character IDs."""

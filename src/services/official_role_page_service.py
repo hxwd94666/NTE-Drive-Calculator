@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
@@ -372,12 +373,16 @@ def load_official_role_detail(
     static_schema_version: int | None = None,
     shared_database_path: str | Path | None = None,
     request_cache: dict[object, Any] | None = None,
+    user_dao: UserDataDao | None = None,
 ) -> dict[str, Any]:
     """Resolve one page model from static SQLite plus account SQLite pointers.
 
     Result calculation only needs the role's panel model; it supplies its own
     pinned items.  ``include_inventory_contexts=False`` avoids loading a saved
     plan's whole snapshot merely to render an unrelated allocation result.
+
+    ``user_dao`` 允许调用方复用已打开的账号连接：逐角色各开一次会把建连与
+    迁移检查按角色数放大（实测一次重建 25 次）。
     """
 
     def cached(key: object, factory: Callable[[], Any]) -> Any:
@@ -392,15 +397,18 @@ def load_official_role_detail(
         ("asset_catalog", str(resolved_asset_root)),
         lambda: GameUiAssetCatalog(resolved_asset_root),
     )
-    with (
-        StaticGameDataDao(
-            static_database_path,
-            expected_schema_version=static_schema_version,
-        ) as static_dao,
-        UserDataDao(user_database_path) as user_dao,
-    ):
+    with ExitStack() as stack:
+        static_dao = stack.enter_context(
+            StaticGameDataDao(
+                static_database_path,
+                expected_schema_version=static_schema_version,
+            )
+        )
+        if user_dao is None:
+            user_dao = stack.enter_context(UserDataDao(user_database_path))
         character = static_dao.get_character(character_id)
-        catalog_scope = static_dao.get_catalog_scope()
+        # 目录作用域对每个角色都相同，按请求缓存避免逐角色读取。
+        catalog_scope = cached(("catalog_scope", str(static_database_path or "default")), static_dao.get_catalog_scope)
         if character is None:
             raise ValueError(f"官方角色不存在：{character_id}")
         growth_rows = static_dao.list_character_panel_growth(character_id)
@@ -659,9 +667,8 @@ def load_official_role_detail(
             static_dao.get_character_recommended_weights(character_id),
         ) or {}
         account_weight_record = user_dao.get_character_weight_preferences(character_id)
-        world_bonus = WorldBonusSettings.from_payload(
-            user_dao.list_application_setting_copies().get(WORLD_BONUS_SETTING_KEY)
-        )
+        setting_copies = cached(("application_setting_copies", str(user_database_path or "default")), user_dao.list_application_setting_copies)
+        world_bonus = WorldBonusSettings.from_payload(setting_copies.get(WORLD_BONUS_SETTING_KEY))
         weight_record = account_weight_record or public_weight_record
         weights = {
             str(key): float(value)

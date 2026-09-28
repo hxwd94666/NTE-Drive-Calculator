@@ -160,10 +160,11 @@ class BasicWeightController:
                 for row in static_dao.list_suits()
             ]
             roles = {}
+            shape_bonuses = static_dao.list_character_shape_bonuses()
             for character in characters:
                 character_id = int(character["character_id"])
                 record = account_weights.get(character_id) or {}
-                shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
+                shape_bonus = shape_bonuses.get(character_id) or {}
                 roles[str(character.get("name_zh") or character_id)] = {
                     "character_id": character_id,
                     "source_kind": str(record.get("source_kind") or "default"),

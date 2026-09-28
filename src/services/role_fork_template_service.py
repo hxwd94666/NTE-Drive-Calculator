@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,7 @@ def load_official_role_fork_templates(
     with StaticGameDataDao(static_database_path) as static_dao:
         return {
             "source": "game_static.sqlite3",
-            "static_dataset": static_dao.summary()["dataset"],
+            "static_dataset": static_dao.dataset_info(),
             "roles": static_dao.list_role_template_characters(),
             "forks": static_dao.list_fork_templates(),
         }
@@ -57,8 +58,49 @@ def _fork_stats_at_level(
     return stats
 
 
+# 弧盘模板投影是纯 CPU 计算（51 个弧盘逐级的面板统计，实测一次约 0.95 s），
+# 且只随静态数据集发布变化。按数据集身份缓存后，后续重建不再重复这笔开销。
+_WEAPON_MODEL_CACHE: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
+
+
+def clear_weapon_model_cache() -> None:
+    """丢弃缓存的弧盘投影（测试与静态数据集晋升后使用）。"""
+
+    _WEAPON_MODEL_CACHE.clear()
+
+
+def _weapon_model_cache_key(
+    payload: Mapping[str, Any],
+) -> tuple[str, str, str] | None:
+    dataset = payload.get("static_dataset")
+    if not isinstance(dataset, Mapping):
+        return None
+    dataset_id = str(dataset.get("dataset_id") or "")
+    if not dataset_id:
+        return None
+    return (
+        dataset_id,
+        str(dataset.get("importer_version") or ""),
+        str(dataset.get("built_at_utc") or ""),
+    )
+
+
 def fork_templates_as_weapon_models(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Adapt official fork templates for current role and priority consumers."""
+    """Adapt official fork templates for current role and priority consumers.
+
+    结果按静态数据集身份缓存；调用方只读取，不应修改返回的映射。
+    """
+
+    key = _weapon_model_cache_key(payload)
+    if key is not None and key in _WEAPON_MODEL_CACHE:
+        return _WEAPON_MODEL_CACHE[key]
+    models = _build_weapon_models(payload)
+    if key is not None:
+        _WEAPON_MODEL_CACHE[key] = models
+    return models
+
+
+def _build_weapon_models(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     models: dict[str, dict[str, Any]] = {}
     for template in payload.get("forks", []) if isinstance(payload, dict) else []:
         if not isinstance(template, dict):

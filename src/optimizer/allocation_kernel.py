@@ -122,10 +122,18 @@ class AllocationKernel:
             )
             return initial
 
-        pending = [frozenset()]
-        seen: set[frozenset[str]] = set()
+        # 空排除集的结果已经在上面算过，且与首轮输入完全等价；这里只把它作为
+        # 搜索起点，避免重复一次完整评分与分配。
+        seen: set[frozenset[str]] = {frozenset()}
         best: dict | None = None
         best_score = float("-inf")
+        pending: list[frozenset[str]] = []
+        if not initial_invalid:
+            best, best_score = initial, self._total_score(request, initial)
+        else:
+            for role in initial_invalid:
+                for item in self._plan_items(initial.get(role) or {}):
+                    pending.append(frozenset({item.uid}))
         while pending and len(seen) < 256:
             excluded = pending.pop(0)
             if excluded in seen:
@@ -134,15 +142,14 @@ class AllocationKernel:
             result = self._execute_once(
                 request, excluded,
                 use_full_drive_candidates=False,
+                reuse_scores=True,
             )
             invalid_roles = self._invalid_roles(request, result)
             if not invalid_roles:
                 # Preserve the historic first-result tie behaviour.
-                score = sum(float((result.get(role) or {}).get("score", 0.0)) for role in request.role_order)
+                score = self._total_score(request, result)
                 if best is None or score > best_score:
                     best, best_score = result, score
-                if not has_limits:
-                    return result
                 continue
             for role in invalid_roles:
                 for item in self._plan_items(result.get(role) or {}):
@@ -150,15 +157,16 @@ class AllocationKernel:
         if best is not None:
             return best
 
-        failed = self._execute_once(
-            request, frozenset(),
-            use_full_drive_candidates=False,
-        )
+        # 搜索失败时的兜底与首轮输入相同，直接复用首轮结果并给出诊断。
         self._apply_invalid_diagnostics(
-            request, failed, self._invalid_roles(request, failed),
+            request, initial, initial_invalid,
             full_global_candidates=False,
         )
-        return failed
+        return initial
+
+    @staticmethod
+    def _total_score(request: AllocationKernelRequest, result: Mapping) -> float:
+        return sum(float((result.get(role) or {}).get("score", 0.0)) for role in request.role_order)
 
     def _execute_once(
         self,
@@ -166,6 +174,7 @@ class AllocationKernel:
         excluded_uids: frozenset[str],
         *,
         use_full_drive_candidates: bool = False,
+        reuse_scores: bool = False,
     ) -> dict:
         inventory = [item for item in request.inventory if item.uid not in excluded_uids]
         self.scoring_engine.roles_db = dict(request.roles_db)
@@ -175,6 +184,7 @@ class AllocationKernel:
             tape_top_k_per_set_per_role=request.tape_screen_limit,
             tape_main_filters={key: list(value) for key, value in request.core_main_filters.items()},
             crit_priority_modes=dict(request.stat_priority_configs),
+            reuse_scores=reuse_scores,
         )
         if use_full_drive_candidates:
             # ``all_drives`` 包含同一固定背包中全部已评分驱动；常规

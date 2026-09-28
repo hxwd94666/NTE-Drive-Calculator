@@ -13,7 +13,7 @@ from typing import Any, Iterable, NoReturn
 
 import tempfile
 import threading
-from src.domain.recommended_weights import workshop_weight_source_ids
+from functools import lru_cache
 from .static_game_data_metadata import (
     MINIMUM_SUPPORTED_SCHEMA_VERSION,
     SCHEMA_VERSION,
@@ -30,19 +30,32 @@ _ROLE_TEMPLATE_CLASSIFICATIONS = {
 
 _SHARED_STATIC_CONNECTIONS: dict[str, sqlite3.Connection] = {}
 _SHARED_STATIC_LOCK = threading.Lock()
+# SQLite 以 serialized 模式编译（``sqlite3.threadsafety == 3``），并发 execute
+# 本身是安全的；这把锁隔离的是「执行中」与「关闭连接」，避免查询线程拿到已关闭
+# 的连接，并让进程退出时的回收与正在进行的读互不干扰。
+_SHARED_STATIC_EXECUTE_LOCK = threading.RLock()
 
 
+@lru_cache(maxsize=4)
+def _resolved_temp_dir() -> Path:
+    """Cache the temp root; it does not change within a process."""
+
+    return Path(tempfile.gettempdir()).resolve()
+
+
+@lru_cache(maxsize=256)
 def _is_temp_path(path: Path) -> bool:
-    """Check if the given path resides within temporary directories."""
+    """Check whether an already-resolved path resides in temp directories.
+
+    ``StaticGameDataDao`` 传入的路径已由 ``resolve_static_database`` 解析过；
+    这里不再二次解析。Windows 上每次 ``Path.resolve()`` 都要逐个路径段调用
+    ``GetFinalPathName``，是短生命周期开连的主要开销。
+    """
     try:
-        resolved = path.resolve()
-        temp_dir = Path(tempfile.gettempdir()).resolve()
-        if temp_dir in resolved.parents:
-            return True
-        parts = {p.lower() for p in resolved.parts}
+        parts = {part.lower() for part in path.parts}
         if parts & {"tmp", "temp", ".tmp", "pytest"}:
             return True
-        return False
+        return _resolved_temp_dir() in path.parents
     except Exception:
         return False
 
@@ -130,18 +143,26 @@ from src.storage.sqlite.static_game_data_terminology_queries import (
 from src.storage.sqlite.static_game_data_progression_queries import (
     StaticGameDataProgressionQueriesMixin,
 )
+from src.storage.sqlite.static_game_data_character_growth_queries import (
+    StaticGameDataCharacterGrowthQueriesMixin,
+)
 from src.storage.sqlite.static_game_data_skill_damage_queries import (
     StaticGameDataSkillDamageQueriesMixin,
+)
+from src.storage.sqlite.static_game_data_weight_queries import (
+    StaticGameDataWeightQueriesMixin,
 )
 
 
 class StaticGameDataDao(
     StaticGameDataProgressionQueriesMixin,
+    StaticGameDataCharacterGrowthQueriesMixin,
     StaticGameDataTerminologyQueriesMixin,
     StaticGameDataEncounterQueriesMixin,
     StaticGameDataBuffQueriesMixin,
     StaticGameDataCombatBlueprintQueriesMixin,
     StaticGameDataSkillDamageQueriesMixin,
+    StaticGameDataWeightQueriesMixin,
     StaticGameDataExtendedQueriesMixin,
 ):
     """面向当前发行静态数据库 schema 的轻量查询边界。
@@ -247,38 +268,54 @@ class StaticGameDataDao(
             self._connection = None
             return
         norm_key = os.path.normcase(str(self.database_path))
-        with _SHARED_STATIC_LOCK:
-            _SHARED_STATIC_CONNECTIONS.pop(norm_key, None)
-        try:
-            connection.close()
-        except sqlite3.Error:
-            pass
+        with _SHARED_STATIC_EXECUTE_LOCK:
+            with _SHARED_STATIC_LOCK:
+                _SHARED_STATIC_CONNECTIONS.pop(norm_key, None)
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
         self._connection = None
 
     @classmethod
     def close_shared_connections(cls, database_path: str | Path | None = None) -> None:
         """Close shared static database connections across the process."""
-        with _SHARED_STATIC_LOCK:
-            if database_path is not None:
-                norm_key = os.path.normcase(str(Path(database_path).expanduser().resolve()))
-                conn = _SHARED_STATIC_CONNECTIONS.pop(norm_key, None)
-                if conn is not None:
-                    try:
-                        conn.close()
-                    except sqlite3.Error:
-                        pass
-            else:
-                for conn in _SHARED_STATIC_CONNECTIONS.values():
-                    try:
-                        conn.close()
-                    except sqlite3.Error:
-                        pass
-                _SHARED_STATIC_CONNECTIONS.clear()
+        with _SHARED_STATIC_EXECUTE_LOCK:
+            with _SHARED_STATIC_LOCK:
+                if database_path is not None:
+                    norm_key = os.path.normcase(
+                        str(Path(database_path).expanduser().resolve())
+                    )
+                    conn = _SHARED_STATIC_CONNECTIONS.pop(norm_key, None)
+                    if conn is not None:
+                        try:
+                            conn.close()
+                        except sqlite3.Error:
+                            pass
+                else:
+                    for conn in _SHARED_STATIC_CONNECTIONS.values():
+                        try:
+                            conn.close()
+                        except sqlite3.Error:
+                            pass
+                    _SHARED_STATIC_CONNECTIONS.clear()
 
     def _rows(self, sql: str, parameters: Iterable[Any] = ()) -> list[dict[str, Any]]:
-        if self._connection is None:
-            raise StaticGameDataError("静态数据库 DAO 已关闭")
-        return [dict(row) for row in self._connection.execute(sql, tuple(parameters))]
+        with _SHARED_STATIC_EXECUTE_LOCK:
+            connection = self._connection
+            if connection is None:
+                raise StaticGameDataError("静态数据库 DAO 已关闭")
+            try:
+                return [
+                    dict(row)
+                    for row in connection.execute(sql, tuple(parameters))
+                ]
+            except sqlite3.ProgrammingError as exc:
+                # 共享连接可能已被其他线程 close(force=True) 或进程回收关闭；
+                # 转换成领域错误，避免工作线程拿到裸露的 sqlite3 异常。
+                if "closed" not in str(exc).lower():
+                    raise
+                raise StaticGameDataError("静态数据库 DAO 已关闭") from exc
 
     def _one(self, sql: str, parameters: Iterable[Any] = ()) -> dict[str, Any] | None:
         rows = self._rows(sql, parameters)
@@ -314,6 +351,16 @@ class StaticGameDataDao(
             "dataset": dataset,
             "counts": counts,
         }
+
+    def dataset_info(self) -> dict[str, Any]:
+        """只返回数据集元信息，供仅需 dataset 的调用方免去 summary 的逐表计数。"""
+
+        dataset = self._one(
+            "SELECT dataset_id, importer_version, built_at_utc FROM dataset"
+        )
+        if dataset is None:
+            raise StaticGameDataError("静态数据库缺少数据集元信息")
+        return dataset
 
     def application_setting_defaults(self) -> dict[str, dict[str, Any]]:
         defaults: dict[str, dict[str, Any]] = {}
@@ -470,56 +517,6 @@ class StaticGameDataDao(
             key=lambda character: int(character["character_id"]),
         )
 
-    def get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
-        """精确工坊记录优先；主角另一形态的工坊记录优先于通用发行兜底。"""
-
-        fallback = None
-        for source_id in workshop_weight_source_ids(character_id):
-            row = self._get_character_recommended_weights(source_id)
-            if source_id == int(character_id):
-                fallback = row
-            if row and row.get("properties") and row.get("source_kind") != "default":
-                return {**row, "character_id": int(character_id)}
-        return fallback
-
-    def _get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
-        """读取开发期写入静态库的推荐权重；运行时不会调用外部 API。"""
-
-        recommendation = self._one(
-            """SELECT character_id, source_kind, source_item_id, source_name,
-                      source_updated_at_utc
-               FROM character_weight_recommendation WHERE character_id = ?""",
-            (int(character_id),),
-        )
-        if recommendation is None:
-            return None
-        properties = self._rows(
-            """SELECT property_id, weight, main_weight, ordinal
-               FROM character_weight_recommendation_property
-               WHERE character_id = ? ORDER BY ordinal""",
-            (int(character_id),),
-        )
-        recommendation["properties"] = properties
-        recommendation["property_weights"] = {
-            row["property_id"]: float(row["weight"])
-            for row in properties if float(row["weight"]) > 0
-        }
-        recommendation["main_property_weights"] = {
-            row["property_id"]: float(row["main_weight"])
-            for row in properties if float(row["main_weight"]) > 0
-        }
-        return recommendation
-
-    def list_character_recommended_weights(self) -> list[dict[str, Any]]:
-        return [
-            recommendation
-            for row in self._rows(
-                "SELECT character_id FROM character_weight_recommendation ORDER BY character_id"
-            )
-            if (recommendation := self.get_character_recommended_weights(int(row["character_id"])))
-            is not None
-        ]
-
     def get_character_graduation_template(
         self, character_id: int,
     ) -> dict[str, Any] | None:
@@ -555,139 +552,6 @@ class StaticGameDataDao(
                 )
             ) is not None
         ]
-
-    def list_character_awaken_effects(self, character_id: int) -> list[dict[str, Any]]:
-        """返回角色六觉与三/六觉共鸣，含可直接应用的技能等级加成。"""
-
-        effects = self._rows(
-            """
-            SELECT character_id, effect_id, ordinal, awaken_type, title_zh,
-                   title_text_table, title_text_key, description_zh,
-                   description_text_table, description_text_key, icon_path,
-                   modify_data_json, gameplay_effect_ids_json, source_row_id
-            FROM character_awaken_effect
-            WHERE character_id = ?
-            ORDER BY ordinal
-            """,
-            (character_id,),
-        )
-        bonuses_by_effect: dict[str, list[dict[str, Any]]] = {}
-        for bonus in self._rows(
-            """
-            SELECT effect_id, ordinal, skill_id, level_delta
-            FROM character_awaken_skill_level_bonus
-            WHERE character_id = ?
-            ORDER BY effect_id, ordinal
-            """,
-            (character_id,),
-        ):
-            effect_id = bonus.pop("effect_id")
-            bonuses_by_effect.setdefault(effect_id, []).append(bonus)
-        for effect in effects:
-            effect["modify_data"] = json.loads(effect.pop("modify_data_json"))
-            effect["gameplay_effect_ids"] = json.loads(effect.pop("gameplay_effect_ids_json"))
-            effect["skill_level_bonuses"] = bonuses_by_effect.get(effect["effect_id"], [])
-            effect["description_damage_entries"] = [
-                damage
-                for damage_id in effect["gameplay_effect_ids"]
-                if (damage := self.get_skill_damage(str(damage_id))) is not None
-            ]
-        return effects
-
-    def get_character_panel_growth(
-        self, character_id: int, level: int, breakthrough_stage: int
-    ) -> dict[str, Any] | None:
-        """按角色、等级和已突破阶段返回官方基础生命、攻击和防御。"""
-
-        return self._one(
-            """
-            SELECT character_id, level, breakthrough_stage, state,
-                   hp_base, atk_base, def_base,
-                   player_pack_source_row_id, level_modify_source_row_id,
-                   breakthrough_modify_source_row_id
-            FROM character_panel_growth
-            WHERE character_id = ? AND level = ? AND breakthrough_stage = ?
-            """,
-            (character_id, level, breakthrough_stage),
-        )
-
-    def list_character_panel_growth(self, character_id: int) -> list[dict[str, Any]]:
-        """返回角色全部官方等级/突破面板，供角色页选择而非复制数值。"""
-
-        return self._rows(
-            """
-            SELECT character_id, level, breakthrough_stage, state,
-                   hp_base, atk_base, def_base,
-                   player_pack_source_row_id, level_modify_source_row_id,
-                   breakthrough_modify_source_row_id
-            FROM character_panel_growth
-            WHERE character_id = ?
-            ORDER BY level, breakthrough_stage
-            """,
-            (character_id,),
-        )
-
-    def list_character_skills(self, character_id: int) -> list[dict[str, Any]]:
-        """返回角色技能目录及每一级对应的突破、觉醒和材料要求。"""
-
-        skills = self._rows(
-            """
-            SELECT character_id, skill_id, ability_type, ability_index,
-                   show_detail_info, gameplay_tag, gameplay_effect_path,
-                   reapply_after_revive, ability_source_row_id, effect_source_row_id
-            FROM character_skill
-            WHERE character_id = ?
-            ORDER BY ability_index, skill_id
-            """,
-            (character_id,),
-        )
-        levels_by_skill: dict[str, list[dict[str, Any]]] = {}
-        for level in self._rows(
-            """
-            SELECT skill_id, level, required_breakthrough_stage,
-                   required_awaken_level, cost_items_json
-            FROM character_skill_level
-            WHERE character_id = ?
-            ORDER BY skill_id, level
-            """,
-            (character_id,),
-        ):
-            skill_id = level.pop("skill_id")
-            level["cost_items"] = json.loads(level.pop("cost_items_json"))
-            levels_by_skill.setdefault(skill_id, []).append(level)
-        for skill in skills:
-            skill["show_detail_info"] = bool(skill["show_detail_info"])
-            skill["reapply_after_revive"] = bool(skill["reapply_after_revive"])
-            skill["levels"] = levels_by_skill.get(skill["skill_id"], [])
-            skill["damage_entries"] = self._rows(
-                """
-                SELECT d.damage_id, d.damage_type, d.charge_add, d.unbal_value,
-                       d.heterochrome_add, d.damage_source_category, d.fixed_crit_rate,
-                       d.atk_rate_base_json, d.def_rate_base_json, d.hp_rate_base_json,
-                       d.story_balance_ge_rate, d.attack_break_level,
-                       d.override_breakable_damage, d.breakable_damage,
-                       d.override_breakable_impulse, d.breakable_impulse,
-                       d.override_vehicle_breakable_impulse,
-                       d.vehicle_breakable_impulse, d.source_row_id,
-                       m.atk_rate_base_coefficient AS modifier_atk_rate_base_coefficient,
-                       m.source_row_id AS modifier_source_row_id
-                FROM skill_damage AS d
-                LEFT JOIN skill_damage_modifier AS m USING (damage_id)
-                WHERE d.ability_id = ?
-                ORDER BY d.damage_id
-                """,
-                (skill["skill_id"],),
-            )
-            for damage in skill["damage_entries"]:
-                for key in ("atk_rate_base", "def_rate_base", "hp_rate_base"):
-                    damage[key] = json.loads(damage.pop(f"{key}_json"))
-                for key in (
-                    "override_breakable_damage",
-                    "override_breakable_impulse",
-                    "override_vehicle_breakable_impulse",
-                ):
-                    damage[key] = bool(damage[key])
-        return skills
 
     def list_shapes(self) -> list[dict[str, Any]]:
         shapes = self._rows(
@@ -830,6 +694,18 @@ class StaticGameDataDao(
     ) -> float | None:
         """按官方插值模式读取装备主属性在指定等级的数值。"""
 
+        return self.evaluate_equipment_base_attribute_curve_levels(
+            curve_id, (level,),
+        )[0]
+
+    def evaluate_equipment_base_attribute_curve_levels(
+        self,
+        curve_id: str,
+        levels: Iterable[float],
+    ) -> list[float | None]:
+        """一次读取曲线后求值多个等级，避免逐级重复查询同一条曲线。"""
+
+        requested = [float(level) for level in levels]
         curve = self._one(
             """
             SELECT interpolation_mode, default_value
@@ -839,7 +715,7 @@ class StaticGameDataDao(
             (str(curve_id),),
         )
         if curve is None:
-            return None
+            return [None] * len(requested)
         points = self._rows(
             """
             SELECT level, value
@@ -851,7 +727,22 @@ class StaticGameDataDao(
         )
         if not points:
             default_value = curve.get("default_value")
-            return None if default_value is None else float(default_value)
+            fallback = None if default_value is None else float(default_value)
+            return [fallback] * len(requested)
+
+        mode = str(curve.get("interpolation_mode") or "")
+        return [
+            self._interpolate_equipment_curve(mode, points, level)
+            for level in requested
+        ]
+
+    @staticmethod
+    def _interpolate_equipment_curve(
+        interpolation_mode: str,
+        points: list[dict[str, Any]],
+        level: float,
+    ) -> float:
+        """在一个已读取的曲线上按官方插值模式求值。"""
 
         target = float(level)
         if target <= float(points[0]["level"]):
@@ -865,7 +756,7 @@ class StaticGameDataDao(
             if target > current_level:
                 previous = current
                 continue
-            if str(curve.get("interpolation_mode") or "") == "RCIM_Constant":
+            if interpolation_mode == "RCIM_Constant":
                 return float(previous["value"])
             previous_level = float(previous["level"])
             span = current_level - previous_level

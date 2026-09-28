@@ -123,6 +123,38 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         }
         return seed
 
+    def list_character_weight_preferences(self) -> dict[int, dict[str, Any]]:
+        """批量返回账号内的角色权重偏好，避免逐角色两次查询。"""
+
+        properties: dict[int, list[dict[str, Any]]] = {}
+        for row in self._rows(
+            """SELECT character_id, property_id, weight, main_weight, ordinal
+               FROM character_weight_preference_property
+               ORDER BY character_id, ordinal"""
+        ):
+            properties.setdefault(int(row.pop("character_id")), []).append(row)
+        preferences: dict[int, dict[str, Any]] = {}
+        for row in self._rows(
+            """SELECT character_id, source_dataset_id, source_kind,
+                      seeded_at_utc, updated_at_utc
+               FROM character_weight_preference_seed"""
+        ):
+            character_id = int(row["character_id"])
+            rows = properties.get(character_id, [])
+            row["properties"] = rows
+            row["property_weights"] = {
+                str(item["property_id"]): float(item["weight"])
+                for item in rows
+                if float(item["weight"]) > 0
+            }
+            row["main_property_weights"] = {
+                str(item["property_id"]): float(item["main_weight"])
+                for item in rows
+                if float(item["main_weight"]) > 0
+            }
+            preferences[character_id] = row
+        return preferences
+
     def seed_character_weight_preferences(
         self,
         character_id: int,

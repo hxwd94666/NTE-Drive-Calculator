@@ -412,6 +412,99 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertTrue(result.verified)
         self.assertEqual("nte_core", dao.imported[0][1])
 
+    def test_scoped_packet_never_replaces_the_official_inventory(self):
+        """局部/按角色响应即使声明 complete，也不得推进正式库存指针。"""
+        from src.services.warehouse_state_management import (
+            WarehouseStateManagementPlan,
+            WarehouseStateManagementService,
+        )
+
+        scoped_packet = {
+            "method": "event.inventory.snapshot",
+            "params": {
+                "complete": True,
+                "item_count": 1,
+                "items": [{"uid": {"slot": 1, "serial": 10}}],
+            },
+        }
+        current_rows = [
+            {"uid_slot": 1, "uid_serial": 10, "locked": False, "discarded": False},
+            {"uid_slot": 2, "uid_serial": 20, "locked": True, "discarded": False},
+        ]
+
+        class Dao:
+            def __init__(self):
+                self.imported = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def current_inventory_snapshot_id(self):
+                return 7
+
+            def list_inventory_items(self, snapshot_id):
+                if snapshot_id != 7:
+                    raise AssertionError("unexpected snapshot")
+                return list(current_rows)
+
+            def apply_inventory_command_state_projection(self, *_args):
+                return 1
+
+            def import_inventory_snapshot(self, packet, *, source):
+                self.imported.append((packet, source))
+                return 8
+
+        class Sync:
+            def equipment_batch(self):
+                from contextlib import nullcontext
+                return nullcontext()
+
+            is_running = True
+            state = SimpleNamespace(phase="listening")
+            core_hello_result = {"capabilities": ["equipment"]}
+
+            def begin_full_inventory_guard(self, *_args, **_kwargs):
+                return "guard"
+
+            def end_full_inventory_guard(self, _token):
+                return None
+
+            def scoped_equipment_snapshot_cursor(self):
+                return 4
+
+            def set_item_discarded(self, **_kwargs):
+                return None
+
+            def set_item_locked(self, **_kwargs):
+                raise AssertionError("unexpected lock RPC")
+
+            def wait_for_snapshot(self, **_kwargs):
+                raise TimeoutError
+
+            def wait_for_action_inventory_snapshot(
+                self, required, *, after_cursor, timeout,
+            ):
+                assert required == frozenset({(1, 10)})
+                return scoped_packet
+
+        dao = Dao()
+        result = WarehouseStateManagementService(
+            "unused.sqlite3", Sync(), dao_factory=lambda _path: dao,
+        ).apply(WarehouseStateManagementPlan(
+            snapshot_id=7,
+            changes=(
+                {"equipment": {"slot": 1, "serial": 10}, "target_state": "discarded"},
+            ),
+            filter_summary={"discard": 1},
+            command_projection_allowed=True,
+        ), confirmation_timeout=0.01)
+
+        self.assertEqual([], dao.imported)
+        self.assertIsNone(result.after_snapshot_id)
+
     def test_state_rpc_timeout_keeps_guard_for_late_local_state_delta(self):
         from src.services.warehouse_state_management import (
             WarehouseStateManagementPlan,

@@ -429,12 +429,6 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual([equipped["uid"]], [item["uid"] for item in filter_warehouse_items([equipped, other], search="零")])
         self.assertEqual([equipped["uid"]], [item["uid"] for item in filter_warehouse_items([equipped, other], character_id=1051)])
 
-    def test_role_avatar_name_normalizes_display_and_template_suffixes(self):
-        from src.features.inventory.warehouse import ROLE_AVATAR_ALIASES, normalize_role_avatar_name
-
-        self.assertEqual(normalize_role_avatar_name("「零」"), normalize_role_avatar_name("零（男主）"))
-        self.assertEqual("主角", ROLE_AVATAR_ALIASES["零"])
-
     def test_linked_type_options_follow_selected_category(self):
         from src.features.inventory.warehouse import (
             filter_warehouse_items,

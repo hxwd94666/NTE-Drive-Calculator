@@ -34,6 +34,10 @@ def project_equipment_items_to_max_level(
 ) -> list[dict[str, Any]]:
     """Keep rolled substats, but evaluate every existing main stat at max level."""
 
+    items = list(items)
+    if not items:
+        # 配装目录重建会按角色多次以空列表调用；此处短路可省下每次的整表读取。
+        return []
     templates = {
         str(template["item_id"]): template
         for template in static_dao.list_equipment_items()

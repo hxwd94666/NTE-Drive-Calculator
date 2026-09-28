@@ -29,6 +29,45 @@ from .protocols import UserDataDaoMixinHost
 _SQLITE_QUERY_PARAMETER_BUDGET = 900
 _UID_PAIR_QUERY_BATCH_SIZE = (_SQLITE_QUERY_PARAMETER_BUDGET - 1) // 2
 
+# 完整背包快照一次写入上千件装备与上万条词条；逐条 execute 会把保存时间
+# 拖到数百毫秒。这里改为在同一事务内分组 executemany，组间顺序与逐条写入
+# 一致：装备 → 词条 → 已装备角色映射 → 快照内角色映射。
+_INSERT_INVENTORY_ITEM_SQL = """
+INSERT INTO inventory_item(
+    snapshot_id, uid_serial, uid_slot, kind, item_id, suit_id,
+    geometry, grid_count, quality, level, max_level, locked,
+    equipped, equipped_character_uid_json, equipped_character_id,
+    names_json, suit_names_json, raw_item_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+_INSERT_INVENTORY_ITEM_STAT_SQL = """
+INSERT INTO inventory_item_stat(
+    snapshot_id, uid_serial, uid_slot, stat_group, ordinal,
+    property_id, value, is_percent, names_json, raw_stat_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+_UPSERT_EQUIPPED_CHARACTER_SQL = """
+INSERT INTO character_instance_mapping(
+    character_id, uid_slot, uid_serial, source,
+    first_seen_snapshot_id, last_seen_snapshot_id,
+    created_at_utc, updated_at_utc
+) VALUES (?, ?, ?, 'snapshot', ?, ?, ?, ?)
+ON CONFLICT(character_id, uid_slot, uid_serial) DO UPDATE SET
+    last_seen_snapshot_id = excluded.last_seen_snapshot_id,
+    updated_at_utc = excluded.updated_at_utc
+"""
+_UPSERT_SNAPSHOT_CHARACTER_SQL = """
+INSERT INTO character_instance_mapping(
+    character_id, uid_slot, uid_serial, source,
+    first_seen_snapshot_id, last_seen_snapshot_id,
+    created_at_utc, updated_at_utc
+) VALUES (?, ?, ?, 'snapshot', ?, ?, ?, ?)
+ON CONFLICT(character_id, uid_slot, uid_serial) DO UPDATE SET
+    source = 'snapshot',
+    last_seen_snapshot_id = excluded.last_seen_snapshot_id,
+    updated_at_utc = excluded.updated_at_utc
+"""
+
 
 class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
     @staticmethod
@@ -189,44 +228,28 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             if cursor.lastrowid is None:
                 raise UserDataError("创建背包快照后未返回 snapshot_id")
             snapshot_id = int(cursor.lastrowid)
+            save_stage = "insert_item"
+            item_rows: list[tuple[Any, ...]] = []
+            stat_rows: list[tuple[Any, ...]] = []
+            equipped_character_rows: list[tuple[Any, ...]] = []
             for item, serial, slot, stats in normalized_items:
-                save_stage = "insert_item"
-                connection.execute(
-                    """
-                    INSERT INTO inventory_item(
-                        snapshot_id, uid_serial, uid_slot, kind, item_id, suit_id,
-                        geometry, grid_count, quality, level, max_level, locked,
-                        equipped, equipped_character_uid_json, equipped_character_id,
-                        names_json, suit_names_json, raw_item_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        snapshot_id, serial, slot, item["kind"], item["item_id"],
-                        item.get("suit_id"), item.get("geometry"), item.get("grid"),
-                        item.get("quality"), item["level"], item["max_level"],
-                        int(item["locked"]), int(item["equipped"]),
-                        _json(item.get("equipped_character_uid"))
-                        if item.get("equipped_character_uid") is not None else None,
-                        item.get("equipped_character_id"), _json(item.get("names") or {}),
-                        _json(item.get("suit_names") or {}), _json(item),
-                    ),
-                )
+                item_rows.append((
+                    snapshot_id, serial, slot, item["kind"], item["item_id"],
+                    item.get("suit_id"), item.get("geometry"), item.get("grid"),
+                    item.get("quality"), item["level"], item["max_level"],
+                    int(item["locked"]), int(item["equipped"]),
+                    _json(item.get("equipped_character_uid"))
+                    if item.get("equipped_character_uid") is not None else None,
+                    item.get("equipped_character_id"), _json(item.get("names") or {}),
+                    _json(item.get("suit_names") or {}), _json(item),
+                ))
                 for stat_group, ordinal, stat in stats:
-                    save_stage = "insert_stat"
-                    connection.execute(
-                        """
-                        INSERT INTO inventory_item_stat(
-                            snapshot_id, uid_serial, uid_slot, stat_group, ordinal,
-                            property_id, value, is_percent, names_json, raw_stat_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            snapshot_id, serial, slot, stat_group, ordinal,
-                            stat["property_id"], float(stat["value"]),
-                            int(stat["percent"]), _json(stat.get("names") or {}),
-                            _json(stat),
-                        ),
-                    )
+                    stat_rows.append((
+                        snapshot_id, serial, slot, stat_group, ordinal,
+                        stat["property_id"], float(stat["value"]),
+                        int(stat["percent"]), _json(stat.get("names") or {}),
+                        _json(stat),
+                    ))
                 equipped_character_id = item.get("equipped_character_id")
                 character_uid = item.get("equipped_character_uid")
                 if (
@@ -239,44 +262,28 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                     except UserDataValidationError:
                         # 背包条目仍完整保存；不把不合法的角色实例写入可执行映射。
                         continue
-                    save_stage = "upsert_equipped_character"
-                    connection.execute(
-                        """
-                        INSERT INTO character_instance_mapping(
-                            character_id, uid_slot, uid_serial, source,
-                            first_seen_snapshot_id, last_seen_snapshot_id,
-                            created_at_utc, updated_at_utc
-                        ) VALUES (?, ?, ?, 'snapshot', ?, ?, ?, ?)
-                        ON CONFLICT(character_id, uid_slot, uid_serial) DO UPDATE SET
-                            last_seen_snapshot_id = excluded.last_seen_snapshot_id,
-                            updated_at_utc = excluded.updated_at_utc
-                        """,
-                        (
-                            equipped_character_id,
-                            character_slot,
-                            character_serial,
-                            snapshot_id, snapshot_id, now, now,
-                        ),
-                    )
-            for character_id, character_slot, character_serial in normalized_characters:
-                save_stage = "upsert_character"
-                connection.execute(
-                    """
-                    INSERT INTO character_instance_mapping(
-                        character_id, uid_slot, uid_serial, source,
-                        first_seen_snapshot_id, last_seen_snapshot_id,
-                        created_at_utc, updated_at_utc
-                    ) VALUES (?, ?, ?, 'snapshot', ?, ?, ?, ?)
-                    ON CONFLICT(character_id, uid_slot, uid_serial) DO UPDATE SET
-                        source = 'snapshot',
-                        last_seen_snapshot_id = excluded.last_seen_snapshot_id,
-                        updated_at_utc = excluded.updated_at_utc
-                    """,
+                    equipped_character_rows.append((
+                        equipped_character_id,
+                        character_slot,
+                        character_serial,
+                        snapshot_id, snapshot_id, now, now,
+                    ))
+            connection.executemany(_INSERT_INVENTORY_ITEM_SQL, item_rows)
+            save_stage = "insert_stat"
+            connection.executemany(_INSERT_INVENTORY_ITEM_STAT_SQL, stat_rows)
+            save_stage = "upsert_equipped_character"
+            connection.executemany(_UPSERT_EQUIPPED_CHARACTER_SQL, equipped_character_rows)
+            save_stage = "upsert_character"
+            connection.executemany(
+                _UPSERT_SNAPSHOT_CHARACTER_SQL,
+                [
                     (
                         character_id, character_slot, character_serial,
                         snapshot_id, snapshot_id, now, now,
-                    ),
-                )
+                    )
+                    for character_id, character_slot, character_serial in normalized_characters
+                ],
+            )
             save_stage = "update_current_pointer"
             connection.execute("UPDATE inventory_snapshot SET is_current = 0 WHERE is_current = 1")
             connection.execute(

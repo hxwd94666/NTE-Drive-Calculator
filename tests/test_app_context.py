@@ -187,6 +187,106 @@ class AppContextTests(unittest.TestCase):
             context.switch_account(second)
             self.assertEqual(["stop", "rebuild:second"], trace)
 
+    def test_stop_failure_still_switches_account_and_resumes_services(self):
+        """停止超时不得让切换半途失败：账号、代次与服务恢复都必须完成。"""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = account(root, "first")
+            second = account(root, "second")
+            context = AppContext(
+                self.make_paths(root),
+                first,
+                settings_factory=FakeSettings,
+            )
+            trace = []
+
+            def stop():
+                trace.append("stop")
+                raise TimeoutError("采集线程未在超时内结束")
+
+            context.register_account_lifecycle(
+                CallbackAccountLifecycle(
+                    is_running=lambda: True,
+                    stop=stop,
+                    rebuild=lambda current: trace.append(
+                        f"rebuild:{current.active_account_id}"
+                    ),
+                    start=lambda: trace.append("start"),
+                )
+            )
+
+            context.switch_account(second)
+
+            self.assertEqual(second, context.account)
+            self.assertEqual(1, context.generation)
+            self.assertEqual(["stop", "rebuild:second", "start"], trace)
+
+    def test_handler_failure_does_not_skip_other_handlers_or_service_restart(self):
+        """单个通知回调抛错不得跳过其余回调与账号服务恢复。"""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = account(root, "first")
+            second = account(root, "second")
+            context = AppContext(
+                self.make_paths(root),
+                first,
+                settings_factory=FakeSettings,
+            )
+            trace = []
+
+            def failing_handler(_event):
+                trace.append("handler-1")
+                raise RuntimeError("回调内部错误")
+
+            context.subscribe_account_changed(failing_handler)
+            context.subscribe_account_changed(lambda _event: trace.append("handler-2"))
+            context.register_account_lifecycle(
+                CallbackAccountLifecycle(
+                    is_running=lambda: True,
+                    stop=lambda: trace.append("stop"),
+                    rebuild=lambda _current: None,
+                    start=lambda: trace.append("start"),
+                )
+            )
+
+            context.switch_account(second)
+
+            self.assertEqual(second, context.account)
+            self.assertEqual(
+                ["stop", "handler-1", "handler-2", "start"], trace,
+            )
+
+    def test_rebuild_failure_does_not_skip_service_restart(self):
+        """单个 lifecycle 重建失败不得阻止服务恢复。"""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = account(root, "first")
+            second = account(root, "second")
+            context = AppContext(
+                self.make_paths(root),
+                first,
+                settings_factory=FakeSettings,
+            )
+            trace = []
+            context.register_account_lifecycle(
+                CallbackAccountLifecycle(
+                    is_running=lambda: True,
+                    stop=lambda: trace.append("stop"),
+                    rebuild=lambda _current: (_ for _ in ()).throw(
+                        RuntimeError("重建失败")
+                    ),
+                    start=lambda: trace.append("start"),
+                )
+            )
+
+            context.switch_account(second)
+
+            self.assertEqual(second, context.account)
+            self.assertEqual(["stop", "start"], trace)
+
 
 if __name__ == "__main__":
     unittest.main()

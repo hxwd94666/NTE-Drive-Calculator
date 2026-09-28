@@ -55,8 +55,31 @@ class ScoringEngine:
         self.stat_alias_mapping = {}
         self.quality_map = {"Gold": 1.0, "Purple": 0.8, "Blue": 0.6}
         self._load_stats()
+        # 名称归一化与别名映射只取决于静态目录，整轮评估内稳定；逐条副词条反复
+        # 归一化是评分的主要开销（700 件 × 8 角色 × 4 词条 ≈ 2.2 万次）。
+        self._normalized_stat_cache: dict[tuple[str, bool], str | None] = {}
+        self._flexible_name_cache: dict[str, str] = {}
         if roles_db is None:
             self._load_roles_from_sqlite()
+
+    def _normalized_stat_name(self, raw_name: Any, *, is_percent: bool = False) -> str | None:
+        """缓存 ``StatCatalog.normalize_stat_name`` 的结果。"""
+
+        key = (str(raw_name or "").strip(), is_percent)
+        if key not in self._normalized_stat_cache:
+            self._normalized_stat_cache[key] = self.stat_catalog.normalize_stat_name(
+                key[0], is_percent=is_percent,
+            )
+        return self._normalized_stat_cache[key]
+
+    def _flexible_name(self, stat_name: str) -> str:
+        """缓存 ``StatCatalog.flexible_weight_name`` 的别名映射。"""
+
+        if stat_name not in self._flexible_name_cache:
+            self._flexible_name_cache[stat_name] = self.stat_catalog.flexible_weight_name(
+                stat_name
+            )
+        return self._flexible_name_cache[stat_name]
 
     def _load_stats(self):
         stats_path = Path(self.config_dir) / "stats.json"
@@ -98,18 +121,24 @@ class ScoringEngine:
                     str(attribute["attribute_id"]): self._scoring_property_name(attribute)
                     for attribute in static_dao.list_equipment_attributes()
                 }
-                for character in static_dao.list_role_template_characters(preferred_ids):
+                characters = static_dao.list_role_template_characters(preferred_ids)
+                # 逐角色查询会把角色数放大成上百条 SQL；先批量取回再在内存里分配。
+                recommended_weights = static_dao.map_character_recommended_weights(
+                    [int(character["character_id"]) for character in characters]
+                )
+                account_weights = (
+                    user_dao.list_character_weight_preferences()
+                    if user_dao is not None
+                    else {}
+                )
+                for character in characters:
                     character_id = int(character["character_id"])
-                    record = (
-                        user_dao.get_character_weight_preferences(character_id)
-                        if user_dao is not None
-                        else None
-                    )
+                    record = account_weights.get(character_id)
                     if record is None or is_unmodified_account_weight_cache(record):
                         record = effective_workshop_recommended_weights(
                             None,
                             character_id,
-                            static_dao.get_character_recommended_weights(character_id),
+                            recommended_weights.get(character_id),
                         )
                     if record is None:
                         continue
@@ -136,7 +165,7 @@ class ScoringEngine:
                 if user_dao is not None:
                     for character in user_dao.list_custom_characters():
                         character_id = int(character["character_id"])
-                        record = user_dao.get_character_weight_preferences(character_id)
+                        record = account_weights.get(character_id)
                         if record is None:
                             continue
                         weights = {
@@ -162,8 +191,8 @@ class ScoringEngine:
 
     def _stat_identity(self, stat_name: str) -> str:
         raw = str(stat_name or "").strip()
-        normalized = self.stat_catalog.normalize_stat_name(raw, is_percent="%" in raw)
-        return self.stat_catalog.flexible_weight_name(normalized or raw)
+        normalized = self._normalized_stat_name(raw, is_percent="%" in raw)
+        return self._flexible_name(normalized or raw)
 
     def _uses_zero_weight(self, stat_name: str, zero_weight_stats: Mapping[str, object] | set[str] | tuple[str, ...] | list[str] | None) -> bool:
         if not zero_weight_stats:
@@ -190,10 +219,10 @@ class ScoringEngine:
 
     def flexible_weight(self, stat_name: str, weights: Mapping[str, float]) -> float:
         names = [str(stat_name or "").strip()]
-        normalized = self.stat_catalog.normalize_stat_name(names[0], is_percent="%" in names[0])
+        normalized = self._normalized_stat_name(names[0], is_percent="%" in names[0])
         if normalized:
             names.append(normalized)
-        mapped_name = self.stat_catalog.flexible_weight_name(names[0])
+        mapped_name = self._flexible_name(names[0])
         if mapped_name:
             names.append(mapped_name)
 
@@ -203,7 +232,7 @@ class ScoringEngine:
                 return w
         for target_name in dict.fromkeys(n for n in names if n):
             for raw_name, weight in weights.items():
-                if weight > 0 and self.stat_catalog.flexible_weight_name(raw_name) == target_name:
+                if weight > 0 and self._flexible_name(raw_name) == target_name:
                     return weight
 
         flat_names = {"攻击力", "防御力", "生命值"}
@@ -325,7 +354,14 @@ class ScoringEngine:
         tape_top_k_per_set_per_role: int = 3,
         tape_main_filters: Dict[str, List[str]] | None = None,
         crit_priority_modes: Dict[str, dict] | None = None,
+        reuse_scores: bool = False,
     ) -> Dict[str, Any]:
+        """评估整份背包；``reuse_scores`` 用于同一批装备只排除个别 UID 后的重算。
+
+        单件评分只取决于装备自身与角色权重，与背包里还有哪些装备无关。属性上下限
+        搜索会反复排除少量 UID 后重新求解，此时复用已有 ``role_scores`` 即等价于
+        重算，可省下整轮“装备数 × 角色数”的评分。
+        """
         if not self.roles_db: return {"drives": [], "tapes": {}}
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
@@ -336,42 +372,54 @@ class ScoringEngine:
         )
         logger.info(f"  评分引擎: 开始评估 {len(inventory)} 件装备 × {len(self.roles_db)} 角色...")
 
+        # 角色权重与黑名单在一次评估内不变，理论上限只与角色有关；逐件重算会
+        # 让“装备数 × 角色数”次排序变成主要开销。
+        role_contexts = {
+            role_name: (
+                role_data.get("weights", {}),
+                (
+                    crit_priority_modes.get(role_name).get("blacklist", ())
+                    if isinstance(crit_priority_modes.get(role_name), dict)
+                    and crit_priority_modes[role_name].get("blacklist_zero_weight")
+                    else ()
+                ),
+            )
+            for role_name, role_data in self.roles_db.items()
+        }
+        role_max_weights = {
+            role_name: self.max_theoretical_weight(
+                weights, zero_weight_stats=zero_weight_stats,
+            )
+            for role_name, (weights, zero_weight_stats) in role_contexts.items()
+        }
+
         all_scored_drives: List[Drive] = []
         valid_drives: List[Drive] = []
         valid_tapes: List[Tape] = []
 
         for item in inventory:
-            item.role_scores = {}
-            item.max_score = 0.0
+            if not reuse_scores:
+                item.role_scores = {}
+                item.max_score = 0.0
 
-            for role_name, role_data in self.roles_db.items():
-                weights = role_data.get("weights", {})
-                role_config = crit_priority_modes.get(role_name)
-                zero_weight_stats = (
-                    role_config.get("blacklist", ())
-                    if isinstance(role_config, dict)
-                    and role_config.get("blacklist_zero_weight")
-                    else ()
-                )
-                max_weight = self.max_theoretical_weight(
-                    weights,
-                    zero_weight_stats=zero_weight_stats,
-                )
+                for role_name, role_data in self.roles_db.items():
+                    weights, zero_weight_stats = role_contexts[role_name]
+                    max_weight = role_max_weights[role_name]
 
-                if isinstance(item, Drive):
-                    score = self.calculate_drive_score(
-                        item,
-                        weights,
-                        max_weight,
-                        zero_weight_stats=zero_weight_stats,
-                    )
-                else:
-                    main_weights = role_data["main_weights"] if "main_weights" in role_data else None
-                    score = self.calculate_cartridge_score(item, weights, max_weight, main_weights)
+                    if isinstance(item, Drive):
+                        score = self.calculate_drive_score(
+                            item,
+                            weights,
+                            max_weight,
+                            zero_weight_stats=zero_weight_stats,
+                        )
+                    else:
+                        main_weights = role_data["main_weights"] if "main_weights" in role_data else None
+                        score = self.calculate_cartridge_score(item, weights, max_weight, main_weights)
 
-                item.role_scores[role_name] = score
-                if score > item.max_score:
-                    item.max_score = score
+                    item.role_scores[role_name] = score
+                    if score > item.max_score:
+                        item.max_score = score
 
             if isinstance(item, Drive):
                 # 保留完整背包的已评分驱动，供“常规 Top-K 无完整解”时的

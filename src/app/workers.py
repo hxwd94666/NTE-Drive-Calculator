@@ -77,6 +77,10 @@ class ScanWorkerThread(QThread):
         except Exception as exc:
             logger.error(f"ScanWorker 异常: {exc}")
             self.error.emit(str(exc))
+        finally:
+            # 半自动扫描同样持有虚拟手柄与临时目录；异常或取消时也必须释放，
+            # 与 FullVisualScanParseWorkerThread 的做法保持一致。
+            _close_scanner(self.scanner)
 
 
 class FullVisualScanParseWorkerThread(QThread):

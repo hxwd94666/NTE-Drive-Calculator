@@ -100,6 +100,14 @@ if TYPE_CHECKING:
         ) -> dict[str, Any] | None:
             raise NotImplementedError
 
+        def get_skill_damage(
+            self,
+            damage_id: str,
+        ) -> dict[str, Any] | None:
+            """Provided by the skill damage query mixin of the composed DAO."""
+
+            raise NotImplementedError
+
 else:
     class StaticDataDaoMixinHost:
         """Runtime marker; concrete behavior comes from StaticGameDataDao."""

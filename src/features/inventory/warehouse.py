@@ -8,8 +8,6 @@ viewport, which keeps a 2,000-item inventory responsive.
 
 from __future__ import annotations
 
-import os
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -60,10 +58,6 @@ _QUALITY_META = {
     "blue": ("蓝色", "#5d9be8"),
     "green": ("绿色", "#54b86b"),
 }
-ROLE_AVATAR_ALIASES = {
-    "零": "主角",
-    "「零」": "主角",
-}
 _TEMPLATE_ROOTS = (bundled_config_dir() / "templates",)
 _ASSET_ROOT = bundled_game_ui_asset_root()
 
@@ -83,67 +77,8 @@ def configure_warehouse_view_template_roots(
     _TEMPLATE_ROOTS = roots or (bundled_config_dir() / "templates",)
     if asset_root is not None:
         _ASSET_ROOT = Path(asset_root).resolve()
-    _role_avatar_index.cache_clear()
-    _legacy_character_avatar.cache_clear()
+    # 资产根目录变更会影响装备图标解析，因此保留图标缓存的重置。
     _equipment_item_pixmap.cache_clear()
-
-
-@lru_cache(maxsize=16)
-def _role_avatar_index(role_root_str: str) -> tuple[dict[str, Path], list[tuple[str, Path]]]:
-    """Index role avatar PNGs in memory to eliminate runtime filesystem scans."""
-    role_root = Path(role_root_str)
-    if not role_root.is_dir():
-        return {}, []
-    exact_map: dict[str, Path] = {}
-    normalized_list: list[tuple[str, Path]] = []
-    try:
-        for entry in os.scandir(role_root):
-            if entry.is_file() and entry.name.lower().endswith(".png"):
-                path = Path(entry.path)
-                exact_map[path.stem] = path
-                normalized = normalize_role_avatar_name(path.stem)
-                normalized_list.append((normalized, path))
-    except OSError:
-        pass
-    return exact_map, normalized_list
-
-
-@lru_cache(maxsize=512)
-def _legacy_character_avatar(character_name: str) -> QPixmap:
-    """Use the shipped config/templates/roles portrait, tolerating decorative aliases."""
-    if not character_name:
-        return QPixmap()
-    avatar_name = ROLE_AVATAR_ALIASES.get(character_name, character_name)
-    normalized_name = normalize_role_avatar_name(avatar_name)
-    for root in _template_root_candidates():
-        role_root = root / "roles"
-        exact_map, normalized_list = _role_avatar_index(str(role_root))
-        if avatar_name in exact_map:
-            return _equipment_item_pixmap(str(exact_map[avatar_name]))
-        candidates = [
-            path for norm, path in normalized_list
-            if norm == normalized_name
-        ]
-        if len(candidates) == 1:
-            return _equipment_item_pixmap(str(candidates[0]))
-        fuzzy_candidates = [
-            path for norm, path in normalized_list
-            if normalized_name and (
-                norm.startswith(normalized_name)
-                or normalized_name.startswith(norm)
-            )
-        ]
-        if len(fuzzy_candidates) == 1:
-            return _equipment_item_pixmap(str(fuzzy_candidates[0]))
-    return QPixmap()
-
-
-def normalize_role_avatar_name(value: Any) -> str:
-    """Normalize display names such as 「零」 and template names such as 零（男主）."""
-    text = str(value or "").strip()
-    text = text.strip("「」【】[]")
-    text = re.sub(r"[（(].*?[）)]", "", text)
-    return re.sub(r"\s+", "", text).casefold()
 
 
 def _localized(value: Any, fallback: str) -> str:
@@ -342,10 +277,9 @@ def _equipped_owner_portrait(item: Mapping[str, Any], device_pixel_ratio: float 
 
     if item.get("equipped_character_is_custom"):
         return custom_role_portrait(36, device_pixel_ratio)
-    avatar = _equipment_item_pixmap(str(item.get("equipped_character_icon_path") or ""))
-    if avatar.isNull():
-        avatar = _legacy_character_avatar(str(item.get("equipped_character_name") or ""))
-    return avatar
+    # 历史遗留的 `config/templates/roles` 兼容查找经裁定已无实际使用者，
+    # 已显式移除；头像统一取正式图鉴路径。
+    return _equipment_item_pixmap(str(item.get("equipped_character_icon_path") or ""))
 
 
 def warehouse_item_view(
