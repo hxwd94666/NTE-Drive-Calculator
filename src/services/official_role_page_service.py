@@ -19,7 +19,7 @@ from src.services.equipment_level_projection_service import (
 )
 from src.services.graduation_bonus_service import graduation_extra_shape_drive_count
 from src.services.official_role_inventory_contexts import load_role_inventory_contexts
-from src.services.official_role_awakening_service import resolve_awakening_profile
+from src.services.official_role_profile_projection import resolve_official_role_profile
 from src.services.world_bonus_settings_service import (
     WORLD_BONUS_SETTING_KEY,
     WorldBonusSettings,
@@ -31,7 +31,6 @@ from src.services.damage_calculation_service import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.native_role_profile_projection import project_native_role_profile
 from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
 
 __all__ = [
@@ -53,7 +52,6 @@ __all__ = [
 from src.services.official_role_attribute_service import (
     _asset_root,
     _compatible_forks,
-    _default_profile,
     _theory_properties,
     calculate_official_role_attribute_summaries,
     _context_calculation_items,
@@ -413,16 +411,12 @@ def load_official_role_detail(
             ),
         )
         saved_profile = user_dao.get_character_profile(character_id)
-        profile = dict(saved_profile) if saved_profile else _default_profile(
-            character, growth_rows, forks, skills, awakenings, 0
+        profile = resolve_official_role_profile(
+            character, growth_rows, forks, skills, awakenings,
+            saved_profile=saved_profile,
+            observation=user_dao.get_native_character_profile_observation(character_id),
+            likeability_bonus=likeability_bonus,
         )
-        if saved_profile is None:
-            profile["likeability_level_10_enabled"] = likeability_bonus is not None
-        profile = project_native_role_profile(
-            profile, user_dao.get_native_character_profile_observation(character_id), persisted=saved_profile is not None,
-        )
-        profile = resolve_awakening_profile(profile, awakenings)
-        profile["persisted"] = saved_profile is not None
         inventory = (load_role_inventory_contexts(
             user_dao, static_dao, catalog, character, character_id, cached,
             include_candidates=include_replacement_candidates,

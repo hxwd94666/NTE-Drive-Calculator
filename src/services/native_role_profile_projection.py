@@ -47,7 +47,7 @@ def project_native_role_profile(
         profile["awakening_selection_initialized"] = True
         sources["selected_awaken_effect_ids"] = "native_observed"
         sources["awakening_selection_initialized"] = "native_observed"
-    for name in ("likeability_level_10_enabled", "fork_id", "fork_level", "fork_breakthrough_stage", "fork_refinement_level"):
+    for name in ("likeability_level", "likeability_level_10_enabled", "fork_id", "fork_level", "fork_breakthrough_stage", "fork_refinement_level"):
         if name in observation and (not name.startswith("fork_") or observation.get("fork_observed") is True):
             profile[name] = observation[name]
             sources[name] = "native_observed"
@@ -63,7 +63,8 @@ def project_native_role_profile(
 def validate_native_cultivation(patches, *, static_database_path):
     """Verify formal identities against the frozen shipped catalog before writes."""
     if not any(patch.get("skill_levels") or patch.get("fork_observed") or "likeability_levels" in patch
-               or "likeability_level_10_enabled" in patch or patch.get("awakening_selection_initialized") for patch in patches):
+               or "likeability_level" in patch or "likeability_level_10_enabled" in patch
+               or patch.get("awakening_selection_initialized") for patch in patches):
         return
     with StaticGameDataDao(static_database_path) as dao:
         fork_ids = {row["fork_id"] for row in dao.list_forks()} if any(patch.get("fork_id") for patch in patches) else set()
@@ -109,6 +110,8 @@ def resolve_native_likeability(profile, static_dao):
     if levels is None:
         return
     identity = static_dao.get_character_likeability_identity(profile["character_id"])
-    profile["likeability_level_10_enabled"] = bool(
-        identity and levels.get(identity["likeability_id"], 0) >= int(identity["required_level"])
-    )
+    if identity is None or identity["likeability_id"] not in levels:
+        return
+    level = levels[identity["likeability_id"]]
+    profile["likeability_level"] = level
+    profile["likeability_level_10_enabled"] = level >= int(identity["required_level"])

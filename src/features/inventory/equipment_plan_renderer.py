@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import (
     GRADE_COLORS,
-    current_theme_name,
     theme_color,
     theme_rgba,
     themed_style,
@@ -55,7 +54,8 @@ from src.features.inventory.equipment_display_context import (
 )
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.attribute_summary_panel import AttributeSummaryPanel, AttributeSummaryRow
-from src.ui.equipment_state_icons import warehouse_lock_icon
+from src.ui.equipment_state_icons import allocation_lock_icon
+from src.features.inventory.loadout_share_dialog import loadout_action_button_style, loadout_share_button
 
 
 __all__ = [
@@ -245,9 +245,9 @@ def _game_official_attribute_panel(
 
 
 def _allocation_lock_icon(locked: bool) -> QIcon:
-    """Use the same yellow/gray lock artwork as warehouse equipment cards."""
+    """Keep the saved lock state visible in background-free action artwork."""
 
-    return warehouse_lock_icon(locked, size=20)
+    return allocation_lock_icon(locked)
 
 
 def _set_allocation_lock_button_state(button: QPushButton, locked: bool) -> None:
@@ -255,23 +255,14 @@ def _set_allocation_lock_button_state(button: QPushButton, locked: bool) -> None
 
     button.setText("")
     button.setIcon(_allocation_lock_icon(locked))
-    button.setIconSize(QSize(20, 20))
+    button.setIconSize(QSize(22, 22))
     button.setAccessibleName("解除配装锁定" if locked else "锁定配装")
     button.setToolTip(
         "当前方案已锁定：其装备不会进入其他角色的计算或替换候选"
         if locked
         else "当前方案未锁定：点击后保留本方案及其装备"
     )
-    light_locked = locked and current_theme_name() == "light"
-    background = "#f2cc60" if light_locked else "#3a2f13" if locked else "#21262d"
-    border = "#9a6700" if light_locked else "#e3b341" if locked else "#30363d"
-    hover = "#ffdf85" if light_locked else "#4a3a16" if locked else "#30363d"
-    hover_border = "#825e00" if light_locked else "#f2cc60" if locked else "#58a6ff"
-    button.setStyleSheet(themed_style(
-        f"QPushButton{{background:{background};border:1px solid {border};"
-        "border-radius:5px;padding:0;min-width:32px;min-height:32px}"
-        f"QPushButton:hover{{background:{hover};border-color:{hover_border}}}"
-    ))
+    button.setStyleSheet(loadout_action_button_style())
 
 _OFFICIAL_STAT_LABELS = {
     "AtkAdd": "攻击力",
@@ -510,6 +501,11 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
             lambda _=False, rn=source_role_name: self._import_game_loadout(rn)
         )
         role_hdr.addWidget(import_btn)
+        share = loadout_share_button(
+            self, role_name=source_role_name, state=rd, score=total_score, size=header_height,
+        )
+        share.setEnabled(bool(tape_data or rd.get(ROLE_EQUIPPED_DRIVES)))
+        role_hdr.addWidget(share)
     else:
         del_btn = QPushButton("删除")
         del_btn.setObjectName("btnDanger")
@@ -541,6 +537,10 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
 
         lock_btn.clicked.connect(toggle_lock)
         role_hdr.addWidget(lock_btn)
+        role_hdr.addWidget(loadout_share_button(
+            self, role_name=source_role_name, state=rd,
+            score=total_score, size=header_height,
+        ))
     gl.addWidget(role_header)
     if is_game_mode and rd.get("_game_reason"):
         status_label = QLabel(str(rd["_game_reason"]))

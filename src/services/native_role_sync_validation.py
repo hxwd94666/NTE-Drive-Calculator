@@ -16,7 +16,7 @@ def _field_groups(row):
             yield label, {name: row[name]}
     for label, names in (
         ('觉醒选择', ('awakening_level', 'awakening_selection_initialized', 'selected_awaken_effect_ids')),
-        ('好感度', ('likeability_levels', 'likeability_level_10_enabled')),
+        ('好感度', ('likeability_levels', 'likeability_level', 'likeability_level_10_enabled')),
         ('弧盘', ('fork_observed', 'fork_id', 'fork_level', 'fork_breakthrough_stage', 'fork_refinement_level')),
     ):
         if label == '觉醒选择' and 'awakening_selection_initialized' not in row:

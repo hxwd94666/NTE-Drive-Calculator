@@ -315,7 +315,8 @@ OpenVINO 与 ONNX Runtime 共用发行目录 `assets/ocr/models` 下同一套检
 故障，不回退到包内未知副本；源码环境可读取已安装依赖中通过同一清单校验的模型。
 
 发行包仅裁剪当前 OCR 与截图路径未使用的 OpenCV 视频 FFmpeg DLL，以及 OpenVINO 的 GPU/NPU 和非 ONNX 模型
-frontend；OpenVINO CPU/ONNX frontend、共享模型、ONNX Runtime/DirectML 均保留。桌面端还精确裁剪未使用的
+frontend；OpenVINO CPU/ONNX frontend、共享模型、ONNX Runtime/DirectML 均保留。Pillow 的 AVIF 插件及原生
+编解码模块由收集规则排除，发行校验拒绝其残留；PNG、JPEG、BMP、WebP 和字体渲染依赖保留。桌面端还精确裁剪未使用的
 Qt PDF、QML、Quick、虚拟键盘及其独占插件，保留 Widgets、Qt OpenGL 和软件渲染后备；SciPy 仅裁剪不在
 `scipy.optimize` 当前依赖闭包内的 stats、interpolate、integrate、ndimage 子包。打包脚本在依赖布局变化时停止
 裁剪并要求重新审查，不按通配符清理其他运行库。裁剪后的 OCR 初始化、截图图像解码、Qt 主题及输入法、
@@ -501,7 +502,7 @@ DataTable、本地化与 Blueprint 来源闭包；仅需验证解析器或更新
 战报组件；多个配置可正式共用同一 Buff，不推断开放时间。
 运行时能力边界见 [功能文档](features.md#4-计算角色配置与自建角色)。
 `build_role_catalog_assets.py` 生成角色包图片；`build_reference_catalog_assets.py` 额外按默认时装正式绑定
-生成立绘，并按图鉴引用生成装备和怪物图片。包 manifest 和数据库均记录用途；图片清单绑定 dataset、数据库哈希及每张图片哈希。正式晋升仍只能走
+生成立绘，并按图鉴引用生成装备和怪物图片。两种图片构建入口均调用 `build_role_skill_assets.py`，按 `character_skill → gameplay_ability_catalog.icon_path` 的正式关系收录主动技能原图，多个技能 ID 引用同一原图时仅保存一个物理文件。包 manifest 和数据库均记录用途；图片清单绑定 dataset、数据库哈希及每张图片哈希。数据版本变更的正式晋升仍只能走
 `promote_static_release.py --target-dir data/role_catalog`，按来源哈希及现有完整性门禁验证，暂存并整体替换
 数据库、manifest 和清单内图片，失败恢复上一完整包；未知旧文件和待恢复备份阻止替换。角色包不得晋升到
 主 `data/`，完整游戏库不得晋升到角色目录。打包入口校验整包并只纳入声明的文件。
@@ -527,6 +528,17 @@ Key。主窗口首屏进入事件循环后延迟以无鉴权 GET 在后台获取
 `manifest.json` 记录 ID 映射、文件哈希与来源；头像按角色表正式图标字段、立绘按 `DT_AppearanceData`
 的默认时装 `CharacterID → PortraitImg` 关系构建，不靠文件名猜角色。基础图片构建工具只默认输出到
 `build/game_ui` 候选，不能代替图鉴整包晋升。缺失来源保持显式 unresolved，不用相似图片占位。
+
+角色技能图片放在公共图片目录的 `skills/`，由 `GameUiAssetCatalog.skill_icon(SkillID)` 提供给配装分享；不从 `assets/loadout_share` 或本机原始资源目录回退读取。技能原图保持 PNG 内容不变，清单记录正式 ID 映射、原始游戏路径、尺寸、字节数、来源和文件 SHA-256。版本维护要求见 `AGENTS.md`；新图鉴候选构建包含技能步骤，缺正式路径、缺图片或同名来源冲突时停止生成。
+
+分享发布素材使用完整、未修改的 MiSans Bold 4.009 静态字体，保留版权及官方许可，不裁剪用户自定义
+名称需要的字符。`tools/release/optimize_share_assets.py` 仅从原始提取包和已核对 SHA-256 的静态字体构建
+独立候选：评级图分别按 48／54／92 像素从原图生成，练度横幅按实际裁切参数预生成，清单同时记录来源
+原始哈希、处理参数和发行哈希。字体版本、原图或渲染尺寸改变时重新审查并生成候选，不对已优化纹理
+反复缩放。确认字符覆盖、字形/布局、评级及横幅像素和两个分享出口后，按候选与原文件哈希安装；
+原文件和回滚证据保留在发行包之外。字体/纹理优化不改变评分口径，不在运行时下载资源。
+
+仅维护技能图片时，先将当前完整角色包复制到 `build/<candidate>`，执行 `python tools/game_data/build_role_skill_assets.py --source <同版Content目录> --candidate-dir build/<candidate>`。核对后增加 `--target-dir data/role_catalog`，通过 `promote_role_catalog.py` 的 `promote_role_skill_assets` 入口安装；它要求数据库字节、数据集、用途和目录身份清单不变，其他资源组及逐文件来源不变，全部正式主动技能有图且来源对应，随后复用正式角色包的暂存、校验、整体替换与失败回滚。此入口不更新数据库，不放行版本或来源不一致的静态数据变更。
 
 账号 schema 变化新增迁移并覆盖新建、升级、失败回滚和重试。DAO 独占 SQL；快照清理走公开 DAO 并
 保护所有引用。

@@ -19,6 +19,20 @@ This product includes components with separate license terms:
 - Npcap is not bundled. The application only links users to its official
   installer; any future bundled redistribution requires a separate Npcap OEM
   redistribution authorization.
+- Loadout and practice-share templates are adapted from NTEUID, by Wuyi
+  (https://github.com/hxwd94666/NTEUID). Upstream code uses GPL-3.0;
+  the accompanying artwork has separate terms requiring the author's written
+  permission for copying, modification, embedding and redistribution.
+  Extraction/provenance records are not proof of permission. Maintainers must
+  confirm permission before public distribution. The upstream license is
+  retained in assets/loadout_share/UPSTREAM_LICENSE.
+- Share rank artwork comes from Rainnight's NTE-score-yuye project
+  (https://github.com/lingweiliang2510579032/NTE-score-yuye). Source revisions,
+  hashes and image processing are recorded in assets/loadout_share/manifest.json.
+- Share images use Xiaomi's complete, unmodified MiSans Bold font. Copyright
+  belongs to Xiaomi Inc.; its license is retained in
+  assets/loadout_share/fonts/MiSans-license.pdf. Font provenance is recorded
+  in the same asset manifest.
 
 Neverness To Everness / 异环 names, characters, artwork, logos and other game
 materials are property of their respective rights holders. NTE Drive Calc is

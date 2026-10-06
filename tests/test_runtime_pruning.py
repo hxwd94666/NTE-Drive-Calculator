@@ -65,6 +65,16 @@ class RuntimePruningTests(unittest.TestCase):
                 prune_unused_runtime_binaries(internal)
             self.assertTrue(video.is_file())
 
+    def test_bundle_rejects_accidentally_collected_avif_binary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            internal = self._bundle(Path(temporary))
+            prune_unused_runtime_binaries(internal)
+            optional = internal / "PIL" / "_avif.cp311-win_amd64.pyd"
+            optional.parent.mkdir()
+            optional.write_bytes(b"unused optional codec")
+            with self.assertRaisesRegex(RuntimeError, "_avif"):
+                validate_pruned_runtime(internal)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3324,11 +3324,849 @@
       "bytes": 38693,
       "sha256": "59B36C36E9EDE12006AEE204F7794FF066643A9B6747AF3BF7022BDADACC6D01",
       "source_sha256": "C6C30D612D1422E7E2D5BAC0E373A3C46A19D584C7E3A3F5C771B5E12B72644D"
+    },
+    "skills/Adler_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Adler_Melee.Adler_Melee",
+      "source_sha256": "8ADC45144ABF046847176BE58F3EDBC907472F2320BC0A39AD34F5CB1C85FC88",
+      "sha256": "8ADC45144ABF046847176BE58F3EDBC907472F2320BC0A39AD34F5CB1C85FC88",
+      "width": 256,
+      "height": 256,
+      "bytes": 26906
+    },
+    "skills/Adler_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Adler_QTE.Adler_QTE",
+      "source_sha256": "1257EFE4BBFAC0EFB09449E97EE60BF984E4452CA16C9176D2490A68B104EA1B",
+      "sha256": "1257EFE4BBFAC0EFB09449E97EE60BF984E4452CA16C9176D2490A68B104EA1B",
+      "width": 256,
+      "height": 256,
+      "bytes": 14801
+    },
+    "skills/Adler_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Adler_Skill.Adler_Skill",
+      "source_sha256": "B9BE02F88C0148CB2F76618F1AF1F352F61682F3DCB72D2CBFDD0E7906921C36",
+      "sha256": "B9BE02F88C0148CB2F76618F1AF1F352F61682F3DCB72D2CBFDD0E7906921C36",
+      "width": 256,
+      "height": 256,
+      "bytes": 18491
+    },
+    "skills/Adler_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Adler_UltraSkill.Adler_UltraSkill",
+      "source_sha256": "F3F70A839EC74491F0A3B90CCCCD6A163103325FBCD5E7E983A216C06330DA65",
+      "sha256": "F3F70A839EC74491F0A3B90CCCCD6A163103325FBCD5E7E983A216C06330DA65",
+      "width": 256,
+      "height": 256,
+      "bytes": 20863
+    },
+    "skills/Chaos_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_Melee.Chaos_Melee",
+      "source_sha256": "C622254DCFBBCD9CF16B75F6E58B38C6266367B13C5C79C2C0C3C7514895E10A",
+      "sha256": "C622254DCFBBCD9CF16B75F6E58B38C6266367B13C5C79C2C0C3C7514895E10A",
+      "width": 256,
+      "height": 256,
+      "bytes": 8315
+    },
+    "skills/Chaos_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_QTE.Chaos_QTE",
+      "source_sha256": "858069275B957178182B6F3C623049B5F71E3621F65B0EDE04654F84FF2A5D76",
+      "sha256": "858069275B957178182B6F3C623049B5F71E3621F65B0EDE04654F84FF2A5D76",
+      "width": 256,
+      "height": 256,
+      "bytes": 7223
+    },
+    "skills/Chaos_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_Skill.Chaos_Skill",
+      "source_sha256": "80DFE0A4346D1F6823E69EDB559DF5E6B08DD4415AD92934118EEE407BF9A0AE",
+      "sha256": "80DFE0A4346D1F6823E69EDB559DF5E6B08DD4415AD92934118EEE407BF9A0AE",
+      "width": 256,
+      "height": 256,
+      "bytes": 10141
+    },
+    "skills/Chaos_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_UltraSkill.Chaos_UltraSkill",
+      "source_sha256": "0AE4278EF77A96BDD87DDB0BEFF4306E771AC0F18E7283A6B1D19901DC07D3E5",
+      "sha256": "0AE4278EF77A96BDD87DDB0BEFF4306E771AC0F18E7283A6B1D19901DC07D3E5",
+      "width": 256,
+      "height": 256,
+      "bytes": 12052
+    },
+    "skills/BlackBird_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/BlackBird_Melee.BlackBird_Melee",
+      "source_sha256": "A28927D5575B30F14AA9AB8CA56465D77C3F1830AB4CB73EA30279E36C171F0A",
+      "sha256": "A28927D5575B30F14AA9AB8CA56465D77C3F1830AB4CB73EA30279E36C171F0A",
+      "width": 256,
+      "height": 256,
+      "bytes": 9960
+    },
+    "skills/BlackBird_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/BlackBird_QTE.BlackBird_QTE",
+      "source_sha256": "87E1D88200C08E8C67A3F48E1F5C163AE5B85F553E3B883035E97F6B1690BEBE",
+      "sha256": "87E1D88200C08E8C67A3F48E1F5C163AE5B85F553E3B883035E97F6B1690BEBE",
+      "width": 256,
+      "height": 256,
+      "bytes": 9874
+    },
+    "skills/BlackBird_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/BlackBird_Skill.BlackBird_Skill",
+      "source_sha256": "0D6E3C60E0F765F0F26F174F0A730AD0EB05895CCE146AA5FCC24C9F7ECD0B1F",
+      "sha256": "0D6E3C60E0F765F0F26F174F0A730AD0EB05895CCE146AA5FCC24C9F7ECD0B1F",
+      "width": 256,
+      "height": 256,
+      "bytes": 8139
+    },
+    "skills/BlackBird_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/BlackBird_UltraSkill.BlackBird_UltraSkill",
+      "source_sha256": "D3832DDCB27B5953D4383EB0E4307091288E7C8DC130C023C7AF65F4A88A1C2E",
+      "sha256": "D3832DDCB27B5953D4383EB0E4307091288E7C8DC130C023C7AF65F4A88A1C2E",
+      "width": 256,
+      "height": 256,
+      "bytes": 11412
+    },
+    "skills/Cang_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Cang_Melee.Cang_Melee",
+      "source_sha256": "E55AEF1F60A6817AEFB1140DB48D7709D1D7011FCA39E3FD082AB36B4B22C656",
+      "sha256": "E55AEF1F60A6817AEFB1140DB48D7709D1D7011FCA39E3FD082AB36B4B22C656",
+      "width": 256,
+      "height": 256,
+      "bytes": 16036
+    },
+    "skills/Cang_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Cang_QTE.Cang_QTE",
+      "source_sha256": "926A4F79CCC909C1BBB51D50B0663C89C0A538D0AE425D92C29D65B6D243710F",
+      "sha256": "926A4F79CCC909C1BBB51D50B0663C89C0A538D0AE425D92C29D65B6D243710F",
+      "width": 256,
+      "height": 256,
+      "bytes": 22268
+    },
+    "skills/Cang_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Cang_Skill.Cang_Skill",
+      "source_sha256": "4E37548D9702E1B27C0AE140A03E9084E9A0978ED0D148E57E978A5978883A68",
+      "sha256": "4E37548D9702E1B27C0AE140A03E9084E9A0978ED0D148E57E978A5978883A68",
+      "width": 256,
+      "height": 256,
+      "bytes": 13478
+    },
+    "skills/Cang_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Cang_UltraSkill.Cang_UltraSkill",
+      "source_sha256": "01B9359D76FE9B517031E21BEC3BC75EC14D864E49D4C616CD01AA504B05E4F2",
+      "sha256": "01B9359D76FE9B517031E21BEC3BC75EC14D864E49D4C616CD01AA504B05E4F2",
+      "width": 256,
+      "height": 256,
+      "bytes": 19468
+    },
+    "skills/chiichan_melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/chiichan_melee.chiichan_melee",
+      "source_sha256": "236174C3B9A1502035E105006B376F37157188723E98D4AB5981411BF845EC5C",
+      "sha256": "236174C3B9A1502035E105006B376F37157188723E98D4AB5981411BF845EC5C",
+      "width": 256,
+      "height": 256,
+      "bytes": 19432
+    },
+    "skills/chiichan_qte.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/chiichan_qte.chiichan_qte",
+      "source_sha256": "C1774E1C04B863219B53FD56EDE8FA39663DA37B1ED59A5D8BF94D0BA806C813",
+      "sha256": "C1774E1C04B863219B53FD56EDE8FA39663DA37B1ED59A5D8BF94D0BA806C813",
+      "width": 256,
+      "height": 256,
+      "bytes": 14930
+    },
+    "skills/chiichan_skill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/chiichan_skill1.chiichan_skill1",
+      "source_sha256": "A2F06BAF3948AA4DF6D7924BA94F7BD7240FE90293075B03164E874EF2431E2F",
+      "sha256": "A2F06BAF3948AA4DF6D7924BA94F7BD7240FE90293075B03164E874EF2431E2F",
+      "width": 256,
+      "height": 256,
+      "bytes": 16846
+    },
+    "skills/chiichan_ultraskill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/chiichan_ultraskill.chiichan_ultraskill",
+      "source_sha256": "96C6376F3BFB9A6FFC62577027D975903C7D5A6A735B1625E22E368C019B92B5",
+      "sha256": "96C6376F3BFB9A6FFC62577027D975903C7D5A6A735B1625E22E368C019B92B5",
+      "width": 256,
+      "height": 256,
+      "bytes": 19287
+    },
+    "skills/Daffodill_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Daffodill_Melee.Daffodill_Melee",
+      "source_sha256": "C720C092D4E12213276A30908649F3062CCD78142E050BA0CD42F7448460D0F3",
+      "sha256": "C720C092D4E12213276A30908649F3062CCD78142E050BA0CD42F7448460D0F3",
+      "width": 256,
+      "height": 256,
+      "bytes": 6759
+    },
+    "skills/Daffodill_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Daffodill_QTE.Daffodill_QTE",
+      "source_sha256": "70F79DB0D40F4C8E901A363249225BC983223E13BCFA2DF35EA81B6522F21029",
+      "sha256": "70F79DB0D40F4C8E901A363249225BC983223E13BCFA2DF35EA81B6522F21029",
+      "width": 256,
+      "height": 256,
+      "bytes": 8001
+    },
+    "skills/Daffodill_Skill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Daffodill_Skill1.Daffodill_Skill1",
+      "source_sha256": "5397BE0D8EFC1B113102EA913424760F59B88C4B4B3DE8A932781490BAD8E420",
+      "sha256": "5397BE0D8EFC1B113102EA913424760F59B88C4B4B3DE8A932781490BAD8E420",
+      "width": 256,
+      "height": 256,
+      "bytes": 7041
+    },
+    "skills/Daffodill_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Daffodill_UltraSkill.Daffodill_UltraSkill",
+      "source_sha256": "72AE9EBFD98612301CA9975253CC58C1E8CE108070FC522B082F80292E4210DC",
+      "sha256": "72AE9EBFD98612301CA9975253CC58C1E8CE108070FC522B082F80292E4210DC",
+      "width": 256,
+      "height": 256,
+      "bytes": 10142
+    },
+    "skills/Edgar_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Edgar_Melee.Edgar_Melee",
+      "source_sha256": "817F3C023EB42B3856385E6C43621F5F690CDAB56172167C0B294C5AAEAAB7F6",
+      "sha256": "817F3C023EB42B3856385E6C43621F5F690CDAB56172167C0B294C5AAEAAB7F6",
+      "width": 256,
+      "height": 256,
+      "bytes": 15825
+    },
+    "skills/Edgar_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Edgar_QTE.Edgar_QTE",
+      "source_sha256": "EC5E1753AB7C43773BE771208ECD3A50AA2C2FD6A71EDA89A2F9098AA6CE1BD8",
+      "sha256": "EC5E1753AB7C43773BE771208ECD3A50AA2C2FD6A71EDA89A2F9098AA6CE1BD8",
+      "width": 256,
+      "height": 256,
+      "bytes": 12260
+    },
+    "skills/Edgar_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Edgar_Skill.Edgar_Skill",
+      "source_sha256": "A7F20CDC889FD6F86EEED908B5AC349F5FA0C6FDD6EDC7D22E10FDE216270DC6",
+      "sha256": "A7F20CDC889FD6F86EEED908B5AC349F5FA0C6FDD6EDC7D22E10FDE216270DC6",
+      "width": 256,
+      "height": 256,
+      "bytes": 13316
+    },
+    "skills/Edgar_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Edgar_UltraSkill.Edgar_UltraSkill",
+      "source_sha256": "D87F569C9AF879836705CD4F11EB4C0A5E84EB7CC412D3B99EC6E1B874F1DAE6",
+      "sha256": "D87F569C9AF879836705CD4F11EB4C0A5E84EB7CC412D3B99EC6E1B874F1DAE6",
+      "width": 256,
+      "height": 256,
+      "bytes": 18534
+    },
+    "skills/Fadia_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Fadia_Melee.Fadia_Melee",
+      "source_sha256": "303A9362B1B66DCA503ADCC58A30691A1BD8945C569FE167EB4B5AADF4E49E8A",
+      "sha256": "303A9362B1B66DCA503ADCC58A30691A1BD8945C569FE167EB4B5AADF4E49E8A",
+      "width": 256,
+      "height": 256,
+      "bytes": 11731
+    },
+    "skills/Fadia_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Fadia_QTE.Fadia_QTE",
+      "source_sha256": "4318AD3F4EB4BD13D0D6588AF76D7EED851077674A8ACC1D0FC204F044A0F34E",
+      "sha256": "4318AD3F4EB4BD13D0D6588AF76D7EED851077674A8ACC1D0FC204F044A0F34E",
+      "width": 256,
+      "height": 256,
+      "bytes": 7492
+    },
+    "skills/Fadia_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Fadia_Skill.Fadia_Skill",
+      "source_sha256": "44DD611B583AD2EEE5A406CBDEB9BA6CA3672043DB9A0DCB123F7DBDD9AC769C",
+      "sha256": "44DD611B583AD2EEE5A406CBDEB9BA6CA3672043DB9A0DCB123F7DBDD9AC769C",
+      "width": 256,
+      "height": 256,
+      "bytes": 22101
+    },
+    "skills/Fadia_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Fadia_UltraSkill.Fadia_UltraSkill",
+      "source_sha256": "B109747C5BCF93698C1A77C2A0849F8334F5D3F7A8F7C416BB64978F739E9174",
+      "sha256": "B109747C5BCF93698C1A77C2A0849F8334F5D3F7A8F7C416BB64978F739E9174",
+      "width": 256,
+      "height": 256,
+      "bytes": 17733
+    },
+    "skills/Female_melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Female_melee.Female_melee",
+      "source_sha256": "5A3FFF48F5198249BF1893693A0967AD18CA5A910B848E6EF2DAD0633159C9F4",
+      "sha256": "5A3FFF48F5198249BF1893693A0967AD18CA5A910B848E6EF2DAD0633159C9F4",
+      "width": 256,
+      "height": 256,
+      "bytes": 16551
+    },
+    "skills/Female_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Female_QTE.Female_QTE",
+      "source_sha256": "F5AEA1CC6081608E6E2B10518D2210B8A71007469EBA9CE1A18AB665CA8CFB10",
+      "sha256": "F5AEA1CC6081608E6E2B10518D2210B8A71007469EBA9CE1A18AB665CA8CFB10",
+      "width": 256,
+      "height": 256,
+      "bytes": 15203
+    },
+    "skills/Female_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Female_Skill.Female_Skill",
+      "source_sha256": "61B1473649C442A1F4ABF21DB4124867D75E34FF259E1D4AC6091A582F54F531",
+      "sha256": "61B1473649C442A1F4ABF21DB4124867D75E34FF259E1D4AC6091A582F54F531",
+      "width": 256,
+      "height": 256,
+      "bytes": 20622
+    },
+    "skills/Female_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Female_UltraSkill.Female_UltraSkill",
+      "source_sha256": "EEF3895A4C8107E5F37DDAB12A8872CDA437CF91FF65E9DEC84C2A22BC57D5AF",
+      "sha256": "EEF3895A4C8107E5F37DDAB12A8872CDA437CF91FF65E9DEC84C2A22BC57D5AF",
+      "width": 256,
+      "height": 256,
+      "bytes": 17474
+    },
+    "skills/Haniel_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Haniel_Melee.Haniel_Melee",
+      "source_sha256": "20D68119BACD14F075F7FA07BE926D615DCE4CD508C5CB726B24FA4A8364EB84",
+      "sha256": "20D68119BACD14F075F7FA07BE926D615DCE4CD508C5CB726B24FA4A8364EB84",
+      "width": 256,
+      "height": 256,
+      "bytes": 14869
+    },
+    "skills/Haniel_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Haniel_QTE.Haniel_QTE",
+      "source_sha256": "0A4D63A75A3DA20D01773396DC75DFFF5F53858780C57F9F452AE780F611E8BA",
+      "sha256": "0A4D63A75A3DA20D01773396DC75DFFF5F53858780C57F9F452AE780F611E8BA",
+      "width": 256,
+      "height": 256,
+      "bytes": 16175
+    },
+    "skills/Haniel_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Haniel_Skill.Haniel_Skill",
+      "source_sha256": "32547458116438AEC155DDDB13FD5B41BF0E989C46F4026F51DC097ADAC438CF",
+      "sha256": "32547458116438AEC155DDDB13FD5B41BF0E989C46F4026F51DC097ADAC438CF",
+      "width": 256,
+      "height": 256,
+      "bytes": 21671
+    },
+    "skills/Haniel_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Haniel_UltraSkill.Haniel_UltraSkill",
+      "source_sha256": "4377E5D97C05CDB5097F384E8FDEF0D55F4A3A184A935130D69B6B09EB53EE1D",
+      "sha256": "4377E5D97C05CDB5097F384E8FDEF0D55F4A3A184A935130D69B6B09EB53EE1D",
+      "width": 256,
+      "height": 256,
+      "bytes": 19739
+    },
+    "skills/Hathor_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Hathor_Melee.Hathor_Melee",
+      "source_sha256": "E96CC87842559BB643D388053151350AACFFFB65C943AC1A46FC73CB9B89CB2E",
+      "sha256": "E96CC87842559BB643D388053151350AACFFFB65C943AC1A46FC73CB9B89CB2E",
+      "width": 256,
+      "height": 256,
+      "bytes": 13682
+    },
+    "skills/Hathor_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Hathor_QTE.Hathor_QTE",
+      "source_sha256": "72368563DBA6A07F992526E76F7A4994EB6C3F46FB8A1E6251592C0381F6C8F9",
+      "sha256": "72368563DBA6A07F992526E76F7A4994EB6C3F46FB8A1E6251592C0381F6C8F9",
+      "width": 256,
+      "height": 256,
+      "bytes": 13325
+    },
+    "skills/Hathor_Skill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Hathor_Skill1.Hathor_Skill1",
+      "source_sha256": "B2CB23A0DE4718E88F447ED3509963DB809FB24ECE1D81ED0262DDFED6E90D4A",
+      "sha256": "B2CB23A0DE4718E88F447ED3509963DB809FB24ECE1D81ED0262DDFED6E90D4A",
+      "width": 256,
+      "height": 256,
+      "bytes": 14713
+    },
+    "skills/Hathor_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Hathor_UltraSkill.Hathor_UltraSkill",
+      "source_sha256": "B40E84331AA197A167D249021C9DF06F4E7CE707796580B587E200475EED1C27",
+      "sha256": "B40E84331AA197A167D249021C9DF06F4E7CE707796580B587E200475EED1C27",
+      "width": 256,
+      "height": 256,
+      "bytes": 13509
+    },
+    "skills/Jin_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Jin_Melee.Jin_Melee",
+      "source_sha256": "D870D57FBE79A88FA088BA38832793EA98EA6EFB0533D0A63EE237593FFE20E3",
+      "sha256": "D870D57FBE79A88FA088BA38832793EA98EA6EFB0533D0A63EE237593FFE20E3",
+      "width": 256,
+      "height": 256,
+      "bytes": 15951
+    },
+    "skills/Jin_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Jin_QTE.Jin_QTE",
+      "source_sha256": "0AFF1462EF8743942E0FEA4EC3884D6A30399533CDBF5E33FB30C554A5B32DA8",
+      "sha256": "0AFF1462EF8743942E0FEA4EC3884D6A30399533CDBF5E33FB30C554A5B32DA8",
+      "width": 256,
+      "height": 256,
+      "bytes": 15359
+    },
+    "skills/Jin_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Jin_Skill.Jin_Skill",
+      "source_sha256": "949BC6C2E0C06CEAD90F2C72B44EEAAC5EED0390D8ACFFE88A39799ECB8A592E",
+      "sha256": "949BC6C2E0C06CEAD90F2C72B44EEAAC5EED0390D8ACFFE88A39799ECB8A592E",
+      "width": 256,
+      "height": 256,
+      "bytes": 15732
+    },
+    "skills/Jin_UltraSkillA.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Jin_UltraSkillA.Jin_UltraSkillA",
+      "source_sha256": "3965F32A2E5A7700217AE27D0D42F6AF1C7943139C6C1C833E0DE1352AD44D0A",
+      "sha256": "3965F32A2E5A7700217AE27D0D42F6AF1C7943139C6C1C833E0DE1352AD44D0A",
+      "width": 256,
+      "height": 256,
+      "bytes": 22126
+    },
+    "skills/Kuhara_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Kuhara_Melee.Kuhara_Melee",
+      "source_sha256": "4D787135C499337C54FACD2E94FAD465C23A6D3E6F279215949049AC3EA47BED",
+      "sha256": "4D787135C499337C54FACD2E94FAD465C23A6D3E6F279215949049AC3EA47BED",
+      "width": 256,
+      "height": 256,
+      "bytes": 18391
+    },
+    "skills/Kuhara_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Kuhara_QTE.Kuhara_QTE",
+      "source_sha256": "ABAC6EE09CF9ADB523ECADEEB4C4918B11C9F9C3C74DE991749A1C81B7E3EFD3",
+      "sha256": "ABAC6EE09CF9ADB523ECADEEB4C4918B11C9F9C3C74DE991749A1C81B7E3EFD3",
+      "width": 256,
+      "height": 256,
+      "bytes": 15900
+    },
+    "skills/Kuhara_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Kuhara_Skill.Kuhara_Skill",
+      "source_sha256": "9C5664555C85F8CF45F986A2BA3A5B6A1BA229E9DDB0BFE34DB75B379FC0A413",
+      "sha256": "9C5664555C85F8CF45F986A2BA3A5B6A1BA229E9DDB0BFE34DB75B379FC0A413",
+      "width": 256,
+      "height": 256,
+      "bytes": 12981
+    },
+    "skills/Kuhara_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Kuhara_UltraSkill.Kuhara_UltraSkill",
+      "source_sha256": "6EEE6B54DE44767AEC6C2AC8E88AEF9BB462AECD76590BE0F7229E52846BDB96",
+      "sha256": "6EEE6B54DE44767AEC6C2AC8E88AEF9BB462AECD76590BE0F7229E52846BDB96",
+      "width": 256,
+      "height": 256,
+      "bytes": 19029
+    },
+    "skills/Lacrimosa_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Lacrimosa_Melee.Lacrimosa_Melee",
+      "source_sha256": "2768DAD74A4AE9C5E49E4775DB559056E2A69FC642E9C0E507A3AB549EB22E37",
+      "sha256": "2768DAD74A4AE9C5E49E4775DB559056E2A69FC642E9C0E507A3AB549EB22E37",
+      "width": 256,
+      "height": 256,
+      "bytes": 11910
+    },
+    "skills/Lacrimosa_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Lacrimosa_QTE.Lacrimosa_QTE",
+      "source_sha256": "17234AC9208E33104A6C45D1A25B24AD2A59C71A7C03EC2C6EE757D269AE2A12",
+      "sha256": "17234AC9208E33104A6C45D1A25B24AD2A59C71A7C03EC2C6EE757D269AE2A12",
+      "width": 256,
+      "height": 256,
+      "bytes": 16511
+    },
+    "skills/Lacrimosa_Skill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Lacrimosa_Skill1.Lacrimosa_Skill1",
+      "source_sha256": "575684AE2AD68ED3FCB432557140EBA908452CEC679B1FF357161818D48C73A8",
+      "sha256": "575684AE2AD68ED3FCB432557140EBA908452CEC679B1FF357161818D48C73A8",
+      "width": 256,
+      "height": 256,
+      "bytes": 22703
+    },
+    "skills/Lacrimosa_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Lacrimosa_UltraSkill.Lacrimosa_UltraSkill",
+      "source_sha256": "0AEF267DA1064298EA976F0EE462A61F816328F3A112A80FCD8C97CAF9A3E81F",
+      "sha256": "0AEF267DA1064298EA976F0EE462A61F816328F3A112A80FCD8C97CAF9A3E81F",
+      "width": 256,
+      "height": 256,
+      "bytes": 16388
+    },
+    "skills/Mint_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mint_Melee.Mint_Melee",
+      "source_sha256": "A45B430E8A1DFE83C5DA110C5AC7AA5DC00D0BA4C0E1F46FA3BA7D838F200ECD",
+      "sha256": "A45B430E8A1DFE83C5DA110C5AC7AA5DC00D0BA4C0E1F46FA3BA7D838F200ECD",
+      "width": 256,
+      "height": 256,
+      "bytes": 14107
+    },
+    "skills/Mint_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mint_QTE.Mint_QTE",
+      "source_sha256": "02229D73FD8E5CAAB0A5FB73AEA1E4CA677149184E66AB3041126E96118FDCEC",
+      "sha256": "02229D73FD8E5CAAB0A5FB73AEA1E4CA677149184E66AB3041126E96118FDCEC",
+      "width": 256,
+      "height": 256,
+      "bytes": 22101
+    },
+    "skills/Mint_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mint_Skill.Mint_Skill",
+      "source_sha256": "C02CFF71B0EA2F4E20D9DF37F1C509EF30C5A2E76DE3ADC15CE5E1B4EA8084BA",
+      "sha256": "C02CFF71B0EA2F4E20D9DF37F1C509EF30C5A2E76DE3ADC15CE5E1B4EA8084BA",
+      "width": 256,
+      "height": 256,
+      "bytes": 18944
+    },
+    "skills/Mint_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mint_UltraSkill.Mint_UltraSkill",
+      "source_sha256": "4F170132D027F67BA6689996DE2C452E43C091AA8C5B039AA1814062B9C7CBD5",
+      "sha256": "4F170132D027F67BA6689996DE2C452E43C091AA8C5B039AA1814062B9C7CBD5",
+      "width": 256,
+      "height": 256,
+      "bytes": 16693
+    },
+    "skills/Mitsuki_Melee1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mitsuki_Melee1.Mitsuki_Melee1",
+      "source_sha256": "0C7ADBF67BB9AFC802F11CBB04F541166A6B60328283A695931A43C22051F1F8",
+      "sha256": "0C7ADBF67BB9AFC802F11CBB04F541166A6B60328283A695931A43C22051F1F8",
+      "width": 256,
+      "height": 256,
+      "bytes": 8647
+    },
+    "skills/Mitsuki_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mitsuki_QTE.Mitsuki_QTE",
+      "source_sha256": "0A1F8DEACBFAB670A39DC7AF8DADF03DC90C0A58BA1FCCFAB035636DE8C7C02B",
+      "sha256": "0A1F8DEACBFAB670A39DC7AF8DADF03DC90C0A58BA1FCCFAB035636DE8C7C02B",
+      "width": 256,
+      "height": 256,
+      "bytes": 7233
+    },
+    "skills/Mitsuki_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mitsuki_Skill.Mitsuki_Skill",
+      "source_sha256": "F8D6AEA6FEF317B61687C12400B27759C1E002FED29E0A4BAF265966DE271A22",
+      "sha256": "F8D6AEA6FEF317B61687C12400B27759C1E002FED29E0A4BAF265966DE271A22",
+      "width": 256,
+      "height": 256,
+      "bytes": 7847
+    },
+    "skills/Mitsuki_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Mitsuki_UltraSkill.Mitsuki_UltraSkill",
+      "source_sha256": "7A8E0355F34FFDD9399FCDDC05FB0B1FBBBDC88FFBB5AF4385D6ADE067B8A44E",
+      "sha256": "7A8E0355F34FFDD9399FCDDC05FB0B1FBBBDC88FFBB5AF4385D6ADE067B8A44E",
+      "width": 256,
+      "height": 256,
+      "bytes": 10365
+    },
+    "skills/Nanally_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Nanally_Melee.Nanally_Melee",
+      "source_sha256": "02C6929A46B544C752E911A2522318A4A5EF91A449B7ACEEB0EAB08275A1A497",
+      "sha256": "02C6929A46B544C752E911A2522318A4A5EF91A449B7ACEEB0EAB08275A1A497",
+      "width": 256,
+      "height": 256,
+      "bytes": 9498
+    },
+    "skills/Nanally_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Nanally_QTE.Nanally_QTE",
+      "source_sha256": "8CFEA205C50DE3C438F13A9219C99EB8C6BD813241393FB36B4187CFFA9B003B",
+      "sha256": "8CFEA205C50DE3C438F13A9219C99EB8C6BD813241393FB36B4187CFFA9B003B",
+      "width": 256,
+      "height": 256,
+      "bytes": 14271
+    },
+    "skills/Nanally_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Nanally_Skill.Nanally_Skill",
+      "source_sha256": "1FDF98228B3EDCDF9F0DE100B447CD057056950D7FECD67AB8F0BBE5EF12A090",
+      "sha256": "1FDF98228B3EDCDF9F0DE100B447CD057056950D7FECD67AB8F0BBE5EF12A090",
+      "width": 256,
+      "height": 256,
+      "bytes": 22226
+    },
+    "skills/Nanally_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Nanally_UltraSkill.Nanally_UltraSkill",
+      "source_sha256": "1E00B42244078E3B00BF5F965A847A8C3950AB948A8EA65E901A3156B8EAC459",
+      "sha256": "1E00B42244078E3B00BF5F965A847A8C3950AB948A8EA65E901A3156B8EAC459",
+      "width": 256,
+      "height": 256,
+      "bytes": 33599
+    },
+    "skills/Oneiroi_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Oneiroi_Melee.Oneiroi_Melee",
+      "source_sha256": "D9774CB984686C0B7243531F44C92DD77E38BE6452DEF00E593358C54B27ED8D",
+      "sha256": "D9774CB984686C0B7243531F44C92DD77E38BE6452DEF00E593358C54B27ED8D",
+      "width": 256,
+      "height": 256,
+      "bytes": 8092
+    },
+    "skills/Oneiroi_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Oneiroi_QTE.Oneiroi_QTE",
+      "source_sha256": "1AD224ED58EA9E793A4C6925F859D9E5133F5B21904465E1E5F6EDFB4B5995EF",
+      "sha256": "1AD224ED58EA9E793A4C6925F859D9E5133F5B21904465E1E5F6EDFB4B5995EF",
+      "width": 256,
+      "height": 256,
+      "bytes": 9116
+    },
+    "skills/Oneiroi_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Oneiroi_Skill.Oneiroi_Skill",
+      "source_sha256": "118074F18FEDF21A8606EC501C26EC7630CC76F28027BDC57E57B0972AB237C7",
+      "sha256": "118074F18FEDF21A8606EC501C26EC7630CC76F28027BDC57E57B0972AB237C7",
+      "width": 256,
+      "height": 256,
+      "bytes": 9321
+    },
+    "skills/Oneiroi_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Oneiroi_UltraSkill.Oneiroi_UltraSkill",
+      "source_sha256": "1AE2506C1CFB799781A1CD90C1A508E59101689CAF7E1D6B11D965DB22312807",
+      "sha256": "1AE2506C1CFB799781A1CD90C1A508E59101689CAF7E1D6B11D965DB22312807",
+      "width": 256,
+      "height": 256,
+      "bytes": 8468
+    },
+    "skills/Linko_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Linko_Melee.Linko_Melee",
+      "source_sha256": "B53B2B99E0F4EE6B35905B57885855B11FCB32905893CF0D6AC35662A4CF9554",
+      "sha256": "B53B2B99E0F4EE6B35905B57885855B11FCB32905893CF0D6AC35662A4CF9554",
+      "width": 256,
+      "height": 256,
+      "bytes": 8125
+    },
+    "skills/Linko_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Linko_QTE.Linko_QTE",
+      "source_sha256": "A710AE0847415367B430DD73526AB00BB3E23B09899E7B418C9D16C8E25A59CC",
+      "sha256": "A710AE0847415367B430DD73526AB00BB3E23B09899E7B418C9D16C8E25A59CC",
+      "width": 256,
+      "height": 256,
+      "bytes": 7189
+    },
+    "skills/Linko_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Linko_Skill.Linko_Skill",
+      "source_sha256": "47CC2734094AB1F10C737458A7FB9CC8560D5C32850438CE9C20656AE157D3B5",
+      "sha256": "47CC2734094AB1F10C737458A7FB9CC8560D5C32850438CE9C20656AE157D3B5",
+      "width": 256,
+      "height": 256,
+      "bytes": 9683
+    },
+    "skills/Linko_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Linko_UltraSkill.Linko_UltraSkill",
+      "source_sha256": "FAAD9D866C420BFAA847786B2A316AFCB30D468744946BF57E0DEE423B892635",
+      "sha256": "FAAD9D866C420BFAA847786B2A316AFCB30D468744946BF57E0DEE423B892635",
+      "width": 256,
+      "height": 256,
+      "bytes": 9423
+    },
+    "skills/Sagiri_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Sagiri_Melee.Sagiri_Melee",
+      "source_sha256": "8CBE64A90C0224B7FD2F71FB44B74ED7797D7E83328ED1B3071B375420BADEA2",
+      "sha256": "8CBE64A90C0224B7FD2F71FB44B74ED7797D7E83328ED1B3071B375420BADEA2",
+      "width": 256,
+      "height": 256,
+      "bytes": 11639
+    },
+    "skills/Sagiri_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Sagiri_QTE.Sagiri_QTE",
+      "source_sha256": "AE8C68EBAE2B579D499D9051FFEF71C98BD0FC4DF555F15C3548248808F6C0F0",
+      "sha256": "AE8C68EBAE2B579D499D9051FFEF71C98BD0FC4DF555F15C3548248808F6C0F0",
+      "width": 256,
+      "height": 256,
+      "bytes": 12897
+    },
+    "skills/Sagiri_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Sagiri_Skill.Sagiri_Skill",
+      "source_sha256": "961150024D3A2072B6DADF8043E53458CCCDAC8ABA7F3304B838F34E9F99E11C",
+      "sha256": "961150024D3A2072B6DADF8043E53458CCCDAC8ABA7F3304B838F34E9F99E11C",
+      "width": 256,
+      "height": 256,
+      "bytes": 18999
+    },
+    "skills/Sagiri_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Sagiri_UltraSkill.Sagiri_UltraSkill",
+      "source_sha256": "6C3D24492058EA56182AECFDBF077E5102FC4456EC7C6C836AE622B2DB1D02E1",
+      "sha256": "6C3D24492058EA56182AECFDBF077E5102FC4456EC7C6C836AE622B2DB1D02E1",
+      "width": 256,
+      "height": 256,
+      "bytes": 21356
+    },
+    "skills/Shinku_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Shinku_Melee.Shinku_Melee",
+      "source_sha256": "5A1978DB0F0480E2D30F7452D3E7E0C39E94C569C0D17D9C318013E779D4692F",
+      "sha256": "5A1978DB0F0480E2D30F7452D3E7E0C39E94C569C0D17D9C318013E779D4692F",
+      "width": 256,
+      "height": 256,
+      "bytes": 5692
+    },
+    "skills/Shinku_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Shinku_QTE.Shinku_QTE",
+      "source_sha256": "28C9DF2C7CC2A0AC62ACCD1ACBE546B398ED3866C36F6A62149FF624D38FF60A",
+      "sha256": "28C9DF2C7CC2A0AC62ACCD1ACBE546B398ED3866C36F6A62149FF624D38FF60A",
+      "width": 256,
+      "height": 256,
+      "bytes": 8184
+    },
+    "skills/Shinku_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Shinku_Skill.Shinku_Skill",
+      "source_sha256": "F25DB441D97139AB54F63550E9EAF3092EB8BFF4A0B531DBA35E43B490CB7815",
+      "sha256": "F25DB441D97139AB54F63550E9EAF3092EB8BFF4A0B531DBA35E43B490CB7815",
+      "width": 256,
+      "height": 256,
+      "bytes": 6188
+    },
+    "skills/Shinku_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Shinku_UltraSkill.Shinku_UltraSkill",
+      "source_sha256": "86CF250ADC0560D179A0562CADC4300E75756F3549C5B3932F327DC40EBC11E8",
+      "sha256": "86CF250ADC0560D179A0562CADC4300E75756F3549C5B3932F327DC40EBC11E8",
+      "width": 256,
+      "height": 256,
+      "bytes": 12772
+    },
+    "skills/Skia_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Skia_Melee.Skia_Melee",
+      "source_sha256": "B5D5F69D8D5FB340665206FC302115E55EF86BFC37106639B9C51D59A8AF19EB",
+      "sha256": "B5D5F69D8D5FB340665206FC302115E55EF86BFC37106639B9C51D59A8AF19EB",
+      "width": 256,
+      "height": 256,
+      "bytes": 11712
+    },
+    "skills/Skia_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Skia_QTE.Skia_QTE",
+      "source_sha256": "11B891E28E03C46E6CC100499EABAE45544732CDF2976C3256E95B9E0FC06308",
+      "sha256": "11B891E28E03C46E6CC100499EABAE45544732CDF2976C3256E95B9E0FC06308",
+      "width": 256,
+      "height": 256,
+      "bytes": 19256
+    },
+    "skills/Skia_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Skia_Skill.Skia_Skill",
+      "source_sha256": "55D1D87463B19B58A7538A218F4DB4898896EBAC394D1671171991351C0CE42D",
+      "sha256": "55D1D87463B19B58A7538A218F4DB4898896EBAC394D1671171991351C0CE42D",
+      "width": 256,
+      "height": 256,
+      "bytes": 14743
+    },
+    "skills/Skia_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Skia_UltraSkill.Skia_UltraSkill",
+      "source_sha256": "3AD8441297F0129AC70527BA2FF46D4BFCDC546F1CF871DEB97743BA6A833228",
+      "sha256": "3AD8441297F0129AC70527BA2FF46D4BFCDC546F1CF871DEB97743BA6A833228",
+      "width": 256,
+      "height": 256,
+      "bytes": 16164
+    },
+    "skills/Zankou_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Zankou_Melee.Zankou_Melee",
+      "source_sha256": "378C0A0709E79E37630C68C10CF9FADE12BE99AC6D378D0B8A04389A59E7523D",
+      "sha256": "378C0A0709E79E37630C68C10CF9FADE12BE99AC6D378D0B8A04389A59E7523D",
+      "width": 256,
+      "height": 256,
+      "bytes": 9290
+    },
+    "skills/Zankou_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Zankou_QTE.Zankou_QTE",
+      "source_sha256": "75EFE73F15738E76BD6D0CD76337570EC3FB1260F19145666EDC390A768C7655",
+      "sha256": "75EFE73F15738E76BD6D0CD76337570EC3FB1260F19145666EDC390A768C7655",
+      "width": 256,
+      "height": 256,
+      "bytes": 7840
+    },
+    "skills/Zankou_Skill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Zankou_Skill1.Zankou_Skill1",
+      "source_sha256": "60EDEC5D904345EF3FD7C2BEA1D6EAB4265794AB269CFC1441E4DEB949F6FBC4",
+      "sha256": "60EDEC5D904345EF3FD7C2BEA1D6EAB4265794AB269CFC1441E4DEB949F6FBC4",
+      "width": 256,
+      "height": 256,
+      "bytes": 7915
+    },
+    "skills/Zankou_Ultra.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Zankou_Ultra.Zankou_Ultra",
+      "source_sha256": "39D17AC2962A841B7E086509ABBC89DBC56439656E6BEF2DA92FC9DCC441A909",
+      "sha256": "39D17AC2962A841B7E086509ABBC89DBC56439656E6BEF2DA92FC9DCC441A909",
+      "width": 256,
+      "height": 256,
+      "bytes": 9113
     }
   },
-  "total_files": 355,
-  "total_bytes": 14510987,
+  "total_files": 447,
+  "total_bytes": 15811066,
   "dataset_id": "cn_retail_reference_20260924_9030b45b",
   "database_sha256": "500414EADB0EB59710271D5D064616523089EACB588D05BB0D784E570E0DD524",
-  "unresolved_assets": []
+  "unresolved_assets": [],
+  "skills": {
+    "GA_Adler_Melee": "skills/Adler_Melee.png",
+    "GA_Adler_QTE": "skills/Adler_QTE.png",
+    "GA_Adler_Skill": "skills/Adler_Skill.png",
+    "GA_Adler_UltraSkill": "skills/Adler_UltraSkill.png",
+    "GA_Akane_Melee": "skills/Chaos_Melee.png",
+    "GA_Akane_QTE": "skills/Chaos_QTE.png",
+    "GA_Akane_Skill": "skills/Chaos_Skill.png",
+    "GA_Akane_UltraSkill": "skills/Chaos_UltraSkill.png",
+    "GA_BlackBird_Melee": "skills/BlackBird_Melee.png",
+    "GA_BlackBird_QTE": "skills/BlackBird_QTE.png",
+    "GA_BlackBird_Skill": "skills/BlackBird_Skill.png",
+    "GA_BlackBird_UltraSkill": "skills/BlackBird_UltraSkill.png",
+    "GA_Cang_Melee": "skills/Cang_Melee.png",
+    "GA_Cang_QTE": "skills/Cang_QTE.png",
+    "GA_Cang_Skill": "skills/Cang_Skill.png",
+    "GA_Cang_UltraSkill": "skills/Cang_UltraSkill.png",
+    "GA_Chaos071_Melee": "skills/Chaos_Melee.png",
+    "GA_Chaos071_QTE": "skills/Chaos_QTE.png",
+    "GA_Chaos071_Skill": "skills/Chaos_Skill.png",
+    "GA_Chaos071_UltraSkill": "skills/Chaos_UltraSkill.png",
+    "GA_Chiichan073_Melee": "skills/chiichan_melee.png",
+    "GA_Chiichan073_QTE": "skills/chiichan_qte.png",
+    "GA_Chiichan073_Skill": "skills/chiichan_skill1.png",
+    "GA_Chiichan073_UltraSkill": "skills/chiichan_ultraskill.png",
+    "GA_Daffodill_Melee": "skills/Daffodill_Melee.png",
+    "GA_Daffodill_QTE": "skills/Daffodill_QTE.png",
+    "GA_Daffodill_Skill": "skills/Daffodill_Skill1.png",
+    "GA_Daffodill_UltraSkill": "skills/Daffodill_UltraSkill.png",
+    "GA_Edgar_Melee": "skills/Edgar_Melee.png",
+    "GA_Edgar_QTE": "skills/Edgar_QTE.png",
+    "GA_Edgar_Skill": "skills/Edgar_Skill.png",
+    "GA_Edgar_UltraSkill": "skills/Edgar_UltraSkill.png",
+    "GA_Fadia_Melee": "skills/Fadia_Melee.png",
+    "GA_Fadia_QTE": "skills/Fadia_QTE.png",
+    "GA_Fadia_Skill": "skills/Fadia_Skill.png",
+    "GA_Fadia_UltraSkill": "skills/Fadia_UltraSkill.png",
+    "GA_Female046_Melee": "skills/Female_melee.png",
+    "GA_Female046_QTE": "skills/Female_QTE.png",
+    "GA_Female046_Skill": "skills/Female_Skill.png",
+    "GA_Female046_UltraSkill": "skills/Female_UltraSkill.png",
+    "GA_Female051_Melee": "skills/Female_melee.png",
+    "GA_Female051_QTE": "skills/Female_QTE.png",
+    "GA_Female051_Skill": "skills/Female_Skill.png",
+    "GA_Female051_UltraSkill": "skills/Female_UltraSkill.png",
+    "GA_Haniel_Melee": "skills/Haniel_Melee.png",
+    "GA_Haniel_QTE": "skills/Haniel_QTE.png",
+    "GA_Haniel_Skill": "skills/Haniel_Skill.png",
+    "GA_Haniel_UltraSkill": "skills/Haniel_UltraSkill.png",
+    "GA_Hathor_Melee": "skills/Hathor_Melee.png",
+    "GA_Hathor_QTE": "skills/Hathor_QTE.png",
+    "GA_Hathor_Skill": "skills/Hathor_Skill1.png",
+    "GA_Hathor_UltraSkill": "skills/Hathor_UltraSkill.png",
+    "GA_Jin_Melee": "skills/Jin_Melee.png",
+    "GA_Jin_QTE": "skills/Jin_QTE.png",
+    "GA_Jin_Skill": "skills/Jin_Skill.png",
+    "GA_Jin_UltraSkill": "skills/Jin_UltraSkillA.png",
+    "GA_Kuhara_Melee": "skills/Kuhara_Melee.png",
+    "GA_Kuhara_QTE": "skills/Kuhara_QTE.png",
+    "GA_Kuhara_Skill": "skills/Kuhara_Skill.png",
+    "GA_Kuhara_UltraSkill": "skills/Kuhara_UltraSkill.png",
+    "GA_Lacrimosa_Melee": "skills/Lacrimosa_Melee.png",
+    "GA_Lacrimosa_QTE": "skills/Lacrimosa_QTE.png",
+    "GA_Lacrimosa_Skill": "skills/Lacrimosa_Skill1.png",
+    "GA_Lacrimosa_UltraSkill": "skills/Lacrimosa_UltraSkill.png",
+    "GA_Mint019_Melee": "skills/Mint_Melee.png",
+    "GA_Mint019_QTE": "skills/Mint_QTE.png",
+    "GA_Mint019_Skill": "skills/Mint_Skill.png",
+    "GA_Mint019_UltraSkill": "skills/Mint_UltraSkill.png",
+    "GA_Mitsuki_Melee": "skills/Mitsuki_Melee1.png",
+    "GA_Mitsuki_QTE": "skills/Mitsuki_QTE.png",
+    "GA_Mitsuki_Skill": "skills/Mitsuki_Skill.png",
+    "GA_Mitsuki_UltraSkill": "skills/Mitsuki_UltraSkill.png",
+    "GA_Nanally_Melee": "skills/Nanally_Melee.png",
+    "GA_Nanally_QTE": "skills/Nanally_QTE.png",
+    "GA_Nanally_Skill": "skills/Nanally_Skill.png",
+    "GA_Nanally_UltraSkill": "skills/Nanally_UltraSkill.png",
+    "GA_Oneiroi_Melee": "skills/Oneiroi_Melee.png",
+    "GA_Oneiroi_QTE": "skills/Oneiroi_QTE.png",
+    "GA_Oneiroi_Skill": "skills/Oneiroi_Skill.png",
+    "GA_Oneiroi_UltraSkill": "skills/Oneiroi_UltraSkill.png",
+    "GA_Radio072_Melee": "skills/Linko_Melee.png",
+    "GA_Radio072_QTE": "skills/Linko_QTE.png",
+    "GA_Radio072_Skill": "skills/Linko_Skill.png",
+    "GA_Radio072_UltraSkill": "skills/Linko_UltraSkill.png",
+    "GA_Sagiri_Melee": "skills/Sagiri_Melee.png",
+    "GA_Sagiri_QTE": "skills/Sagiri_QTE.png",
+    "GA_Sagiri_Skill": "skills/Sagiri_Skill.png",
+    "GA_Sagiri_UltraSkill": "skills/Sagiri_UltraSkill.png",
+    "GA_Shinku_Melee": "skills/Shinku_Melee.png",
+    "GA_Shinku_QTE": "skills/Shinku_QTE.png",
+    "GA_Shinku_Skill": "skills/Shinku_Skill.png",
+    "GA_Shinku_UltraSkill": "skills/Shinku_UltraSkill.png",
+    "GA_Skia_Melee": "skills/Skia_Melee.png",
+    "GA_Skia_QTE": "skills/Skia_QTE.png",
+    "GA_Skia_Skill": "skills/Skia_Skill.png",
+    "GA_Skia_UltraSkill": "skills/Skia_UltraSkill.png",
+    "GA_Zankou_Melee": "skills/Zankou_Melee.png",
+    "GA_Zankou_QTE": "skills/Zankou_QTE.png",
+    "GA_Zankou_Skill": "skills/Zankou_Skill1.png",
+    "GA_Zankou_UltraSkill": "skills/Zankou_Ultra.png"
+  }
 }

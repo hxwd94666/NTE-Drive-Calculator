@@ -75,3 +75,34 @@ def warehouse_lock_icon(active: bool, *, size: int = 20) -> QIcon:
     )
     painter.end()
     return QIcon(canvas)
+
+
+def allocation_lock_icon(active: bool) -> QIcon:
+    """Draw a larger background-free loadout lock, without changing warehouse artwork."""
+    canvas = QPixmap(48, 48)
+    canvas.fill(Qt.transparent)
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.Antialiasing)
+    foreground = '#e3b341' if active else '#8b949e'
+    color = QColor(theme_color(foreground))
+    shackle = QPainterPath()
+    shackle.moveTo(14, 23)
+    shackle.lineTo(14, 15)
+    shackle.cubicTo(14, 2, 34, 2, 34, 15)
+    shackle.lineTo(34, 23)
+    painter.setPen(QPen(color, 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawPath(shackle)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(color)
+    painter.drawRoundedRect(QRectF(8, 21, 32, 23), 4, 4)
+    # A transparent keyhole blends with the card, not a baked-in square background.
+    painter.setCompositionMode(QPainter.CompositionMode_Clear)
+    painter.drawEllipse(QRectF(21, 27, 6, 6))
+    painter.drawRoundedRect(QRectF(22.5, 31, 3, 7), 1, 1)
+    painter.end()
+    canvas.setDevicePixelRatio(2)
+    icon = QIcon()
+    for mode in (QIcon.Normal, QIcon.Active, QIcon.Selected):
+        icon.addPixmap(canvas, mode)
+    return icon

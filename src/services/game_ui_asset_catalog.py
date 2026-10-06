@@ -37,7 +37,7 @@ class GameUiAssetCatalog:
                 "equipment_items": {},
                 "equipment_modules": {}, "fork_items": {}, "monster_icons": {},
                 "progression_items": {},
-                "encounter_icons": {}, "monster_family_icons": {},
+                "encounter_icons": {}, "monster_family_icons": {}, "skills": {},
             }
         )
 
@@ -56,6 +56,10 @@ class GameUiAssetCatalog:
 
     def attribute_icon(self, attribute_key: str) -> Path | None:
         return self._resolve("attributes", str(attribute_key))
+
+    def skill_icon(self, skill_id: str) -> Path | None:
+        """Resolve a formal skill ID from the same packaged character catalog."""
+        return self._resolve("skills", str(skill_id))
 
     def equipment_icon(self, item_id: str) -> Path | None:
         return self._resolve("equipment_items", str(item_id))

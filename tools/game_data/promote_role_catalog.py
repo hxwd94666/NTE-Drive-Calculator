@@ -2,11 +2,49 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 import shutil
 import tempfile
 
 from src.integrations.role_catalog_release import read_role_catalog, validate_role_assets
+
+
+def promote_role_skill_assets(candidate: Path, target: Path) -> dict:
+    """Asset-only maintenance of an unchanged, already validated catalog dataset."""
+    candidate, target = candidate.resolve(), target.resolve()
+    if candidate == target:
+        raise ValueError('技能图片候选与正式目录相同')
+    current, updated = read_role_catalog(target), read_role_catalog(candidate)
+    if (current.sha256, current.dataset_id, current.scope) != (updated.sha256, updated.dataset_id, updated.scope):
+        raise ValueError('技能图片维护不接受数据库或数据集变更，请走静态整包晋升')
+    if (candidate/'manifest.json').read_bytes() != (target/'manifest.json').read_bytes():
+        raise ValueError('技能图片维护不修改目录身份清单')
+    before = validate_role_assets(current.asset_root, current.dataset_id, current.sha256)
+    after = validate_role_assets(updated.asset_root, updated.dataset_id, updated.sha256)
+    for key in set(before) | set(after):
+        if key not in {'skills', 'files', 'total_files', 'total_bytes'} and before.get(key) != after.get(key):
+            raise ValueError('技能图片维护改变了其他资源组')
+    before_files = {k: v for k, v in before['files'].items() if not k.startswith('skills/')}
+    after_files = {k: v for k, v in after['files'].items() if not k.startswith('skills/')}
+    if before_files != after_files:
+        raise ValueError('技能图片维护改变了其他图片或来源')
+    from tools.game_data.build_role_skill_assets import role_skill_asset_requests
+    requests = dict(role_skill_asset_requests(updated.database_path))
+    if set(requests) != set(after.get('skills', {})):
+        raise ValueError('技能图片没有覆盖当前目录的全部正式技能 ID')
+    for identity, asset_path in requests.items():
+        relative = after['skills'][identity]
+        if not relative.startswith('skills/') or after['files'][relative]['source_asset_path'] != asset_path:
+            raise ValueError('技能图片与正式资源路径不一致')
+    if after['total_files'] != len(after['files']) or after['total_bytes'] != sum((updated.asset_root/k).stat().st_size for k in after['files']):
+        raise ValueError('技能图片清单总量不一致')
+    result = promote_role_catalog({'database_path': updated.database_path}, target)
+    # Reopen the installed mapping too; no runtime fallback to share-only skills exists.
+    installed = json.loads((target/'game_ui/manifest.json').read_text(encoding='utf-8'))
+    if installed['skills'] != after['skills']:
+        raise ValueError('已安装技能图片映射校验失败')
+    return result
 
 
 def promote_role_catalog(finalized: dict, target: Path) -> dict:

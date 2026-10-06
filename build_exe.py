@@ -378,8 +378,8 @@ excludes = [
     "PySide6.QtOpenGLWidgets", "PySide6.QtNetwork",
     "PySide6.QtNetworkAuth", "PySide6.QtDBus",
     "PySide6.QtConcurrent",
-    # PIL 未使用
-    "PIL.ImageTk",
+    # PIL 未使用；项目图片入口与发行素材不使用 AVIF。
+    "PIL.ImageTk", "PIL.AvifImagePlugin", "PIL._avif",
 ]
 
 for exc in excludes:

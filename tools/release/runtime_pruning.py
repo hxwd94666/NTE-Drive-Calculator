@@ -112,6 +112,8 @@ def validate_pruned_runtime(internal: Path) -> None:
     remaining = list(cv2_dir.glob("opencv_videoio_ffmpeg*_64.dll"))
     remaining.extend(ov_dir / name for name in UNUSED_OPENVINO_LIBRARIES if (ov_dir / name).exists())
     remaining.extend(internal / name for name in UNUSED_QT_BINARIES if (internal / name).exists())
+    # Collected modules are excluded in build_exe.py, not deleted from source installs.
+    remaining.extend((internal / "PIL").glob("_avif*.pyd"))
     missing = [name for name in REQUIRED_OPENVINO_LIBRARIES if not (ov_dir / name).is_file()]
     missing += [name for name in REQUIRED_QT_BINARIES if not (internal / name).is_file()]
     remaining.extend(internal / name for name in UNUSED_SCIPY_DIRECTORIES if (internal / name).exists())

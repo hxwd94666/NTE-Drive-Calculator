@@ -17,6 +17,7 @@ from tools.game_assets.build_ui_assets import (
     DEFAULT_MANIFEST, _database_asset_entries, _encounter_database_asset_entries,
     _monster_asset_entries, build_assets,
 )
+from tools.game_data.build_role_skill_assets import add_role_skill_assets, role_skill_asset_requests
 
 
 def reference_recipe(source: Path, database: Path) -> dict:
@@ -58,6 +59,10 @@ def reference_asset_requests(source: Path, database: Path):
     for rows in _encounter_database_asset_entries(database):
         for row in rows:
             yield row["source_asset_path"]
+    for identity, asset_path in role_skill_asset_requests(database):
+        if not asset_path:
+            raise ValueError(f'正式技能缺少游戏图标路径：{identity}')
+        yield asset_path
 
 
 def main():
@@ -82,6 +87,7 @@ def main():
         relative = metadata["source_asset_path"].split(".", 1)[0][len("/Game/"):] + ".png"
         metadata["source_sha256"] = hashlib.sha256((args.source / relative).read_bytes()).hexdigest().upper()
     (output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest = add_role_skill_assets(args.source, database, output)
     print(json.dumps({"files": manifest["total_files"], "character_arts": len(manifest["character_arts"])}))
 
 

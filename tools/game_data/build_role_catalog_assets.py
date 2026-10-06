@@ -7,8 +7,15 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import sys
 
 from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.game_data.build_role_skill_assets import add_role_skill_assets
 
 
 def asset_requests(source: Path, database: Path):
@@ -70,7 +77,7 @@ def build_assets(source: Path, database: Path, output: Path):
             "source_sha256": hashlib.sha256(original.read_bytes()).hexdigest().upper(),
         }
     (output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return manifest
+    return add_role_skill_assets(source, database, output)
 
 
 def main():

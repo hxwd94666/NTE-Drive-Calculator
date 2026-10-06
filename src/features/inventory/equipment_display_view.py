@@ -48,6 +48,7 @@ from src.features.inventory.equipment_plan_optimizer import (
 from src.features.inventory.equipment_plan_renderer import (
     _render_equip_batch,
 )
+from src.features.inventory.practice_share_dialog import open_practice_share
 
 
 __all__ = [
@@ -199,6 +200,13 @@ def _page_equipment(self):
     )
     self.equip_search.textChanged.connect(lambda _text: self._equip_search_timer.start())
     sh.addWidget(self.equip_search, 1)
+    self.equip_practice_share_btn = QPushButton('练度统计')
+    self.equip_practice_share_btn.setObjectName('btnNew')
+    self.equip_practice_share_btn.setToolTip('生成当前账号角色的练度统计分享图')
+    self.equip_practice_share_btn.clicked.connect(lambda _checked=False: open_practice_share(self))
+    self.equip_practice_share_btn.setVisible(False)
+    self.equip_practice_share_btn.setEnabled(False)
+    sh.addWidget(self.equip_practice_share_btn)
     self.equip_import_all_btn = QPushButton("一键导入")
     self.equip_import_all_btn.setObjectName("btnPrimary")
     self.equip_import_all_btn.setToolTip("导入全部完整且未锁定的游戏内方案")
@@ -241,6 +249,8 @@ def _set_equipment_mode(self: Any, mode: str) -> None:
         button.setVisible(selected == "saved")
     self.equip_import_all_btn.setVisible(selected == "game")
     self.equip_import_all_btn.setEnabled(False)
+    self.equip_practice_share_btn.setVisible(selected == 'game')
+    self.equip_practice_share_btn.setEnabled(False)
     self.equip_mode_status.setText(
         "正在读取最近一次 nte-core 游戏装备…"
         if selected == "game"
@@ -425,6 +435,9 @@ def _on_game_equipment_display_loaded(self, token, result):
     except Exception as exc:
         logger.warning(f"游戏配装评分投影失败: {exc}")
     self._game_loadout_states = scored_states
+    button = getattr(self, 'equip_practice_share_btn', None)
+    if button is not None:
+        button.setEnabled(bool(projection.supported))
     self._saved_equipment_states = dict(saved_states)
     self._saved_equipment_cache_valid = True
     _publish_equipment_states(self, scored_states)
@@ -436,11 +449,18 @@ def _on_game_equipment_display_error(self, token, error):
     logger.error(f"刷新游戏内配装展示失败: {error}")
     self.equip_mode_status.setText("读取游戏内装备失败")
     self.equip_import_all_btn.setEnabled(False)
+    button = getattr(self, 'equip_practice_share_btn', None)
+    if button is not None:
+        button.setEnabled(False)
+    self._game_loadout_states = {}
     self._game_loadout_message = "游戏配装读取中断；请重新检测连接后再试。原方案保持不变。"
     _publish_equipment_states(self, {})
 
 
 def _refresh_equip(self, *, restore_role_name=None):
+    button = getattr(self, 'equip_practice_share_btn', None)
+    if button is not None:
+        button.setEnabled(False)
     database_path, static_database_path, _ = _equipment_paths(self)
     capture_equipment_navigation_state(self)
     if restore_role_name is None:

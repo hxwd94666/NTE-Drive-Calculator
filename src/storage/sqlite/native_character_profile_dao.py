@@ -67,11 +67,18 @@ def normalize_native_profile_patches(profiles: Sequence[Mapping[str, Any]]) -> t
                 raise UserDataValidationError("原生技能等级无效")
             if skills:
                 patch["skill_levels"] = dict(skills)
+        exact_likeability = row.get("likeability_level")
+        if exact_likeability is not None:
+            if type(exact_likeability) is not int or not 0 <= exact_likeability <= 100:
+                raise UserDataValidationError("原生好感度具体等级无效")
+            patch["likeability_level"] = exact_likeability
         likeability = row.get("likeability_level_10_enabled")
         if likeability is not None:
             if type(likeability) is not bool:
                 raise UserDataValidationError("原生好感度状态必须是布尔值")
             patch["likeability_level_10_enabled"] = likeability
+        elif exact_likeability is not None:
+            patch["likeability_level_10_enabled"] = exact_likeability >= 10
         if row.get("fork_observed") is True:
             if "fork_id" not in row:
                 raise UserDataValidationError("原生弧盘缺少身份")
@@ -156,7 +163,7 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                     continue
                 now = _utc_now()
                 cultivation = {key: observation[key] for key in (
-                    "skill_levels", "likeability_level_10_enabled", "fork_observed", "fork_id",
+                    "skill_levels", "likeability_level", "likeability_level_10_enabled", "fork_observed", "fork_id",
                     "fork_level", "fork_breakthrough_stage", "fork_refinement_level",
                     "awakening_level", "awakening_selection_initialized", "selected_awaken_effect_ids",
                 ) if key in observation}
@@ -164,6 +171,12 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                     if key in GROWTH_FIELDS or key == "character_id":
                         continue
                     cultivation[key] = ({**cultivation.get(key, {}), **value} if key == "skill_levels" else value)
+                # A contradictory threshold-only update invalidates the older exact observation.
+                previous_level = cultivation.get("likeability_level")
+                if ("likeability_level_10_enabled" in patch and "likeability_level" not in patch
+                        and type(previous_level) is int
+                        and (previous_level >= 10) != patch["likeability_level_10_enabled"]):
+                    cultivation["likeability_level"] = None
                 if cultivation.get("fork_observed") and cultivation.get("fork_id") is None:
                     for key in ("fork_level", "fork_breakthrough_stage", "fork_refinement_level"):
                         cultivation[key] = None

@@ -87,7 +87,33 @@ def test_likeability_uses_formal_alias_and_not_character_id():
     static = SimpleNamespace(get_character_likeability_identity=lambda _: {'likeability_id': '1029', 'required_level': 10})
     resolve_native_likeability(profile, static)
     assert profile['likeability_level_10_enabled'] is True
+    assert profile['likeability_level'] == 10
     assert 'likeability_levels' not in profile
+
+
+def test_missing_likeability_key_is_unknown_not_zero():
+    from types import SimpleNamespace
+    from src.services.native_role_profile_projection import resolve_native_likeability
+    profile = {'character_id': 1052, 'likeability_levels': {'1052': 2}}
+    static = SimpleNamespace(get_character_likeability_identity=lambda _: {'likeability_id': '1029', 'required_level': 10})
+    resolve_native_likeability(profile, static)
+    assert profile == {'character_id': 1052}
+
+
+def test_exact_likeability_survives_sparse_updates_and_reopening(tmp_path):
+    from pathlib import Path
+    from src.services.official_role_profile_service import OfficialRoleProfileService
+    database, _ = setup(tmp_path)
+    service = OfficialRoleProfileService(database, static_database_path=Path(__file__).resolve().parents[1] / 'data/game_static.sqlite3')
+    service.patch_native_profiles([{'character_id': 1023, 'likeability_levels': {'1023': 7}}], check=lambda: None)
+    service.patch_native_profiles([{'character_id': 1023, 'character_level': 70}], check=lambda: None)
+    with UserDataDao(database) as dao:
+        observed = dao.get_native_character_profile_observation(1023)
+        assert observed['likeability_level'] == 7
+        assert observed['likeability_level_10_enabled'] is False
+        projected = project_native_role_profile({'character_level': 80, 'breakthrough_stage': 6}, observed, persisted=False)
+        assert projected['likeability_level'] == 7
+        assert projected['field_sources']['likeability_level'] == 'native_observed'
 
 
 def test_unknown_fork_does_not_clear_existing_battle_profile():

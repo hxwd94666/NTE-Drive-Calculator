@@ -67,8 +67,9 @@ def validate_role_assets(root: Path, dataset_id: str, database_sha256: str) -> d
     files = manifest["files"]
     if not isinstance(files, dict) or len(files) > 4096:
         raise ValueError("角色图片清单无效")
-    for group in ("characters", "fork_items"):
-        if any(path not in files for path in manifest[group].values()):
+    for group in ("characters", "fork_items", "skills"):
+        mapping = manifest.get(group, {})
+        if not isinstance(mapping, dict) or any(path not in files for path in mapping.values()):
             raise ValueError("角色图片引用不在清单中")
     for relative, metadata in files.items():
         path = (root / relative).resolve()

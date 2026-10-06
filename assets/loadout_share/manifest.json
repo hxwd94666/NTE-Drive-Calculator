@@ -1,0 +1,911 @@
+{
+  "schema_version": 1,
+  "upstream_commit": "a4ca7e2cf94e73400d7d160d671b19922fddbbe7",
+  "templates": {
+    "ad_attr_bg": "templates/ad_attr_bg.png",
+    "ad_bg": "templates/ad_bg.png",
+    "ad_title_bg": "templates/ad_title_bg.png",
+    "attr_bar": "templates/attr_bar.png",
+    "banner": "templates/banner.png",
+    "base_info_bg": "templates/base_info_bg.png",
+    "char_ring": "templates/char_ring.png",
+    "drive_star": "templates/drive_star.png",
+    "drive_star_none": "templates/drive_star_none.png",
+    "heart": "templates/heart.png",
+    "jue": "templates/jue.png",
+    "score_bg": "templates/score_bg.png",
+    "score_fg": "templates/score_fg.png",
+    "skill_bg": "templates/skill_bg.png",
+    "skill_fg": "templates/skill_fg.png",
+    "weapon_attr_bar": "templates/weapon_attr_bar.png",
+    "weapon_bg": "templates/weapon_bg.png",
+    "weapon_fg": "templates/weapon_fg.png",
+    "bg3": "templates/bg3.jpg"
+  },
+  "properties": {
+    "health": "properties/icon_attri_shengming.png",
+    "attack": "properties/icon_attri_gongji.png",
+    "defense": "properties/icon_attri_fangyu.png",
+    "crit_rate": "properties/icon_attri_baoji.png",
+    "crit_damage": "properties/icon_attri_baojishanghai.png",
+    "damage_up": "properties/Icon_attri_surpass.png",
+    "inclination_strength": "properties/Icon_attri_strength_qingxian.png",
+    "cost_gain": "properties/Icon_CostGainEfficiency.png",
+    "Icon_DamageUp_black": "properties/Icon_DamageUp_black.png",
+    "Icon_DamageUp_bule": "properties/Icon_DamageUp_bule.png",
+    "Icon_DamageUp_ching": "properties/Icon_DamageUp_ching.png",
+    "Icon_DamageUp_red": "properties/Icon_DamageUp_red.png",
+    "Icon_DamageUp_white": "properties/Icon_DamageUp_white.png",
+    "Icon_DamageUp_yellow": "properties/Icon_DamageUp_yellow.png",
+    "HPMaxBase": "properties/icon_attri_shengming.png",
+    "HPMaxUp": "properties/icon_attri_shengming.png",
+    "AtkBase": "properties/icon_attri_gongji.png",
+    "AtkUp": "properties/icon_attri_gongji.png",
+    "DefBase": "properties/icon_attri_fangyu.png",
+    "DefUp": "properties/icon_attri_fangyu.png",
+    "HPMaxAdd": "properties/icon_attri_shengming.png",
+    "AtkAdd": "properties/icon_attri_gongji.png",
+    "DefAdd": "properties/icon_attri_fangyu.png",
+    "CritBase": "properties/icon_attri_baoji.png",
+    "CritAdd": "properties/icon_attri_baoji.png",
+    "CritDamageBase": "properties/icon_attri_baojishanghai.png",
+    "CritDamageAdd": "properties/icon_attri_baojishanghai.png",
+    "ChargeGetEfficiencyBase": "properties/Icon_CostGainEfficiency.png",
+    "StrengthMax": "properties/Icon_StrengthMax.png",
+    "Mag": "properties/Icon_attri_surpass.png",
+    "MagUp": "properties/Icon_attri_surpass.png",
+    "MagAdd": "properties/Icon_attri_surpass.png",
+    "MagBase": "properties/Icon_attri_surpass.png",
+    "UnbalIntensity": "properties/Icon_attri_strength_qingxian.png",
+    "UnbalIntensityBase": "properties/Icon_attri_strength_qingxian.png",
+    "UnbalIntensityUp": "properties/Icon_attri_strength_qingxian.png",
+    "UnbalIntensityAdd": "properties/Icon_attri_strength_qingxian.png",
+    "HealUp": "properties/Icon_HealUp.png",
+    "HealBeUp": "properties/Icon_HealBeUp.png",
+    "DefIgnore": "properties/Icon_DefIgnore.png",
+    "TenacityMax": "properties/icon_attri_kangxing.png",
+    "TenacityDestroyEfficiency": "properties/Icon_TenacityDestroyEfficiency.png",
+    "TenacityAntiDestroyEfficiency": "properties/Icon_TenacityAntiDestroyEfficiency.png",
+    "DamageUpGeneralBase": "properties/icon_attri_kangxing.png",
+    "DamageUpGeneralAdd": "properties/icon_attri_kangxing.png",
+    "DamageUpCosmosBase": "properties/Icon_DamageUp_white.png",
+    "DamageUpNatureBase": "properties/Icon_DamageUp_ching.png",
+    "DamageUpIncantationBase": "properties/Icon_DamageUp_red.png",
+    "DamageUpChaosBase": "properties/Icon_DamageUp_black.png",
+    "DamageUpPsycheBase": "properties/Icon_DamageUp_bule.png",
+    "DamageUpLakshanaBase": "properties/Icon_DamageUp_yellow.png",
+    "DamageUpPsychicallyBase": "properties/Icon_attri_hurt_mind.png",
+    "DamageResistCosmos": "properties/Icon_DamageResist_white.png",
+    "DamageResistNature": "properties/Icon_DamageResist_ching.png",
+    "DamageResistIncantation": "properties/Icon_DamageResist_red.png",
+    "DamageResistChaos": "properties/Icon_DamageResist_black.png",
+    "DamageResistPsyche": "properties/Icon_DamageResist_bule.png",
+    "DamageResistLakshana": "properties/Icon_DamageResist_yellow.png",
+    "DamageResistPsychically": "properties/Icon_attri_resistance_hurt_mind_.png",
+    "Comfort": "properties/UI_YH_Home_AxIcon_128_1.png",
+    "Fortune": "properties/UI_YH_Home_YsIcon_128_1.png",
+    "Love": "properties/UI_YH_Home_SsIcon_128_1.png",
+    "Collect": "properties/UI_YH_Home_ScIcon_128_1.png",
+    "ReactionGuangLingDamageUp": "properties/Icon_attri_resistance_hurt_mind_.png",
+    "ReactionZhouAnDamageUp": "properties/Icon_attri_resistance_hurt_mind_.png",
+    "ReactionAnHunDamageUp": "properties/Icon_attri_resistance_hurt_mind_.png",
+    "ReactionGeneralDamageUp": "properties/Icon_attri_resistance_hurt_mind_.png"
+  },
+  "elements": {
+    "ECharacterElementType::CHARACTER_ELEMENT_TYPE_COSMOS": "elements/YH_UI_zudui_shaixuan_06.png",
+    "ECharacterElementType::CHARACTER_ELEMENT_TYPE_NATURE": "elements/YH_UI_zudui_shaixuan_02.png",
+    "ECharacterElementType::CHARACTER_ELEMENT_TYPE_INCANTATION": "elements/YH_UI_zudui_shaixuan_04.png",
+    "ECharacterElementType::CHARACTER_ELEMENT_TYPE_CHAOS": "elements/YH_UI_zudui_shaixuan_01.png",
+    "ECharacterElementType::CHARACTER_ELEMENT_TYPE_PSYCHE": "elements/YH_UI_zudui_shaixuan_03.png",
+    "ECharacterElementType::CHARACTER_ELEMENT_TYPE_LAKSHANA": "elements/YH_UI_zudui_shaixuan_05.png"
+  },
+  "banners": {},
+  "grades": {
+    "ACE": "grades/rank_ACE.png",
+    "SSS": "grades/rank_SSS.png",
+    "SS": "grades/rank_SS.png",
+    "S": "grades/rank_S.png",
+    "A+": "grades/rank_A+.png",
+    "A": "grades/rank_A.png",
+    "B": "grades/rank_B.png",
+    "C": "grades/rank_C.png",
+    "D": "grades/rank_D.png"
+  },
+  "files": [
+    {
+      "path": "templates/ad_attr_bg.png",
+      "sha256": "a29c1f087388d3014d96ef1d1a2eed4b956b5e1415baa933cdb59e75680500f0",
+      "source": "NTEUID/nte_role/texture2d/character/ad_attr_bg.png"
+    },
+    {
+      "path": "templates/ad_bg.png",
+      "sha256": "7e98a985f54edc5d85fcc75fcb3b7c04e4e2ed328623f55059a753ab0512ed76",
+      "source": "NTEUID/nte_role/texture2d/character/ad_bg.png"
+    },
+    {
+      "path": "templates/ad_title_bg.png",
+      "sha256": "009164270abe2e05cdf5af9de6b75b28154f386c9979cbf1879d45c0ee35705c",
+      "source": "NTEUID/nte_role/texture2d/character/ad_title_bg.png"
+    },
+    {
+      "path": "templates/attr_bar.png",
+      "sha256": "49dcb4ffa42ed74cf3745482eae24f386a736317c7822f1d8348936194599585",
+      "source": "NTEUID/nte_role/texture2d/character/attr_bar.png"
+    },
+    {
+      "path": "templates/banner.png",
+      "sha256": "8fa0f53ad3caab831fe80326037b38e9adc92ecb570690e01058e76a3f837360",
+      "source": "NTEUID/nte_role/texture2d/character/banner.png"
+    },
+    {
+      "path": "templates/base_info_bg.png",
+      "sha256": "1568ee0616c9e076426cf628b16a251e59534a2355dcc7837fc3dc366b8cfa19",
+      "source": "NTEUID/nte_role/texture2d/character/base_info_bg.png"
+    },
+    {
+      "path": "templates/char_ring.png",
+      "sha256": "35cf02aebc20c4a977f3c47577b3e4e07e0a096e09b0e3cb762e0597aa36f288",
+      "source": "NTEUID/nte_role/texture2d/character/char_ring.png"
+    },
+    {
+      "path": "templates/drive_star.png",
+      "sha256": "3c79f744f07202beadc476102f9906a469cf080bb9e5063980e1255bee449654",
+      "source": "NTEUID/nte_role/texture2d/character/drive_star.png"
+    },
+    {
+      "path": "templates/drive_star_none.png",
+      "sha256": "13bacc0b82d6f4b256f6c3ea546c39cdba543aefd31081b5a61134426589b2b7",
+      "source": "NTEUID/nte_role/texture2d/character/drive_star_none.png"
+    },
+    {
+      "path": "templates/heart.png",
+      "sha256": "6876dfa2c31bd79d99fb41f22355f3962031783b7961274a8e3125d8b1e8945c",
+      "source": "NTEUID/nte_role/texture2d/character/heart.png"
+    },
+    {
+      "path": "templates/jue.png",
+      "sha256": "72bd55a3ad8f678ea08ebd134525fc34a652325d6257f00940e0b76988ccf66c",
+      "source": "NTEUID/nte_role/texture2d/character/jue.png"
+    },
+    {
+      "path": "templates/score_bg.png",
+      "sha256": "2bab41f6a3847246a48fac5b58f2b1a3fec7f8fe55804fe0cda3b4d888396692",
+      "source": "NTEUID/nte_role/texture2d/character/score_bg.png"
+    },
+    {
+      "path": "templates/score_fg.png",
+      "sha256": "4cdf4a386b27de325ae3c72339dd24f0a2f45c57a61c42cfae9c953adb9a6299",
+      "source": "NTEUID/nte_role/texture2d/character/score_fg.png"
+    },
+    {
+      "path": "templates/skill_bg.png",
+      "sha256": "f2f70ae6c29c55e05d2ae0e5c4c2eba23b001810185e3042d2a99c3e94c31e2c",
+      "source": "NTEUID/nte_role/texture2d/character/skill_bg.png"
+    },
+    {
+      "path": "templates/skill_fg.png",
+      "sha256": "029740c18fd830d3d668f4d2873ea5073dc26b5f344b6f15f3111f2237ba7fab",
+      "source": "NTEUID/nte_role/texture2d/character/skill_fg.png"
+    },
+    {
+      "path": "templates/weapon_attr_bar.png",
+      "sha256": "524d89c0026283fc5193d88e1a0ef97ee8a1599b8b27b5a6f59a08fe19749db6",
+      "source": "NTEUID/nte_role/texture2d/character/weapon_attr_bar.png"
+    },
+    {
+      "path": "templates/weapon_bg.png",
+      "sha256": "f940b4a8a12d36a2ed505f82ba14c78b83eec8427950d4c710f0c9fb9dd9af7d",
+      "source": "NTEUID/nte_role/texture2d/character/weapon_bg.png"
+    },
+    {
+      "path": "templates/weapon_fg.png",
+      "sha256": "f45784905a5654fb6d6ae1ae4b3da70b6f942f4ffbd8739f930cb4a1e79105aa",
+      "source": "NTEUID/nte_role/texture2d/character/weapon_fg.png"
+    },
+    {
+      "path": "templates/bg3.jpg",
+      "sha256": "3bced2915c1583efe3fd959ddea64796bcaceb33bbfc1858f52f0002b2ad62af",
+      "source": "NTEUID/utils/texture2d/bg3.jpg"
+    },
+    {
+      "path": "properties/icon_attri_shengming.png",
+      "sha256": "94a85cb43f170f8f8aa8c5d210455450528cc63d418334b3d3ee6eae99cc5e87",
+      "source": "/Game/UI/UI_Icon/Attribute/icon_attri_shengming.png"
+    },
+    {
+      "path": "properties/icon_attri_gongji.png",
+      "sha256": "c86e7cf51bf4f152594f5a9d410278a743c2b2c2a2ba0d84791282dc2ea00e13",
+      "source": "/Game/UI/UI_Icon/Attribute/icon_attri_gongji.png"
+    },
+    {
+      "path": "properties/icon_attri_fangyu.png",
+      "sha256": "24e81520fba56012c1003b0b28be7dc5ab91d3d24652fe20ef98b1e75897966c",
+      "source": "/Game/UI/UI_Icon/Attribute/icon_attri_fangyu.png"
+    },
+    {
+      "path": "properties/icon_attri_baoji.png",
+      "sha256": "cee6fc9130bb938d7f3b6a7c0e344306481f280279b088f1e2737083c3b38586",
+      "source": "/Game/UI/UI_Icon/Attribute/icon_attri_baoji.png"
+    },
+    {
+      "path": "properties/icon_attri_baojishanghai.png",
+      "sha256": "7a05cbe2137bdd0a9dad641d5d425dea14cf22bf7c0145f56c5af6c35f1be518",
+      "source": "/Game/UI/UI_Icon/Attribute/icon_attri_baojishanghai.png"
+    },
+    {
+      "path": "properties/Icon_attri_surpass.png",
+      "sha256": "0c3e2441834b86e29aa40bdb9dfac9f18f89b2e10044ec87088356c8fd2e4897",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_attri_surpass.png"
+    },
+    {
+      "path": "properties/Icon_attri_strength_qingxian.png",
+      "sha256": "566c3f512da43eca33482ed0c543968446591c14c1a9d7b004f2b17b1c21f3ee",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_attri_strength_qingxian.png"
+    },
+    {
+      "path": "properties/Icon_CostGainEfficiency.png",
+      "sha256": "0ee53e1ee3ed0099cd07392c7a911a8c2471235a4abd8d196a29f27cc353848f",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_CostGainEfficiency.png"
+    },
+    {
+      "path": "properties/Icon_DamageUp_black.png",
+      "sha256": "686806fa4441af4c283eb69ed5e8170b9a5ba25dc23ce34d9c7c43c538e1ee32",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_black.png"
+    },
+    {
+      "path": "properties/Icon_DamageUp_bule.png",
+      "sha256": "0dc73487fad3ae5c5e292e8ce894c3db30f7b2e34b225bbfd2a6e8c201c45ddb",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_bule.png"
+    },
+    {
+      "path": "properties/Icon_DamageUp_ching.png",
+      "sha256": "df0a89f44d1e291e0ec846c354b3fb332e15fd9b0bf1aeb0b4d95907b618b451",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_ching.png"
+    },
+    {
+      "path": "properties/Icon_DamageUp_red.png",
+      "sha256": "b6215364accd79dfe62c68e3667369b589157f21618baf06d98dee3bf09fc6ff",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_red.png"
+    },
+    {
+      "path": "properties/Icon_DamageUp_white.png",
+      "sha256": "d2fe34254749a2ef0f3002ac8409890e29ac670b485ba24b6e3f39f947e322d4",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_white.png"
+    },
+    {
+      "path": "properties/Icon_DamageUp_yellow.png",
+      "sha256": "501d5d4c97e603edae0bc422270770f9dd87892b1f899752a87fc690ae691b74",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageUp_yellow.png"
+    },
+    {
+      "path": "properties/Icon_StrengthMax.png",
+      "sha256": "c7133e8417b044435241758e06c13fe3845575a615b7fb55eb8a3254f3fc3d1f",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_StrengthMax.png"
+    },
+    {
+      "path": "properties/Icon_HealUp.png",
+      "sha256": "f446b9bf9a93b85f50331df3d9f1cafea3e0403125fc60abb2f7bbc46a77ef8a",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_HealUp.png"
+    },
+    {
+      "path": "properties/Icon_HealBeUp.png",
+      "sha256": "276d670fe65338b9c5c5146e30707b353cd46786c689f747930b3b68f9abbc24",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_HealBeUp.png"
+    },
+    {
+      "path": "properties/Icon_DefIgnore.png",
+      "sha256": "6ef9fbb635629a949cafcd6986f51528065bec525678fa142530c4829b1773b1",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DefIgnore.png"
+    },
+    {
+      "path": "properties/Icon_TenacityDestroyEfficiency.png",
+      "sha256": "15e5da184c6eeb81821a378d4247ad2a6672e33a6a79151cd22868821c660e66",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_TenacityDestroyEfficiency.png"
+    },
+    {
+      "path": "properties/Icon_TenacityAntiDestroyEfficiency.png",
+      "sha256": "038ffb61de36d344eeaba7a3b3dabedd9494f16ed39c6e21d6c9bae649696c67",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_TenacityAntiDestroyEfficiency.png"
+    },
+    {
+      "path": "properties/icon_attri_kangxing.png",
+      "sha256": "93ca751f8e3549d4e8cc2156def314edb058a14e8ae99a1fded421e5402e52fc",
+      "source": "/Game/UI/UI_Icon/Attribute/icon_attri_kangxing.png",
+      "source_aliases": [
+        "/Game/UI/UI_Icon/Attribute/Icon_TenacityMax.png"
+      ]
+    },
+    {
+      "path": "properties/Icon_attri_hurt_mind.png",
+      "sha256": "c193020cda1311af40e2032dd9de6559aef52f3a44e0730fa09953e3c3f819ff",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_attri_hurt_mind.png"
+    },
+    {
+      "path": "properties/Icon_DamageResist_white.png",
+      "sha256": "ed3eadb26232ea8455590d4d53138b018a061af32aa904fb55639284e0b47cef",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageResist_white.png"
+    },
+    {
+      "path": "properties/Icon_DamageResist_ching.png",
+      "sha256": "4ec9aad84568e1d9c2774415d11c9998d626c5daadc93a20b046f0ef6c43b919",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageResist_ching.png"
+    },
+    {
+      "path": "properties/Icon_DamageResist_red.png",
+      "sha256": "24ba5d518e5c3244867b3819d28cb03567675fe286725e4699af0e85d8a081e1",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageResist_red.png"
+    },
+    {
+      "path": "properties/Icon_DamageResist_black.png",
+      "sha256": "6a91c97f6b6f0af50fffe45115e902be0990149eb433439005c81a4e2d9e8e89",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageResist_black.png"
+    },
+    {
+      "path": "properties/Icon_DamageResist_bule.png",
+      "sha256": "fbaba0bd014ea71ab926974c2783a82df86fb119403e2b082a702a8e5edfc662",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageResist_bule.png"
+    },
+    {
+      "path": "properties/Icon_DamageResist_yellow.png",
+      "sha256": "ff7a2c85605ffe4deef6b3028de44c16eef61e649f3e2600553fc944bff0a355",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_DamageResist_yellow.png"
+    },
+    {
+      "path": "properties/Icon_attri_resistance_hurt_mind_.png",
+      "sha256": "6a5d1efa8b7dea203951f91dc8c0f163d783729e2fa3909a58796acd21b92ea0",
+      "source": "/Game/UI/UI_Icon/Attribute/Icon_attri_resistance_hurt_mind_.png"
+    },
+    {
+      "path": "properties/UI_YH_Home_AxIcon_128_1.png",
+      "sha256": "421651700674c2da8e9d1c139ac788722e6cd1be762e27dde8e8bba59a421866",
+      "source": "/Game/UI/UI/house/FurnitureList/UI_YH_Home_AxIcon_128_1.png"
+    },
+    {
+      "path": "properties/UI_YH_Home_YsIcon_128_1.png",
+      "sha256": "68220c7f5972e3b61cefecff10f8a0b027273aaf4b18c327fbcb550dd41bb615",
+      "source": "/Game/UI/UI/house/FurnitureList/UI_YH_Home_YsIcon_128_1.png"
+    },
+    {
+      "path": "properties/UI_YH_Home_SsIcon_128_1.png",
+      "sha256": "828b589ba70c1c29d83ef95e1ef265e321bf656a08ba2064764b14b9d89c252c",
+      "source": "/Game/UI/UI/house/FurnitureList/UI_YH_Home_SsIcon_128_1.png"
+    },
+    {
+      "path": "properties/UI_YH_Home_ScIcon_128_1.png",
+      "sha256": "4efda1246df0d8d7c5d30cb0e31db53b34b6473a329e44e15f006920f502cbc4",
+      "source": "/Game/UI/UI/house/FurnitureList/UI_YH_Home_ScIcon_128_1.png"
+    },
+    {
+      "path": "elements/YH_UI_zudui_shaixuan_06.png",
+      "sha256": "a602aaa9d652b5e04f04c9af5b51a1b372450249a892ba267d980bcf89047377",
+      "source": "/Game/UI/UI/biandui/YH_UI_zudui_shaixuan_06.png"
+    },
+    {
+      "path": "elements/YH_UI_zudui_shaixuan_02.png",
+      "sha256": "3997cadf55dd0d1784a1dc326dfda16f6c14e510e1f2abda5cc818ca08ed0898",
+      "source": "/Game/UI/UI/biandui/YH_UI_zudui_shaixuan_02.png"
+    },
+    {
+      "path": "elements/YH_UI_zudui_shaixuan_04.png",
+      "sha256": "c9edc17d6265d454c122fedd5a80c2ed15334b460e5d8017cdba1c16494b3ad8",
+      "source": "/Game/UI/UI/biandui/YH_UI_zudui_shaixuan_04.png"
+    },
+    {
+      "path": "elements/YH_UI_zudui_shaixuan_01.png",
+      "sha256": "9edd3be59f8e17d9d4f3c72d7e3e20ab4732e697449af3cee094fa9b77edcb95",
+      "source": "/Game/UI/UI/biandui/YH_UI_zudui_shaixuan_01.png"
+    },
+    {
+      "path": "elements/YH_UI_zudui_shaixuan_03.png",
+      "sha256": "4117f1a6df51d16ac606312a23e1895e421d9c203611bdbb538e6af15a679285",
+      "source": "/Game/UI/UI/biandui/YH_UI_zudui_shaixuan_03.png"
+    },
+    {
+      "path": "elements/YH_UI_zudui_shaixuan_05.png",
+      "sha256": "c1d8eacf508d4f67e80036b7524c254649382b0df7deac1302772bb78e998062",
+      "source": "/Game/UI/UI/biandui/YH_UI_zudui_shaixuan_05.png"
+    },
+    {
+      "path": "grades/rank_ACE.png",
+      "sha256": "dbb4789689412f00d2e7dc5857067d70e0e26b92d7d245b36f28d4f92083e851",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_ACE.png",
+      "source_sha256": "a7deccb270a8a45c8d3ea8d9beee3b793f531704b323f0b103e527afba699e50",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_SSS.png",
+      "sha256": "84481ef594d29df4ff8447d3eae956533983770f6f29ccf58e3584f65c8a0858",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_SSS.png",
+      "source_sha256": "716e492e431555751a90b6e657f8ce644133d1fcdd7c77d63bbb80c28a2882ee",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_SS.png",
+      "sha256": "f4981e473f1d036c14b2d9dadf942ea64e2b1be268e86e0cdcedee8053e742a5",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_SS.png",
+      "source_sha256": "ca3c26fc545cf0fea7a150a461e0b31ccf6a38048bbb1eb6dcab1f37e48225ea",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_S.png",
+      "sha256": "387e2061e6d3da802ed09be538297a094337e0d31a5d140e28f0607053315728",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_S.png",
+      "source_sha256": "79f94a43554746352d146e3b0f2157cb5e524f5dad67c0468463496a4022d21b",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_A+.png",
+      "sha256": "941f56f3a4a356783c9af5d4e8a74e56012e5184916cb5c75ce21545438839e5",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_A+.png",
+      "source_sha256": "e99a498eca62337687f50eba3d744b747149bbc3ebee2145a1520aa1953bc0b5",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_A.png",
+      "sha256": "47e1f1edd26766a3c1e682d89fcf55972728f9fe0ee5a210337139f26503c0a9",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_A.png",
+      "source_sha256": "a97ba93c8e595ac713fee6e57ef150f5cc6044b921e25e3e16deadb6e6656c4b",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_B.png",
+      "sha256": "0d02b74ddd4e0108033e1a92ac403f540f8a33311f9fdf38fc7544c92a81a788",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_B.png",
+      "source_sha256": "80107d452dd5d13d7f87a0d7d5e15ff303eade48f05539788a844c7d86816bb3",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_C.png",
+      "sha256": "e921ea0f262d8171fa26ef7f0f9110da3b98231b5f6237322871f50bf9dfb667",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_C.png",
+      "source_sha256": "d5a68c3fd3fb6ad6dff40ab028a4913245de7384da3805bb732d4f314907346d",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/rank_D.png",
+      "sha256": "8ed27b7fc80d1d82e517f60268a398b4ec922533c622872e6ee6b31c27e38f23",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_D.png",
+      "source_sha256": "faeb5f33b75a2f5d3328e679b6e36bf3c0fe1da7f7d3dc1c230752b041a6317a",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          92,
+          92
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "fonts/MiSans-license.pdf",
+      "source": "https://hyperos.mi.com/font-download/MiSans%E5%AD%97%E4%BD%93%E7%9F%A5%E8%AF%86%E4%BA%A7%E6%9D%83%E8%AE%B8%E5%8F%AF%E5%8D%8F%E8%AE%AE.pdf",
+      "sha256": "4a93a27cd2bd81b3b5ecfd0a853144a876fa26938a93a68443c67d74172fcb86"
+    },
+    {
+      "path": "level/title.png",
+      "sha256": "9689ae2bed6d30a64bc1a98410548b1622a014a769e891708c0d7c0e6cb85667",
+      "source": "NTEUID/nte_role/texture2d/level/title.png",
+      "source_sha256": "c2a5ceb189d0ebd60f0a520dbaf6eafe4a772220daf8fe2f5fe49005ce9025c1",
+      "transform": {
+        "operation": "fit",
+        "size": [
+          1860,
+          300
+        ],
+        "centering": [
+          0.5,
+          0.3
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "level/colhead.png",
+      "sha256": "a6fa828bb9c250d1a0c16b5afa42ddc4c2e0f0c667d228f6f74df185f51f62ad",
+      "source": "NTEUID/nte_role/texture2d/level/colhead.png"
+    },
+    {
+      "path": "level/row.png",
+      "sha256": "d7909b2386cf20085408a7292f195ad22f37427479a647101b052aaff1f135dd",
+      "source": "NTEUID/nte_role/texture2d/level/row.png"
+    },
+    {
+      "path": "level/marquee.png",
+      "sha256": "d5f9ffb8aaf99e9761bce15cd0694bfd12cff0b13f6bc20b73c0ab928c55f943",
+      "source": "NTEUID/nte_role/texture2d/level/marquee.png"
+    },
+    {
+      "path": "level/bg1.jpg",
+      "sha256": "ffb73e1d623715eaee754eb023588d07de1c087ec31d9fc47e4c37e3a8dd8e25",
+      "source": "NTEUID/utils/texture2d/bg1.jpg"
+    },
+    {
+      "path": "grades/48/rank_ACE.png",
+      "sha256": "3f054c6274ea312e23ccd61e484c66ea00ca95ef3d821da11a82bf89f6a421eb",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_ACE.png",
+      "source_sha256": "a7deccb270a8a45c8d3ea8d9beee3b793f531704b323f0b103e527afba699e50",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_ACE.png",
+      "sha256": "731131fce19371d6b8c6bbf8d4b2705176df67ce19c169e69a64b42152d39041",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_ACE.png",
+      "source_sha256": "a7deccb270a8a45c8d3ea8d9beee3b793f531704b323f0b103e527afba699e50",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_SSS.png",
+      "sha256": "37d8eb5e550af9baad631a73f7af9dd772848804f6d504ded67fa40a176569fd",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_SSS.png",
+      "source_sha256": "716e492e431555751a90b6e657f8ce644133d1fcdd7c77d63bbb80c28a2882ee",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_SSS.png",
+      "sha256": "7c3bd2b1e5d85c0ed10d24a35047588705872d3ad9fb38dba54ed441530baa08",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_SSS.png",
+      "source_sha256": "716e492e431555751a90b6e657f8ce644133d1fcdd7c77d63bbb80c28a2882ee",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_SS.png",
+      "sha256": "9509407dd01d49b967529f145cfe7a41277fcb1f880866214f1fd5a7ae0f16e9",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_SS.png",
+      "source_sha256": "ca3c26fc545cf0fea7a150a461e0b31ccf6a38048bbb1eb6dcab1f37e48225ea",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_SS.png",
+      "sha256": "858ed5650b6694910ee6a8803eca8e17efabb2031eb82e642cd89adc45921fc9",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_SS.png",
+      "source_sha256": "ca3c26fc545cf0fea7a150a461e0b31ccf6a38048bbb1eb6dcab1f37e48225ea",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_S.png",
+      "sha256": "a61ac201d23ddfa00591b396172f0fe3001e20a7d70479d022576e1f33a060ef",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_S.png",
+      "source_sha256": "79f94a43554746352d146e3b0f2157cb5e524f5dad67c0468463496a4022d21b",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_S.png",
+      "sha256": "5d2da2d16de36420a5cf0bd12a2f33621c6b3f80a5f2e84266a0abf2500fc5d6",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_S.png",
+      "source_sha256": "79f94a43554746352d146e3b0f2157cb5e524f5dad67c0468463496a4022d21b",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_A+.png",
+      "sha256": "cc1166ec71bcaacff1e319c824c1ea309b265150f48cd5d49fe740ba82763bf4",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_A+.png",
+      "source_sha256": "e99a498eca62337687f50eba3d744b747149bbc3ebee2145a1520aa1953bc0b5",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_A+.png",
+      "sha256": "300fdf8a035de2d64ac0e275c6c1904a5953f141feeb2978c6652692e0b3a2f0",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_A+.png",
+      "source_sha256": "e99a498eca62337687f50eba3d744b747149bbc3ebee2145a1520aa1953bc0b5",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_A.png",
+      "sha256": "7731411a28d5704f57735160faa384adda55e447b069a72ad1164f51b7109e2c",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_A.png",
+      "source_sha256": "a97ba93c8e595ac713fee6e57ef150f5cc6044b921e25e3e16deadb6e6656c4b",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_A.png",
+      "sha256": "2df22b86e32c9dbdde442562a9087cc1da98f8a99ce1e864aac09548509fa9d0",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_A.png",
+      "source_sha256": "a97ba93c8e595ac713fee6e57ef150f5cc6044b921e25e3e16deadb6e6656c4b",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_B.png",
+      "sha256": "1ba2105ec8ce546a9c34784731abd139fa6cb8e6f87a3756f8a5f1d90e70f3fe",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_B.png",
+      "source_sha256": "80107d452dd5d13d7f87a0d7d5e15ff303eade48f05539788a844c7d86816bb3",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_B.png",
+      "sha256": "1bb9efed457cd5e983ef2882a51307c05b0be44c0d726cb3d21931c69d52a701",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_B.png",
+      "source_sha256": "80107d452dd5d13d7f87a0d7d5e15ff303eade48f05539788a844c7d86816bb3",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_C.png",
+      "sha256": "901af1da8e27aad17924aa11d2022dca8955aa854764e12c3245e1d29ef0fb02",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_C.png",
+      "source_sha256": "d5a68c3fd3fb6ad6dff40ab028a4913245de7384da3805bb732d4f314907346d",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_C.png",
+      "sha256": "6cb2b88ed7b957e4e12108ece9ed3101426064529c49ff8029233ec826a53a9e",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_C.png",
+      "source_sha256": "d5a68c3fd3fb6ad6dff40ab028a4913245de7384da3805bb732d4f314907346d",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/48/rank_D.png",
+      "sha256": "aff48c523890f0f3511788a8a75d48bfc7a0e77efc6e90c504cb048ba94f68e9",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_D.png",
+      "source_sha256": "faeb5f33b75a2f5d3328e679b6e36bf3c0fe1da7f7d3dc1c230752b041a6317a",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          48,
+          48
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "grades/54/rank_D.png",
+      "sha256": "77173ad3e399e58f9c0b178a82cf96877ca05c0ecb0e577aedb0cc3e4a20e3c1",
+      "source": "https://github.com/lingweiliang2510579032/NTE-score-yuye/blob/9b9e87f6b23108409ff0b85241ca1d0a1fd3e385/assets/rank_D.png",
+      "source_sha256": "faeb5f33b75a2f5d3328e679b6e36bf3c0fe1da7f7d3dc1c230752b041a6317a",
+      "transform": {
+        "operation": "contain",
+        "size": [
+          54,
+          54
+        ],
+        "resampling": "LANCZOS",
+        "pillow_version": "12.3.0"
+      }
+    },
+    {
+      "path": "fonts/MiSans-Bold.ttf",
+      "sha256": "d0c1d327952ed935e86fb78a97a6c182b44f2c2b08777326786b1f8b26d1fe1e",
+      "source": "https://raw.githubusercontent.com/iota9star/fonts/a24a5d6633ac19ec10ea86d8efcf7b3dd4e15c89/misans/MiSans-Bold.ttf",
+      "copyright": "Xiaomi Inc.",
+      "version": "4.009",
+      "transform": "none; complete unmodified upstream static Bold font",
+      "replaces_source_sha256": "0ddef90648998900175cfdca9a6f087a2544c182f130b0ad4f7e94a03a115e79"
+    }
+  ],
+  "fonts": {
+    "panel": "fonts/MiSans-Bold.ttf"
+  },
+  "font_weight": 630,
+  "presentation_sources": {
+    "core": {
+      "repository": "https://github.com/Genshin-bots/gsuid_core",
+      "commit": "87c06f11ae10c12b3bb8e76b3c6f420c831282a8"
+    },
+    "yuye": {
+      "repository": "https://github.com/lingweiliang2510579032/NTE-score-yuye",
+      "commit": "9b9e87f6b23108409ff0b85241ca1d0a1fd3e385"
+    }
+  },
+  "level": {
+    "title": "level/title.png",
+    "colhead": "level/colhead.png",
+    "row": "level/row.png",
+    "marquee": "level/marquee.png",
+    "background": "level/bg1.jpg"
+  },
+  "grades_48": {
+    "ACE": "grades/48/rank_ACE.png",
+    "SSS": "grades/48/rank_SSS.png",
+    "SS": "grades/48/rank_SS.png",
+    "S": "grades/48/rank_S.png",
+    "A+": "grades/48/rank_A+.png",
+    "A": "grades/48/rank_A.png",
+    "B": "grades/48/rank_B.png",
+    "C": "grades/48/rank_C.png",
+    "D": "grades/48/rank_D.png"
+  },
+  "grades_54": {
+    "ACE": "grades/54/rank_ACE.png",
+    "SSS": "grades/54/rank_SSS.png",
+    "SS": "grades/54/rank_SS.png",
+    "S": "grades/54/rank_S.png",
+    "A+": "grades/54/rank_A+.png",
+    "A": "grades/54/rank_A.png",
+    "B": "grades/54/rank_B.png",
+    "C": "grades/54/rank_C.png",
+    "D": "grades/54/rank_D.png"
+  },
+  "font_format": "static"
+}

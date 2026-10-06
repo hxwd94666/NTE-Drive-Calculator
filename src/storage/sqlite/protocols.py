@@ -37,6 +37,15 @@ if TYPE_CHECKING:
         def _db(self) -> sqlite3.Connection:
             raise NotImplementedError
 
+        def list_character_profiles(self, *, include_inactive: bool = False) -> list[dict[str, Any]]:
+            raise NotImplementedError
+
+        def list_native_character_profile_observations(self) -> list[dict[str, Any]]:
+            raise NotImplementedError
+
+        def list_observed_character_ids(self) -> list[int]:
+            raise NotImplementedError
+
         def _insert_hit(
             self,
             connection: sqlite3.Connection,

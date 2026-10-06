@@ -636,6 +636,22 @@ def build_settings_page(
     toolkit_row.addWidget(toolkit_desc)
     toolkit_row.addStretch()
     thanks_card.layout().addLayout(toolkit_row)
+    nteuid_row = QHBoxLayout()
+    nteuid_row.setSpacing(8)
+    nteuid_name = QLabel(
+        '<a href="https://github.com/tyql688/NTEUID" '
+        'style="color:#58a6ff;text-decoration:none;">NTEUID</a>'
+    )
+    nteuid_name.setTextFormat(Qt.RichText)
+    nteuid_name.setTextInteractionFlags(Qt.TextBrowserInteraction)
+    nteuid_name.setOpenExternalLinks(True)
+    nteuid_name.setStyleSheet(toolkit_name.styleSheet())
+    nteuid_desc = QLabel("提供配装分享图和练度统计图的模版")
+    nteuid_desc.setStyleSheet(toolkit_desc.styleSheet())
+    nteuid_row.addWidget(nteuid_name)
+    nteuid_row.addWidget(nteuid_desc)
+    nteuid_row.addStretch()
+    thanks_card.layout().addLayout(nteuid_row)
     layout.addWidget(thanks_card)
 
     layout.addStretch()
