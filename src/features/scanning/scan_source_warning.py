@@ -59,7 +59,8 @@ def confirm_scan_mode_entry(
     if recommend_sync:
         if dialog_factory(parent, recommend_sync=True).exec() == QDialog.Accepted:
             navigate_home()
-        return False  # 前往和取消都不进入扫描，原模式及已有数据保持不变。
+            return False  # 前往只导航工作台，保留原扫描模式。
+        return True  # 取消、关闭或 Esc 仅拒绝同步建议，允许进入所选模式。
     if summary.get("source") == "nte_core":
         return dialog_factory(parent).exec() == QDialog.Accepted
     return True

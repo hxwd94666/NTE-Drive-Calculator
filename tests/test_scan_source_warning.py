@@ -1,4 +1,4 @@
-# 验证三种扫描入口按库存来源确认继续或仅引导工作台同步。
+# 验证三种扫描入口可取消同步建议并继续选择模式，前往仅导航工作台。
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -81,7 +81,7 @@ def test_warning_sound_uses_windows_exclamation_sound(monkeypatch):
 
 @pytest.mark.parametrize("summary", [None, {"source": "vision"}, {"source": "gamepad"}])
 @pytest.mark.parametrize("choice", [QDialog.Accepted, QDialog.Rejected])
-def test_unsynced_inventory_only_navigates_on_go_and_never_enters_scan(summary, choice):
+def test_unsynced_inventory_cancel_allows_scan_and_go_only_navigates(summary, choice):
     calls, navigation = [], []
 
     class Dialog:
@@ -91,10 +91,11 @@ def test_unsynced_inventory_only_navigates_on_go_and_never_enters_scan(summary, 
         def exec(self):
             return choice
 
-    assert not confirm_scan_mode_entry(
+    allowed = confirm_scan_mode_entry(
         None, "unused.db", dao_factory=dao_factory(summary), dialog_factory=Dialog,
         navigate_home=lambda: navigation.append("home"),
     )
+    assert allowed == (choice == QDialog.Rejected)
     assert calls == [True]
     assert navigation == (["home"] if choice == QDialog.Accepted else [])
 
@@ -139,21 +140,23 @@ def test_shared_recommendation_plays_once_and_escape_is_cancel(monkeypatch, acti
     dispose(dialog)
 
 
-def test_confirmation_returns_dialog_choice_for_workbench_snapshot():
+@pytest.mark.parametrize("choice", [QDialog.Accepted, QDialog.Rejected])
+def test_confirmation_returns_dialog_choice_for_workbench_snapshot(choice):
     class Dialog:
         def __init__(self, _parent):
             pass
 
         def exec(self):
-            return QDialog.Rejected
+            return choice
 
-    assert not confirm_scan_mode_entry(
+    allowed = confirm_scan_mode_entry(
         None,
         "unused.db",
         dao_factory=dao_factory({"source": "nte_core"}),
         dialog_factory=Dialog,
         navigate_home=lambda: pytest.fail("同步快照不应跳转工作台"),
     )
+    assert allowed == (choice == QDialog.Accepted)
 
 
 class VisibilityFrame:
@@ -207,7 +210,7 @@ def test_restore_scan_mode_blocks_recursive_toggle_signal():
 
 
 @pytest.mark.parametrize("scan_mode", [1, 2, 3])
-def test_three_scan_modes_warn_immediately_and_cancel_restores_previous_mode(monkeypatch, scan_mode):
+def test_declined_scan_entry_restores_previous_mode(monkeypatch, scan_mode):
     from src.features.scanning import workflow
 
     owner = scan_owner()
@@ -228,6 +231,58 @@ def test_three_scan_modes_warn_immediately_and_cancel_restores_previous_mode(mon
     assert confirmations == ["unused.db"]
     assert owner.scan_group.buttons[4].checked
     assert owner._confirmed_scan_mode_id == 4
+
+
+@pytest.mark.parametrize("summary", [None, {"source": "vision"}, {"source": "gamepad"}])
+@pytest.mark.parametrize("scan_mode", [1, 2, 3])
+@pytest.mark.parametrize("choice", [QDialog.Accepted, QDialog.Rejected])
+def test_unsynced_scan_mode_entry_preserves_choice_or_only_navigates(
+    monkeypatch, summary, scan_mode, choice,
+):
+    from src.features.scanning import workflow
+
+    owner, navigation, recommendations = scan_owner(), [], []
+    owner.navigate = navigation.append
+    owner.scan_group.button(scan_mode).setChecked(True)
+    monkeypatch.setattr(
+        workflow, "_current_scanning_dependencies",
+        lambda _owner: type("Dependencies", (), {"user_database_path": "unused.db"})(),
+    )
+
+    class Dialog:
+        def __init__(self, _parent, *, recommend_sync):
+            recommendations.append(recommend_sync)
+
+        def exec(self):
+            return choice
+
+    def confirm_entry(parent, path, *, navigate_home):
+        return confirm_scan_mode_entry(
+            parent, path, navigate_home=navigate_home,
+            dao_factory=dao_factory(summary), dialog_factory=Dialog,
+        )
+
+    monkeypatch.setattr(workflow, "confirm_scan_mode_entry", confirm_entry)
+    workflow._on_scan_change(owner, scan_mode, True)
+
+    assert recommendations == [True]
+    if choice == QDialog.Accepted:
+        assert navigation == ["home"]
+        assert owner._confirmed_scan_mode_id == 4
+        assert owner.scan_group.button(4).checked
+        assert owner.offline_frame.visible is None
+        assert owner.total_count_frame.visible is None
+        assert owner.drone_frame.visible is None
+    else:
+        assert navigation == []
+        assert owner._confirmed_scan_mode_id == scan_mode
+        assert owner.scan_group.button(scan_mode).checked
+        assert not owner.scan_group.button(4).checked
+        assert owner.offline_frame.visible == (scan_mode == 3)
+        assert owner.total_count_frame.visible == (scan_mode == 1)
+        assert owner.full_scan_driver_frame.visible == (scan_mode == 1)
+        assert owner.scan_dual_thread_frame.visible == (scan_mode == 1)
+        assert owner.drone_frame.visible == (scan_mode == 2)
 
 
 def test_unchecked_signal_and_direct_inventory_mode_do_not_warn(monkeypatch):
