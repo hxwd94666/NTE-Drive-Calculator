@@ -88,13 +88,19 @@ def default_artifact_paths(target: Path | None) -> tuple[Path, ...]:
         roots.insert(0, target if target.is_dir() else target.parent)
     relative_candidates = (
         Path("_internal/nte-core.exe"),
-        Path("_internal/d3d12.dll"),
+        Path("_internal/native-capture/d3d12.dll"),
         Path("_internal/nte-mod-loader.exe"),
-        Path("_internal/NTE_Capture.dll"),
+        Path("_internal/native-capture/plugins/NTE_PluginUser.dll"),
+        Path("_internal/native-capture/plugins/NTE_PluginCombat.dll"),
+        Path("_internal/native-capture/plugins/NTE_PluginHUD.dll"),
+        Path("_internal/native-capture/plugins/NTE_PluginPerformance.dll"),
         Path("third_party/native-capture/core/nte-core.exe"),
         Path("third_party/native-capture/capture/d3d12.dll"),
         Path("third_party/mod-loader/bin/nte-mod-loader.exe"),
-        Path("third_party/native-capture/capture/NTE_Capture.dll"),
+        Path("third_party/native-capture/capture/plugins/NTE_PluginUser.dll"),
+        Path("third_party/native-capture/capture/plugins/NTE_PluginCombat.dll"),
+        Path("third_party/native-capture/capture/plugins/NTE_PluginHUD.dll"),
+        Path("third_party/native-capture/capture/plugins/NTE_PluginPerformance.dll"),
     )
     found: list[Path] = []
     for root in roots:

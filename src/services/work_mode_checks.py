@@ -52,7 +52,7 @@ def _native_check(
         return result(CheckState.AVAILABLE, "已核对组件文件；手动管理可用。")
     if probe.core_available is not True:
         return result(CheckState.MISSING if probe.core_available is False else CheckState.WAITING,
-                      "采集组件缺失。" if probe.core_available is False else "正在核对采集组件兼容性。", "recheck")
+                      "配套采集组件未通过核对，请查看组件包检测详情。" if probe.core_available is False else "正在核对采集组件兼容性。", "recheck")
     if probe.game_running is False:
         return result(CheckState.WAITING, "等待启动游戏。", "recheck")
     if probe.game_running is None:
@@ -181,7 +181,7 @@ def build_work_mode_report(
             state, detail, actions = CheckState.FAULT, probe.packet_fault, ("recheck",)
         elif probe.core_available is not True:
             state = CheckState.MISSING if probe.core_available is False else CheckState.WAITING
-            detail, actions = "采集组件缺失。" if probe.core_available is False else "采集组件尚未核对。", ("recheck",)
+            detail, actions = "配套采集组件未通过核对，请查看组件包检测详情。" if probe.core_available is False else "采集组件尚未核对。", ("recheck",)
         elif probe.npcap_available is not True:
             state, detail, actions = npcap_state, "抓包依赖尚未就绪，请按上方 Npcap 检测结果处理。", ("recheck",)
         elif not probe.packet_listening:

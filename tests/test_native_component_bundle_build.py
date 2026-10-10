@@ -57,7 +57,7 @@ def test_native_bundle_preserves_all_notices_identity_and_capabilities(tmp_path,
     assert set(bundled["files"]) == set(bundled["file_sizes"])
     assert len(bundled["files"]) == len(payload["files"])
     assert (result.resource_root / "nte-mod-loader.exe").exists() == loader
-    assert (result.resource_root / "plugins/NTE_PluginHUD.dll").is_file()
+    assert (result.resource_root / "native-capture/plugins/NTE_PluginHUD.dll").is_file()
     assert not (result.resource_root / "NTE_Capture.dll").exists()
     validate_packaged_component_bundle(result.resource_root, source_manifest_path=source)
     payload["input_digests"]["capture"] = "e" * 64

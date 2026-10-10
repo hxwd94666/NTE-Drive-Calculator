@@ -15,10 +15,15 @@ Windows 明确报告恶意软件阻止时显示系统拦截原因；临时文件
 自动管理仅消费当前 Calc 的 `component-bundle.json`。源码布局在
 `third_party/native-capture/component-bundle.json`，发行布局在应用资源根目录；所有清单文件路径相对当前应用资源根目录。
 PyInstaller 发行的资源根目录为 `_internal`，与主 EXE 所在目录不同；发行清单须使用该布局内的路径。
-原生采集链的代理 DLL 只按清单作为显式输入打包；依赖扫描不从工作目录自动收集同名 `dwmapi.dll` 或 `d3d12.dll`，
-避免将本机游戏代理误作 Qt 的 Windows 系统依赖。声明的 D3D 入口仍须通过成包哈希核对。
-原生安装包覆盖升级时清除旧安装误带的 `_internal/dwmapi.dll`，只处理 Calc 安装目录中的运行依赖；
-不通过安装器清理游戏目录，也不删除账号、战报或工作模式配置。
+游戏代理 `d3d12.dll`、插件及签名统一存放在 `_internal/native-capture/`，
+不进入 Calc 的资源根 DLL 搜索目录；Core 与 Loader 可执行文件仍在 `_internal`。
+部署按清单读取隔离目录中的来源文件，再写入游戏目录或 Loader 专用运行目录的正式布局，文件名不变。
+依赖扫描不从工作目录自动收集同名 `dwmapi.dll` 或 `d3d12.dll`，成包门禁同时拒绝资源根目录中的
+`d3d12.dll`、`dwmapi.dll`、`NTE_Capture.dll` 和旧 `plugins/`，并核对隔离目录的完整清单与哈希。
+原生安装包覆盖升级时清除 Calc 安装目录中旧的 `_internal/dwmapi.dll`；当前隔离布局还清除
+旧 `_internal/d3d12.dll`、`_internal/NTE_Capture.dll` 及 `_internal/plugins/` 中 User、Combat、HUD、Performance
+四个正式插件及各自签名。只删除确切文件，保留目录和其他文件；不清理游戏目录、账号、战报或工作模式配置。
+配套 Core 可用性受整包校验约束；校验失败表示组件包未通过核对，不能仅据此断言 Core 可执行文件缺失。
 缺少清单、来源声明、配套文件或哈希不符时，自动管理不可用，不追随外部仓库或其他安装的文件。
 
 清单为 UTF-8 JSON 对象：

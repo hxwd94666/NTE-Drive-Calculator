@@ -26,6 +26,7 @@ from pathlib import Path
 from tools import build_cli
 from src.app.version import windows_numeric_version
 from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, native_deployment_paths
 from src.integrations.ocr_model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.installer_asset_dedup import (
@@ -249,13 +250,18 @@ def _write_iss(
     package_internal = internal_source or APP_INTERNAL
     asset_copy_lines = inno_asset_copy_lines(package_internal, asset_copies or [])
     stale_runtime_dlls = list(STALE_AMBIENT_ICU_DLLS)
-    if inspect_game_component_bundle(APP_INTERNAL).layout == "native-capture-v1":
+    native_layout = inspect_game_component_bundle(APP_INTERNAL).layout
+    if native_layout in NATIVE_PLUGIN_LAYOUTS:
         # Old installers could include this game proxy as an ambient dependency.
         # It is not a Calc runtime DLL; clean only the old application-local copy.
         stale_runtime_dlls.append("dwmapi.dll")
+    if native_layout == SPLIT_PLUGIN_LAYOUT:
+        # The current package isolates its payload. Retire only exact old app-local
+        # files on upgrade; never remove the plugins directory or game-side files.
+        stale_runtime_dlls.extend(("NTE_Capture.dll", *native_deployment_paths(SPLIT_PLUGIN_LAYOUT).values()))
     stale_runtime_delete_lines = "\n".join(
         f'Type: files; Name: "{{app}}\\_internal\\{name}"'
-        for name in stale_runtime_dlls
+        for name in (relative.replace("/", "\\") for relative in stale_runtime_dlls)
     )
     if vigem_is_exe:
         vigem_install_filename = "{app}\\drivers\\ViGEmBus_Setup.exe"

@@ -6,7 +6,7 @@ import pytest
 import build_installer
 
 
-@pytest.mark.parametrize("layout", ["native-capture-v1", "legacy"])
+@pytest.mark.parametrize("layout", ["native-capture-v1", "native-plugins-v2", "native-plugins-v3", "legacy"])
 def test_upgrade_cleans_application_proxy_only_for_native_bundle(tmp_path, monkeypatch, layout):
     monkeypatch.setattr(build_installer, "INSTALLER_DIR", tmp_path / "installer")
     monkeypatch.setattr(build_installer, "OUTPUT_DIR", tmp_path / "output")
@@ -15,8 +15,14 @@ def test_upgrade_cleans_application_proxy_only_for_native_bundle(tmp_path, monke
     build_installer._write_iss("2.2.4", tmp_path / "driver.exe", True)
     script = build_installer.ISS_PATH.read_text(encoding="utf-8-sig")
     deletes = script.split("[InstallDelete]", 1)[1].split("[Dirs]", 1)[0]
-    assert ('Type: files; Name: "{app}\\_internal\\dwmapi.dll"' in deletes) == (layout == "native-capture-v1")
-    expected = {"icuuc.dll", "icudt78.dll"} | ({"dwmapi.dll"} if layout == "native-capture-v1" else set())
+    expected = {"icuuc.dll", "icudt78.dll"} | ({"dwmapi.dll"} if layout != "legacy" else set())
+    if layout == "native-plugins-v3":
+        expected.update({"d3d12.dll", "NTE_Capture.dll"})
+        expected.update(
+            "plugins\\" + name + suffix
+            for name in ("NTE_PluginUser", "NTE_PluginCombat", "NTE_PluginHUD", "NTE_PluginPerformance")
+            for suffix in (".dll", ".dll.sig")
+        )
     expected_lines = {
         f'Type: files; Name: "{{app}}\\_internal\\{name}"' for name in expected
     }
