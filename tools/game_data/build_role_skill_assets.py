@@ -42,6 +42,8 @@ def add_role_skill_assets(source: Path, database: Path, output: Path) -> dict:
     for identity, asset_path in rows:
         if not isinstance(asset_path, str) or not asset_path.startswith('/Game/'):
             raise ValueError(f'正式技能缺少游戏图标路径：{identity}')
+        if '\\' in asset_path or any(part in {'.', '..'} for part in asset_path.split('/')):
+            raise ValueError('技能图片来源路径包含无效目录段')
         package = asset_path.split('.', 1)[0]
         original = (source/(package.removeprefix('/Game/')+'.png')).resolve()
         if source not in original.parents:

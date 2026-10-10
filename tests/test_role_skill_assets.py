@@ -1,6 +1,7 @@
 # 验证角色技能图片按正式技能身份构建、共享读取和来源缺失时停止晋升。
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -22,7 +23,7 @@ class RoleSkillAssetsTests(unittest.TestCase):
         source.mkdir()
         output.mkdir(parents=True)
         database = root/'candidate/game_static.sqlite3'
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             connection.executescript('''
                 CREATE TABLE character_skill(skill_id TEXT, ability_type TEXT);
                 CREATE TABLE gameplay_ability_catalog(ability_id TEXT, icon_path TEXT);
@@ -58,7 +59,7 @@ class RoleSkillAssetsTests(unittest.TestCase):
     def test_source_path_cannot_leave_content_root(self):
         with TemporaryDirectory() as temporary:
             source, database, output = self.fixture(Path(temporary))
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.execute("UPDATE gameplay_ability_catalog SET icon_path='/Game/../outside.outside'")
             with self.assertRaises(ValueError):
                 add_role_skill_assets(source, database, output)
@@ -68,7 +69,7 @@ class RoleSkillAssetsTests(unittest.TestCase):
             source, database, output = self.fixture(Path(temporary))
             add_role_skill_assets(source, database, output)
             Image.new('RGBA', (256, 256), 'black').save(source/'Skill/New.png')
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.execute("UPDATE gameplay_ability_catalog SET icon_path='/Game/Skill/New.New'")
             result = add_role_skill_assets(source, database, output)
             self.assertFalse((output/'skills/Shared.png').exists())

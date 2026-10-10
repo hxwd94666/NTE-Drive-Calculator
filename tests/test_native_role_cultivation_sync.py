@@ -58,9 +58,11 @@ def test_invalid_cultivation_does_not_block_valid_growth(tmp_path, fields):
         assert not any(key in observed for key in fields)
 
 
-def test_v41_upgrade_keeps_observed_growth_and_failed_v42_can_retry(tmp_path):
+def test_v41_upgrade_keeps_observed_growth_and_failed_v42_can_retry(tmp_path, monkeypatch):
     from src.storage.sqlite import user_data_base
     from unittest.mock import patch
+    # Freeze the historical target instead of leaving newer migrations installed.
+    monkeypatch.setattr(user_data_base, 'SCHEMA_VERSION', 42)
     database, _ = setup(tmp_path)
     with sqlite3.connect(database) as conn:
         conn.execute('DROP TABLE character_profile_observation')

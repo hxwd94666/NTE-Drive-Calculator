@@ -109,7 +109,7 @@ def test_freeze_plans_preserves_targets_across_saved_plan_changes():
 def test_failure_return_is_logged_as_failure_not_bulk_success(monkeypatch):
     events = Mock()
     monkeypatch.setattr("src.services.bulk_equipment_apply_service.log_event", events)
-    service = BulkEquipmentApplyService("unused.sqlite3", object())
+    service = BulkEquipmentApplyService("unused.sqlite3", object(), operation_guard=Mock())
     service._run = Mock(
         return_value={"job_id": 10, "completed": False, "failure_kind": "recovery_exhausted", "applied": []}
     )

@@ -67,6 +67,7 @@ class Dao:
 def recovery(**kwargs):
     clock = Clock()
     sync = Sync()
+    kwargs.setdefault("operation_guard", Mock())
     runtime = EquipmentApplyRecovery(
         sync,
         Dao(),
