@@ -82,8 +82,8 @@ class CharacterWeightServiceTests(unittest.TestCase):
                 "schema_version": 1,
                 "payload_sha256": "first",
                 "characters": {
-                    "1051": {
-                        "character_id": 1051,
+                    "1046": {
+                        "character_id": 1046,
                         "source_kind": "workshop_runtime",
                         "properties": [{
                             "property_id": "CritBase", "weight": 1.4,
@@ -109,8 +109,8 @@ class CharacterWeightServiceTests(unittest.TestCase):
                 )
                 template = json.loads(template_file.read_text(encoding="utf-8"))
                 template["payload_sha256"] = "second"
-                template["characters"]["1051"]["property_weights"] = {"CritBase": 1.8}
-                template["characters"]["1051"]["properties"][0]["weight"] = 1.8
+                template["characters"]["1046"]["property_weights"] = {"CritBase": 1.8}
+                template["characters"]["1046"]["properties"][0]["weight"] = 1.8
                 template_file.write_text(json.dumps(template), encoding="utf-8")
                 after_refresh = ensure_account_character_weights(user_database, (1051,))[1051]
                 reset = reset_account_character_weights(user_database, (1051,))[1051]

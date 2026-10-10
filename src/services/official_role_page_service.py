@@ -31,7 +31,7 @@ from src.services.damage_calculation_service import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
+from src.services.character_weight_service import resolve_character_base_weights
 
 __all__ = [
     "OfficialAttributeSummaryValue",
@@ -450,18 +450,11 @@ def load_official_role_detail(
             )
             context["available"] = bool(context["items"])
         graduation_template = static_dao.get_character_graduation_template(character_id)
-        # 角色页只读显示当前账号在“权重”页已保存的基础权重；角色页本身
-        # 绝不写回它。账号尚未生成该角色记录时，才回落公共默认。
-        public_weight_record = effective_workshop_recommended_weights(
-            None,
-            character_id,
-            static_dao.get_character_recommended_weights(character_id),
-        ) or {}
-        account_weight_record = user_dao.get_character_weight_preferences(character_id)
+        # 基础权重与实际角色身份独立解析；边际权重仍由当前角色面板生成。
+        weight_record = resolve_character_base_weights(user_dao, static_dao, character_id) or {}
         world_bonus = WorldBonusSettings.from_payload(
             user_dao.list_application_setting_copies().get(WORLD_BONUS_SETTING_KEY)
         )
-        weight_record = account_weight_record or public_weight_record
         weights = {
             str(key): float(value)
             for key, value in (weight_record.get("property_weights") or {}).items()
@@ -552,11 +545,12 @@ def load_official_role_detail(
             for key, value in (weight_record.get("main_property_weights") or {}).items()
         },
         "property_weight_source": str(
-            (account_weight_record or {}).get("source_kind") or "default"
+            weight_record.get("source_kind") or "default"
         ),
-        "property_weights_from_account": account_weight_record is not None,
+        "property_weights_from_account": str(weight_record.get("source_kind") or "") in ("account", "custom"),
+        "weight_source_character_id": weight_record.get("weight_source_character_id", character_id),
         "theory_weights": theory_weights,
-        "theory_weights_persisted": account_weight_record is not None,
+        "theory_weights_persisted": "seeded_at_utc" in weight_record,
         "replacement_items": replacement_items,
         "replacement_candidates_loaded": include_replacement_candidates,
         "equipment_contexts": {

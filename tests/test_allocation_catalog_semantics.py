@@ -81,7 +81,7 @@ def test_stats_template_and_manifest_changes_are_not_missed(service, monkeypatch
     subject.read()
     template = subject.dependencies.config_dir / "workshop.json"
     monkeypatch.setenv("NTE_WORKSHOP_WEIGHT_TEMPLATE_FILE", str(template))
-    template.write_text(json.dumps({"schema_version": 1, "characters": {"1051": {"property_weights": {"CritBase": 2}}}}))
+    template.write_text(json.dumps({"schema_version": 1, "characters": {"1046": {"property_weights": {"CritBase": 2}}}}))
     assert subject.read(verify=True)[2]
     (subject.dependencies.asset_root / "manifest.json").write_text('{"characters":{}}')
     assert subject.read()[2]

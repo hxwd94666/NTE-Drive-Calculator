@@ -8,6 +8,7 @@ from pathlib import Path
 from time import perf_counter
 
 from src.domain.stat_catalog import StatCatalog
+from src.domain.recommended_weights import base_weight_character_id
 from src.domain.role_name_order import role_name_sort_key
 from src.optimizer.scoring import ScoringEngine
 from src.services.character_weight_service import is_unmodified_account_weight_cache
@@ -89,7 +90,8 @@ class AllocationCatalogService:
         # contributes observed role identities, not its UID contents or history rows.
         with UserDataDao(deps.user_database_path) as dao, dao.read_consistent_state():
             custom = dao.list_custom_characters()
-            ids = sorted(set(official_ids) | {int(row["character_id"]) for row in custom})
+            ids = sorted({base_weight_character_id(cid) for cid in official_ids}
+                         | {int(row["character_id"]) for row in custom})
             weights = {}
             for character_id in ids:
                 record = dao.get_character_weight_preferences(character_id)

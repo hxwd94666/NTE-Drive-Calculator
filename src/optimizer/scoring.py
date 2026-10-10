@@ -12,9 +12,8 @@ from src.integrations.bundled_resources import bundled_config_dir
 from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.services.workshop_weight_template_service import effective_workshop_recommended_weights
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.character_weight_service import is_unmodified_account_weight_cache
+from src.services.character_weight_service import resolve_character_base_weights
 
 
 # 旧评分器仍以这些显示名匹配 OCR 装备；角色和权重本身已迁到 SQLite。
@@ -100,17 +99,7 @@ class ScoringEngine:
                 }
                 for character in static_dao.list_role_template_characters(preferred_ids):
                     character_id = int(character["character_id"])
-                    record = (
-                        user_dao.get_character_weight_preferences(character_id)
-                        if user_dao is not None
-                        else None
-                    )
-                    if record is None or is_unmodified_account_weight_cache(record):
-                        record = effective_workshop_recommended_weights(
-                            None,
-                            character_id,
-                            static_dao.get_character_recommended_weights(character_id),
-                        )
+                    record = resolve_character_base_weights(user_dao, static_dao, character_id)
                     if record is None:
                         continue
                     weights = {

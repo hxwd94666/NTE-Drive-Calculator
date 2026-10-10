@@ -81,7 +81,8 @@ def effective_workshop_recommended_weights(
             if isinstance(runtime, Mapping):
                 # Keep the public source ID as provenance; only the consuming
                 # role identity is projected, never the cached template itself.
-                return {**deepcopy(runtime), "character_id": int(character_id)}
+                return {**deepcopy(runtime), "character_id": int(character_id),
+                        "weight_source_character_id": source_id}
     return static_recommendation
 
 
@@ -208,9 +209,14 @@ class WorkshopWeightTemplateService:
             for character_id, recommendation in parsed.items()
             if recommendation.get("source_kind") == "workshop_api"
         }
+        existing = _read_template(self._template_file)
+        # 接口暂缺主角时保留1046上次有效记录，绝不借用旧1051模板。
+        previous_main = (existing or {}).get("characters", {}).get("1046")
+        if 1046 in known_ids and "1046" not in characters and isinstance(previous_main, Mapping):
+            if previous_main.get("properties") and previous_main.get("source_kind") == "workshop_runtime":
+                characters["1046"] = deepcopy(dict(previous_main))
         canonical = json.dumps(characters, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        existing = _read_template(self._template_file)
         updated = existing is None or str(existing.get("payload_sha256") or "") != digest
         if updated:
             self._write_template({

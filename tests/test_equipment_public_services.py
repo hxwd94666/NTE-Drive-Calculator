@@ -588,7 +588,10 @@ class OfficialRoleReplacementTests(unittest.TestCase):
                 target,
                 replacement,
                 replacement_score=15.0,
-                current_score=10.0,
+                current_assignment_scores={
+                    "nte-module-1-1": 10.0,
+                    "nte-core-3-3": 5.0,
+                },
             )
         self.assertEqual(77, saved_id)
         saved = captured["plans"][0]

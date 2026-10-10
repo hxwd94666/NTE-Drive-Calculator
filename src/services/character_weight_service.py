@@ -5,10 +5,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from contextlib import nullcontext
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from src.observability import OperationContext, operation_scope
+from src.domain.recommended_weights import base_weight_character_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.workshop_weight_template_service import (
@@ -27,6 +29,32 @@ def is_unmodified_account_weight_cache(record: Mapping[str, Any] | None) -> bool
         and str(record.get("seeded_at_utc") or "")
         == str(record.get("updated_at_utc") or "")
     )
+
+
+def _weight_projection(record: Mapping[str, Any], character_id: int) -> dict[str, Any]:
+    """保留消费者的角色身份，同时明确基础权重的独立来源。"""
+    return {
+        **deepcopy(dict(record)),
+        "character_id": int(character_id),
+        "weight_source_character_id": base_weight_character_id(character_id),
+    }
+
+
+def resolve_character_base_weights(
+    user_dao: UserDataDao | None,
+    static_dao: StaticGameDataDao,
+    character_id: int,
+) -> dict[str, Any] | None:
+    """只读解析统一基础权重；不种默认记录、不改历史方案或边际结果。"""
+    source_id = base_weight_character_id(character_id)
+    existing = user_dao.get_character_weight_preferences(source_id) if user_dao is not None else None
+    if existing is not None and not is_unmodified_account_weight_cache(existing):
+        return _weight_projection(existing, character_id)
+    recommended = effective_workshop_recommended_weights(
+        None, source_id, static_dao.get_character_recommended_weights(source_id),
+    )
+    record = recommended if recommended is not None else existing
+    return _weight_projection(record, character_id) if record is not None else None
 
 
 def _same_weight_rows(
@@ -75,30 +103,41 @@ def ensure_account_character_weights(
         dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
         public_revision = workshop_weight_template_revision() or dataset_id
         result: dict[int, dict[str, Any]] = {}
+        resolved: dict[int, dict[str, Any]] = {}
         for character_id in wanted_ids:
+            source_id = base_weight_character_id(character_id)
+            if source_id in resolved:
+                result[character_id] = _weight_projection(resolved[source_id], character_id)
+                continue
             recommended = effective_workshop_recommended_weights(
                 None,
-                character_id,
-                static_dao.get_character_recommended_weights(character_id),
+                source_id,
+                static_dao.get_character_recommended_weights(source_id),
             )
-            if recommended is None:
+            existing = user_dao.get_character_weight_preferences(source_id)
+            properties = list((recommended or {}).get("properties") or ())
+            if existing is not None and not is_unmodified_account_weight_cache(existing):
+                resolved[source_id] = existing
+                result[character_id] = _weight_projection(existing, character_id)
                 continue
-            properties = list(recommended.get("properties") or ())
             if not properties:
+                if existing is not None:
+                    resolved[source_id] = existing
+                    result[character_id] = _weight_projection(existing, character_id)
                 continue
-            existing = user_dao.get_character_weight_preferences(character_id)
             if not persist_defaults and (existing is None or is_unmodified_account_weight_cache(existing)):
                 # An editor read resolves defaults, but must not become a late account write.
-                result[character_id] = {
+                resolved[source_id] = {
                     "source_kind": "default", "source_dataset_id": public_revision,
                     "properties": properties,
                     "property_weights": {str(row["property_id"]): float(row["weight"]) for row in properties if float(row.get("weight") or 0) > 0},
                     "main_property_weights": {str(row["property_id"]): float(row["main_weight"]) for row in properties if float(row.get("main_weight") or 0) > 0},
                 }
+                result[character_id] = _weight_projection(resolved[source_id], character_id)
                 continue
             if existing is None:
-                result[character_id] = user_dao.seed_character_weight_preferences(
-                    character_id,
+                resolved[source_id] = user_dao.seed_character_weight_preferences(
+                    source_id,
                     properties=properties,
                     source_dataset_id=public_revision,
                     source_kind="default",
@@ -108,17 +147,18 @@ def ensure_account_character_weights(
                     str(existing.get("source_dataset_id") or "") == public_revision
                     and _same_weight_rows(existing, properties)
                 ):
-                    result[character_id] = existing
+                    resolved[source_id] = existing
                 else:
                     refreshed = user_dao.refresh_unmodified_character_weight_preferences(
-                        character_id,
+                        source_id,
                         properties=properties,
                         source_dataset_id=public_revision,
                         source_kind="default",
                     )
-                    result[character_id] = refreshed or existing
+                    resolved[source_id] = refreshed or existing
             else:
-                result[character_id] = existing
+                resolved[source_id] = existing
+            result[character_id] = _weight_projection(resolved[source_id], character_id)
         return result
 
 
@@ -156,7 +196,7 @@ def save_account_character_weights(
             property_ids=sorted(str(key) for key in property_weights),
             main_property_ids=sorted(str(key) for key in (main_property_weights or {})),
         )
-        return result
+        return _weight_projection(result, character_id)
 
 
 def _save_account_character_weights(
@@ -167,6 +207,7 @@ def _save_account_character_weights(
     main_property_weights: Mapping[str, float] | None,
     static_database_path: str | Path | None = None,
 ) -> dict[str, Any]:
+    character_id = base_weight_character_id(character_id)
     current = ensure_account_character_weights(
         user_database_path, (character_id,), static_database_path=static_database_path,
     ).get(
@@ -293,17 +334,23 @@ def _reset_account_character_weights(
         dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
         public_revision = workshop_weight_template_revision() or dataset_id
         restored: dict[int, dict[str, Any]] = {}
+        sources: dict[int, dict[str, Any]] = {}
         for character_id in wanted_ids:
+            source_id = base_weight_character_id(character_id)
+            if source_id in sources:
+                restored[character_id] = _weight_projection(sources[source_id], character_id)
+                continue
             recommended = effective_workshop_recommended_weights(
                 None,
-                character_id,
-                static_dao.get_character_recommended_weights(character_id),
+                source_id,
+                static_dao.get_character_recommended_weights(source_id),
             )
             if recommended is None or not recommended.get("properties"):
                 continue
-            restored[character_id] = user_dao.reset_character_weight_preferences_to_default(
-                character_id,
+            sources[source_id] = user_dao.reset_character_weight_preferences_to_default(
+                source_id,
                 properties=list(recommended["properties"]),
                 source_dataset_id=public_revision,
             )
+            restored[character_id] = _weight_projection(sources[source_id], character_id)
         return restored

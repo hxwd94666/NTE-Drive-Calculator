@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from math import isfinite
 from typing import Any, Mapping
 
-from src.domain.loadout_plan_scores import exact_assignment_score_total
+from src.domain.loadout_plan_scores import assignment_score_key, exact_assignment_score_total
+from src.domain.recommended_weights import base_weight_character_id
 from src.services.equipment_level_projection_service import (
     project_equipment_items_to_max_level,
 )
@@ -264,7 +266,6 @@ def save_official_role_replacement(
     *,
     context_key: str = "saved",
     replacement_score: float | None = None,
-    current_score: float | None = None,
     current_assignment_scores: Mapping[str, float] | None = None,
 ) -> int:
     """Persist one accepted saved-plan replacement as the next active plan."""
@@ -310,52 +311,25 @@ def save_official_role_replacement(
         f"nte-{replacement_kind}-{replacement.get('uid_slot')}-{replacement.get('uid_serial')}"
     )
     payload = dict(plan.get("payload") or {})
-    persisted_assignment_scores = {
-        str(uid): float(score)
-        for uid, score in (payload.get("assignment_scores") or {}).items()
-    }
-    persisted_total = exact_assignment_score_total(
-        original_assignments,
-        persisted_assignment_scores,
-    )
-    rebuilt_assignment_scores = (
-        {
-            str(uid): float(score)
-            for uid, score in current_assignment_scores.items()
-        }
-        if current_assignment_scores is not None
-        else persisted_assignment_scores
-    )
-    assignment_scores = (
-        persisted_assignment_scores
-        if persisted_total is not None and not is_virtual_equipment_assignment(target)
-        else rebuilt_assignment_scores
-    )
-    previous_assignment_score = assignment_scores.pop(target_display_uid, None)
-    if replacement_score is not None:
-        assignment_scores[replacement_display_uid] = float(replacement_score)
-    if previous_assignment_score is None:
-        previous_assignment_score = current_score
-    plan_score = plan.get("score")
-    exact_score = exact_assignment_score_total(assignments, assignment_scores)
-    if exact_score is not None:
-        # Active-plan overlays may carry a stale historical total.  The
-        # per-slot scores are authoritative and virtual placeholders are 0.
-        saved_score: float | None = exact_score
-    elif (
-        plan_score is not None
-        and replacement_score is not None
-        and previous_assignment_score is not None
-    ):
-        saved_score = (
-            float(plan_score)
-            - float(previous_assignment_score)
-            + float(replacement_score)
-        )
-    else:
-        # Do not ever write direct damage into the equipment-score column.
-        # Retaining the prior verified score is safer than inventing a total.
-        saved_score = float(plan_score) if plan_score is not None else None
+    if current_assignment_scores is None or replacement_score is None:
+        raise ValueError("替换保存需要完整的当前基础评分，请重新打开替换优化后重试")
+    # 新方案整体采用本次基础口径，原方案及其历史冻结分保持不变。
+    assignment_scores = {}
+    for row in original_assignments:
+        key = assignment_score_key(row)
+        if is_virtual_equipment_assignment(row):
+            assignment_scores[key] = 0.0
+        elif key in current_assignment_scores:
+            assignment_scores[key] = float(current_assignment_scores[key])
+        else:
+            raise ValueError("当前基础评分不完整，请重新打开替换优化后重试")
+    assignment_scores.pop(target_display_uid)
+    assignment_scores[replacement_display_uid] = float(replacement_score)
+    if any(not isfinite(score) or score < 0 for score in assignment_scores.values()):
+        raise ValueError("当前基础评分数值异常，请重新打开替换优化后重试")
+    saved_score = exact_assignment_score_total(assignments, assignment_scores)
+    if saved_score is None:
+        raise ValueError("替换方案评分不完整，请重新打开替换优化后重试")
     payload.update({
         "source": "official_role_replacement",
         "replaces_plan_id": plan.get("plan_id"),
@@ -374,6 +348,11 @@ def save_official_role_replacement(
     })
     if assignment_scores:
         payload["assignment_scores"] = assignment_scores
+    payload["base_scoring"] = {
+        "weight_source_character_id": base_weight_character_id(int(plan["character_id"])),
+        "property_weights": dict(detail.get("property_weights") or {}),
+        "main_property_weights": dict(detail.get("main_property_weights") or {}),
+    }
     role_name = str((detail.get("character") or {}).get("name_zh") or plan["character_id"])
     with UserDataDao(user_database_path) as user_dao:
         save_kwargs = {

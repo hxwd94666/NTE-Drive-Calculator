@@ -9,6 +9,7 @@ from math import isfinite
 from types import SimpleNamespace
 from typing import Any, Mapping
 
+from src.domain.recommended_weights import base_weight_character_id
 from src.optimizer.contracts import DIFF_ADDED, DIFF_ADDED_UIDS, DIFF_CHANGED, DIFF_REMOVED
 from src.optimizer.scoring import ScoringEngine
 from src.services.sqlite_allocation_inventory import legacy_stat_name, legacy_stat_value
@@ -46,6 +47,7 @@ class FrozenComparisonScorer:
         rules = json.dumps(asdict(self.engine.stat_catalog), sort_keys=True, ensure_ascii=False)
         return dict(
             character_id=self.character_id, static_dataset_id=self.dataset_id,
+            weight_source_character_id=base_weight_character_id(self.character_id),
             scoring_method="base_weights", scoring_rule="ScoringEngine-v1",
             rule_sha256=sha256(rules.encode("utf-8")).hexdigest(),
             property_weights={pid: self.engine.flexible_weight(name, dict(self.weights))

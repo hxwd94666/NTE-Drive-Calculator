@@ -310,7 +310,6 @@ class OfficialRoleController(QObject):
         *,
         context_key: str = "saved",
         replacement_score: float,
-        current_score: float,
         current_assignment_scores: Mapping[str, float],
     ) -> None:
         character_id = int((detail.get("character") or {})["character_id"])
@@ -329,7 +328,6 @@ class OfficialRoleController(QObject):
                 replacement,
                 context_key=context_key,
                 replacement_score=float(replacement_score),
-                current_score=float(current_score),
                 current_assignment_scores=current_assignment_scores,
             )
 

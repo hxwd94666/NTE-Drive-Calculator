@@ -56,12 +56,6 @@ def show_official_role_replacement(
     shape_areas = getattr(window, "_shape_areas", {})
 
     current_item = dict(candidates[0]["current_item"])
-    current_base_score = score_official_role_equipment(
-        scoring_engine,
-        detail=detail,
-        item=current_item,
-        shape_areas=shape_areas,
-    )
     current_assignment_scores = {
         assignment_score_key(item): score_official_role_equipment(
             scoring_engine,
@@ -140,7 +134,6 @@ def show_official_role_replacement(
             row["item"],
             context_key=context_key,
             replacement_score=float(row["base_score"]),
-            current_score=current_base_score,
             current_assignment_scores=current_assignment_scores,
         )
 

@@ -1,7 +1,9 @@
 # 验证角色页替换不会把直伤数值写入配装总评分。
 from pathlib import Path
+from copy import deepcopy
 from unittest.mock import patch
 
+import pytest
 from src.services.official_role_page_service import save_official_role_replacement
 
 
@@ -69,7 +71,7 @@ def test_role_replacement_updates_equipment_score_not_direct_damage() -> None:
             target,
             replacement,
             replacement_score=31.0,
-            current_score=25.0,
+            current_assignment_scores={"nte-module-10-20": 25.0, "nte-module-11-21": 236.0},
         )
 
     assert plan_id == 88
@@ -139,7 +141,7 @@ def test_role_replacement_keeps_the_selected_secondary_slot() -> None:
             replacement,
             context_key="saved:27",
             replacement_score=31.0,
-            current_score=25.0,
+            current_assignment_scores={"nte-module-10-20": 25.0},
         )
 
     assert saved_plan_id == 99
@@ -147,7 +149,7 @@ def test_role_replacement_keeps_the_selected_secondary_slot() -> None:
     assert captured["plan"]["assignments"][0]["uid_slot"] == 12
 
 
-def test_role_replacement_keeps_complete_non_target_scores_frozen() -> None:
+def test_new_replacement_uses_current_scores_without_mutating_old_plan() -> None:
     captured: dict = {}
 
     class FakeDao:
@@ -173,7 +175,7 @@ def test_role_replacement_keeps_complete_non_target_scores_frozen() -> None:
             "saved": {
                 "plan": {
                     "plan_id": 8,
-                    "character_id": 1003,
+                    "character_id": 1051,
                     "source_snapshot_id": 1,
                     "score": 90.0,
                     "payload": {
@@ -188,26 +190,52 @@ def test_role_replacement_keeps_complete_non_target_scores_frozen() -> None:
         },
     }
 
+    historical = deepcopy(detail)
     with patch("src.services.official_role_replacement_service.UserDataDao", FakeDao):
         saved_id = save_official_role_replacement(
             Path("test.sqlite3"),
             detail,
             target,
             replacement,
-            replacement_score=25.0,
-            current_score=999.0,
+            replacement_score=39.83,
             current_assignment_scores={
-                "nte-core-10-20": 999.0,
-                "nte-module-11-21": 999.0,
+                "nte-core-10-20": 35.0,
+                "nte-module-11-21": 30.0,
             },
         )
 
     assert saved_id == 101
-    assert captured["plan"]["score"] == 105.0
+    assert captured["plan"]["score"] == 69.83
     assert captured["plan"]["payload"]["assignment_scores"] == {
-        "nte-core-12-22": 25.0,
-        "nte-module-11-21": 80.0,
+        "nte-core-12-22": 39.83,
+        "nte-module-11-21": 30.0,
     }
+    assert detail == historical
+    assert captured["plan"]["character_id"] == 1051
+    assert captured["plan"]["payload"]["base_scoring"]["weight_source_character_id"] == 1046
+
+
+@pytest.mark.parametrize("scores,replacement_score", [
+    (None, 39.83), ({}, 39.83),
+    ({"nte-core-10-20": 35.0}, None),
+    ({"nte-core-10-20": 35.0}, float("nan")),
+    ({"nte-core-10-20": 35.0}, -1),
+])
+def test_invalid_current_basis_never_writes_or_changes_history(scores, replacement_score):
+    target = {"uid_slot": 10, "uid_serial": 20, "kind": "core"}
+    replacement = {"uid_slot": 12, "uid_serial": 22, "kind": "core"}
+    detail = {"equipment_contexts": {"saved": {"plan": {
+        "plan_id": 8, "character_id": 1051, "source_snapshot_id": 1,
+        "score": 45, "payload": {"assignment_scores": {"nte-core-10-20": 45}},
+        "assignments": [target],
+    }}}}
+    history = deepcopy(detail)
+    with patch("src.services.official_role_replacement_service.UserDataDao") as dao:
+        with pytest.raises(ValueError, match="基础评分"):
+            save_official_role_replacement(Path("fixture.sqlite3"), detail, target, replacement,
+                                          replacement_score=replacement_score, current_assignment_scores=scores)
+        dao.assert_not_called()
+    assert detail == history
 
 
 def test_virtual_drive_replacement_rebuilds_stale_plan_total() -> None:
@@ -273,7 +301,7 @@ def test_incomplete_legacy_scores_are_rebuilt_from_current_items() -> None:
         f"nte-module-{item['uid_slot']}-{item['uid_serial']}": score
         for item, score in zip(drives, drive_scores)
     }
-    current_scores["nte-core-0-101"] = 0.0
+    # 虚拟占位无需消费端补造评分，服务统一按零分处理。
 
     with patch(
         "src.services.official_role_replacement_service.UserDataDao",
@@ -285,7 +313,6 @@ def test_incomplete_legacy_scores_are_rebuilt_from_current_items() -> None:
             virtual_core,
             replacement,
             replacement_score=132.86,
-            current_score=0.0,
             current_assignment_scores=current_scores,
         )
 
@@ -359,7 +386,7 @@ def _assert_virtual_replacement_rebuilds_total(target_kind: str) -> None:
             target,
             replacement,
             replacement_score=35.0,
-            current_score=0.0,
+            current_assignment_scores={f"nte-{other_kind}-8-202": 45.0},
         )
 
     plan = captured["plan"]

@@ -45,7 +45,7 @@ class ProtagonistWeightDefaultTests(unittest.TestCase):
         self.template = self.root / "template.json"
         self.user = self.root / "user.sqlite3"
         self.static = ROOT / "data/role_catalog/game_static.sqlite3"
-        self.write_template({"1051": recommendation(1051, 1.0)})
+        self.write_template({"1046": recommendation(1046, 1.0)})
         environment = patch.dict("os.environ", {
             "NTE_WORKSHOP_WEIGHT_TEMPLATE_FILE": str(self.template),
         })
@@ -59,14 +59,20 @@ class ProtagonistWeightDefaultTests(unittest.TestCase):
             "schema_version": 1, "payload_sha256": "fixture", "characters": characters,
         }), encoding="utf-8")
 
-    def test_old_single_variant_template_resolves_both_directions(self):
-        for source, target in ((1051, 1046), (1046, 1051)):
-            self.write_template({str(source): recommendation(source, 1.0)})
+    def test_both_variants_use_only_1046_public_weights(self):
+        self.write_template({"1046": recommendation(1046, 0.7),
+                             "1051": recommendation(1051, 1.0)})
+        for target in (1046, 1051):
             row = effective_workshop_recommended_weights(self.template, target, None)
             self.assertIsNotNone(row)
             self.assertEqual(row["character_id"], target)
-            self.assertEqual(row["source_item_id"], str(source))
-            self.assertEqual(row["property_weights"], {"MagBase": 1.0})
+            self.assertEqual(row["source_item_id"], "1046")
+            self.assertEqual(row["property_weights"], {"MagBase": 0.7})
+
+    def test_stale_1051_template_is_not_a_fallback(self):
+        self.write_template({"1051": recommendation(1051, 9.0)})
+        for target in (1046, 1051):
+            self.assertIsNone(effective_workshop_recommended_weights(self.template, target, None))
 
     def test_exact_public_id_wins_and_other_roles_do_not_borrow(self):
         self.write_template({"1046": recommendation(1046, 0.7),
@@ -76,17 +82,30 @@ class ProtagonistWeightDefaultTests(unittest.TestCase):
         fallback = {"character_id": 1003}
         self.assertIs(effective_workshop_recommended_weights(self.template, 1003, fallback), fallback)
 
-    def test_refresh_keeps_public_variant_when_only_other_variant_requested(self):
-        payload = {"code": 200, "data": [{"itemId": "1051", "name": "零",
+    def test_refresh_fetches_1046_when_only_1051_is_requested(self):
+        payload = {"code": 200, "data": [{"itemId": "1046", "name": "零",
                     "weightConfig": {"weights": [{"name": "环合强度", "value": 1.0,
                                                    "main_value": 0.8}]}}]}
         with patch("src.services.workshop_weight_template_service.urllib.request.urlopen") as opened:
             opened.return_value.__enter__.return_value.read.return_value = json.dumps(payload).encode()
-            WorkshopWeightTemplateService(self.template).refresh(known_character_ids=(1046,))
-        row = effective_workshop_recommended_weights(self.template, 1046, None)
+            WorkshopWeightTemplateService(self.template).refresh(known_character_ids=(1051,))
+        row = effective_workshop_recommended_weights(self.template, 1051, None)
         self.assertIsNotNone(row)
-        self.assertEqual(row["source_item_id"], "1051")
+        self.assertEqual(row["source_item_id"], "1046")
         self.assertEqual(row["main_property_weights"], {"MagBase": 0.8})
+
+    def test_refresh_missing_1046_keeps_last_valid_1046_not_1051(self):
+        self.write_template({"1046": recommendation(1046, .7),
+                             "1051": recommendation(1051, 9.0)})
+        payload = {"code": 200, "data": [{"itemId": "1051", "weightConfig": {
+            "weights": [{"name": "环合强度", "value": 9.0}],
+        }}]}
+        with patch("src.services.workshop_weight_template_service.urllib.request.urlopen") as opened:
+            opened.return_value.__enter__.return_value.read.return_value = json.dumps(payload).encode()
+            WorkshopWeightTemplateService(self.template).refresh(known_character_ids=(1051,))
+        row = effective_workshop_recommended_weights(self.template, 1051, None)
+        self.assertEqual(row["source_item_id"], "1046")
+        self.assertEqual(row["property_weights"], {"MagBase": .7})
 
     def test_refresh_and_reset_preserve_actual_id_and_account_edits(self):
         seeded = ensure_account_character_weights(
@@ -97,7 +116,7 @@ class ProtagonistWeightDefaultTests(unittest.TestCase):
             self.user, 1046, {"MagBase": 0.0}, static_database_path=self.static,
         )
         self.assertEqual(saved["source_kind"], "account")
-        self.write_template({"1051": recommendation(1051, 1.2)})
+        self.write_template({"1046": recommendation(1046, 1.2)})
         refreshed = ensure_account_character_weights(
             self.user, (1046,), static_database_path=self.static,
         )[1046]
@@ -122,20 +141,20 @@ class ProtagonistWeightDefaultTests(unittest.TestCase):
         )[1046]
         self.assertEqual(row["property_weights"], {"MagBase": 1.0})
 
-    def test_offline_reference_fallback_uses_sourced_variant(self):
+    def test_offline_reference_fallback_uses_only_1046(self):
         database = self.root / "reference.sqlite3"
         shutil.copy2(self.static, database)
         with closing(sqlite3.connect(database)) as connection, connection:
             connection.execute("UPDATE character_weight_recommendation SET source_kind='workshop_api', "
-                               "source_item_id='1051' WHERE character_id=1051")
-            connection.execute("DELETE FROM character_weight_recommendation_property WHERE character_id=1051")
+                               "source_item_id='1046' WHERE character_id=1046")
+            connection.execute("DELETE FROM character_weight_recommendation_property WHERE character_id=1046")
             connection.execute("INSERT INTO character_weight_recommendation_property "
-                               "(character_id,property_id,weight,main_weight,ordinal) VALUES (1051,'MagBase',1,1,0)")
+                               "(character_id,property_id,weight,main_weight,ordinal) VALUES (1046,'MagBase',1,1,0)")
         self.template.unlink()
         with StaticGameDataDao(database) as dao:
-            row = dao.get_character_recommended_weights(1046)
-        self.assertEqual(row["character_id"], 1046)
-        self.assertEqual(row["source_item_id"], "1051")
+            row = dao.get_character_recommended_weights(1051)
+        self.assertEqual(row["character_id"], 1051)
+        self.assertEqual(row["source_item_id"], "1046")
         self.assertEqual(row["property_weights"], {"MagBase": 1.0})
         reset = reset_account_character_weights(self.user, (1046,), static_database_path=database)[1046]
         self.assertEqual(reset["property_weights"], {"MagBase": 1.0})

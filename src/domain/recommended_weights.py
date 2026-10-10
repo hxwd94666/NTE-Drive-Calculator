@@ -54,12 +54,18 @@ DEFAULT_RECOMMENDED_WEIGHTS = (
 )
 
 
-def workshop_weight_source_ids(character_id: int) -> tuple[int, ...]:
-    """主角两种性别形态共用推荐权重；精确 ID 优先，不改账号角色身份。"""
+def base_weight_character_id(character_id: int) -> int:
+    """基础权重单独归属1046；不映射角色资料、槽位或原生实例。"""
 
     actual_id = int(character_id)
-    counterpart = {1046: 1051, 1051: 1046}.get(actual_id)
-    return (actual_id, counterpart) if counterpart is not None else (actual_id,)
+    return 1046 if actual_id in (1046, 1051) else actual_id
+
+
+def workshop_weight_source_ids(character_id: int) -> tuple[int, ...]:
+    """主角工坊基础权重只读1046，绝不借用1051旧记录。"""
+
+    actual_id = int(character_id)
+    return (base_weight_character_id(actual_id),)
 
 
 def _positive(value: Any) -> float:

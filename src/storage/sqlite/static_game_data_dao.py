@@ -475,15 +475,15 @@ class StaticGameDataDao(
         )
 
     def get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
-        """精确工坊记录优先；主角另一形态的工坊记录优先于通用发行兜底。"""
+        """主角基础权重只读取1046，返回投影保留消费者角色身份。"""
 
         fallback = None
         for source_id in workshop_weight_source_ids(character_id):
             row = self._get_character_recommended_weights(source_id)
-            if source_id == int(character_id):
-                fallback = row
+            if row is not None:
+                fallback = {**row, "character_id": int(character_id), "weight_source_character_id": source_id}
             if row and row.get("properties") and row.get("source_kind") != "default":
-                return {**row, "character_id": int(character_id)}
+                return fallback
         return fallback
 
     def _get_character_recommended_weights(self, character_id: int) -> dict[str, Any] | None:
