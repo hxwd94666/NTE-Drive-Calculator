@@ -8,7 +8,7 @@
     "loader": "b58a86589563fa06e91be3b8807e5b13704a206c"
   },
   "input_digests": {
-    "capture": "65f0ed08f5117545c9424952cbfb6d88ddef6ecdb8a4563538a0faa8ad96aba7",
+    "capture": "0c2f7ead8bdf56fc9c4f2a5893d9e94001164e4b424dd61dd558df6615ef67a5",
     "core": "9003aba7a9135fb9cbe4dac6f57b9c5af5552084ebb4e736cdfecdd854765ffe"
   },
   "capabilities": [
@@ -71,9 +71,9 @@
     "third_party/mod-loader/licenses/MinHook-LICENSE.txt": "4f21f857550d7be854da6ea5f2da4e6775ca4e3fbb535e4f3d961c47d0bf3335",
     "third_party/native-capture/capture/Detours-LICENSE.md": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef",
     "third_party/native-capture/capture/LICENSE.txt": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809",
-    "third_party/native-capture/capture/SOURCE.md": "d8308261de2e3a4e30c9955df7bb6e498e6cc1835bfa432a4ab8daed116f8469",
-    "third_party/native-capture/capture/capture-component.json": "62e522324326420802ae4af1f714db431bc49ee3bb98ff2380bab3aae6c5c491",
-    "third_party/native-capture/capture/d3d12.dll": "15fb3dfed69aedde7efe5a645af325abff8973301fd292c85b6981b0eb5f208c",
+    "third_party/native-capture/capture/SOURCE.md": "a5d13fcf3eea427da3a45e269f5faf6ccc5bd5a41191368b013a1bb2105cf0e7",
+    "third_party/native-capture/capture/capture-component.json": "f2771481e3ff765fe7ff652a59dfb337bfaa36ec8efc474c57455a73719ce38b",
+    "third_party/native-capture/capture/d3d12.dll": "5c267a9adf7dc00c334c4ddf3643c66cffffe301795f17de82bb5e82388347a8",
     "third_party/native-capture/capture/plugins/NTE_PluginCombat.dll": "5105f4fa6042f7235aec6757c2f22559ad0690c5f950e8b8a4dddb9cf74155c9",
     "third_party/native-capture/capture/plugins/NTE_PluginCombat.dll.sig": "cc67a966c29950fa71d8b19a926bc80076676446898abd45eca586f534eab3f9",
     "third_party/native-capture/capture/plugins/NTE_PluginUser.dll": "c5d323b712ad0019c7b74916dae59c041934e46141cdc4678ea4547a2beb7cae",
@@ -197,9 +197,9 @@
     "third_party/mod-loader/licenses/MinHook-LICENSE.txt": 4446,
     "third_party/native-capture/capture/Detours-LICENSE.md": 1122,
     "third_party/native-capture/capture/LICENSE.txt": 35823,
-    "third_party/native-capture/capture/SOURCE.md": 1440,
-    "third_party/native-capture/capture/capture-component.json": 8799,
-    "third_party/native-capture/capture/d3d12.dll": 6453248,
+    "third_party/native-capture/capture/SOURCE.md": 1652,
+    "third_party/native-capture/capture/capture-component.json": 12237,
+    "third_party/native-capture/capture/d3d12.dll": 6816768,
     "third_party/native-capture/capture/plugins/NTE_PluginCombat.dll": 5317120,
     "third_party/native-capture/capture/plugins/NTE_PluginCombat.dll.sig": 384,
     "third_party/native-capture/capture/plugins/NTE_PluginUser.dll": 780800,

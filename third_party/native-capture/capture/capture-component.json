@@ -4,13 +4,13 @@
   "layout": "native-plugins-v3",
   "sourceCommit": "bf7ffc7f06f1766e008c6a974d94c4fd4aa310d9",
   "sourceState": "working-tree",
-  "sourceTreeSha256": "65f0ed08f5117545c9424952cbfb6d88ddef6ecdb8a4563538a0faa8ad96aba7",
+  "sourceTreeSha256": "0c2f7ead8bdf56fc9c4f2a5893d9e94001164e4b424dd61dd558df6615ef67a5",
   "pluginPolicy": "calc-publisher-rsa3072-sha256-v1",
   "configuration": "Release",
   "files": {
     "d3d12.dll": {
-      "sha256": "15fb3dfed69aedde7efe5a645af325abff8973301fd292c85b6981b0eb5f208c",
-      "size": 6453248
+      "sha256": "5c267a9adf7dc00c334c4ddf3643c66cffffe301795f17de82bb5e82388347a8",
+      "size": 6816768
     },
     "plugins/NTE_PluginUser.dll": {
       "sha256": "c5d323b712ad0019c7b74916dae59c041934e46141cdc4678ea4547a2beb7cae",
@@ -50,7 +50,7 @@
     "policy_sha256": "2321e5f8ab0c92c15f0dd6ce9c2651ad10f885efdf61e2e4f09214b67aff0f35",
     "binaries": {
       "d3d12.dll": {
-        "sha256": "15fb3dfed69aedde7efe5a645af325abff8973301fd292c85b6981b0eb5f208c",
+        "sha256": "5c267a9adf7dc00c334c4ddf3643c66cffffe301795f17de82bb5e82388347a8",
         "functions": 10,
         "profile": {
           "name": "selected-functions-v1",
@@ -64,11 +64,11 @@
           "build_target": "nte_host",
           "project": "UETools-NTE",
           "declaration_version": 1,
-          "purpose": "本组件用于装备计算、游戏理解和经授权的诊断与数据采集。",
-          "authorization": "使用、修改、分析和分发应遵守适用法律、组件许可证及有效授权；私有材料访问仅限被明确授权的范围。",
-          "prohibited_use": "本方不授权将本组件用于外挂、破坏游戏公平性、绕过未获授权的限制，或侵害游戏运营方、玩家及其他相关权利人的合法权益。",
-          "license_boundary": "本声明说明本方用途及授权边界，不替换第三方许可证，不撤销已经合法授予的权利；具体权限以适用许可证及有效授权为准。",
-          "identity_binding": "组件文件哈希、源码提交、构建输入及保护回执以随附组件清单为准。",
+          "purpose": "\u672c\u7ec4\u4ef6\u7528\u4e8e\u88c5\u5907\u8ba1\u7b97\u3001\u6e38\u620f\u7406\u89e3\u548c\u7ecf\u6388\u6743\u7684\u8bca\u65ad\u4e0e\u6570\u636e\u91c7\u96c6\u3002",
+          "authorization": "\u4f7f\u7528\u3001\u4fee\u6539\u3001\u5206\u6790\u548c\u5206\u53d1\u5e94\u9075\u5b88\u9002\u7528\u6cd5\u5f8b\u3001\u7ec4\u4ef6\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\uff1b\u79c1\u6709\u6750\u6599\u8bbf\u95ee\u4ec5\u9650\u88ab\u660e\u786e\u6388\u6743\u7684\u8303\u56f4\u3002",
+          "prohibited_use": "\u672c\u65b9\u4e0d\u6388\u6743\u5c06\u672c\u7ec4\u4ef6\u7528\u4e8e\u5916\u6302\u3001\u7834\u574f\u6e38\u620f\u516c\u5e73\u6027\u3001\u7ed5\u8fc7\u672a\u83b7\u6388\u6743\u7684\u9650\u5236\uff0c\u6216\u4fb5\u5bb3\u6e38\u620f\u8fd0\u8425\u65b9\u3001\u73a9\u5bb6\u53ca\u5176\u4ed6\u76f8\u5173\u6743\u5229\u4eba\u7684\u5408\u6cd5\u6743\u76ca\u3002",
+          "license_boundary": "\u672c\u58f0\u660e\u8bf4\u660e\u672c\u65b9\u7528\u9014\u53ca\u6388\u6743\u8fb9\u754c\uff0c\u4e0d\u66ff\u6362\u7b2c\u4e09\u65b9\u8bb8\u53ef\u8bc1\uff0c\u4e0d\u64a4\u9500\u5df2\u7ecf\u5408\u6cd5\u6388\u4e88\u7684\u6743\u5229\uff1b\u5177\u4f53\u6743\u9650\u4ee5\u9002\u7528\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\u4e3a\u51c6\u3002",
+          "identity_binding": "\u7ec4\u4ef6\u6587\u4ef6\u54c8\u5e0c\u3001\u6e90\u7801\u63d0\u4ea4\u3001\u6784\u5efa\u8f93\u5165\u53ca\u4fdd\u62a4\u56de\u6267\u4ee5\u968f\u9644\u7ec4\u4ef6\u6e05\u5355\u4e3a\u51c6\u3002",
           "data_kind": "authorization_notice"
         }
       },
@@ -87,11 +87,11 @@
           "build_target": "nte_plugin_user",
           "project": "UETools-NTE",
           "declaration_version": 1,
-          "purpose": "本组件用于装备计算、游戏理解和经授权的诊断与数据采集。",
-          "authorization": "使用、修改、分析和分发应遵守适用法律、组件许可证及有效授权；私有材料访问仅限被明确授权的范围。",
-          "prohibited_use": "本方不授权将本组件用于外挂、破坏游戏公平性、绕过未获授权的限制，或侵害游戏运营方、玩家及其他相关权利人的合法权益。",
-          "license_boundary": "本声明说明本方用途及授权边界，不替换第三方许可证，不撤销已经合法授予的权利；具体权限以适用许可证及有效授权为准。",
-          "identity_binding": "组件文件哈希、源码提交、构建输入及保护回执以随附组件清单为准。",
+          "purpose": "\u672c\u7ec4\u4ef6\u7528\u4e8e\u88c5\u5907\u8ba1\u7b97\u3001\u6e38\u620f\u7406\u89e3\u548c\u7ecf\u6388\u6743\u7684\u8bca\u65ad\u4e0e\u6570\u636e\u91c7\u96c6\u3002",
+          "authorization": "\u4f7f\u7528\u3001\u4fee\u6539\u3001\u5206\u6790\u548c\u5206\u53d1\u5e94\u9075\u5b88\u9002\u7528\u6cd5\u5f8b\u3001\u7ec4\u4ef6\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\uff1b\u79c1\u6709\u6750\u6599\u8bbf\u95ee\u4ec5\u9650\u88ab\u660e\u786e\u6388\u6743\u7684\u8303\u56f4\u3002",
+          "prohibited_use": "\u672c\u65b9\u4e0d\u6388\u6743\u5c06\u672c\u7ec4\u4ef6\u7528\u4e8e\u5916\u6302\u3001\u7834\u574f\u6e38\u620f\u516c\u5e73\u6027\u3001\u7ed5\u8fc7\u672a\u83b7\u6388\u6743\u7684\u9650\u5236\uff0c\u6216\u4fb5\u5bb3\u6e38\u620f\u8fd0\u8425\u65b9\u3001\u73a9\u5bb6\u53ca\u5176\u4ed6\u76f8\u5173\u6743\u5229\u4eba\u7684\u5408\u6cd5\u6743\u76ca\u3002",
+          "license_boundary": "\u672c\u58f0\u660e\u8bf4\u660e\u672c\u65b9\u7528\u9014\u53ca\u6388\u6743\u8fb9\u754c\uff0c\u4e0d\u66ff\u6362\u7b2c\u4e09\u65b9\u8bb8\u53ef\u8bc1\uff0c\u4e0d\u64a4\u9500\u5df2\u7ecf\u5408\u6cd5\u6388\u4e88\u7684\u6743\u5229\uff1b\u5177\u4f53\u6743\u9650\u4ee5\u9002\u7528\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\u4e3a\u51c6\u3002",
+          "identity_binding": "\u7ec4\u4ef6\u6587\u4ef6\u54c8\u5e0c\u3001\u6e90\u7801\u63d0\u4ea4\u3001\u6784\u5efa\u8f93\u5165\u53ca\u4fdd\u62a4\u56de\u6267\u4ee5\u968f\u9644\u7ec4\u4ef6\u6e05\u5355\u4e3a\u51c6\u3002",
           "data_kind": "authorization_notice"
         }
       },
@@ -110,11 +110,11 @@
           "build_target": "nte_plugin_combat",
           "project": "UETools-NTE",
           "declaration_version": 1,
-          "purpose": "本组件用于装备计算、游戏理解和经授权的诊断与数据采集。",
-          "authorization": "使用、修改、分析和分发应遵守适用法律、组件许可证及有效授权；私有材料访问仅限被明确授权的范围。",
-          "prohibited_use": "本方不授权将本组件用于外挂、破坏游戏公平性、绕过未获授权的限制，或侵害游戏运营方、玩家及其他相关权利人的合法权益。",
-          "license_boundary": "本声明说明本方用途及授权边界，不替换第三方许可证，不撤销已经合法授予的权利；具体权限以适用许可证及有效授权为准。",
-          "identity_binding": "组件文件哈希、源码提交、构建输入及保护回执以随附组件清单为准。",
+          "purpose": "\u672c\u7ec4\u4ef6\u7528\u4e8e\u88c5\u5907\u8ba1\u7b97\u3001\u6e38\u620f\u7406\u89e3\u548c\u7ecf\u6388\u6743\u7684\u8bca\u65ad\u4e0e\u6570\u636e\u91c7\u96c6\u3002",
+          "authorization": "\u4f7f\u7528\u3001\u4fee\u6539\u3001\u5206\u6790\u548c\u5206\u53d1\u5e94\u9075\u5b88\u9002\u7528\u6cd5\u5f8b\u3001\u7ec4\u4ef6\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\uff1b\u79c1\u6709\u6750\u6599\u8bbf\u95ee\u4ec5\u9650\u88ab\u660e\u786e\u6388\u6743\u7684\u8303\u56f4\u3002",
+          "prohibited_use": "\u672c\u65b9\u4e0d\u6388\u6743\u5c06\u672c\u7ec4\u4ef6\u7528\u4e8e\u5916\u6302\u3001\u7834\u574f\u6e38\u620f\u516c\u5e73\u6027\u3001\u7ed5\u8fc7\u672a\u83b7\u6388\u6743\u7684\u9650\u5236\uff0c\u6216\u4fb5\u5bb3\u6e38\u620f\u8fd0\u8425\u65b9\u3001\u73a9\u5bb6\u53ca\u5176\u4ed6\u76f8\u5173\u6743\u5229\u4eba\u7684\u5408\u6cd5\u6743\u76ca\u3002",
+          "license_boundary": "\u672c\u58f0\u660e\u8bf4\u660e\u672c\u65b9\u7528\u9014\u53ca\u6388\u6743\u8fb9\u754c\uff0c\u4e0d\u66ff\u6362\u7b2c\u4e09\u65b9\u8bb8\u53ef\u8bc1\uff0c\u4e0d\u64a4\u9500\u5df2\u7ecf\u5408\u6cd5\u6388\u4e88\u7684\u6743\u5229\uff1b\u5177\u4f53\u6743\u9650\u4ee5\u9002\u7528\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\u4e3a\u51c6\u3002",
+          "identity_binding": "\u7ec4\u4ef6\u6587\u4ef6\u54c8\u5e0c\u3001\u6e90\u7801\u63d0\u4ea4\u3001\u6784\u5efa\u8f93\u5165\u53ca\u4fdd\u62a4\u56de\u6267\u4ee5\u968f\u9644\u7ec4\u4ef6\u6e05\u5355\u4e3a\u51c6\u3002",
           "data_kind": "authorization_notice"
         }
       },
@@ -133,11 +133,11 @@
           "build_target": "nte_plugin_hud",
           "project": "UETools-NTE",
           "declaration_version": 1,
-          "purpose": "本组件用于装备计算、游戏理解和经授权的诊断与数据采集。",
-          "authorization": "使用、修改、分析和分发应遵守适用法律、组件许可证及有效授权；私有材料访问仅限被明确授权的范围。",
-          "prohibited_use": "本方不授权将本组件用于外挂、破坏游戏公平性、绕过未获授权的限制，或侵害游戏运营方、玩家及其他相关权利人的合法权益。",
-          "license_boundary": "本声明说明本方用途及授权边界，不替换第三方许可证，不撤销已经合法授予的权利；具体权限以适用许可证及有效授权为准。",
-          "identity_binding": "组件文件哈希、源码提交、构建输入及保护回执以随附组件清单为准。",
+          "purpose": "\u672c\u7ec4\u4ef6\u7528\u4e8e\u88c5\u5907\u8ba1\u7b97\u3001\u6e38\u620f\u7406\u89e3\u548c\u7ecf\u6388\u6743\u7684\u8bca\u65ad\u4e0e\u6570\u636e\u91c7\u96c6\u3002",
+          "authorization": "\u4f7f\u7528\u3001\u4fee\u6539\u3001\u5206\u6790\u548c\u5206\u53d1\u5e94\u9075\u5b88\u9002\u7528\u6cd5\u5f8b\u3001\u7ec4\u4ef6\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\uff1b\u79c1\u6709\u6750\u6599\u8bbf\u95ee\u4ec5\u9650\u88ab\u660e\u786e\u6388\u6743\u7684\u8303\u56f4\u3002",
+          "prohibited_use": "\u672c\u65b9\u4e0d\u6388\u6743\u5c06\u672c\u7ec4\u4ef6\u7528\u4e8e\u5916\u6302\u3001\u7834\u574f\u6e38\u620f\u516c\u5e73\u6027\u3001\u7ed5\u8fc7\u672a\u83b7\u6388\u6743\u7684\u9650\u5236\uff0c\u6216\u4fb5\u5bb3\u6e38\u620f\u8fd0\u8425\u65b9\u3001\u73a9\u5bb6\u53ca\u5176\u4ed6\u76f8\u5173\u6743\u5229\u4eba\u7684\u5408\u6cd5\u6743\u76ca\u3002",
+          "license_boundary": "\u672c\u58f0\u660e\u8bf4\u660e\u672c\u65b9\u7528\u9014\u53ca\u6388\u6743\u8fb9\u754c\uff0c\u4e0d\u66ff\u6362\u7b2c\u4e09\u65b9\u8bb8\u53ef\u8bc1\uff0c\u4e0d\u64a4\u9500\u5df2\u7ecf\u5408\u6cd5\u6388\u4e88\u7684\u6743\u5229\uff1b\u5177\u4f53\u6743\u9650\u4ee5\u9002\u7528\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\u4e3a\u51c6\u3002",
+          "identity_binding": "\u7ec4\u4ef6\u6587\u4ef6\u54c8\u5e0c\u3001\u6e90\u7801\u63d0\u4ea4\u3001\u6784\u5efa\u8f93\u5165\u53ca\u4fdd\u62a4\u56de\u6267\u4ee5\u968f\u9644\u7ec4\u4ef6\u6e05\u5355\u4e3a\u51c6\u3002",
           "data_kind": "authorization_notice"
         }
       },
@@ -156,11 +156,11 @@
           "build_target": "nte_plugin_performance",
           "project": "UETools-NTE",
           "declaration_version": 1,
-          "purpose": "本组件用于装备计算、游戏理解和经授权的诊断与数据采集。",
-          "authorization": "使用、修改、分析和分发应遵守适用法律、组件许可证及有效授权；私有材料访问仅限被明确授权的范围。",
-          "prohibited_use": "本方不授权将本组件用于外挂、破坏游戏公平性、绕过未获授权的限制，或侵害游戏运营方、玩家及其他相关权利人的合法权益。",
-          "license_boundary": "本声明说明本方用途及授权边界，不替换第三方许可证，不撤销已经合法授予的权利；具体权限以适用许可证及有效授权为准。",
-          "identity_binding": "组件文件哈希、源码提交、构建输入及保护回执以随附组件清单为准。",
+          "purpose": "\u672c\u7ec4\u4ef6\u7528\u4e8e\u88c5\u5907\u8ba1\u7b97\u3001\u6e38\u620f\u7406\u89e3\u548c\u7ecf\u6388\u6743\u7684\u8bca\u65ad\u4e0e\u6570\u636e\u91c7\u96c6\u3002",
+          "authorization": "\u4f7f\u7528\u3001\u4fee\u6539\u3001\u5206\u6790\u548c\u5206\u53d1\u5e94\u9075\u5b88\u9002\u7528\u6cd5\u5f8b\u3001\u7ec4\u4ef6\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\uff1b\u79c1\u6709\u6750\u6599\u8bbf\u95ee\u4ec5\u9650\u88ab\u660e\u786e\u6388\u6743\u7684\u8303\u56f4\u3002",
+          "prohibited_use": "\u672c\u65b9\u4e0d\u6388\u6743\u5c06\u672c\u7ec4\u4ef6\u7528\u4e8e\u5916\u6302\u3001\u7834\u574f\u6e38\u620f\u516c\u5e73\u6027\u3001\u7ed5\u8fc7\u672a\u83b7\u6388\u6743\u7684\u9650\u5236\uff0c\u6216\u4fb5\u5bb3\u6e38\u620f\u8fd0\u8425\u65b9\u3001\u73a9\u5bb6\u53ca\u5176\u4ed6\u76f8\u5173\u6743\u5229\u4eba\u7684\u5408\u6cd5\u6743\u76ca\u3002",
+          "license_boundary": "\u672c\u58f0\u660e\u8bf4\u660e\u672c\u65b9\u7528\u9014\u53ca\u6388\u6743\u8fb9\u754c\uff0c\u4e0d\u66ff\u6362\u7b2c\u4e09\u65b9\u8bb8\u53ef\u8bc1\uff0c\u4e0d\u64a4\u9500\u5df2\u7ecf\u5408\u6cd5\u6388\u4e88\u7684\u6743\u5229\uff1b\u5177\u4f53\u6743\u9650\u4ee5\u9002\u7528\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\u4e3a\u51c6\u3002",
+          "identity_binding": "\u7ec4\u4ef6\u6587\u4ef6\u54c8\u5e0c\u3001\u6e90\u7801\u63d0\u4ea4\u3001\u6784\u5efa\u8f93\u5165\u53ca\u4fdd\u62a4\u56de\u6267\u4ee5\u968f\u9644\u7ec4\u4ef6\u6e05\u5355\u4e3a\u51c6\u3002",
           "data_kind": "authorization_notice"
         }
       }
