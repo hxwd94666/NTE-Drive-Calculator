@@ -12,6 +12,11 @@ def archive_failed(_event=None):
     logger.warning("DLL 原始快照未能保存，已停止本次诊断归档；请检查账号日志目录可写性与磁盘空间。")
 
 
+def archive_unavailable():
+    from src.utils.logger import logger
+    logger.warning("当前 Core 不支持 DLL 原始快照排错保存，本次不保存排错数据；正常采集与同步继续。如需排错文件，请更新随附组件。")
+
+
 def invalid_json(line, error, *, executable_sha256, exit_code, core_pid=None):
     log_event("ERROR", "native_core.invalid_json", "采集 Core 响应无法解析，已停止本次连接",
               OperationContext.create("native_core"), line_chars=len(line),

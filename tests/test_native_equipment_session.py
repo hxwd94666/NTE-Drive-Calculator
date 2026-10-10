@@ -19,7 +19,10 @@ class EquipmentCore(ProjectionCore):
         self.equip_core = Mock(return_value={"status": "rpc_dispatched"})
         self.move_core_to_character = Mock(return_value={"status": "rpc_dispatched"})
 
-    def call(self, method, params, **kwargs):
+    def call(self, method, params=None, **kwargs):
+        if method == "core.status":
+            self.calls.append((method, params))
+            return self.status()
         if method == "equipment.status":
             self.calls.append((method, params))
             return {"ready": self.ready, "providerId": "fixture", "epoch": "8",
@@ -75,9 +78,11 @@ def test_background_runtime_defers_equipment_probe_until_explicit_detection(tmp_
     assert runtime.native_session.inspect.call_args.kwargs["check_equipment"] is True
 
 
-def test_equipment_dispatch_does_not_wait_for_new_inventory_refresh():
+@pytest.mark.parametrize("diagnostics_enabled", [False, True])
+def test_equipment_dispatch_does_not_wait_for_new_inventory_refresh(diagnostics_enabled):
     core = EquipmentCore()
-    session = NativeGameSession(lambda: core, lambda _cap: None)
+    session = NativeGameSession(lambda: core, lambda _cap: None,
+                                diagnostics_enabled=lambda: diagnostics_enabled)
     lease = session.inventory_client()
     lease.start_capture(profile="inventory")
     command = {"character": {"slot": 700, "serial": 701}, "equipment": {"slot": 8, "serial": 1}}
@@ -123,7 +128,7 @@ def test_equipment_rechecks_provider_capabilities_and_ready_before_dispatch(miss
 def test_waiting_equipment_inspection_keeps_shared_owner_and_battle(reason, active_battle):
     core = EquipmentCore()
     original = core.call
-    def call(method, params, **kwargs):
+    def call(method, params=None, **kwargs):
         if method == "equipment.status":
             raise NteCoreRpcError({"code": -32001, "message": reason})
         return original(method, params, **kwargs)

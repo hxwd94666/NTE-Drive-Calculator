@@ -19,7 +19,9 @@ from src.services.native_status_queries import NativeStatusQueries
 from src.services.native_performance_control import configure_performance, read_performance_status, control_performance_trace
 from src.services.native_session_maintenance import plugin_maintenance, reserve_plugin_maintenance
 from src.observability import OperationContext, log_event
-from src.integrations.native_transport_diagnostics import RuntimeCostLog, snapshot_refresh_diagnostic, archive_failed
+from src.integrations.native_transport_diagnostics import (
+    RuntimeCostLog, snapshot_refresh_diagnostic, archive_failed, archive_unavailable,
+)
 
 
 SNAPSHOT_DOMAINS = ("character", "inventory", "team", "environment")
@@ -131,7 +133,7 @@ class NativeGameSession:
                             raise
                         archive_failed()
                 elif enabled:
-                    raise RuntimeError("当前 Core 不支持 DLL 原始快照排错保存，请更新随附组件。")
+                    archive_unavailable()
                 self._diagnostics_applied = applied
         return self._client
 

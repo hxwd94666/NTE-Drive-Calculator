@@ -100,13 +100,50 @@ def test_raw_snapshot_setting_configures_existing_core_before_business_requests(
         session.close()
 
 
-def test_raw_snapshot_setting_does_not_silently_claim_support_on_old_core():
+def test_raw_snapshot_unavailable_warns_once_and_keeps_business_available(monkeypatch):
+    warnings = []
+    monkeypatch.setattr('src.services.native_game_session.archive_unavailable', lambda: warnings.append(True))
     core = FakeNativeCore()
+    enabled = [False]
+    session = NativeGameSession(lambda: core, lambda _cap: None, diagnostics_enabled=lambda: enabled[0])
+    try:
+        session.inspect()
+        assert not warnings
+        enabled[0] = True
+        for _ in range(2):
+            assert session.inspect()['status']['native_status']['ready'] is True
+        assert warnings == [True]
+        assert core.is_running and not core.closed
+        assert not any(method == 'native.diagnostics.configure' for method, _ in core.calls)
+        lease = session.battle_client()
+        lease.start()
+        lease.start_capture(profile='combat')
+        lease.close()
+        assert ('capture.start', {'profile': 'combat'}) in core.calls
+        assert warnings == [True]
+        # A replacement Core must negotiate the setting again, without caching
+        # the old Core's missing optional capability across connections.
+        session.close()
+        core = FakeNativeCore()
+        core.hello_result['capabilities'].append('native_snapshot_archive_v1')
+        session.inspect()
+        assert core.calls[0] == ('native.diagnostics.configure', {'enabled': True})
+    finally:
+        session.close()
+
+
+def test_raw_snapshot_advertised_but_broken_configuration_is_not_hidden():
+    core = FakeNativeCore()
+    core.hello_result['capabilities'].append('native_snapshot_archive_v1')
+    def fail_configure(method, _params):
+        if method == 'native.diagnostics.configure':
+            raise NteCoreRpcError({'code': -32601, 'message': 'method not found'})
+    core.on_call = fail_configure
     session = NativeGameSession(lambda: core, lambda _cap: None, diagnostics_enabled=lambda: True)
     try:
-        with pytest.raises(RuntimeError, match='不支持 DLL 原始快照'):
+        with pytest.raises(NteCoreRpcError):
             session.inspect()
-        assert not core.calls
+        assert core.calls == [('native.diagnostics.configure', {'enabled': True})]
     finally:
         session.close()
 
