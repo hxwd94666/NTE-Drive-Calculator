@@ -122,17 +122,20 @@ def test_native_arguments_include_only_explicit_standard_mode():
 
 
 
-def test_native_start_queries_before_runtime_start(tmp_path, monkeypatch):
+@pytest.mark.parametrize('launcher_name', [
+    'NTELauncher.exe', 'NTEGlobalLauncher.exe', 'NTETWLauncher.exe',
+])
+def test_native_start_queries_before_runtime_start(tmp_path, monkeypatch, launcher_name):
     if loader.os.name != 'nt':
         pytest.skip('Windows managed runtime boundary')
-    for filename in ('nte-mod-loader.exe', 'NTELauncher.exe', 'd3d12.dll'):
+    for filename in ('nte-mod-loader.exe', launcher_name, 'd3d12.dll'):
         (tmp_path / filename).write_bytes(b'synthetic')
     monkeypatch.delenv(loader.MOD_LOADER_ENV, raising=False)
     query = Mock(return_value=frozenset({'loadlibrary'}))
     monkeypatch.setattr(loader, 'probe_mod_loader_capabilities', query)
     runtime = loader.ModLoaderRuntime(application_root=tmp_path)
     monkeypatch.setattr(runtime, '_refresh_running_locked', lambda: True)
-    assert runtime.start(payload_path=tmp_path / 'd3d12.dll', launcher_path=tmp_path / 'NTELauncher.exe',
+    assert runtime.start(payload_path=tmp_path / 'd3d12.dll', launcher_path=tmp_path / launcher_name,
                          payload_load_mode='loadlibrary').phase == 'running'
     query.assert_called_once_with((tmp_path / 'nte-mod-loader.exe').resolve())
 

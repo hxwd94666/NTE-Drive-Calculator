@@ -5,7 +5,7 @@
   "source_commits": {
     "capture": "bf7ffc7f06f1766e008c6a974d94c4fd4aa310d9",
     "core": "b58a86589563fa06e91be3b8807e5b13704a206c",
-    "loader": "b58a86589563fa06e91be3b8807e5b13704a206c"
+    "loader": "3974e6ec1875b94320c9511860f27c809c060722"
   },
   "input_digests": {
     "capture": "0c2f7ead8bdf56fc9c4f2a5893d9e94001164e4b424dd61dd558df6615ef67a5",
@@ -62,11 +62,11 @@
     "hud_signature": "third_party/native-capture/capture/plugins/NTE_PluginHUD.dll.sig"
   },
   "files": {
-    "third_party/mod-loader/COMPONENT.md": "14746605933171bc648018755de30d36ec4dcf65058981aad5acc6ae6bcdc33c",
+    "third_party/mod-loader/COMPONENT.md": "44f6677bcbe51ad1ba939d82f2d0df1e21b6e68da5d5d09184fbd97b2553c4fd",
     "third_party/mod-loader/LICENSE": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e",
-    "third_party/mod-loader/SOURCE.md": "99c2a025c4f765439f701b6451c3a7d6b402005b5f977aa8e1a0225cc154d3e6",
+    "third_party/mod-loader/SOURCE.md": "5f8eee9ea582a110d399f89830833069fd579a5d9665e746e88ca751a23769dd",
     "third_party/mod-loader/THIRD_PARTY_LICENSES.md": "b43504859910afed034eb13a780af67165ec915c3f8fa3205c91b1055845ce81",
-    "third_party/mod-loader/bin/nte-mod-loader.exe": "2647868a23ab063c41f55fd39f6d10b49b76eaa0a1570074170d134449fbb54a",
+    "third_party/mod-loader/bin/nte-mod-loader.exe": "3c98ef0cd5b438f4e2dd96aaf5e1a92d679edf766d20109636a3b2a56e7d40bc",
     "third_party/mod-loader/licenses/ManualMap-LICENSE.txt": "9c87c453a4de71dd3370aabc698d00bb6c83ea95bbecee49c4574117777a70b1",
     "third_party/mod-loader/licenses/MinHook-LICENSE.txt": "4f21f857550d7be854da6ea5f2da4e6775ca4e3fbb535e4f3d961c47d0bf3335",
     "third_party/native-capture/capture/Detours-LICENSE.md": "f854ae8aabc0404652b48a2b3bf7f21ec174c69d73f5596934c20884eb0639ef",
@@ -188,11 +188,11 @@
     "third_party/native-capture/capture/plugins/NTE_PluginHUD.dll.sig": "ad57533f857fa79d035fef5ed5603f1ad4c1fb1105d2f012a6a6bc8f346429d8"
   },
   "file_sizes": {
-    "third_party/mod-loader/COMPONENT.md": 689,
+    "third_party/mod-loader/COMPONENT.md": 1003,
     "third_party/mod-loader/LICENSE": 35184,
-    "third_party/mod-loader/SOURCE.md": 810,
+    "third_party/mod-loader/SOURCE.md": 1265,
     "third_party/mod-loader/THIRD_PARTY_LICENSES.md": 547,
-    "third_party/mod-loader/bin/nte-mod-loader.exe": 426496,
+    "third_party/mod-loader/bin/nte-mod-loader.exe": 429568,
     "third_party/mod-loader/licenses/ManualMap-LICENSE.txt": 1085,
     "third_party/mod-loader/licenses/MinHook-LICENSE.txt": 4446,
     "third_party/native-capture/capture/Detours-LICENSE.md": 1122,

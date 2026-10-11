@@ -123,6 +123,11 @@ D3D 手动部署先完成旧清理待办；归属冲突或清理失败时保留�
 Loader 保留原有明确选择、受控提权、启动器定位和协作停止机制，使用配置目录的 `native-loader` 仅准备同一个
 采集 DLL。标准加载参数为 `--dll <运行目录>/NTE_Capture.dll --payload-load-mode loadlibrary`，
 不得将该运行时送入旧的默认 manual-map 路径，也不登记旧脚本工作区。选择 Loader 时自动管理沿用该入口。启动或重新准备 Loader 前，除游戏进程外，还按已选安装目录解析官方启动器并核对其运行进程的完整映像路径；启动器仍在运行或身份查询未完成时等待用户关闭并重试，不结束外部进程，也不以同名其他安装的启动器替代。
+启动器定位仅检查所选 `HTGame.exe` 对应的安装根，不要求根目录使用英文名称。
+候选包含根目录及既有 `NTELauncher/` 子目录中的 `NTELauncher.exe`、`NTEGlobalLauncher.exe`、
+`NTETWLauncher.exe`，另包含台服正式 `NTETW/NTETWLauncher.exe`；根目录入口优先。
+启动前核对全部已找到入口的运行状态，台服子目录入口仍运行时同样等待关闭。
+不扫描相邻安装或其他目录补找启动器；名称识别通过不代表 Steam 台服实际加载或业务连接已经验收。
 启动前通过 `--capabilities-json --dry-run --once` 核验当前可替换 Loader 与内嵌 shim；要求 shim 协议 3、
 标准加载能力及 `payload_kinds` 中的 `nte_capture_runtime_v1`。仅旧版标准加载声明不能证明新采集运行时适配。
 Calc 采用既有启动提权流程，普通非提权测试的错误不代表正常 Calc 加载失败。不使用固定 Loader SHA 白名单。
