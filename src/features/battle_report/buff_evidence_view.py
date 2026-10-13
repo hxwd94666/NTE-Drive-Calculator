@@ -21,13 +21,13 @@ from src.app.window_geometry import fit_dialog_to_available_screen
 from src.domain.battle_report import BattleAnalysisSnapshot
 from src.features.battle_report.analysis_components import analysis_table
 from src.features.battle_report.marginal_quantification_view import damage_coverage_text
-from src.services.battle_buff_attribute_projection_service import (
+from src.services.battle_report.buffs.attribute_projection import (
     normalize_battle_buff_property_id,
 )
-from src.services.battle_buff_counterfactual_plan_service import (
+from src.services.battle_report.buffs.counterfactual_plan import (
     battle_buff_counterfactual_key,
 )
-from src.services.battle_hit_buff_explanation_service import (
+from src.services.battle_report.buffs.hit_explanation import (
     battle_buff_property_label,
     format_battle_buff_value,
 )
@@ -189,7 +189,7 @@ class BattleBuffEvidencePanel(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.summary_label = QLabel()
+        self.summary_label = QLabel(self)
         self.summary_label.hide()
         self.table = analysis_table(
             (

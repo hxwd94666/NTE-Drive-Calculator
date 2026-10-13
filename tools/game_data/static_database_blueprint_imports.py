@@ -64,7 +64,7 @@ _STRING_GAMEPLAY_TAG_CONTAINERS = (
 
 
 def _string_gameplay_tag(property_path: str, value: Any) -> str | None:
-    """Read UE5 inherited GameplayTag containers that export as strings."""
+    """只在已知 UE5 继承容器中接收字符串形式的 GameplayTag。"""
 
     if not isinstance(value, str) or value in {"", "None"}:
         return None
@@ -83,7 +83,7 @@ def _asset_path_from_file(root: Path, path: Path) -> str:
 
 
 def _curated_blueprint_paths(root: Path) -> list[Path]:
-    """Mirror the deliberately narrow UnrealExporter combat path contract."""
+    """严格采用已选战斗导出路径集合，不全量导入 Content。"""
 
     patterns = (
         "Blueprints/Character/Player/Player_*.json",
@@ -130,7 +130,7 @@ def _curated_blueprint_paths(root: Path) -> list[Path]:
 
 
 def _normalize_object_path(value: str) -> str:
-    """Collapse /Game/Package.Asset or /Game/Package.export-index to package path."""
+    """将正式 /Game/Package.Asset 或导出序号引用归一为包路径。"""
 
     if not value.startswith("/Game/"):
         return value
@@ -467,10 +467,7 @@ class BlueprintImportMixin:
         paths = _curated_blueprint_paths(root)
         if not paths:
             return
-        # References may legitimately target one of the base export scopes (for
-        # example DataTable assets) even though only the curated combat subset is
-        # persisted as combat_blueprint_asset rows.  Index every exported JSON
-        # package for availability without importing its payload globally.
+        # 引用可指向 DataTable 等基础导出范围；仅索引包是否存在，不全量导入原始 payload。
         available_source_paths = {
             _asset_path_from_file(root, path).casefold() for path in root.rglob("*.json")
         }
@@ -519,9 +516,7 @@ class BlueprintImportMixin:
             reference_rows = []
             tag_rows = []
             property_rows = []
-            # Montage/AnimSequence dependency graphs are dominated by skeleton,
-            # curve and visual-object references. Their action evidence is
-            # represented by the dedicated montage/section/notify tables below.
+            # 动画依赖多为骨骼、曲线和视觉对象；动作证据独立保存在 montage/section/notify 表。
             if asset_kind not in {"montage", "animation"}:
                 for property_path, node in _iter_nodes(exports):
                     string_tag = _string_gameplay_tag(property_path, node)

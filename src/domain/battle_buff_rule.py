@@ -10,6 +10,8 @@ from src.domain.battle_report import BattleBuffModifierEvidence
 
 @dataclass(frozen=True, slots=True)
 class BattleStaticBuffRule:
+    """冻结静态 Buff 的条件、叠层与时长；缺失时长保留 None，不推成常驻。"""
+
     rule_id: str
     source_effect_definition_id: str
     source_kind: str

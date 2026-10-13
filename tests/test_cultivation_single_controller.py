@@ -20,8 +20,8 @@ def _wait_until(predicate, *, timeout: float = 3.0) -> None:
 
 
 def _request(character_id: int):
-    from src.features.toolbox.cultivation_single_controller import SingleCalculationRequest
-    from src.services.cultivation_planner_service import CultivationRequest
+    from src.features.toolbox.cultivation.single_controller import SingleCalculationRequest
+    from src.services.progression.planner_service import CultivationRequest
 
     return SingleCalculationRequest(
         CultivationRequest(character_id, 1, 0, 80, 6, ()), (), 60, 7,
@@ -32,7 +32,7 @@ def test_single_controller_keeps_ui_responsive_and_only_publishes_latest() -> No
     from PySide6.QtCore import QObject, QThread, QTimer
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_single_controller import CultivationSingleController
+    from src.features.toolbox.cultivation.single_controller import CultivationSingleController
 
     class Service(PlanningFixture):
         def calculate(self, request):
@@ -53,7 +53,7 @@ def test_single_controller_keeps_ui_responsive_and_only_publishes_latest() -> No
     controller.submit(_request(1), "account-a")
     QTimer.singleShot(0, lambda: timer_fired.append(True))
     controller.submit(_request(2), "account-a")
-    _wait_until(lambda: controller._worker is None and bool(results))
+    _wait_until(lambda: not controller.is_running() and bool(results))
 
     assert timer_fired == [True]
     assert results == [(2, True)]
@@ -65,7 +65,7 @@ def test_single_controller_discards_changed_context_and_draft() -> None:
     from PySide6.QtCore import QObject
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_single_controller import CultivationSingleController
+    from src.features.toolbox.cultivation.single_controller import CultivationSingleController
 
     class Service(PlanningFixture):
         def calculate(self, request):
@@ -82,10 +82,10 @@ def test_single_controller_discards_changed_context_and_draft() -> None:
     controller.result_ready.connect(results.append)
     controller.submit(_request(1), "account-a")
     controller.invalidate()
-    _wait_until(lambda: controller._worker is None)
+    _wait_until(lambda: not controller.is_running())
     controller.submit(_request(2), "account-a")
     context["value"] = "account-b"
-    _wait_until(lambda: controller._worker is None)
+    _wait_until(lambda: not controller.is_running())
 
     assert results == []
     controller.close()

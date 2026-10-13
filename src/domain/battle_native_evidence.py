@@ -5,7 +5,7 @@ from typing import Literal
 
 @dataclass(frozen=True, slots=True)
 class BattleHitFieldEvidence:
-    """Field decisions supplied by the analysis core, independent of formula fit."""
+    """分析 Core 给出的逐字段证据判断，与公式拟合结果分离。"""
 
     critical_state: Literal["critical", "non_critical", "not_applicable", "unknown"]
     critical_source: str
@@ -17,7 +17,7 @@ class BattleHitFieldEvidence:
 
 @dataclass(frozen=True, slots=True)
 class BattleNativeHitEvidence:
-    """Lossless JSON of the captured native envelope, never a formula modifier."""
+    """无损保存采集信封 JSON；原始证据不是公式修正项。"""
 
     payload_json: str
     static_names: tuple[tuple[str, str], ...] = ()

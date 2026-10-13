@@ -37,16 +37,16 @@ from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
-from src.services.battle_capture_service import BattleCaptureService
-from src.services.battle_capture_contracts import BattleCoreClient, BattleSummaryWriter
-from src.services.battle_report_persistence_service import (
+from src.services.battle_report.capture.service import BattleCaptureService
+from src.services.battle_report.capture.contracts import BattleCoreClient, BattleSummaryWriter
+from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies,
 )
-from src.services.battle_report_history_service import (
+from src.services.battle_report.history.service import (
     BattleReportHistoryService,
     StaleBattleReportContextError,
 )
-from src.services.battle_report_transfer_service import BattleReportTransferService
+from src.services.battle_report.history.transfer import BattleReportTransferService
 
 
 BattlePersistenceFactory = Callable[
@@ -110,6 +110,7 @@ class BattleReportController(
         self._asset_root = asset_root
         self._page = BattleReportPage(game_ui_asset_root=asset_root)
         self._overlay = BattleReportOverlay(game_ui_asset_root=asset_root)
+        self._overlay_disposed = False
         self._service: BattleCaptureService | ComparisonCapture | None = None
         self._history_service: BattleReportHistoryService | None = None
         self._history_dialog: BattleReportHistoryDialog | None = None
@@ -213,7 +214,11 @@ class BattleReportController(
             transfer_dialog.reject()
         self._transfer_dialog = None
         self._transfer_service = None
-        self._overlay.close()
+        # 悬浮窗保留独立顶层关系；只有应用退出的 close 才释放，stop/账号重建仍可复用。
+        if not self._overlay_disposed:
+            self._overlay.close()
+            self._overlay.deleteLater()
+            self._overlay_disposed = True
 
     def reset_account_state(self) -> None:
         if self.is_running():

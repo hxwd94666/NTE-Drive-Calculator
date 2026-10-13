@@ -13,7 +13,7 @@ from src.features.static_catalog.contracts import (
 
 
 def ensure_release_path(release: StaticCatalogRelease, expected_path: Path) -> None:
-    """Reject requests frozen for another release before touching a provider DAO."""
+    """访问领域 DAO 前核对只读属性和冻结路径，不混入另一发行库。"""
 
     if not release.read_only:
         raise RuntimeError("游戏资料库只接受只读发行快照")
@@ -29,7 +29,7 @@ def ensure_release_metadata(
     importer_version: int,
     built_at_utc: str,
 ) -> None:
-    """Verify DB metadata still matches the release identity frozen by the caller."""
+    """数据库四项元信息须同时匹配调用方冻结身份，变化时中止本次请求。"""
 
     actual = (dataset_id, schema_version, importer_version, built_at_utc)
     frozen = (
@@ -43,6 +43,7 @@ def ensure_release_metadata(
 
 
 def display(value: object) -> str:
+    # None/空串与明确零/否分开；来源标签由下方 official/derived/annotation 显式给出。
     if value is None or value == "":
         return "未保留"
     if isinstance(value, bool):

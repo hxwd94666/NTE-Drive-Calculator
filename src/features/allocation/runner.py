@@ -13,13 +13,24 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
 from src.integrations.global_hotkeys import GlobalHotkeyManager
-from src.services.allocation_comparison_scoring import persist_comparison_diff
-from src.services.legacy_allocation_comparison_service import (
+from src.domain.static_catalog import StaticCatalogRelease
+from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.services.allocation.plan_save import require_allocation_release
+from src.services.allocation.comparison_scoring import persist_comparison_diff
+from src.services.allocation.slot_comparisons import (
     freeze_legacy_slot_comparisons, refresh_legacy_slot_comparisons, single_slot_comparison_diffs,
 )
 from src.optimizer.contracts import (
@@ -35,20 +46,18 @@ from src.optimizer.contracts import (
     ROLE_EQUIPPED_TAPE,
     plan_drives,
 )
-from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
-from src.services.allocation_filter_settings import (
+from src.services.allocation.inventory import SqliteAllocationInventory
+from src.services.allocation.filter_settings import (
     AllocationFilterSettings,
     filter_allocation_candidates,
 )
-from src.services.allocation_lock_service import (
+from src.services.allocation.locks import (
     AllocationLockSnapshot,
     build_allocation_lock_snapshot,
     filter_allocation_request_for_locks,
     selected_fully_locked_roles,
 )
-from src.services.saved_state_loadout_bridge import (
-    resolve_character_id_for_allocation_role,
-)
+from src.services.equipment.saved_state_loadout_bridge import resolve_character_id_for_allocation_role
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.observability.redaction import format_local_exception
@@ -80,6 +89,7 @@ class AllocationRunResult:
     context_identity: tuple[int | None, str | None, Path]
     run_id: int | None = None
     comparisons: dict = field(default_factory=dict)
+    static_release: StaticCatalogRelease | None = None
 
 
 def _allocation_context_identity(window: Any) -> tuple[int | None, str | None, Path]:
@@ -159,104 +169,110 @@ def _run_allocation(
         logger.info(f"开始分配计算: 策略={strat}, 角色={sel}")
         if not database_path.is_file():
             raise RuntimeError("尚无官方背包数据，请先完成背包同步并生成稳定快照。")
-        with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
-            static_dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
-            static_stat = static_database_path.stat()
-            static_file_identity = (static_stat.st_size, static_stat.st_mtime_ns)
-            snapshot_id = user_dao.current_inventory_snapshot_id()
-            if snapshot_id is None:
-                raise RuntimeError("尚无稳定背包快照，请先在首页启动背包同步并进入游戏。")
-            projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
-            lock_snapshot = build_allocation_lock_snapshot(
-                user_dao,
-                inventory_snapshot_id=projection.snapshot_id,
+        reader = StaticCatalogReleaseReader()
+        # 经典扫描入口也固定同一发行unit，不凭size/mtime或旧共享连接猜来源。
+        with reader.read_unit(static_database_path) as unit:
+            release = require_allocation_release(unit.release, static_database_path)
+            with UserDataDao(database_path) as user_dao:
+                static_dao = unit.dao
+                static_dataset_id = str(static_dao.summary()["dataset"]["dataset_id"])
+                static_stat = static_database_path.stat()
+                static_file_identity = (static_stat.st_size, static_stat.st_mtime_ns)
+                snapshot_id = user_dao.current_inventory_snapshot_id()
+                if snapshot_id is None:
+                    raise RuntimeError("尚无稳定背包快照，请先在首页启动背包同步并进入游戏。")
+                projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
+                lock_snapshot = build_allocation_lock_snapshot(
+                    user_dao,
+                    inventory_snapshot_id=projection.snapshot_id,
+                )
+            frozen_filter_settings = filter_settings or AllocationFilterSettings()
+            filtered_items = filter_allocation_candidates(
+                projection.items,
+                frozen_filter_settings,
             )
-        frozen_filter_settings = filter_settings or AllocationFilterSettings()
-        filtered_items = filter_allocation_candidates(
-            projection.items,
-            frozen_filter_settings,
-        )
-        unlocked_sel, unlocked_priority_groups = filter_allocation_request_for_locks(
-            sel,
-            priority_groups,
-            lock_snapshot,
-        )
-        selected_locked_role_names = selected_fully_locked_roles(sel, lock_snapshot)
-        allocation_options = {
-            "tape_main_filters": tape_main_filters or {},
-            "crit_priority_modes": crit_priority_modes or {},
-            "set_effect_modes": set_effect_modes or {},
-            "priority_groups": unlocked_priority_groups,
-            "crit_rate_caps": crit_rate_caps or {},
-            "crit_rate_baselines": crit_rate_baselines or {},
-            "custom_weapons": custom_weapons or {},
-            "blueprint_combo_limit": blueprint_combo_limit,
-            "cancel_check": cancel_check,
-        }
-        logger.info(
-            f"使用官方背包稳定快照 {projection.snapshot_id} 计算："
-            f"候选 {len(filtered_items)}/{len(projection.items)} 件"
-            f"（其中弃置标记 {projection.discarded_count} 件，符合过滤条件时仍参与计算）"
-        )
-        if selected_locked_role_names:
+            unlocked_sel, unlocked_priority_groups = filter_allocation_request_for_locks(
+                sel,
+                priority_groups,
+                lock_snapshot,
+            )
+            selected_locked_role_names = selected_fully_locked_roles(sel, lock_snapshot)
+            allocation_options = {
+                "tape_main_filters": tape_main_filters or {},
+                "crit_priority_modes": crit_priority_modes or {},
+                "set_effect_modes": set_effect_modes or {},
+                "priority_groups": unlocked_priority_groups,
+                "crit_rate_caps": crit_rate_caps or {},
+                "crit_rate_baselines": crit_rate_baselines or {},
+                "custom_weapons": custom_weapons or {},
+                "blueprint_combo_limit": blueprint_combo_limit,
+                "cancel_check": cancel_check,
+            }
             logger.info(
-                f"配装锁定已保留 {len(selected_locked_role_names)} 个已选角色、"
-                f"排除 {len(lock_snapshot.reserved_uids)} 件装备："
-                f"{'、'.join(sorted(selected_locked_role_names))}"
+                f"使用官方背包稳定快照 {projection.snapshot_id} 计算："
+                f"候选 {len(filtered_items)}/{len(projection.items)} 件"
+                f"（其中弃置标记 {projection.discarded_count} 件，符合过滤条件时仍参与计算）"
             )
-        from src.app.facade import NTEAppFacade
+            if selected_locked_role_names:
+                logger.info(
+                    f"配装锁定已保留 {len(selected_locked_role_names)} 个已选角色、"
+                    f"排除 {len(lock_snapshot.reserved_uids)} 件装备："
+                    f"{'、'.join(sorted(selected_locked_role_names))}"
+                )
+            from src.app.facade import NTEAppFacade
 
-        a = NTEAppFacade(
-            config_dir=str(config_dir),
-            user_config_dir=str(user_config_dir),
-            user_database_path=database_path,
-            allocation_static_database_path=static_database_path,
-        )
-        comparisons = {}
+            a = NTEAppFacade(
+                config_dir=str(config_dir),
+                user_config_dir=str(user_config_dir),
+                user_database_path=database_path,
+                allocation_static_database_path=static_database_path,
+            )
+            comparisons = {}
 
-        def freeze_comparisons(request, scorer):
-            def checkpoint():
-                if (cancel_check is not None and cancel_check()) or _allocation_context_identity(self) != context_identity:
-                    raise CancelledError("分配计算已取消或账号已切换")
-            comparisons.update(freeze_legacy_slot_comparisons(
-                database_path, static_database_path, request, scorer,
-                snapshot_id=projection.snapshot_id, checkpoint=checkpoint,
-            ))
+            def freeze_comparisons(request, scorer):
+                def checkpoint():
+                    if (cancel_check is not None and cancel_check()) or _allocation_context_identity(self) != context_identity:
+                        raise CancelledError("分配计算已取消或账号已切换")
+                comparisons.update(freeze_legacy_slot_comparisons(
+                    database_path, static_database_path, request, scorer,
+                    snapshot_id=projection.snapshot_id, checkpoint=checkpoint, static_read_unit=unit,
+                ))
 
-        if unlocked_sel:
+            if unlocked_sel:
+                if cancel_check is not None and cancel_check():
+                    raise CancelledError("分配计算已取消")
+                if _allocation_context_identity(self) != context_identity:
+                    raise CancelledError("计算账号已切换，丢弃旧任务")
+                fp, _ = a.execute_allocation_inventory(
+                    list(filtered_items),
+                    unlocked_sel,
+                    cs,
+                    strat,
+                    locked_uids=set(lock_snapshot.reserved_uids),
+                    allocation_observer=freeze_comparisons, static_read_unit=unit,
+                    **allocation_options,
+                )
+            else:
+                fp = {}
+            reader.ensure_unchanged(release)
             if cancel_check is not None and cancel_check():
                 raise CancelledError("分配计算已取消")
             if _allocation_context_identity(self) != context_identity:
                 raise CancelledError("计算账号已切换，丢弃旧任务")
-            fp, _ = a.execute_allocation_inventory(
-                list(filtered_items),
-                unlocked_sel,
-                cs,
-                strat,
-                locked_uids=set(lock_snapshot.reserved_uids),
-                allocation_observer=freeze_comparisons,
-                **allocation_options,
+            logger.info(f"分配计算完成: result_type={type(fp).__name__}")
+            return AllocationRunResult(
+                plans=fp,
+                snapshot_id=projection.snapshot_id,
+                lock_snapshot=lock_snapshot,
+                selected_locked_role_names=selected_locked_role_names,
+                static_database_path=static_database_path,
+                static_dataset_id=static_dataset_id,
+                static_file_identity=static_file_identity,
+                context_identity=context_identity,
+                run_id=expected_run_id,
+                comparisons=refresh_legacy_slot_comparisons(comparisons, fp),
+                static_release=release,
             )
-        else:
-            fp = {}
-        latest_stat = static_database_path.stat()
-        if (latest_stat.st_size, latest_stat.st_mtime_ns) != static_file_identity:
-            raise RuntimeError("计算期间静态数据集已更新，请重新执行计算。")
-        if _allocation_context_identity(self) != context_identity:
-            raise CancelledError("计算账号已切换，丢弃旧任务")
-        logger.info(f"分配计算完成: result_type={type(fp).__name__}")
-        return AllocationRunResult(
-            plans=fp,
-            snapshot_id=projection.snapshot_id,
-            lock_snapshot=lock_snapshot,
-            selected_locked_role_names=selected_locked_role_names,
-            static_database_path=static_database_path,
-            static_dataset_id=static_dataset_id,
-            static_file_identity=static_file_identity,
-            context_identity=context_identity,
-            run_id=expected_run_id,
-            comparisons=refresh_legacy_slot_comparisons(comparisons, fp),
-        )
     except Exception as e:
         logger.error(f"allocation.run_failed | {format_local_exception(e)}")
         raise
@@ -290,6 +306,7 @@ def _start_allocation_worker(self: Any) -> None:
         ),
         parent=self,
     )
+    self._worker.finished.connect(self._on_worker_finished)
     self._worker.result_ready.connect(self._on_done)
     self._worker.error.connect(
         lambda error: self._on_exec_error(error)
@@ -413,6 +430,8 @@ def _confirm_unsaved_allocation_before_recompute(self: Any) -> bool:
 
 
 def _on_done(self: Any, r: Any) -> None:
+    if getattr(self, "_closing", False):
+        return  # 关闭后，连已经排队的合法结果也不再交付。
     try:
         logger.info(
             f"_on_done 收到结果: type={type(r).__name__}, keys={list(r.keys()) if isinstance(r, dict) else 'N/A'}"
@@ -423,12 +442,15 @@ def _on_done(self: Any, r: Any) -> None:
             or r.run_id != getattr(self, "_pending_run_id", None)):
             logger.info("过期分配任务结果回调已丢弃")
             return
+        if self._cancel_event.is_set():
+            _on_exec_error(self, "任务已取消")
+            return
         self._hotkey_manager.stop(owner="allocation")
         current_static = _allocation_paths(self)[4]
-        current_stat = current_static.stat()
-        if current_static != r.static_database_path or (
-            current_stat.st_size, current_stat.st_mtime_ns
-        ) != r.static_file_identity:
+        try:
+            release = require_allocation_release(r.static_release, current_static)
+            StaticCatalogReleaseReader().ensure_unchanged(release)
+        except RuntimeError:
             _on_exec_error(self, "计算期间静态数据集已更新，请重新执行计算。")
             return
         self.final_plan = r.plans
@@ -436,6 +458,7 @@ def _on_done(self: Any, r: Any) -> None:
         self._pending_allocation_static_identity = (
             r.static_database_path, r.static_dataset_id, r.static_file_identity
         )
+        self._pending_allocation_static_release = release
         self._allocation_lock_snapshot = r.lock_snapshot
         self._selected_locked_role_names = r.selected_locked_role_names
         self.btn_run.setEnabled(True)
@@ -452,6 +475,8 @@ def _on_done(self: Any, r: Any) -> None:
 
 
 def _on_exec_error(self: Any, err: str) -> None:
+    if getattr(self, "_closing", False):
+        return
     self._hotkey_manager.stop(owner="allocation")
     self.btn_run.setEnabled(True)
     self.btn_run.setText("⚡  开始计算")
@@ -579,6 +604,7 @@ class AllocationController(QObject):
         self._refresh_equipment_callback = refresh_equipment
         self._hotkey_manager = hotkey_manager
         self._cancel_event = threading.Event()
+        self._closing = False
         self.btn_run: QPushButton | None = None
         self._worker: WorkerThread | None = None
         self._save_worker: WorkerThread | None = None
@@ -590,6 +616,7 @@ class AllocationController(QObject):
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id: int | None = None
         self._pending_allocation_static_identity: tuple[Path, str, tuple[int, int]] | None = None
+        self._pending_allocation_static_release: StaticCatalogRelease | None = None
         self._allocation_lock_snapshot: AllocationLockSnapshot | None = None
         self._selected_locked_role_names: frozenset[str] = frozenset()
         self._pending_archive_paths: list[Path] = []
@@ -618,9 +645,18 @@ class AllocationController(QObject):
         self.btn_save = button
 
     def stop_save(self) -> None:
-        self._cancel_event.set()
-        if self._save_worker is not None and self._save_worker.isRunning():
-            self._save_worker.wait(5000)
+        self._cancel_event.set()  # 仅撤权；窗口门禁等待物理退场，不阻塞 GUI。
+
+    def begin_close(self) -> None:
+        self._closing = True
+        self.cancel()
+
+    def _on_worker_finished(self) -> None:
+        worker = self.sender()
+        if self._worker is worker:
+            self._worker = None
+        if worker is not None:
+            worker.deleteLater()
 
     def start(
         self,
@@ -638,6 +674,8 @@ class AllocationController(QObject):
         filter_settings: AllocationFilterSettings,
         blueprint_combo_limit: int = 2000,
     ) -> None:
+        if self._closing:
+            raise RuntimeError("分配计算已关闭")
         if self.btn_run is None:
             raise RuntimeError("allocation run button has not been bound")
         if self.is_running():
@@ -674,10 +712,15 @@ class AllocationController(QObject):
         return bool(_confirm_unsaved_allocation_before_recompute(self))
 
     def save(self, show_message: bool = True) -> bool:
+        if self._closing:
+            return False
         return self._save_alloc(show_message=show_message)
 
     def is_running(self) -> bool:
-        return self._saving or bool(self._worker is not None and self._worker.isRunning())
+        return self._saving or any(
+            worker is not None and worker.isRunning()
+            for worker in (self._worker, self._save_worker)
+        )
 
     def clear_preview(self) -> None:
         """Discard a displayed calculation without changing persisted plans or inputs."""
@@ -688,6 +731,7 @@ class AllocationController(QObject):
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id = None
         self._pending_allocation_static_identity = None
+        self._pending_allocation_static_release = None
         self._allocation_lock_snapshot = None
         self._selected_locked_role_names = frozenset()
         self._allocation_custom_weapons = {}
@@ -700,6 +744,7 @@ class AllocationController(QObject):
         self._allocation_dirty = False
         self._pending_allocation_snapshot_id = None
         self._pending_allocation_static_identity = None
+        self._pending_allocation_static_release = None
         self._allocation_lock_snapshot = None
         self._selected_locked_role_names = frozenset()
         self._pending_allocation_context_identity = None

@@ -1,5 +1,5 @@
-# 从 MainWindow 抽离的控制器方法。
-"""Compatibility-installed MainWindow controller."""
+# 接线当前账号同步 owner、失效旧通知并投影来源与稳定快照状态。
+"""现有窗口同步入口；库存提交归 Service，UI 只消费复核后的通知。"""
 
 from __future__ import annotations
 
@@ -10,13 +10,14 @@ from PySide6.QtWidgets import QMessageBox
 
 from src.features.home.page import inventory_sync_error_guidance
 from src.observability import OperationContext
-from src.services.inventory_sync_service import InventorySyncService, InventorySyncState
+from src.services.inventory.sync.service import InventorySyncService
+from src.services.inventory.sync.state import InventorySyncState
 from src.integrations.nte_core import NteCoreClient
 from src.integrations.nte_core_protocol import NteCoreError
 from src.utils.logger import logger
 from src.integrations.operation_guard import require_operation
 from src.domain.work_mode import WorkMode
-from src.services.cultivation_owned_material_import import CultivationOwnedMaterialImportService
+from src.services.progression.owned_material_import import CultivationOwnedMaterialImportService
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,7 @@ class InventorySyncNotification:
 
 
 def invalidate_inventory_sync_notifications(self) -> None:
-    """Invalidate queued Qt callbacks before stopping or replacing their owner."""
+    """停止或替换 owner 前先撤销通知 token，并解除旧状态订阅。"""
     self._inventory_sync_state_token = None
     binding = getattr(self, "_inventory_sync_state_binding", None)
     self._inventory_sync_state_binding = None
@@ -89,7 +90,7 @@ def _start_inventory_sync_authorized(self, *, automatic: bool, source: str):
     )
     native_profiles_apply = None
     if source == "native":
-        from src.services.official_role_profile_service import OfficialRoleProfileService
+        from src.services.official_role.profiles import OfficialRoleProfileService
         native_profiles_apply = OfficialRoleProfileService(
             account.user_database_path, static_database_path=self.app_context.paths.static_database_path,
         ).patch_native_profiles
@@ -243,7 +244,7 @@ def _on_inventory_sync_state(self, notification):
                 state.error_code, state.error, capture_source=state.capture_source,
             )
             callback("背包同步", detail, target="deployment" if native_component_gap else "detection")
-    # Guidance may navigate and process queued account changes before returning.
+    # 引导弹窗可能处理账号切换事件；返回后再次复核，才投递到当前页面。
     if (notification.service is not self._inventory_sync_service
             or notification.run_token is not getattr(self, "_inventory_sync_state_token", None)
             or notification.account_id != self.app_context.account.active_account_id
@@ -287,17 +288,6 @@ def _on_inventory_sync_state(self, notification):
             self.dashboard_controller.refresh(version=(
                 notification.run_token, state.last_snapshot_id, state.character_sync_revision,
             ))
-
-# ── Page: Execute
-
-# ── Page: Equipment
-
-# ── Page: Identify
-
-# ── Page: Blueprint
-
-# ── Page: Config
-
 
 class InventorySyncControllerMixin:
     invalidate_inventory_sync_notifications = invalidate_inventory_sync_notifications

@@ -11,7 +11,7 @@ from src.features.static_catalog.domain_pages.monster_browse_models import (
     BrowseSection,
     BrowseState,
 )
-from src.services.static_catalog_monster_models import FeastPeriod, FeastSetup
+from src.services.static_catalog.monsters.models import FeastPeriod, FeastSetup
 
 
 class FeastCatalogBrowserMixin:

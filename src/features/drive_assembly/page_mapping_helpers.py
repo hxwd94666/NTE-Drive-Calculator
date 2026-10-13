@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from src.scanner.window_capture import game_content_rect
+from src.integrations.vision.window_capture import game_content_rect
 from src.utils.set_name import normalize_set_display_name
 
 

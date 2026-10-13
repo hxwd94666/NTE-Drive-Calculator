@@ -42,7 +42,7 @@ def prompt_operation_settings(
     parent, *, title: str, feature: str, detail: str, navigate, target: str,
     action_text: str = "前往设置",
 ) -> None:
-    """Only an explicit navigation click leaves the current feature dialog."""
+    """仅显式点击导航才离开当前弹窗；不提升权限、不续跑原操作。"""
     origin = QApplication.activeModalWidget()
     dialog = QDialog(parent)
     dialog.setWindowTitle(title)

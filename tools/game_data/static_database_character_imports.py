@@ -13,7 +13,7 @@ _PLAYER_VARIANT_PATTERN = re.compile(
 
 
 def _player_variant_id(asset: Any) -> str | None:
-    """Return the stable three-digit player asset identity when available."""
+    """仅从正式角色资产路径提取稳定三位编号，未匹配保留缺失。"""
 
     path = (asset_path(asset) or "") if isinstance(asset, dict) else str(asset or "")
     match = _PLAYER_VARIANT_PATTERN.search(path)
@@ -339,7 +339,7 @@ class CharacterImportMixin:
                     )
 
     def _import_character_likeability_bonuses(self) -> None:
-        """Import the formal level-ten panel bonus for each supported role."""
+        """仅导入可唯一关联、无条件且属性已知的正式好感十级面板加成。"""
 
         known_attributes = {
             str(row[0])

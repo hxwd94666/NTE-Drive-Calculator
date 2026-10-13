@@ -184,6 +184,23 @@ def close_page_tasks(owner: QObject) -> bool:
     )
 
 
+def delete_when_page_tasks_finish(owner: QObject) -> None:
+    """撤销读取，等物理线程与已接受提交结束才销毁，不脱离父对象。"""
+    if close_page_tasks(owner):
+        timer = QTimer(owner)
+        timer.setInterval(25)
+
+        def finish():
+            if not close_page_tasks(owner):
+                timer.stop()
+                owner.deleteLater()
+
+        timer.timeout.connect(finish)
+        timer.start()
+    else:
+        owner.deleteLater()
+
+
 def start_ui_latency_monitor(owner: QObject, page_provider) -> QTimer:
     """Low-frequency event-loop lag sampling; no per-tick logs or user payloads."""
     from time import perf_counter

@@ -11,7 +11,7 @@ from src.features.battle_report.role_contribution_view import (
     BattleRoleShareBar,
     role_contribution_color,
 )
-from src.services.battle_damage_composition_service import (
+from src.services.battle_report.damage.composition import (
     BattleDamageCompositionService,
 )
 

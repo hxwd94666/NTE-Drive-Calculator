@@ -100,12 +100,7 @@ class ProjectMetadataTests(unittest.TestCase):
         self.assertIn(f"git tag {__version__}", output)
         self.assertIn(f"git push origin {__version__}", output)
         self.assertIn(f"gh release create {__version__}", output)
-        self.assertNotIn("--notes-file", output)
 
-    def test_release_tool_has_no_notes_document_argument(self):
-        parsed = prepare_release.parse_args([])
-
-        self.assertFalse(hasattr(parsed, "notes_file"))
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from unittest.mock import Mock
 from src.integrations.performance_preferences import PerformancePreferences
 from src.integrations.presentmon_metrics import FrameWindow, PresentMon
 from src.services.performance_monitor import PerformanceMonitor
-from src.services.native_game_session import NativeGameSession
+from src.services.native_session.session import NativeGameSession
 
 NTE_TEST_TIER = "core"
 
@@ -19,7 +19,7 @@ class OverlayTests(unittest.TestCase):
         calls = []
         frames = Mock()
         frames.close.side_effect = lambda: calls.append('frames_closed')
-        def control(payload):
+        def control(payload, key):
             calls.append('native_stop')
             self.assertEqual(calls[0], 'frames_closed')
             raise TimeoutError('native pipe unavailable')
@@ -86,7 +86,7 @@ class OverlayTests(unittest.TestCase):
 
     def test_display_off_does_not_cancel_logging_and_close_stops_provider(self):
         calls = []
-        def control(payload):
+        def control(payload, key):
             calls.append(payload.copy())
             return {**payload, "installed": True, "rendered": payload["overlay"], "rejected": False}
         with tempfile.TemporaryDirectory() as folder:
@@ -108,12 +108,12 @@ class OverlayTests(unittest.TestCase):
         factory = Mock()
         session = NativeGameSession(factory=factory, guard=lambda _: None)
         off = {"enabled": False, "overlay": False, "fps_milli": None, "frame_us": None, "low_milli": None}
-        self.assertFalse(session.configure_performance(off)["enabled"])
+        self.assertFalse(session.configure_performance(off, None)["enabled"])
         factory.assert_not_called()
         client = Mock(is_running=True, hello_result={"capabilities": []})
         session._client = client
         with self.assertRaises(NotImplementedError):
-            session.configure_performance({**off, "enabled": True})
+            session.configure_performance({**off, "enabled": True}, None)
         client.call.assert_not_called()
 
     @staticmethod

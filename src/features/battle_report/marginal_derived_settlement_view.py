@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QTableWidgetItem, QVBoxLayout
 from src.app.theme import themed_style
 from src.domain.battle_counterfactual import BattleBuildCounterfactual
 from src.features.battle_report.analysis_components import analysis_table
-from src.services.battle_daffodill_marginal_service import (
+from src.services.battle_report.characters.daffodill_marginal import (
     DAFFODILL_EFFECT_FIVE_METHOD,
 )
 

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from src.domain.battle_report import BattleBuffModifierEvidence
-from src.services.battle_buff_inference_service import BattleStaticBuffRule
+from src.services.battle_report.buffs.inference import BattleStaticBuffRule
 
 
 def build_fixture() -> dict:

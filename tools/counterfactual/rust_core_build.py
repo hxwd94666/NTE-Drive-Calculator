@@ -15,7 +15,7 @@ def sha256(path: Path) -> str:
 
 
 def source_inputs(source: Path) -> dict[str, str]:
-    """Use the same input set for building, packaging and the published source summary."""
+    """构建、打包和发布来源摘要使用同一显式输入集合，不随意补读其他工程。"""
     files = [source / name for name in (
         "Cargo.toml", "Cargo.lock", "AGENTS.md", "README.md", "THIRD_PARTY_NOTICES.txt",
     )]
@@ -40,7 +40,7 @@ def build_record_path(executable: Path) -> Path:
 
 
 def build_analysis_core(source: Path) -> Path:
-    """Only called by the explicit --build option; never build the root capture crate."""
+    """仅显式 --build 调用独立分析工程，不构建根采集 crate。"""
     source = source.resolve()
     if source.name != "analysis-core":
         raise ValueError("必须使用独立 analysis-core 工程")
@@ -77,13 +77,13 @@ def build_analysis_core(source: Path) -> Path:
         "source_base_commit": revision, "source_worktree_modified": dirty,
         "license_sha256": license_hash, "rustc": rustc,
     }
-    # This receipt is provenance, not a backup, and remains outside the delivery bundle.
+    # 本收据只证明来源，不是备份；不得加入执行物交付包。
     build_record_path(executable).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8", newline="\n")
     return executable
 
 
 def verify_build_record(source: Path, executable: Path) -> dict:
-    """Reject absent or stale evidence before executing or copying a candidate binary."""
+    """执行或复制候选前核对来源、产物和许可；缺失或旧收据直接拒绝。"""
     path = build_record_path(executable)
     if not path.is_file():
         raise ValueError("分析 EXE 缺少构建记录，请使用 package_rust_core.py --build 重新构建")

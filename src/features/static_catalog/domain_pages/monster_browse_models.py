@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 from urllib.parse import unquote
 
-from src.services.static_catalog_monster_service import CatalogEntry
+from src.services.static_catalog.monsters.service import CatalogEntry
 
 
 PLAY_LABELS = {

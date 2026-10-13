@@ -2,7 +2,7 @@
 """Behavioral ordering contract for character pickers."""
 
 from src.domain.role_name_order import role_name_sort_key
-from src.services.cultivation_planner_service import (
+from src.services.progression.planner_service import (
     CultivationRole,
     _deduplicate_roles,
 )

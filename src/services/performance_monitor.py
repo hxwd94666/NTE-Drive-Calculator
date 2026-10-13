@@ -191,12 +191,12 @@ class PerformanceMonitor:
                         metrics = self._frames.sample() if self._frames else {}
                         payload = {"enabled": True, "overlay": overlay,
                                    **{key: metrics.get(key) for key in ("fps_milli", "frame_us", "low_milli")}}
-                        # Recheck authorization after the frame source's potentially blocking startup.
+                        # 帧源启动可能等待；派发沿本轮冻结 key，后台 owner 再复核权限与连接。
                         with self._lock:
                             if revision != self._revision or self._quit.is_set():
                                 continue
-                        self._applied = True  # A timeout is unknown; still send stop during teardown.
-                        result = self._control(payload)
+                        self._applied = True  # 超时仍未知；收尾只清理此 key 曾启用的原连接。
+                        result = self._control(payload, key)
                         metrics.update({"cost_us": result.get("cost_us"),
                                         "cost_coverage": result.get("cost_coverage", "unknown"),
                                         "cost_complete": result.get("cost_complete") is True})
@@ -240,7 +240,7 @@ class PerformanceMonitor:
         if self._control and self._applied:
             try:
                 self._control({"enabled": False, "overlay": False,
-                               "fps_milli": None, "frame_us": None, "low_milli": None})
+                               "fps_milli": None, "frame_us": None, "low_milli": None}, self._sampling_key)
                 self._applied = False
                 self._overlay_status = "off"
             except Exception:

@@ -1,4 +1,4 @@
-# 提供角色选择器的首字拼音排序与轻量头像控件。
+# 生成角色选择器的 DPI 适配头像；自建角色与缺图占位只影响展示，不参与角色身份。
 """Presentation-only helpers for the legacy allocation role selector."""
 
 from __future__ import annotations

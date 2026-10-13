@@ -75,7 +75,7 @@ class PerformanceTrace:
                     return
                 journal = TraceJournal(directory, trace_id, services)
                 self.value['log_path'] = str(journal.path)
-            started = True  # A timeout has unknown outcome; teardown still requests stop.
+            started = True  # 启动超时的结果未知，收尾仍需请求停止，不能据此判断未派发。
             result = call('start')
             start_confirmed = True
             while True:
@@ -105,7 +105,7 @@ class PerformanceTrace:
                 'performance_plugin_unavailable', 'performance_busy', 'performance_start_failed',
                 'invalid_trace_id', 'invalid_action', 'invalid_services',
             }:
-                # A rejected start owns no remote collection to stop.
+                # 明确拒绝启动时未取得远端采集所有权，不向无关采集发送停止。
                 started = False
             with self.lock:
                 if self.key == key:
@@ -114,7 +114,7 @@ class PerformanceTrace:
             if started and not terminal:
                 try:
                     result = call('stop')
-                    # Stop acknowledgment only requests draining; wait for the terminal receipt.
+                    # 停止接受仅表示开始排空，须等待终态回执再判断完成。
                     end = monotonic() + 3
                     while result['active'] and monotonic() < end:
                         Event().wait(.1)

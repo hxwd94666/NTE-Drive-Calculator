@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 
 from src.integrations.vision.mouse_state_sync import MouseStateIssue, MouseStateSyncResult
-from src.services.gamepad_state_sync_service import GamepadStateSyncService
+from src.services.scanning.state_sync import GamepadStateSyncService
 
 
 class GamepadStateSyncServiceTests(unittest.TestCase):

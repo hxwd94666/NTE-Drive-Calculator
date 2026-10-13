@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QWidget
 from auto_sync_ui_fixture import application, dispose
 
 from src.domain.work_mode import WorkModeProbe, NativeFeatureProbe
-from src.services.work_mode_service import WorkModeService
+from src.services.work_modes.service import WorkModeService
 from src.ui.controllers.auto_sync_controller import AutoSyncController
 
 
@@ -655,7 +655,7 @@ def test_home_sync_help_routes_only_on_selected_button(monkeypatch, action, targ
 @pytest.mark.parametrize('mode', ['medium', 'developer'])
 def test_native_home_waiting_preserves_data_reason_without_login_instructions(owner, mode):
     from PySide6.QtWidgets import QCheckBox, QLabel, QPushButton
-    from src.services.inventory_sync_service import InventorySyncState
+    from src.services.inventory.sync.state import InventorySyncState
     c, window, policy, _starts, _jobs, _watchers, _app = owner
     policy.select_mode(mode, risk_confirmed=True)
     c.refresh()

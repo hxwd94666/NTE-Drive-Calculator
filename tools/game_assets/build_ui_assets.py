@@ -49,14 +49,23 @@ _DATABASE_GROUPS = {
 
 
 def _source_file(content_root: Path, asset_path: str) -> Path:
-    package_path = str(asset_path).split(".", 1)[0]
+    """解析正式游戏路径到已限界的来源；碰撞比字节前不得补读根外文件。"""
+    raw = str(asset_path)
     prefix = "/Game/"
-    if not package_path.startswith(prefix):
+    if not raw.startswith(prefix):
         raise ValueError(f"资源路径必须以 {prefix} 开头：{asset_path}")
-    return content_root / f"{package_path[len(prefix):]}.png"
-
+    relative = raw[len(prefix):]
+    member = Path(relative)
+    if member.anchor or ".." in member.parts:
+        raise ValueError(f"资源路径越过 Content 目录：{asset_path}")
+    root = content_root.resolve()
+    source = (root / f"{relative.split('.', 1)[0]}.png").resolve()
+    if not source.is_relative_to(root):
+        raise ValueError(f"资源路径越过 Content 目录：{asset_path}")
+    return source
 
 def _safe_output(output_root: Path, relative_path: str) -> Path:
+    """解析后的输出必须留在所选候选根，且只允许 PNG 文件。"""
     target = (output_root / relative_path).resolve()
     root = output_root.resolve()
     if root != target and root not in target.parents:
@@ -73,6 +82,27 @@ def _sha256(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest().upper()
 
+
+def _validate_output_bindings(
+    content_root: Path,
+    output_root: Path,
+    groups: list[tuple[str, str, list[dict[str, str]], int]],
+) -> None:
+    """完整登记后才生成图片；同源别名或同字节同尺寸可共用输出，不接受歧义。"""
+    bindings: dict[Path, tuple[Path, int]] = {}
+    for _group, _identity, entries, max_dimension in groups:
+        for entry in entries:
+            target = _safe_output(output_root, str(entry["output"]).replace("\\", "/"))
+            source = _source_file(content_root, str(entry["source_asset_path"]))
+            previous = bindings.get(target)
+            if previous is None:
+                bindings[target] = (source, max_dimension)
+                continue
+            previous_source, previous_dimension = previous
+            if previous_dimension != max_dimension:
+                raise ValueError(f"同一界面输出的渲染尺寸冲突：{target}")
+            if source != previous_source and _sha256(source) != _sha256(previous_source):
+                raise ValueError(f"同一界面输出对应不同来源内容：{target}")
 
 def _load_local_config(path: Path | None) -> dict[str, Any]:
     if path is None:
@@ -239,6 +269,53 @@ def _encounter_database_asset_entries(
     return resource_entries, family_entries
 
 
+def _monster_asset_groups(
+    manifest: dict[str, Any],
+    monster_entries: list[dict[str, str]],
+    encounter_icons: list[dict[str, str]],
+    database_family_icons: list[dict[str, str]],
+) -> list[tuple[str, str, list[dict[str, str]], int]]:
+    """按来源组装真实渲染计划；自动家族别名沿首张怪物图的128尺寸，不冒用160。"""
+    groups: list[tuple[str, str, list[dict[str, str]], int]] = []
+    if monster_entries:
+        groups.append(("monster_icons", "key", monster_entries, 128))
+    family_icons = [
+        {
+            "key": _monster_family_key(entry["key"].split(":", 1)[1]),
+            "source_asset_path": entry["source_asset_path"],
+            "output": entry["output"],
+            "priority": "0",
+            "_render_dimension": "128",
+        }
+        for entry in monster_entries
+    ]
+    family_icons.extend(
+        {**entry, "priority": "-1", "_render_dimension": "160"}
+        for entry in manifest.get("monster_family_icons", [])
+    )
+    if manifest.get("encounter_icons_from_database"):
+        groups.append(("encounter_icons", "key", encounter_icons, 160))
+        family_icons.extend(
+            {**entry, "_render_dimension": "160"}
+            for entry in database_family_icons
+        )
+    family_icons.extend(
+        {**entry, "key": alias, "priority": "2"}
+        for entry in tuple(family_icons)
+        if (alias := _numeric_family_alias(entry["key"])) is not None
+    )
+    # 只分组实际参数，不放宽碰撞门禁；内部来源标签不进入公开图片清单。
+    selected = _unique_family_entries(family_icons)
+    for max_dimension in (128, 160):
+        entries = [
+            {key: value for key, value in entry.items() if key != "_render_dimension"}
+            for entry in selected
+            if int(entry["_render_dimension"]) == max_dimension
+        ]
+        if entries:
+            groups.append(("monster_family_icons", "key", entries, max_dimension))
+    return groups
+
 def build_assets(
     content_root: Path,
     manifest_path: Path = DEFAULT_MANIFEST,
@@ -273,36 +350,18 @@ def build_assets(
     monster_entries: list[dict[str, str]] = []
     for monster_table in manifest.get("monster_tables", []):
         monster_entries.extend(_monster_asset_entries(content_root, monster_table))
-    if monster_entries:
-        groups.append(("monster_icons", "key", monster_entries, 128))
-    family_icons = [
-        {
-            "key": _monster_family_key(entry["key"].split(":", 1)[1]),
-            "source_asset_path": entry["source_asset_path"],
-            "output": entry["output"],
-            "priority": "0",
-        }
-        for entry in monster_entries
-    ]
-    family_icons.extend(
-        {**entry, "priority": "-1"}
-        for entry in manifest.get("monster_family_icons", [])
-    )
+    encounter_icons: list[dict[str, str]] = []
+    database_family_icons: list[dict[str, str]] = []
     if manifest.get("encounter_icons_from_database"):
         encounter_icons, database_family_icons = _encounter_database_asset_entries(
             static_database_path
         )
-        groups.append(("encounter_icons", "key", encounter_icons, 160))
-        family_icons.extend(database_family_icons)
-    family_icons.extend(
-        {**entry, "key": alias, "priority": "2"}
-        for entry in tuple(family_icons)
-        if (alias := _numeric_family_alias(entry["key"])) is not None
-    )
-    if family_icons:
-        groups.append((
-            "monster_family_icons", "key", _unique_family_entries(family_icons), 160,
-        ))
+    groups.extend(_monster_asset_groups(
+        manifest, monster_entries, encounter_icons, database_family_icons,
+    ))
+
+    # 所有绑定先通过核对；冲突时既不生成图片，也不写半成品 manifest。
+    _validate_output_bindings(content_root, output_root, groups)
 
     for group_name, identity_field, entries, max_dimension in groups:
         result_map = result_maps.setdefault(group_name, {})

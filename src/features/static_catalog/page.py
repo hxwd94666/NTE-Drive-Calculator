@@ -43,7 +43,7 @@ from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.menu import StaticCatalogMenu
 
 if TYPE_CHECKING:
-    from src.services.static_catalog_mechanics_service import CatalogLink
+    from src.services.static_catalog.mechanics.service import CatalogLink
 
 
 @dataclass(frozen=True, slots=True)

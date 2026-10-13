@@ -10,7 +10,7 @@ from src.domain.progression_stamina import (
     ProgressionStaminaRequest,
     StaminaPlanStatus,
 )
-from src.services.progression_stamina_service import ProgressionStaminaService
+from src.services.progression.stamina_service import ProgressionStaminaService
 
 
 def _stage(

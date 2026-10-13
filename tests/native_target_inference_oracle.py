@@ -34,15 +34,15 @@ def serialized(value):
 
 
 def generate(output: Path):
-    from src.services.battle_encounter_candidate_selection_service import BattleEncounterCandidateSelectionService as Selection
-    from src.services.battle_inferred_target_condition_service import BattleInferredTargetConditionService as Inference
-    from src.services.battle_target_instance_mapping_service import BattleTargetInstanceMappingService as Mapping
-    import src.services.battle_inferred_target_resolution_support as support
-    import src.services.battle_outer_realm_period_service as period
-    import src.services.battle_outer_realm_confirmation_service as confirmation
-    from src.services.battle_incoming_monster_identity_service import BattleIncomingMonsterIdentityService
-    from src.services.battle_inferred_target_snapshot_service import BattleInferredTargetSnapshotService as Snapshot
-    from src.services.battle_encounter_fit_projection_service import BattleEncounterFitProjectionService as Fit
+    from src.services.battle_report.targets.encounter.candidate_selection import BattleEncounterCandidateSelectionService as Selection
+    from src.services.battle_report.targets.inferred_condition import BattleInferredTargetConditionService as Inference
+    from src.services.battle_report.targets.instance_mapping import BattleTargetInstanceMappingService as Mapping
+    import src.services.battle_report.targets.resolution as support
+    import src.services.battle_report.environment.outer_realm_period as period
+    import src.services.battle_report.environment.outer_realm_confirmation as confirmation
+    from src.services.battle_report.targets.incoming_identity import BattleIncomingMonsterIdentityService
+    from src.services.battle_report.targets.inferred_snapshot import BattleInferredTargetSnapshotService as Snapshot
+    from src.services.battle_report.targets.encounter.fit_projection import BattleEncounterFitProjectionService as Fit
     from tools.native_analysis.export_target_catalog import export_catalog
 
     fixtures = []
@@ -104,17 +104,17 @@ def generate(output: Path):
             stack.enter_context(patch.object(owner, name, new=capture(getattr(owner, name), kind, mutate)))
         stack.enter_context(patch.object(Fit, "select", new=capture_fit))
         suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName(name) for name in (
-            "tests.test_battle_encounter_candidate_selection_service",
-            "tests.test_battle_inferred_target_condition_service",
-            "tests.test_battle_inferred_target_instance_resolution",
-            "tests.test_battle_target_instance_mapping_service",
-            "tests.test_battle_outer_realm_period_service",
-            "tests.test_battle_encounter_fit_projection_service",
+            "tests.battle_report.targets.encounter.test_candidate_selection",
+            "tests.battle_report.targets.test_inferred_condition",
+            "tests.battle_report.targets.test_inferred_resolution",
+            "tests.battle_report.targets.test_instance_mapping",
+            "tests.battle_report.environment.test_outer_realm_period",
+            "tests.battle_report.targets.encounter.test_fit_projection",
         ))
         result = unittest.TextTestRunner(verbosity=1).run(suite)
         if not result.wasSuccessful():
             raise SystemExit("public target oracle failed")
-        import tests.test_battle_outer_realm_confirmation_service as confirmation_tests
+        import tests.battle_report.environment.test_outer_realm_confirmation as confirmation_tests
         for name in dir(confirmation_tests):
             if name.startswith("test_"):
                 getattr(confirmation_tests, name)()
@@ -140,7 +140,7 @@ def generate(output: Path):
         if result_period is not None:
             expected.update(display_label=result_period.display_label, inference_basis=result_period.inference_basis)
         fixtures.append({"kind": "period", "input": {"configs": catalog["outer_realm_configs"], "battle_occurred_at_utc": occurred}, "expected": expected})
-    from src.services.battle_encounter_fit_projection_service import _fit_group_id
+    from src.services.battle_report.targets.encounter.fit_projection import _fit_group_id
     hit = SimpleNamespace(event_id="synthetic-hit", character_id=None, gameplay_effect_id="GE_覆纹",
                           damage_attribute="incantation", scope_half="upper", target_id="synthetic-target")
     for value in (1.0, -0.0, 1e-9, 1e-4, 1e16, 2.675):

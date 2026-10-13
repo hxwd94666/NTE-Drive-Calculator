@@ -3,9 +3,9 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-from src.services.official_role_page_service import load_official_role_detail
+from src.services.official_role.page import load_official_role_detail
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_native_inventory_sync_integration import ProjectionCore, setup_sync
+from tests.inventory.sync.test_native_integration import ProjectionCore, setup_sync
 
 
 def test_source_authored_core_responses_preserve_coordinates_percent_and_empty_role(tmp_path):

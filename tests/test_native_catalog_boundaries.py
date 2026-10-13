@@ -6,11 +6,11 @@ import subprocess
 import unittest
 
 from tests.test_native_catalog_states import normalize
-from tests.test_battle_half_buff_scope_service import _hit, _interval
-from tests.test_battle_fork_critical_inference_service import _hit as critical_hit, _replay
-from src.services.battle_half_buff_scope_service import BattleHalfBuffScopeService
-from src.services.battle_fork_critical_inference_service import BattleForkCriticalInferenceService
-from src.services.battle_environment_condition_service import battle_witch_buff_interval
+from tests.battle_report.environment.half_fixtures import _hit, _interval
+from tests.battle_report.forks.test_critical_inference import _hit as critical_hit, _replay
+from src.services.battle_report.environment.half_buff_scope import BattleHalfBuffScopeService
+from src.services.battle_report.forks.critical_inference import BattleForkCriticalInferenceService
+from src.services.battle_report.environment.conditions import battle_witch_buff_interval
 from src.domain.battle_report import BattleTargetCondition
 
 

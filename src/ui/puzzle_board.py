@@ -1,5 +1,5 @@
 # 绘制驱动盘拼图棋盘和形状图标。
-"""Puzzle board and shape image widgets."""
+"""绘制既有棋盘：空格、禁用格和形状分别展示，不参与拼图求解。"""
 
 from __future__ import annotations
 

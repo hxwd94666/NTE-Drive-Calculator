@@ -1,5 +1,5 @@
 # 绘制兼容明暗主题的自定义角色问号头像。
-"""Shared, resolution-aware custom role portrait."""
+"""按主题和设备像素比绘制自建角色头像，不借用官方角色图。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from src.app.theme import current_theme_name
 
 
 def custom_role_portrait(size: int, device_pixel_ratio: float = 1.0) -> QPixmap:
-    """Paint a theme-aware question mark instead of borrowing an official image."""
+    """生成问号头像并保留设备像素比；只处理展示，不绑定角色身份。"""
 
     background, border, glyph = {
         "light": ("#eaf2ff", "#8cb7ea", "#1f5fa8"),

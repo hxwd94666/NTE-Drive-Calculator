@@ -65,7 +65,7 @@ def native_distribution_path(source_path: str) -> str:
 
 
 def _distribution_roles(layout: str, roles) -> dict[str, str]:
-    # Package source paths are isolated; game/Loader destination names stay unchanged.
+    # 仅隔离发行包的来源路径；游戏与 Loader 的正式部署名称保持不变。
     return {**NATIVE_ROLE_DESTINATIONS, **{
         role: NATIVE_PAYLOAD_DIRECTORY + "/" + relative
         for role, relative in native_deployment_paths(layout, roles).items()
@@ -106,7 +106,7 @@ def native_component_build_inputs(application_root: Path):
     _validate_native_contract(payload)
     inputs = {key: ComponentBuildInput(application_root / key, native_distribution_path(key))
               for key in inspection.files}
-    # All dependency notices present in the delivered source must be explicit inputs.
+    # 来源包内每份依赖许可都必须显式列入组件输入，不静默遗漏。
     directory = application_root / "third_party/native-capture/core/licenses"
     for path in directory.rglob("*"):
         if path.is_file() and path.relative_to(application_root).as_posix() not in inputs:
@@ -133,7 +133,7 @@ def validate_native_packaged_bundle(resource_root: Path, inspection, source_mani
         required.update(OPTIONAL_LOADER_ROLES)
     if any(inspection.roles.get(role) != destination for role, destination in required.items()):
         raise ValueError("发行原生组件不是当前资源目录布局。")
-    # Reverse the approved paths to validate the same license and source contract.
+    # 反向还原已批准路径，核对与来源相同的许可和组件身份，不接受新增旁路。
     reverse = {destination: source for source, destination in {**NATIVE_PROGRAMS, **HOT_NATIVE_PROGRAMS}.items()}
     reverse["nte-mod-loader.exe"] = "third_party/mod-loader/bin/nte-mod-loader.exe"
     source_files = {}

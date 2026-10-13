@@ -1,3 +1,4 @@
+# 验证正式静态图纸、自建盘及公共额外形状的求解边界。
 # 验证图纸求解使用官方 SQLite 形状和盘面数据，而非旧 JSON 投影。
 """SQLite-backed local blueprint solver regression tests."""
 
@@ -15,7 +16,7 @@ STATIC_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "game_stat
 
 class BlueprintSqliteSolverTests(unittest.TestCase):
     def test_official_shape_coordinates_are_normalized_to_solver_matrix(self):
-        from src.services.blueprint_service import (
+        from src.services.equipment.blueprints import (
             official_shape_matrix as _official_shape_matrix,
         )
 
@@ -27,7 +28,7 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
         self.assertEqual([[1, 1, 1]], matrix)
 
     def test_official_plan_board_marks_only_plan_cells_as_playable(self):
-        from src.services.blueprint_service import (
+        from src.services.equipment.blueprints import (
             official_board as _official_board,
         )
 
@@ -42,7 +43,7 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
         self.assertEqual(-1, board[4][4])
 
     def test_static_solver_returns_locally_solved_blueprint(self):
-        from src.services.blueprint_service import solve_blueprints_from_static
+        from src.services.equipment.blueprints import solve_blueprints_from_static
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
         with patch.dict("os.environ", {STATIC_DATABASE_ENV: str(STATIC_DATABASE_PATH)}):
@@ -55,7 +56,7 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
         self.assertTrue(all(cell not in ("0", "0.0") for row in role["blueprints"][0]["board"] for cell in row))
 
     def test_legacy_public_extra_shape_override_cannot_change_blueprint_preference(self):
-        from src.services.blueprint_service import solve_blueprints_from_static
+        from src.services.equipment.blueprints import solve_blueprints_from_static
         from src.storage.sqlite.shared_data_dao import SharedDataDao
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -99,11 +100,8 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
     def test_custom_role_uses_its_saved_board_and_target_suit(self):
         import tempfile
 
-        from src.services.blueprint_service import solve_blueprints_from_static
-        from src.services.custom_character_service import (
-            create_custom_character,
-            save_custom_character_target_suit,
-        )
+        from src.services.equipment.blueprints import solve_blueprints_from_static
+        from src.services.characters.custom_character_service import create_custom_character
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
         from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -117,11 +115,8 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
                     row for row in static_dao.list_suits()
                     if row.get("required_shape_ids")
                 )
-                save_custom_character_target_suit(
-                    user_database,
-                    int(custom["character_id"]),
-                    str(suit["suit_id"]),
-                )
+                with UserDataDao(user_database) as _custom_dao:
+                    _custom_dao.save_custom_character_target_suit_id(int(custom['character_id']), str(suit['suit_id']))
                 with UserDataDao(user_database) as user_dao:
                     plans = solve_blueprints_from_static(
                         static_dao,

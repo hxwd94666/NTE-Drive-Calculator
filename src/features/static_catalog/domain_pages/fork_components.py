@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.services.static_catalog_character_models import CharacterSummary
-from src.services.static_catalog_fork_release_metadata import ForkItemDisplayNameService
-from src.services.static_catalog_fork_service import (
+from src.services.static_catalog.characters.models import CharacterSummary
+from src.services.static_catalog.forks.release_metadata import ForkItemDisplayNameService
+from src.services.static_catalog.forks.service import (
     ForkBreakthrough,
     ForkBuffDefinition,
     ForkRefinementLevel,

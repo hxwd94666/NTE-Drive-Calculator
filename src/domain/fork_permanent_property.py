@@ -71,7 +71,7 @@ def is_fork_permanent_property_parameter(
     property_id: object,
     parameter_name_id: object,
 ) -> bool:
-    """Match a calculated property to the star-curve parameter that supplies it."""
+    """按属性与精炼参数标识关联计算证据，不根据描述文本猜常驻属性。"""
 
     parameter = _compact_identifier(parameter_name_id)
     return any(parameter.endswith(suffix) for suffix in _property_suffixes(property_id))
@@ -89,7 +89,7 @@ def _has_tags(value: object) -> bool:
 
 
 def is_unconditional_fork_modifier(row: Mapping[str, Any]) -> bool:
-    """Return whether the modifier has no application or tag gate."""
+    """仅无施加条件且无标签门禁的修正可作常驻候选；损坏标签按有条件处理。"""
 
     if row.get("application_requirement_asset_path"):
         return False
@@ -114,7 +114,7 @@ def resolve_fork_permanent_properties(
     rows: Iterable[Mapping[str, Any]],
     expected_levels: Mapping[str, Iterable[int]],
 ) -> tuple[tuple[ForkPermanentProperty, ...], tuple[ForkPermanentAudit, ...]]:
-    """Resolve complete refinement curves and audit every fork without guessing."""
+    """逐弧盘审完整精炼曲线；歧义、缺级、仅条件或缺证据分别记录，不补零晋升。"""
 
     all_rows: dict[str, list[Mapping[str, Any]]] = {}
     for row in rows:

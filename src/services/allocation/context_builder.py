@@ -1,0 +1,563 @@
+# 从调用方持有的DAO冻结显式快照、profile和评分规则，生命周期仍由调用方管理。
+"""构建服务只在请求边界读取一次输入；Domain DTO不负责SQL、路径或补齐。"""
+
+from __future__ import annotations
+
+from hashlib import sha256
+import json
+
+from src.domain.allocation.scoring_rules import AllocationScoringRules
+from src.domain.allocation.inputs import (
+    StaticDatasetReference,
+    InventorySnapshotReference,
+    OfficialStat,
+    AllocationCandidate,
+    PropertyLimit,
+    BlueprintCell,
+    SuitConstraint,
+    OfficialShapeCell,
+    OfficialShape,
+    RoleEquipmentConstraints,
+    AllocationRolePreference,
+    OfficialAttribute,
+    AllocationContext,
+)
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from src.services.allocation.inventory import legacy_shape_id
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.characters.character_weight_service import resolve_character_base_weights
+from src.services.characters.character_shape_bonus_service import get_effective_character_shape_bonus
+from src.services.equipment.equipment_level_projection_service import project_equipment_items_to_max_level
+from src.domain.inventory.source_capabilities import is_visual_inventory_source
+
+
+ALLOCATION_CONTEXT_SOLVER_VERSION = "allocation-context-v1"
+_LEGACY_SHAPE_LABELS = {
+    "H_2": "Type-2", "V_2": "Type-2",
+    "H_3": "Type-3", "V_3": "Type-3",
+    "L_3_BL": "Type-3", "L_3_TL": "Type-3", "L_3_TR": "Type-3", "L_3_BR": "Type-3",
+    "H_4": "Type-4", "V_4": "Type-4", "Trap_4_H": "Type-4", "Trap_4_V": "Type-4",
+}
+
+
+class AllocationContextError(RuntimeError):
+    """A requested immutable allocation input cannot be constructed."""
+
+
+def _required_text(value: Any, label: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise AllocationContextError(f"{label} 不能为空")
+    return text
+
+
+def _optional_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _optional_int(value: Any) -> int | None:
+    return int(value) if value is not None else None
+
+
+def _geometry_key(value: Any, label: str) -> str:
+    """Normalize inventory shorthand and static ``EquipmentGeometry_`` IDs."""
+
+    geometry_id = _required_text(value, label)
+    prefix = "EquipmentGeometry_"
+    if geometry_id.startswith(prefix):
+        geometry_id = geometry_id[len(prefix):]
+    return geometry_id
+
+
+def _official_attribute_id(value: Any, known_attribute_ids: set[str], label: str) -> str:
+    attribute_id = _required_text(value, label)
+    if attribute_id not in known_attribute_ids:
+        raise AllocationContextError(f"静态数据库没有官方属性 ID：{attribute_id}")
+    return attribute_id
+
+
+def _stats(
+    rows: Sequence[Mapping[str, Any]], known_attribute_ids: set[str]
+) -> tuple[OfficialStat, ...]:
+    return tuple(
+        OfficialStat(
+            property_id=_official_attribute_id(
+                row.get("property_id"), known_attribute_ids, "背包词条 property_id"
+            ),
+            value=float(row.get("value")),
+            percent=bool(row.get("percent")),
+        )
+        for row in rows
+    )
+
+
+def _candidate(
+    row: Mapping[str, Any], *, known_attribute_ids: set[str],
+    equipment_by_id: Mapping[str, Mapping[str, Any]], known_suit_ids: set[str],
+    known_geometry_keys: set[str], known_character_ids: set[int],
+    snapshot_source: str,
+) -> AllocationCandidate:
+    kind = _required_text(row.get("kind"), "背包物品 kind")
+    item_id = _required_text(row.get("item_id"), "背包物品 item_id")
+    template = equipment_by_id.get(item_id)
+    if (
+        template is None
+        and is_visual_inventory_source(snapshot_source)
+        and item_id.startswith(f"vision_{kind}_")
+    ):
+        quality = str(row.get("quality") or "").strip().casefold()
+        suit_id = _optional_text(row.get("suit_id"))
+        geometry = _optional_text(row.get("geometry"))
+        matches = [
+            value
+            for value in equipment_by_id.values()
+            if str(value.get("kind") or "") == kind
+            and str(value.get("quality") or "").strip().casefold() == quality
+            and (
+                kind != "core"
+                or _optional_text(value.get("suit_id")) == suit_id
+            )
+            and (
+                kind != "module"
+                or _geometry_key(value.get("geometry_id"), "官方模块 geometry_id")
+                == _geometry_key(geometry, "背包模块 geometry")
+            )
+        ]
+        if kind == "core":
+            matches.sort(
+                key=lambda value: (
+                    bool(value.get("is_guide_item")),
+                    str(value.get("item_id") or ""),
+                )
+            )
+        else:
+            matches.sort(key=lambda value: str(value.get("item_id") or ""))
+        template = matches[0] if matches else None
+    if template is None:
+        raise AllocationContextError(f"静态数据库没有官方装备模板：{item_id}")
+    if kind != _required_text(template.get("kind"), "官方装备模板 kind"):
+        raise AllocationContextError(f"背包物品 {item_id} 的 kind 与官方模板不一致")
+    suit_id = _optional_text(row.get("suit_id"))
+    if suit_id is not None and suit_id not in known_suit_ids:
+        raise AllocationContextError(f"静态数据库没有官方套装 ID：{suit_id}")
+    geometry = _optional_text(row.get("geometry"))
+    frozen_geometry = geometry
+    if kind == "module":
+        candidate_geometry = _geometry_key(geometry, "背包模块 geometry")
+        template_geometry_id = _required_text(template.get("geometry_id"), "官方模块 geometry_id")
+        template_geometry = _geometry_key(template_geometry_id, "官方模块 geometry_id")
+        if candidate_geometry not in known_geometry_keys:
+            raise AllocationContextError(f"静态数据库没有官方形状 ID：{geometry}")
+        if candidate_geometry != template_geometry:
+            raise AllocationContextError(f"背包模块 {item_id} 的 geometry 与官方模板不一致")
+        frozen_geometry = template_geometry_id
+    equipped_character_id = _optional_int(row.get("equipped_character_id"))
+    if equipped_character_id is not None and equipped_character_id not in known_character_ids:
+        raise AllocationContextError(f"静态数据库没有已装备角色：{equipped_character_id}")
+    return AllocationCandidate(
+        uid_slot=int(row["uid_slot"]),
+        uid_serial=int(row["uid_serial"]),
+        kind=kind,
+        item_id=item_id,
+        suit_id=suit_id,
+        geometry=frozen_geometry,
+        grid_count=_optional_int(row.get("grid_count")),
+        quality=_optional_text(row.get("quality")),
+        level=int(row.get("level") or 0),
+        max_level=int(row.get("max_level") or 0),
+        locked=bool(row.get("locked")),
+        discarded=bool(row.get("discarded")),
+        equipped=bool(row.get("equipped")),
+        equipped_character_id=_optional_int(row.get("equipped_character_id")),
+        is_duplicate_drive=bool(row.get("is_duplicate_drive")),
+        duplicate_group_id=_optional_text(row.get("duplicate_group_id")),
+        duplicate_index=_optional_int(row.get("duplicate_index")),
+        duplicate_count=_optional_int(row.get("duplicate_count")),
+        main_stats=_stats(row.get("main_stats") or (), known_attribute_ids),
+        sub_stats=_stats(row.get("sub_stats") or (), known_attribute_ids),
+    )
+
+
+def _suit_constraint(
+    suit_id: str, *, suits_by_id: Mapping[str, Mapping[str, Any]],
+    known_geometry_keys: set[str],
+) -> SuitConstraint:
+    suit = suits_by_id.get(suit_id)
+    if suit is None:
+        raise AllocationContextError(f"静态数据库没有官方套装 ID：{suit_id}")
+    required_shape_ids = tuple(
+        _required_text(shape_id, "套装 required_shape_id")
+        for shape_id in suit.get("required_shape_ids") or ()
+    )
+    for shape_id in required_shape_ids:
+        if _geometry_key(shape_id, "套装 required_shape_id") not in known_geometry_keys:
+            raise AllocationContextError(f"静态数据库没有官方形状 ID：{shape_id}")
+    return SuitConstraint(
+        suit_id=suit_id,
+        required_shape_ids=required_shape_ids,
+    )
+
+
+def _role_equipment_constraints(
+    static_dao: StaticGameDataDao,
+    role: Mapping[str, Any],
+    *, known_character_ids: set[int],
+) -> RoleEquipmentConstraints:
+    """Freeze only the 20 playable cells from an official equipment plan.
+
+    The remaining plan fields are recommendations, not game rules.  Validating
+    or retaining their templates here made a Context construction depend on data
+    the weighted allocation solver must deliberately ignore.
+    """
+
+    character_id = int(role["character_id"])
+    if character_id not in known_character_ids:
+        raise AllocationContextError(f"静态数据库没有角色 {character_id}")
+    blueprint = static_dao.get_equipment_plan(character_id)
+    if blueprint is None:
+        raise AllocationContextError(f"角色 {character_id} 没有官方角色底盘")
+    cells = tuple(
+        BlueprintCell(row=int(cell["row"]), column=int(cell["column"]))
+        for cell in blueprint.get("cells") or ()
+    )
+    positions = {(cell.row, cell.column) for cell in cells}
+    if len(cells) != 20 or len(positions) != 20 or any(
+        row < 1 or row > 5 or column < 1 or column > 5
+        for row, column in positions
+    ):
+        raise AllocationContextError(f"角色 {character_id} 的官方底盘必须包含 20 个唯一合法格位")
+    return RoleEquipmentConstraints(character_id=character_id, cells=cells)
+
+
+def _custom_role_equipment_constraints(
+    character_id: int, cells: Sequence[Mapping[str, Any]],
+) -> RoleEquipmentConstraints:
+    """Freeze the current account's 20-cell chassis for a custom role."""
+
+    enabled_cells = tuple(
+        BlueprintCell(row=int(cell["row_number"]), column=int(cell["column_number"]))
+        for cell in cells if bool(cell.get("is_enabled"))
+    )
+    positions = {(cell.row, cell.column) for cell in enabled_cells}
+    if len(enabled_cells) != 20 or len(positions) != 20 or any(
+        row < 1 or row > 5 or column < 1 or column > 5
+        for row, column in positions
+    ):
+        raise AllocationContextError(f"自建角色 {character_id} 的底盘必须包含 20 个唯一合法格位")
+    return RoleEquipmentConstraints(character_id=character_id, cells=enabled_cells)
+
+
+def _allocation_role_values(
+    user_dao: UserDataDao,
+    static_dao: StaticGameDataDao,
+    character_id: int,
+    *,
+    shared_database_path: str | Path | None = None,
+) -> tuple[dict[str, float], dict[str, float], str, dict[str, float]]:
+    weight_record = resolve_character_base_weights(user_dao, static_dao, character_id)
+    if weight_record is not None:
+        weights = {
+            str(property_id): float(weight)
+            for property_id, weight in (
+                weight_record.get("property_weights") or {}
+            ).items()
+        }
+        main_weights = {
+            str(property_id): float(weight)
+            for property_id, weight in (
+                weight_record.get("main_property_weights") or {}
+            ).items()
+        }
+    else:
+        weights = {}
+        main_weights = {}
+    # 自建角色仅用账号私有底盘；官方角色只用同一发行静态规则。
+    # 既有shared_database_path参数不覆盖官方规则。
+    is_custom_role = bool(user_dao.list_custom_character_board_cells(character_id))
+    shape_bonus = (
+        user_dao.get_custom_character_shape_bonus(character_id)
+        if is_custom_role
+        else get_effective_character_shape_bonus(
+            static_dao,
+            character_id,
+            shared_database_path=shared_database_path,
+        )
+        or {}
+    )
+    extra_shape_label = str(shape_bonus.get("shape_label") or "")
+    extra_shape_buffs = {
+        str(row["property_id"]): float(row["display_value"])
+        for row in shape_bonus.get("properties") or ()
+    }
+    return (
+        weights,
+        main_weights,
+        extra_shape_label,
+        extra_shape_buffs,
+    )
+
+
+def _role_preference(
+    row: Mapping[str, Any],
+    *,
+    known_attribute_ids: set[str],
+    equipment: RoleEquipmentConstraints,
+    default_values: tuple[dict[str, float], dict[str, float], str, dict[str, float]],
+    known_suit_ids: set[str],
+) -> AllocationRolePreference:
+    weights = row.get("property_weights") or {}
+    limits = row.get("property_limits") or {}
+    if not isinstance(weights, Mapping) or not isinstance(limits, Mapping):
+        raise AllocationContextError("优化偏好版本包含无效的属性配置")
+    profile_weights = {
+        _official_attribute_id(property_id, known_attribute_ids, "属性权重 property_id"): float(weight)
+        for property_id, weight in weights.items()
+    }
+    default_weights, default_main_weights, extra_shape_label, extra_shape_buffs = default_values
+    effective_weights = dict(default_weights)
+    effective_weights.update(profile_weights)
+    effective_main_weights = dict(default_main_weights)
+    # 副词条权重不能扩充卡带主词条候选；主词条仅来自角色配置的 main_weights
+    # 或用户明确选择的 core_main_property_id。
+    target_suit_id = _optional_text(row.get("target_suit_id"))
+    suit_requirement_mode = _required_text(row.get("suit_requirement_mode"), "suit_requirement_mode")
+    if target_suit_id is not None and target_suit_id not in known_suit_ids:
+        raise AllocationContextError(f"静态数据库没有官方套装 ID：{target_suit_id}")
+    return AllocationRolePreference(
+        character_id=int(row["character_id"]),
+        ordinal=int(row["ordinal"]),
+        priority_group=int(row["priority_group"]),
+        target_suit_id=target_suit_id,
+        suit_requirement_mode=suit_requirement_mode,
+        core_main_property_id=(
+            _official_attribute_id(
+                row["core_main_property_id"], known_attribute_ids, "核心主词条 property_id"
+            )
+            if row.get("core_main_property_id") is not None
+            else None
+        ),
+        property_weights=tuple(sorted(profile_weights.items())),
+        substat_priorities=tuple(
+            _official_attribute_id(property_id, known_attribute_ids, "副词条优先级 property_id")
+            for property_id in row.get("substat_priorities") or ()
+        ),
+        substat_blacklist=tuple(
+            _official_attribute_id(property_id, known_attribute_ids, "副词条黑名单 property_id")
+            for property_id in row.get("substat_blacklist") or ()
+        ),
+        blacklist_zero_weight=bool(row.get("blacklist_zero_weight", False)),
+        equal_substat_priority=bool(row.get("equal_priority", False)),
+        ignore_grade_limit=bool(row.get("ignore_grade_limit", False)),
+        min_grade_limit=str(row.get("min_grade_limit") or "A").upper(),
+        crit_threshold=(
+            float(row["crit_threshold"])
+            if row.get("crit_threshold") is not None
+            else None
+        ),
+        property_limits=tuple(
+            PropertyLimit(
+                property_id=_official_attribute_id(
+                    property_id, known_attribute_ids, "属性限制 property_id"
+                ),
+                minimum=(float(bounds["minimum"]) if bounds.get("minimum") is not None else None),
+                maximum=(float(bounds["maximum"]) if bounds.get("maximum") is not None else None),
+            )
+            for property_id, bounds in sorted(limits.items())
+        ),
+        equipment=equipment,
+        effective_property_weights=tuple(sorted(effective_weights.items())),
+        effective_main_property_weights=tuple(sorted(effective_main_weights.items())),
+        extra_shape_label=extra_shape_label,
+        extra_shape_buffs=tuple(sorted(extra_shape_buffs.items())),
+    )
+
+
+def read_allocation_scoring_rules(source_path: str | Path) -> AllocationScoringRules:
+    """worker从已选路径一次捕获原字节，随后求解只消费纯值快照。"""
+    path = Path(source_path)
+    try:
+        before = path.stat()
+        raw = path.read_bytes()
+        after = path.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError("评分规则读取期间发生变化，请重试计算")
+        return AllocationScoringRules.from_data(json.loads(raw.decode("utf-8-sig")),
+                                                source_sha256=sha256(raw).hexdigest())
+    except (OSError, ValueError, TypeError) as error:
+        raise AllocationContextError("评分规则读取或格式校验失败") from error
+
+
+def build_allocation_context(
+    user_dao: UserDataDao,
+    static_dao: StaticGameDataDao,
+    *,
+    scoring_rules: AllocationScoringRules,
+    snapshot_id: int,
+    profile_id: int,
+    profile_version: int,
+    solver_version: str = ALLOCATION_CONTEXT_SOLVER_VERSION,
+    shared_database_path: str | Path | None = None,
+) -> AllocationContext:
+    """Copy one exact account, dataset, snapshot and preference version into memory.
+
+    ``snapshot_id`` and ``profile_version`` are intentionally mandatory.  Callers
+    must make the selection before this boundary; this function never follows a
+    moving “current snapshot” or “latest preference” pointer.
+    """
+
+    if not isinstance(scoring_rules, AllocationScoringRules):
+        raise TypeError("上下文构造必须传入已冻结评分规则")
+    pinned_snapshot_id = int(snapshot_id)
+    pinned_profile_id = int(profile_id)
+    pinned_profile_version = int(profile_version)
+    pinned_solver_version = _required_text(solver_version, "solver_version")
+    if min(pinned_snapshot_id, pinned_profile_id, pinned_profile_version) < 1:
+        raise AllocationContextError("snapshot_id、profile_id 和 profile_version 必须大于 0")
+
+    account = user_dao.profile()
+    try:
+        snapshot, inventory_rows = user_dao.export_inventory_snapshot(pinned_snapshot_id)
+    except Exception as exc:
+        raise AllocationContextError(f"无法固定背包快照：{pinned_snapshot_id}") from exc
+    profile = user_dao.get_optimization_profile(
+        pinned_profile_id, version_number=pinned_profile_version
+    )
+    if profile is None or profile.get("version") is None:
+        raise AllocationContextError(
+            f"优化偏好版本不存在：profile_id={pinned_profile_id}, version={pinned_profile_version}"
+        )
+    version = profile["version"]
+    static_summary = static_dao.summary()
+    dataset = static_summary.get("dataset") or {}
+    raw_attributes = static_dao.list_equipment_attributes()
+    known_attribute_ids = {
+        _required_text(attribute.get("attribute_id"), "静态装备属性 ID")
+        for attribute in raw_attributes
+    }
+    attribute_id_by_name: dict[str, str] = {}
+    official_attributes: list[OfficialAttribute] = []
+    for attribute in raw_attributes:
+        attribute_id = _required_text(attribute.get("attribute_id"), "静态装备属性 ID")
+        display_name = _required_text(attribute.get("display_name_zh"), "静态装备属性显示名")
+        scoring_name = display_name + ("%" if bool(attribute.get("show_percent")) else "")
+        official_attributes.append(OfficialAttribute(attribute_id, scoring_name))
+        for name in (display_name, scoring_name, attribute.get("filter_name_zh")):
+            if name:
+                attribute_id_by_name.setdefault(str(name), attribute_id)
+    character_rows = static_dao.list_characters()
+    known_character_ids = {int(character["character_id"]) for character in character_rows}
+    custom_rows = user_dao.list_custom_characters()
+    custom_character_ids = {int(row["character_id"]) for row in custom_rows}
+    custom_cells = {int(row["character_id"]): row.get("board_cells") or () for row in custom_rows}
+    known_character_ids.update(custom_character_ids)
+    suits_by_id = {
+        _required_text(suit.get("suit_id"), "官方套装 ID"): suit
+        for suit in static_dao.list_suits()
+    }
+    raw_shapes = static_dao.list_shapes()
+    known_geometry_keys = {
+        _geometry_key(shape.get("shape_id"), "官方形状 ID")
+        for shape in raw_shapes
+    }
+    official_suits = tuple(
+        _suit_constraint(
+            suit_id, suits_by_id=suits_by_id,
+            known_geometry_keys=known_geometry_keys,
+        )
+        for suit_id in sorted(suits_by_id)
+    )
+    official_shapes = tuple(
+        OfficialShape(
+            shape_id=_required_text(shape.get("shape_id"), "官方形状 ID"),
+            cell_count=int(shape.get("cell_count") or 0),
+            cells=tuple(
+                OfficialShapeCell(x=int(cell["x"]), y=int(cell["y"]))
+                for cell in shape.get("cells") or ()
+            ),
+            legacy_shape_id=legacy_shape_id(shape.get("shape_id")),
+            legacy_label=_LEGACY_SHAPE_LABELS.get(legacy_shape_id(shape.get("shape_id"))),
+        )
+        for shape in raw_shapes
+    )
+    equipment_by_id = {
+        _required_text(template.get("item_id"), "官方装备模板 item_id"): template
+        for template in static_dao.list_equipment_items()
+    }
+    role_rows = sorted(
+        version.get("characters") or (), key=lambda value: int(value["ordinal"])
+    )
+    roles = tuple(
+        _role_preference(
+            row,
+            known_attribute_ids=known_attribute_ids,
+            equipment=(
+                _custom_role_equipment_constraints(
+                    int(row["character_id"]), custom_cells[int(row["character_id"])],
+                )
+                if int(row["character_id"]) in custom_character_ids
+                else _role_equipment_constraints(
+                    static_dao, row, known_character_ids=known_character_ids,
+                )
+            ),
+            default_values=(
+                _allocation_role_values(
+                    user_dao,
+                    static_dao,
+                    int(row["character_id"]),
+                    shared_database_path=shared_database_path,
+                )
+            ),
+            known_suit_ids=set(suits_by_id),
+        )
+        for row in role_rows
+    )
+    calculation_inventory_rows = project_equipment_items_to_max_level(
+        inventory_rows,
+        static_dao,
+    )
+    candidates = tuple(
+        _candidate(
+            row, known_attribute_ids=known_attribute_ids,
+            equipment_by_id=equipment_by_id, known_suit_ids=set(suits_by_id),
+            known_geometry_keys=known_geometry_keys,
+            known_character_ids=known_character_ids,
+            snapshot_source=_required_text(snapshot.get("source"), "背包快照 source"),
+        )
+        for row in calculation_inventory_rows
+    )
+    allocation_strategy = _required_text(
+        version.get("allocation_strategy"), "allocation_strategy"
+    )
+    return AllocationContext(
+        account_id=_required_text(account.get("account_id"), "account_id"),
+        static_dataset=StaticDatasetReference(
+            schema_version=int(static_summary["schema_version"]),
+            dataset_id=_required_text(dataset.get("dataset_id"), "静态数据集 dataset_id"),
+            importer_version=int(dataset["importer_version"]),
+            built_at_utc=_required_text(dataset.get("built_at_utc"), "静态数据集 built_at_utc"),
+        ),
+        snapshot=InventorySnapshotReference(
+            snapshot_id=int(snapshot["snapshot_id"]),
+            source=_required_text(snapshot.get("source"), "背包快照 source"),
+            generation=_optional_int(snapshot.get("generation")),
+            sequence=_optional_int(snapshot.get("sequence")),
+            observed_at_unix_ms=_optional_int(snapshot.get("observed_at_unix_ms")),
+            captured_at_utc=_required_text(snapshot.get("captured_at_utc"), "背包快照 captured_at_utc"),
+            declared_item_count=int(snapshot["declared_item_count"]),
+            stored_item_count=int(snapshot["stored_item_count"]),
+        ),
+        profile_id=pinned_profile_id,
+        profile_version=pinned_profile_version,
+        allocation_strategy=allocation_strategy,
+        solver_version=pinned_solver_version,
+        roles=roles,
+        candidates=candidates,
+        shapes=official_shapes,
+        suits=official_suits,
+        scoring_rules=scoring_rules,
+        attributes=tuple(sorted(official_attributes, key=lambda attribute: attribute.property_id)),
+    )

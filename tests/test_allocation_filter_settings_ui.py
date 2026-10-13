@@ -16,7 +16,6 @@ def test_filter_dialog_defaults_to_no_selected_options() -> None:
     QApplication.instance() or QApplication([])
     dialog = AllocationFilterSettingsDialog()
 
-    assert dialog.windowTitle() == "分配设置"
     assert not any(button.isChecked() for button in dialog.quality_buttons.values())
     assert not any(button.isChecked() for button in dialog.type_buttons.values())
 

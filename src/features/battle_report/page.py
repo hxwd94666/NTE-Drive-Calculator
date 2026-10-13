@@ -30,16 +30,16 @@ from src.features.battle_report.analysis_view import BattleLongAnalysisView
 from src.features.battle_report.analysis_progress_bar import (
     BattleAnalysisProgressBar,
 )
-from src.services.battle_analysis_progress import BattleAnalysisProgress
+from src.services.battle_report.analysis.progress import BattleAnalysisProgress
 from src.features.battle_report.marginal_page import BattleMarginalPage
 from src.features.battle_report.summary_clock import summary_clock_label
-from src.services.battle_buff_counterfactual_service import (
+from src.services.battle_report.buffs.counterfactual import (
     BUFF_COUNTERFACTUAL_MODEL_VERSION,
 )
-from src.services.battle_passive_counterfactual_service import (
+from src.services.battle_report.damage.passive_counterfactual import (
     PASSIVE_COUNTERFACTUAL_MODEL_VERSION,
 )
-from src.services.battle_report_metrics import project_report_metrics
+from src.services.battle_report.analysis.metrics import project_report_metrics
 
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 

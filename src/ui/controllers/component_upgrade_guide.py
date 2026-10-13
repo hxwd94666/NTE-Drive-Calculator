@@ -8,8 +8,8 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.features.settings.component_upgrade_dialog import ComponentUpgradeDialog
-from src.services.component_upgrade_guide import UpgradeEvidence, inspect_upgrade_evidence
-from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError
+from src.services.components.upgrade_guide import UpgradeEvidence, inspect_upgrade_evidence
+from src.integrations.components.environment import EquipmentPluginDeploymentError
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class ComponentUpgradeGuideMixin:
         self._upgrade_flow_active = active
 
     def start_upgrade_guidance(self) -> None:
-        """Assess old deployments after the normal first-run dialog has finished."""
+        """首启提示结束后评估旧部署；评估不等同清理或部署。"""
         self._upgrade_flow_active = self._upgrade_progress_path().is_file()
         self.request_upgrade_assessment(startup=True)
 
@@ -160,7 +160,7 @@ class ComponentUpgradeGuideMixin:
             if self._controls:
                 combo = self._controls[0]
                 combo.setPlaceholderText("未选择")
-                # currentIndexChanged only refreshes emphasis; activated confirms a mode.
+                # 索引变化只刷新强调状态；activated 才进入用户确认模式入口。
                 combo.setCurrentIndex(-1)
             self.open_settings("mode")
         elif stage == "deploy":

@@ -1,6 +1,6 @@
-# 计算角色属性汇总、边际收益和装备加成。
-"""角色功能模块 - 边际收益与属性计算
-纯函数，不依赖 Qt UI，可在其他地方复用。
+# 适配既有角色字典的属性聚合与粗直伤收益，不执行配装持久化。
+"""旧角色字典计算适配：不依赖 Qt，但别名和单位仍从只读配置入口取得。
+粗直伤输入与正式无条件面板口径分开，不作为战报逐击计算或新分配算法。
 """
 
 import re
@@ -41,6 +41,7 @@ def calc_marginal_benefits(total_stats: dict) -> tuple:
             items: [(参数名, 当前值字符串, 单位价值字符串, 收益百分比数值), ...]
                    已按收益数值从大到小排序
     """
+    # 单位收益读取发行规则；边际值沿用粗直伤模型，不复制装备基础评分公式。
     stats = load_stats()
     benefit_one = stats.get("benefit_one", {})
     return calc_direct_marginal_benefits(total_stats, benefit_one)
@@ -86,8 +87,8 @@ def calc_tape_bonus_stats(role_data: dict) -> List[Tuple[str, float]]:
 
 def enrich_drives_with_shape_bonus(drives: list) -> list:
     """
-    为每个驱动补充形状加成的攻击力和生命值到 sub_stats 中
-    同时确保 main_stats 字段存在且有效
+    按旧输入口径将形状固定属性写入新建的 main_stats
+    原副词条只读，调用方输入不被改写；品质面板口径由 stat_engine 独立处理
 
     Args:
         drives: 驱动列表（原始数据）
@@ -99,7 +100,7 @@ def enrich_drives_with_shape_bonus(drives: list) -> list:
     for d in drives:
         d = dict(d)  # 不污染原数据
 
-        # 1. main_stats给他覆盖了
+        # 驱动的固定形状属性单列；不把输入中的卡带主词条带入此计算。
         d["main_stats"] = {}
 
         # 2. 确保 sub_stats 存在
@@ -140,7 +141,7 @@ def calc_extra_buffs_from_role_data(drives: list, role_data: dict) -> dict:
 
     Args:
         drives: 驱动列表
-        role_name: 角色名
+        role_data: 本次角色字典，包含额外形状目标与已给加成
 
     Returns:
         dict: 额外形状加成字典，如 {"攻击力%": 20.0}，若无加成则返回空字典
@@ -177,13 +178,7 @@ def calc_extra_buffs_from_role_data(drives: list, role_data: dict) -> dict:
     return result
 
 
-# ---------------------  空幕  ---------------------
-
-
-# ---------------------  武器  ---------------------
-
-
-# ---------------------  人物其他  ---------------------
+# ---------------------  既有字典总属性  ---------------------
 def get_character_total_stats(role_data: dict) -> dict:
     """
     获取角色所有来源的汇总属性（基础 + 驱动 + 武器 + 空幕）
@@ -194,6 +189,7 @@ def get_character_total_stats(role_data: dict) -> dict:
     Returns:
         dict: 规范化后的属性字典（键名已统一映射）
     """
+    # 此入口仍消费旧式自填武器/套装覆盖率；正式静态面板不会调用这些条件项。
     stats = load_stats()
     benefit_map = stats.get("benefit_alias_mapping", {})
     alias_map = stats.get("stat_alias_mapping", {})
@@ -256,5 +252,5 @@ def get_character_total_stats(role_data: dict) -> dict:
 
 
 def calc_base_damage(total_stats: dict) -> float:
-    """根据汇总属性计算直伤评分（伤害值）"""
+    """根据既有汇总字典返回粗直伤评分，不解释为实测伤害。"""
     return calc_direct_damage(total_stats)

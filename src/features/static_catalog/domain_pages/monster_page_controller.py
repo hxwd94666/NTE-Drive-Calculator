@@ -3,14 +3,14 @@
 
 from __future__ import annotations
 
-from src.services.static_catalog_monster_models import (
+from src.services.static_catalog.monsters.models import (
     CatalogDetail,
     CatalogEntry,
     CatalogFilter,
     FeastPeriod,
     FeastSetup,
 )
-from src.services.static_catalog_monster_service import StaticCatalogMonsterService
+from src.services.static_catalog.monsters.service import StaticCatalogMonsterService
 
 
 class MonsterCatalogPageController:

@@ -11,6 +11,7 @@ import tempfile
 from typing import Mapping
 
 from src.integrations.game_component_bundle import inspect_game_component_bundle
+from tools.release.managed_paths import plain_path_stat
 
 
 LOADER_METADATA = frozenset({
@@ -128,10 +129,7 @@ def prepare_component_bundle(
 def _validate_managed_members(resource_root: Path, declared_files: Mapping[str, str], *, directories) -> None:
     """Reject undeclared members and links without traversing unrelated app resources."""
     def kind(path: Path) -> int:
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
-            raise ValueError("受管理组件目录不允许文件、目录符号链接或重解析点。")
-        return info.st_mode
+        return plain_path_stat(path).st_mode
 
     try:
         # A linked parent would otherwise evade checks on the component subtree.

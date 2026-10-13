@@ -9,6 +9,7 @@ v5 Context adapter cannot drift into separate recommendation algorithms.
 
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 from collections import Counter
 from dataclasses import dataclass
 from collections.abc import Callable
@@ -96,6 +97,11 @@ def estimate_candidate_pool_limits(
     return drive_limit, tape_limit
 
 
+def _checkpoint(request):
+    if request.cancel_check is not None and request.cancel_check():
+        raise CancelledError("配装内核已取消")
+
+
 class AllocationKernel:
     """Invoke the existing scorer and dispatcher with an explicit contract."""
 
@@ -110,9 +116,11 @@ class AllocationKernel:
         contract, not a second score or ranking formula.
         """
 
+        _checkpoint(request)
         has_limits = any(request.property_limits.get(role) for role in request.role_order)
         initial = self._execute_once(request, frozenset())
         initial_invalid = self._invalid_roles(request, initial)
+        _checkpoint(request)
         if not has_limits:
             if not initial_invalid:
                 return initial
@@ -127,6 +135,7 @@ class AllocationKernel:
         best: dict | None = None
         best_score = float("-inf")
         while pending and len(seen) < 256:
+            _checkpoint(request)
             excluded = pending.pop(0)
             if excluded in seen:
                 continue
@@ -136,6 +145,7 @@ class AllocationKernel:
                 use_full_drive_candidates=False,
             )
             invalid_roles = self._invalid_roles(request, result)
+            _checkpoint(request)
             if not invalid_roles:
                 # Preserve the historic first-result tie behaviour.
                 score = sum(float((result.get(role) or {}).get("score", 0.0)) for role in request.role_order)
@@ -145,8 +155,11 @@ class AllocationKernel:
                     return result
                 continue
             for role in invalid_roles:
+                _checkpoint(request)
                 for item in self._plan_items(result.get(role) or {}):
+                    _checkpoint(request)
                     pending.append(excluded | {item.uid})
+        _checkpoint(request)
         if best is not None:
             return best
 
@@ -158,6 +171,7 @@ class AllocationKernel:
             request, failed, self._invalid_roles(request, failed),
             full_global_candidates=False,
         )
+        _checkpoint(request)
         return failed
 
     def _execute_once(
@@ -167,7 +181,12 @@ class AllocationKernel:
         *,
         use_full_drive_candidates: bool = False,
     ) -> dict:
-        inventory = [item for item in request.inventory if item.uid not in excluded_uids]
+        _checkpoint(request)
+        inventory = []
+        for item in request.inventory:
+            _checkpoint(request)
+            if item.uid not in excluded_uids:
+                inventory.append(item)
         self.scoring_engine.roles_db = dict(request.roles_db)
         pools = self.scoring_engine.evaluate_global_inventory(
             inventory,
@@ -175,12 +194,14 @@ class AllocationKernel:
             tape_top_k_per_set_per_role=request.tape_screen_limit,
             tape_main_filters={key: list(value) for key, value in request.core_main_filters.items()},
             crit_priority_modes=dict(request.stat_priority_configs),
+            cancel_check=request.cancel_check,
         )
         if use_full_drive_candidates:
             # ``all_drives`` 包含同一固定背包中全部已评分驱动；常规
             # ``drives`` 则仍是每角色/形状 Top-K 的并集。
             pools = dict(pools)
             pools["drives"] = list(pools.get("all_drives") or pools.get("drives") or ())
+        _checkpoint(request)
         dispatcher = DispatcherEngine(
             dict(request.roles_db), dict(request.sets_db), dict(request.blueprints_db),
             core_set_targets=dict(request.core_set_targets),
@@ -197,7 +218,9 @@ class AllocationKernel:
             priority_groups=[list(group) for group in request.priority_groups] or None,
             crit_rate_caps=dict(request.crit_rate_caps or {}),
         )
+        _checkpoint(request)
         self._annotate_missing_core_reasons(request, pools, result)
+        _checkpoint(request)
         return result
 
     def _annotate_missing_core_reasons(

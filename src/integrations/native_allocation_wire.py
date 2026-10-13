@@ -8,8 +8,7 @@ def freeze(request, scorer):
     """No scoring/search in Python: only names, immutable source data and indices."""
     from src.domain.suit_identity import normalized_suit_name, suit_id_for_target
 
-    # The catalogue contains every character; only the selected run has frozen
-    # crit evidence and must be sent to the native solver.
+    # 角色目录包含全部角色；只有本次所选角色具备冻结暴击证据，才进入原生求解请求。
     roles = list(dict.fromkeys(request.role_order))
     if any(role not in request.roles_db for role in roles):
         raise ValueError('allocation_v1 selected role is absent from the role catalogue')
@@ -40,8 +39,7 @@ def freeze(request, scorer):
     names.update(catalog.stat_alias_mapping)
     names.update(catalog.stat_alias_mapping.values())
     names.update(name.strip() for name in list(names))
-    # Resolve text aliases using the same catalogue (including legacy fuzzy names).
-    # Numeric weights, grading, scores and candidate selection remain in Rust.
+    # 文本别名统一从同一目录解析（含旧模糊名）；数值权重、评分和候选选择仍归原生核心。
     normalized = {}
     for name in names:
         normalized[name] = catalog.normalize_stat_name(name, is_percent='%' in name) or name.strip()

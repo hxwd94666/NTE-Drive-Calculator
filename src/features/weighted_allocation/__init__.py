@@ -1,2 +1,1 @@
-# 提供 v5 词条权重配装页面模块。
-"""The v5 weighted-allocation user interface."""
+# 提供加权计算、冻结预览、恢复与保存的程序化后端；不创建桌面页面。

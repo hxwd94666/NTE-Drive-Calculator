@@ -124,6 +124,7 @@ def map_drive_block_installation(
                 action["duplicate_status_filter"] = True
     sequence.extend(refinement["refinement_sequence"])
     sequence.append({"name": "confirm_filter", "position": result["confirm_filter"]})
+    # 这里只生成视觉鼠标计划；派发不代表成功，执行器须消费前后图像校验动作。
     sequence.append(
         {
             "name": "capture_drive_target_baseline",

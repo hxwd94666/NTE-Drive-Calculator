@@ -8,8 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QPushButton, QToolButton
+from PySide6.QtWidgets import QApplication, QToolButton
 
 from src.features.scanning.post_action_dialog import (
     RoleScopeDialog,
@@ -59,15 +58,6 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             self.assertEqual("已选1名", dialog.count_label.text())
             dialog.close()
 
-    def test_post_action_module_toggles_use_in_progress_labels(self):
-        enabled = QPushButton()
-        disabled = QPushButton()
-
-        ScanPostActionDialog._style_toggle_button(None, enabled, True)
-        ScanPostActionDialog._style_toggle_button(None, disabled, False)
-
-        self.assertEqual("开启中", enabled.text())
-        self.assertEqual("关闭中", disabled.text())
 
     def test_warehouse_context_hides_region_option_without_resetting_it(self):
         config = default_post_action_config()
@@ -107,9 +97,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
         card, character_id, role_name = dialog.role_cards[0]
         self.assertEqual(900001, character_id)
         self.assertEqual("自建角色", role_name)
-        self.assertEqual(Qt.ToolButtonTextUnderIcon, card.toolButtonStyle())
         self.assertFalse(card.icon().isNull())
-        self.assertEqual(116, card.height())
         self.assertEqual("已选1名", dialog.count_label.text())
         dialog.close()
 

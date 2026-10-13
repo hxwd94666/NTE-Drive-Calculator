@@ -30,6 +30,7 @@ class BattleTimelineDetailMixin:
         ):
             return
         hit = selected.payload
+        # 按正式 event_id 匹配已给出的重放；缺项交详情 Provider，不在 UI 猜公式或暴击。
         replay = next(
             (
                 row

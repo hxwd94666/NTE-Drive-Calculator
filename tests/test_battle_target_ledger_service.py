@@ -1,7 +1,7 @@
 # 验证目标账本按半场隔离，并显式闭合观测耗血与未解释差额。
 import unittest
 
-from src.services.battle_counterfactual_analysis_service import (
+from src.services.battle_report.build.offline_analysis import (
     BattleCounterfactualAnalysisService,
 )
 

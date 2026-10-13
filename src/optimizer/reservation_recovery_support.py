@@ -12,11 +12,10 @@ from src.models.equipment import Drive
 
 @dataclass
 class ProtectedDriveScreenCache:
-    """Cache complete frozen role/type rankings and refill filtered Top-K slots.
+    """缓存仅归一次请求的角色/形状完整排序，不缓存可变分配状态。
 
-    The cache contains no mutable allocation state.  Each progressive round only
-    filters the already ranked sequence, so protected UIDs automatically expose
-    the next legal candidate rather than shrinking a Top-K bucket.
+    每轮先过滤新占用/保护 UID，再取 Top-K，让后续合法候选补位，
+    而不是从旧 Top-K 删项后误报库存短缺。
     """
 
     strategy: Any

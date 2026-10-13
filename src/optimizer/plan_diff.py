@@ -156,7 +156,7 @@ def _new_items(plan: dict, role_name: str) -> dict[str, dict]:
 
 
 def build_plan_diff(old_state: dict, final_plan: dict) -> dict[str, dict]:
-    """Return per-role added/removed equipment between saved state and a new plan."""
+    """按 UID 比较旧方案和新计划的增删；名称只展示，不因分数变化假报装备替换。"""
 
     diffs = {}
     for role, plan in (final_plan or {}).items():

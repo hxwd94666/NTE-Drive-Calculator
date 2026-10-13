@@ -45,8 +45,7 @@ class HudInteractionLog:
                 row = stages.get(name)
                 if isinstance(row, dict) and all(_number(row.get(key)) for key in ("calls", "active", "faults")):
                     safe_stages[name] = {key: row[key] for key in ("calls", "active", "faults")}
-        # A state/fault change is immediate on observation; cumulative call counts
-        # alone are periodic. This adds no status polling or RPCs of its own.
+        # 状态或故障变化随观测立即记录，单纯累计计数按周期记录；本类不另启轮询或 RPC。
         state = (value["hud_options"], value["active_mask"], value["dropped"],
                  tuple((name, row["faults"]) for name, row in safe_stages.items()))
         if state != self._state or self._last - self._summary_at >= 30:

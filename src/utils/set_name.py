@@ -12,10 +12,9 @@ _DISPLAY_WRAPPERS = (
 
 
 def normalize_set_display_name(value: object) -> str:
-    """Return a set name without an optional presentation wrapper.
+    """只去除一层已知展示外框与两端空白，不推断别名或正式套装 ID。
 
-    Game UI and imported plans may use ``「套装名」`` for display, whereas
-    static data keeps the same official name without those brackets.
+    游戏界面或旧导入可能用「套装名」，核心匹配仍消费同一无外框名称。
     """
     name = str(value or "").strip()
     for left, right in _DISPLAY_WRAPPERS:

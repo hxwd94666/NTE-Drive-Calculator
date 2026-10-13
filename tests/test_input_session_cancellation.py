@@ -75,13 +75,15 @@ class InputSessionCancellationTests(TestCase):
             driver.mouseUp.assert_called()
 
     def test_drone_f12_during_click_pause_never_presses(self):
-        from src.scanner.drone_scanner import DroneScanner, MOUSEEVENTF_LEFTDOWN
+        from src.integrations.vision.incremental_scan import DroneScanner, MOUSEEVENTF_LEFTDOWN
 
         scanner = DroneScanner.__new__(DroneScanner)
         scanner._stopped = False
         scanner.operation_guard = bind_stop_guard(lambda _: None, lambda: scanner._stopped)
         scanner._window_rect = SimpleNamespace(left=0, top=0)
         scanner._screen_w = scanner._screen_h = 100
-        with patch("src.scanner.drone_scanner.time.sleep", side_effect=lambda _: scanner.emergency_stop()), patch("src.scanner.drone_scanner._send_input") as send, self.assertRaises(CancelledError):
+        # 本测试只验证暂停后取消输入；标记解析与漂移由实际采集器专项覆盖。
+        scanner._verify_capture_template = Mock()
+        with patch("src.integrations.vision.incremental_scan.time.sleep", side_effect=lambda _: scanner.emergency_stop()), patch("src.integrations.vision.incremental_scan._send_input") as send, self.assertRaises(CancelledError):
             scanner._click_at(1, 2)
         self.assertNotIn(((MOUSEEVENTF_LEFTDOWN,),), send.call_args_list)

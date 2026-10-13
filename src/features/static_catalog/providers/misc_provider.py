@@ -25,12 +25,12 @@ from src.features.static_catalog.providers._adapter_common import (
     validate_release_identity,
     validate_release_path,
 )
-from src.services.static_catalog_misc_models import (
+from src.services.static_catalog.misc.models import (
     CatalogDetail as MiscDetail,
     CatalogSearchItem,
     SourceTrace,
 )
-from src.services.static_catalog_misc_service import StaticCatalogMiscService
+from src.services.static_catalog.misc.service import StaticCatalogMiscService
 
 
 _DOMAIN_ORDER = {

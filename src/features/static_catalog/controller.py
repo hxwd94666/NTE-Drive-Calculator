@@ -10,7 +10,7 @@ from src.features.static_catalog.contracts import (
     CatalogRelationPage,
     StaticCatalogRequest,
 )
-from src.services.static_catalog_service import StaticCatalogService
+from src.services.static_catalog.service import StaticCatalogService
 
 
 class StaticCatalogController:

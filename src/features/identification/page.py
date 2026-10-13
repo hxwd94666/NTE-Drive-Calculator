@@ -10,7 +10,6 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QApplication,
     QButtonGroup,
     QComboBox,
     QDialog,
@@ -31,7 +30,8 @@ from functools import lru_cache
 
 from src.models.equipment import Tape
 from src.app.theme import GRADE_COLORS, theme_rgba, themed_style
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.app.window_geometry import fit_dialog_to_available_screen
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.widgets import SearchableComboBox
 
@@ -231,20 +231,20 @@ def refresh_identify_previews(window, paths: list[Path], max_count: int = 12):
 def show_identify_preview_image(parent, path: Path, style_sheet: str):
     dlg = QDialog(parent)
     dlg.setWindowTitle(path.name)
-    dlg.setMinimumSize(900, 650)
     dlg.setStyleSheet(style_sheet)
     layout = QVBoxLayout(dlg)
     label = QLabel()
     label.setAlignment(Qt.AlignCenter)
     pix = QPixmap(str(path))
-    if not pix.isNull():
-        screen = QApplication.primaryScreen().availableGeometry()
-        max_size = QSize(min(1200, screen.width() - 160), min(800, screen.height() - 180))
-        label.setPixmap(pix.scaled(max_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
     layout.addWidget(label, 1)
     buttons = QDialogButtonBox(QDialogButtonBox.Close)
     buttons.rejected.connect(dlg.reject)
     layout.addWidget(buttons)
+    # 使用 owner 所在屏幕的逻辑工作区，先限位，再为图片和关闭入口分配空间。
+    target = fit_dialog_to_available_screen(dlg, QSize(900, 650))
+    if not pix.isNull():
+        max_size = QSize(max(1, target.width() - 48), max(1, target.height() - 100))
+        label.setPixmap(pix.scaled(max_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
     dlg.exec()
 
 

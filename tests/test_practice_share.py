@@ -1,3 +1,4 @@
+# 验证练度分享的模式范围、账号隔离、来源未知与取消。
 # 覆盖练度导出的冻结评分、缺失养成、正式技能顺序及账号读取边界。
 from __future__ import annotations
 
@@ -8,9 +9,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from src.domain.practice_share import PracticeEntry, PracticeSharePanel, PracticeValue, sort_practice_entries
+from src.domain.practice_share import (
+    PracticeEntry,
+    PracticeSharePanel,
+    PracticeValue,
+    sort_practice_entries,
+)
 from src.integrations.practice_share_image import render_practice_share_png
-from src.services.practice_share_service import PracticeShareRequest, build_practice_share_panel
+from src.services.equipment.practice_share import PracticeShareRequest, build_practice_share_panel
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -23,7 +29,7 @@ class PracticeShareTests(unittest.TestCase):
 
     def test_only_current_equipped_projections_define_statistics_roster(self):
         from types import SimpleNamespace
-        from src.services.practice_share_service import _equipped_character_ids
+        from src.services.equipment.practice_share import _equipped_character_ids
         states = {5: {'_game_projection': SimpleNamespace(items=({'kind': 'module'},))},
                   6: {'_game_projection': SimpleNamespace(items=())}, 7: {},
                   8: {'_game_projection': SimpleNamespace(items=({'kind': 'core'},))},
@@ -33,7 +39,7 @@ class PracticeShareTests(unittest.TestCase):
     def test_roster_is_mode_specific_and_empty_native_records_do_not_prove_ownership(self):
         from types import SimpleNamespace
         from src.domain.work_mode import WorkMode
-        from src.services.practice_share_service import _practice_character_ids
+        from src.services.equipment.practice_share import _practice_character_ids
         states = {1: {'_game_projection': SimpleNamespace(items=({'kind': 'module'},))}}
         context = {'profiles': [{'character_id': 4, 'character_level': 80},
                                 {'character_id': 5, 'character_level': 60}],
@@ -47,7 +53,10 @@ class PracticeShareTests(unittest.TestCase):
             self.assertEqual(_practice_character_ids(mode, context, states), {1, 2, 5, 6})
 
     def test_unknown_display_row_is_dropped_but_known_zero_is_retained(self):
-        from src.services.practice_share_service import _entry_has_known_data, _has_known_cultivation
+        from src.services.equipment.practice_share import (
+            _entry_has_known_data,
+            _has_known_cultivation,
+        )
         self.assertFalse(_has_known_cultivation({'character_id': 1, 'updated_at_utc': 'fixture',
                                                'character_level': None, 'skill_levels': {},
                                                'fork_observed': True, 'fork_id': None}))
@@ -59,12 +68,12 @@ class PracticeShareTests(unittest.TestCase):
     def test_entry_point_freezes_confirmed_work_mode_in_export_request(self):
         from types import SimpleNamespace
         from src.domain.work_mode import WorkMode
-        from src.features.inventory.practice_share_dialog import open_practice_share
+        from src.features.inventory.equipment.practice_share_dialog import open_practice_share
         owner = SimpleNamespace(_equipment_mode='game', _game_loadout_states={},
             work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)),
             app_context=SimpleNamespace(generation=1, account=SimpleNamespace(user_database_path=Path('unused')),
                 paths=SimpleNamespace(static_database_path=Path('unused'), game_ui_asset_root=Path('unused'))))
-        with patch('src.features.inventory.practice_share_dialog.LoadoutShareDialog') as dialog:
+        with patch('src.features.inventory.equipment.practice_share_dialog.LoadoutShareDialog') as dialog:
             open_practice_share(owner)
             request = dialog.call_args.args[0]
             owner.work_mode_service.settings.mode = WorkMode.LOW
@@ -72,7 +81,7 @@ class PracticeShareTests(unittest.TestCase):
             self.assertIn('未装备', dialog.call_args.kwargs['ready_message'])
 
     def test_resolved_role_page_fields_preserve_sources_and_skill_order(self):
-        from src.services.practice_share_service import _profile_value, _skill_values
+        from src.services.equipment.practice_share import _profile_value, _skill_values
         profile = {'character_level': 70, 'awakening_level': 2,
                    'skill_levels': {'GA_Role_Melee': 6, 'GA_Role_Skill': 8},
                    'field_sources': {'character_level': 'native_observed', 'awakening_level': 'account',
@@ -85,7 +94,7 @@ class PracticeShareTests(unittest.TestCase):
                          (PracticeValue('6', True), PracticeValue('8', True), PracticeValue(), PracticeValue()))
 
     def test_shared_role_profile_uses_saved_account_else_template(self):
-        from src.services.official_role_profile_projection import resolve_official_role_profile
+        from src.services.official_role.profile_projection import resolve_official_role_profile
         args = ({'character_id': 1}, [{'level': 80, 'breakthrough_stage': 6}], [], [], [])
         template = resolve_official_role_profile(*args, saved_profile=None, observation=None, likeability_bonus=None)
         saved = {**template, 'character_level': 60, 'breakthrough_stage': 4, 'awakening_level': 2}
@@ -95,7 +104,7 @@ class PracticeShareTests(unittest.TestCase):
         self.assertEqual(configured['awakening_level'], 2)
 
     def test_heart_displays_only_known_exact_levels(self):
-        from src.services.practice_share_service import _heart_value
+        from src.services.equipment.practice_share import _heart_value
         self.assertEqual(_heart_value({}), PracticeValue())
         self.assertEqual(_heart_value({'likeability_level_10_enabled': True}), PracticeValue())
         self.assertEqual(_heart_value({'likeability_level_10_enabled': False}), PracticeValue())
@@ -107,7 +116,7 @@ class PracticeShareTests(unittest.TestCase):
         self.assertEqual(_heart_value({'likeability_level': -1}), PracticeValue())
 
     def test_suit_activation_counts_distinct_shapes_not_drive_quantity(self):
-        from src.domain.loadout_suit_activation import active_set_count
+        from src.domain.equipment.loadout_suit_activation import active_set_count
         suit = {'required_shape_ids': ['A', 'B', 'C', 'D'],
                 'effects': [{'required_count': 2}, {'required_count': 4}]}
         suits, cores, shapes = {'set': suit}, {'core': 'set'}, frozenset('ABCDE')
@@ -126,12 +135,17 @@ class PracticeShareTests(unittest.TestCase):
         self.assertIsNone(count(['unrecognized']))
 
     def test_partial_game_loadout_does_not_claim_complete_score(self):
-        from src.services.practice_share_service import _loadout_score
+        from src.services.equipment.practice_share import _loadout_score
         self.assertIsNone(_loadout_score({'_game_importable': False, 'total_score': 301.3}))
 
     def test_complete_game_score_keeps_existing_total_grade_and_zero(self):
-        from src.optimizer.contracts import EQUIP_SCORE, EQUIP_UID, ROLE_EQUIPPED_DRIVES, ROLE_TOTAL_SCORE
-        from src.services.practice_share_service import _loadout_score
+        from src.optimizer.contracts import (
+            EQUIP_SCORE,
+            EQUIP_UID,
+            ROLE_EQUIPPED_DRIVES,
+            ROLE_TOTAL_SCORE,
+        )
+        from src.services.equipment.practice_share import _loadout_score
         state = {'_game_mode': True, '_game_importable': True, ROLE_TOTAL_SCORE: 0,
                  ROLE_EQUIPPED_DRIVES: [{EQUIP_UID: 'fixture-item', EQUIP_SCORE: 0}]}
         self.assertEqual(_loadout_score(state), 0)
@@ -144,7 +158,7 @@ class PracticeShareTests(unittest.TestCase):
     def test_game_role_share_uses_game_items_and_current_equipment_label(self):
         from types import SimpleNamespace
         from PySide6.QtWidgets import QApplication, QWidget
-        from src.features.inventory.loadout_share_dialog import loadout_share_button
+        from src.features.inventory.equipment.loadout_share_dialog import loadout_share_button
         app = QApplication.instance() or QApplication([])
         owner = QWidget()
         owner.roles_db = {'示例': {'weights': {'暴击率%': 1}}}
@@ -154,7 +168,7 @@ class PracticeShareTests(unittest.TestCase):
                                   bundled_config_dir=Path('unused')))
         raw = {'item_id': 'fixture-game-item'}
         state = {'_game_mode': True, '_game_projection': SimpleNamespace(items=(raw,))}
-        with patch('src.features.inventory.loadout_share_dialog.LoadoutShareDialog') as dialog:
+        with patch('src.features.inventory.equipment.loadout_share_dialog.LoadoutShareDialog') as dialog:
             button = loadout_share_button(owner, role_name='示例', state=state, score=301.3, size=34)
             button.click()
             request = dialog.call_args.args[0]
@@ -189,7 +203,7 @@ class PracticeShareTests(unittest.TestCase):
     def test_saved_share_buttons_bind_each_slot_not_the_current_selection(self):
         from types import SimpleNamespace
         from PySide6.QtWidgets import QApplication, QWidget
-        from src.features.inventory.loadout_share_dialog import loadout_share_button
+        from src.features.inventory.equipment.loadout_share_dialog import loadout_share_button
         app = QApplication.instance() or QApplication([])
         owner = QWidget()
         owner.roles_db = {'示例': {'weights': {'暴击率%': 1}}}
@@ -203,7 +217,7 @@ class PracticeShareTests(unittest.TestCase):
                   'equipped_drives': [{'uid': 'second'}], '_official_items': [{'item_id': 'second'}]}
         buttons = [loadout_share_button(owner, role_name='示例', state=state, score=score, size=34)
                    for state, score in ((first, 100), (second, 200))]
-        with patch('src.features.inventory.loadout_share_dialog.LoadoutShareDialog') as dialog:
+        with patch('src.features.inventory.equipment.loadout_share_dialog.LoadoutShareDialog') as dialog:
             buttons[1].click()
             second_request = dialog.call_args.args[0]
             buttons[0].click()
@@ -220,7 +234,7 @@ class PracticeShareTests(unittest.TestCase):
 
     def test_cancelled_generation_does_not_render_or_read_account(self):
         request = PracticeShareRequest(Path('unused'), Path('unused'), Path('unused'), ())
-        with patch('src.services.practice_share_service.UserDataDao') as dao:
+        with patch('src.services.equipment.practice_share.UserDataDao') as dao:
             with self.assertRaises(CancelledError):
                 build_practice_share_panel(request, cancelled=lambda: True)
             dao.assert_not_called()

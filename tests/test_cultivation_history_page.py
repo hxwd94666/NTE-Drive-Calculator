@@ -25,8 +25,8 @@ def _wait(predicate):
 
 def _planner():
     from src.domain.progression_stamina import IdentificationLevelProjection, ProgressionStaminaResult, StaminaPlanStatus
-    from src.services.character_progression_requirements import MaterialSummaryStatus
-    from src.services.cultivation_planner_models import (
+    from src.services.progression.character_requirements import MaterialSummaryStatus
+    from src.services.progression.models import (
         CultivationForkSeed, CultivationMaterial, CultivationPlan, CultivationRole, CultivationSection,
         CultivationSeed, CultivationSkill, CultivationStaminaPlan,
         CultivationPreparedTarget,
@@ -71,8 +71,8 @@ def _planner():
 
 def _page(tmp_path):
     from PySide6.QtWidgets import QApplication
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-    from src.services.cultivation_history_service import CultivationHistoryService
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+    from src.services.progression.history_service import CultivationHistoryService
     from src.storage.sqlite.user_data_dao import UserDataDao
 
     application = QApplication.instance() or QApplication([])
@@ -111,7 +111,7 @@ def test_effective_recalculation_saves_one_configuration_result_pair(tmp_path):
 
 
 def test_atomic_load_clones_config_without_solver_or_new_history(tmp_path):
-    from src.services.cultivation_history_restore import PreparedHistoryRestore
+    from src.services.progression.history_adapters import PreparedHistoryRestore
     from tests.test_cultivation_history import history_payload
 
     _application, page, history, planner = _page(tmp_path)
@@ -139,7 +139,7 @@ def test_atomic_load_clones_config_without_solver_or_new_history(tmp_path):
 
 
 def test_candidate_range_error_keeps_old_widget_and_all_inputs(tmp_path):
-    from src.services.cultivation_history_restore import PreparedHistoryRestore
+    from src.services.progression.history_adapters import PreparedHistoryRestore
     from tests.test_cultivation_history import history_payload
 
     _application, page, history, planner = _page(tmp_path)
@@ -159,7 +159,7 @@ def test_candidate_range_error_keeps_old_widget_and_all_inputs(tmp_path):
 
 
 def test_late_restore_does_not_replace_new_account_draft(tmp_path):
-    from src.services.cultivation_history_restore import PreparedHistoryRestore
+    from src.services.progression.history_adapters import PreparedHistoryRestore
     from tests.test_cultivation_history import history_payload
 
     _application, page, history, planner = _page(tmp_path)
@@ -177,7 +177,7 @@ def test_late_restore_does_not_replace_new_account_draft(tmp_path):
 
 
 def test_repeated_history_load_closes_and_releases_old_bindings(tmp_path):
-    from src.services.cultivation_history_restore import PreparedHistoryRestore
+    from src.services.progression.history_adapters import PreparedHistoryRestore
     from tests.test_cultivation_history import history_payload
 
     application, page, history, planner = _page(tmp_path)

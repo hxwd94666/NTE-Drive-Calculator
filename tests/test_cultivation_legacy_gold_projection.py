@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from src.domain.progression_stamina import FarmingStage, MaterialYield
-from src.services.character_progression_requirements import CharacterMaterialRequirement
-from src.services.cultivation_legacy_gold_projection import (
+from src.services.progression.character_requirements import CharacterMaterialRequirement
+from src.services.progression.legacy_currency import (
     correct_legacy_costs,
     correct_legacy_stages,
     has_legacy_gold_alias,

@@ -35,14 +35,14 @@ from src.features.static_catalog.domain_pages.mechanics_widgets import (
     MechanicsGalleryCard,
     status_pill,
 )
-from src.services.static_catalog_mechanics_service import (
+from src.services.static_catalog.mechanics.service import (
     FAMILY_BY_KEY,
     MechanicsCard,
     MechanicsDetail,
     StaticCatalogMechanicsService,
     decode_record,
 )
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 

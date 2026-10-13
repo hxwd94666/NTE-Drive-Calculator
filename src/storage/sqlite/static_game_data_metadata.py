@@ -1,5 +1,5 @@
 # 静态游戏数据库版本与摘要表清单。
-"""Shared metadata for the normalized static game database."""
+"""规范化静态库的权威版本与摘要表清单；只描述发行结构，不执行迁移。"""
 
 SCHEMA_VERSION = 39
 MINIMUM_SUPPORTED_SCHEMA_VERSION = 31

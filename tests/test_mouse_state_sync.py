@@ -21,7 +21,7 @@ from src.integrations.vision.mouse_state_sync import (
     TRASH_BUTTON_CENTER,
     MouseEquipmentStateSync,
 )
-from src.scanner.window_capture import WindowRect
+from src.integrations.vision.window_capture import WindowRect
 
 
 class EquipmentStateGoldenTests(unittest.TestCase):

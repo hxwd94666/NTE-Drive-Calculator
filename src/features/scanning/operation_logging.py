@@ -49,6 +49,7 @@ def scan_event(
         operation = begin_scan_operation(
             owner, dependencies, route="unknown"
         )
+    # 调用方只传固定生命周期文案和窄字段；通用脱敏不保证任意 OCR/异常原文可公开。
     log_event(level, event, message, operation, **fields)
     if event in {
         "scanning.succeeded",

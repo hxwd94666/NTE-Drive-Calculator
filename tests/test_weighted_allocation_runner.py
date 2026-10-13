@@ -4,18 +4,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from src.services.allocation.context_builder import read_allocation_scoring_rules
 import unittest
 from unittest.mock import patch
 
 from src.features.weighted_allocation.role_weight_freeze import (
     freeze_official_role_details,
 )
-from src.services.allocation_context import (
-    AllocationContext,
-    AllocationRolePreference,
-    RoleEquipmentConstraints,
-    StaticDatasetReference,
-)
+from src.domain.allocation.inputs import AllocationContext, AllocationRolePreference, RoleEquipmentConstraints, StaticDatasetReference
+
+
+TEST_SCORING_RULES = read_allocation_scoring_rules(Path(__file__).resolve().parents[1] / "config/stats.json")
 
 
 class WeightedAllocationRunnerTests(unittest.TestCase):
@@ -45,6 +44,7 @@ class WeightedAllocationRunnerTests(unittest.TestCase):
             snapshot=None,
             profile_id=1, profile_version=1, allocation_strategy="role_priority",
             solver_version="test", roles=(role,), candidates=(), shapes=(), suits=(),
+            scoring_rules=TEST_SCORING_RULES,
         )
         detail = {"profile": {"fork_refinement_level": 5}}
         with patch(

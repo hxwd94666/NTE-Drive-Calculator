@@ -5,10 +5,10 @@ from dataclasses import replace
 import unittest
 
 from tests.test_native_direct_replay import frozen_fixture
-from src.services.battle_direct_hit_replay_numeric import calculate_python_direct_formula
-from src.services.battle_hit_replay_service import BattleHitReplayService
-from src.services.battle_special_replay_numeric import python_special_numeric
-from src.services.battle_topple_hit_replay_service import BattleToppleCharacterConfig
+from src.services.battle_report.replay.direct_numeric import calculate_python_direct_formula
+from src.services.battle_report.replay.service import BattleHitReplayService
+from src.services.battle_report.replay.special_numeric import python_special_numeric
+from src.services.battle_report.replay.topple import BattleToppleCharacterConfig
 
 
 def _fixture():

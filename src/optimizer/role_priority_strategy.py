@@ -1,6 +1,5 @@
 # 角色优先分配策略和平级角色组处理逻辑。
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 
 from src.models.equipment import Drive, Tape
@@ -19,7 +18,7 @@ class RolePriorityStrategy(
     DeferredDriveReservationMixin,
     AllocationMatrixBuilder,
 ):
-    """Greedy per-role allocation by priority order."""
+    """高优先级先分配，同级组联合匹配；排名分与方案实分分别比较、分别运输。"""
 
     def _required_shapes_for_role_blueprints(self, role_name: str, blueprints: list[dict], custom_sets: Dict[str, str]) -> set[str]:
         target_set = self._target_set(role_name, custom_sets)
@@ -289,6 +288,10 @@ class RolePriorityStrategy(
                         role, tape, score, stat_priority_configs.get(role)
                     )
                     profit_matrix[r_idx, t_idx] = rank_score if rank_score > 0 else 0.000001
+            # 求解依赖只随后台匹配加载；冷加载期间取消也不得继续分配。
+            self._check_cancelled()
+            from scipy.optimize import linear_sum_assignment
+            self._check_cancelled()
             row_ind, col_ind = linear_sum_assignment(-profit_matrix)
             # SciPy exposes NumPy scalar indices here.  Convert them before
             # indexing the role list so static type checkers retain ``str``
@@ -602,6 +605,10 @@ class RolePriorityStrategy(
             if slots is None:
                 continue
 
+            # 同一冷加载门禁也覆盖纯预留匹配，不把取消 token 塞进矩阵算法。
+            self._check_cancelled()
+            from scipy.optimize import linear_sum_assignment
+            self._check_cancelled()
             if reservation_candidates is None:
                 row_ind, col_ind = linear_sum_assignment(-ranking_matrix)
             else:

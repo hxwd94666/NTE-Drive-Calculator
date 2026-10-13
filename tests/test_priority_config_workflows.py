@@ -33,10 +33,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
 
         from src.features.allocation.role_selector import RoleSelector
-        from src.services.role_fork_template_service import (
-            fork_templates_as_weapon_models,
-            load_official_role_fork_templates,
-        )
+        from src.services.official_role.fork_templates import fork_templates_as_weapon_models, load_official_role_fork_templates
 
         QApplication.instance() or QApplication([])
         weapons = fork_templates_as_weapon_models(load_official_role_fork_templates())
@@ -314,11 +311,12 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from PySide6.QtWidgets import QApplication, QLabel
 
         from src.features.allocation.role_selector import RoleSelector
-        from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+        from src.integrations.game_assets.catalog import GameUiAssetCatalog
+        from src.integrations.bundled_resources import bundled_game_ui_asset_root
 
         QApplication.instance() or QApplication([])
         selector = RoleSelector()
-        assets = GameUiAssetCatalog(Path(__file__).resolve().parents[1] / "data" / "role_catalog" / "game_ui")
+        assets = GameUiAssetCatalog(bundled_game_ui_asset_root())
         selector.load_roles(
             {"早雾": {"character_id": 1003}},
             [],
@@ -638,137 +636,94 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         self.assertTrue(result["B"]["valid"])
         self.assertFalse(result["C"]["valid"])
 
-    def test_role_priority_batch_reuses_matrix_combo_iterator(self):
-        from src.models.equipment import Drive
-        from src.optimizer.role_priority_strategy import RolePriorityStrategy
+class PriorityPersistenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
 
-        class TrackingRolePriorityStrategy(RolePriorityStrategy):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.used_matrix_combo_iterator = False
+    def setUp(self):
+        from src.features.allocation.role_selector import RoleSelector
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / "account-a" / "priority.json"
+        self.selector = RoleSelector(priority_config_path_provider=lambda: self.path)
+        self.addCleanup(self.selector.close)
+        self.selector.load_roles({"A": {}, "B": {}}, ["旧卡带"])
+        self.selector.selected = ["A"]
+        self.selector.custom_sets = {"A": "旧卡带"}
+        self.selector.custom_weapons = {"A": "旧弧盘"}
+        self.selector.crit_rate_caps = {"A": 74.0}
+        self.selector.crit_rate_cap_sources = {"A": "manual"}
+        self.selector.tape_main_filters = {"A": []}
+        self.selector.tape_main_filter_override_roles = {"A"}
+        self.selector.stat_priority_configs = {"A": {"stats": []}}
+        self.selector.stat_priority_override_roles = {"A"}
+        self.selector.set_effect_modes = {"A": "none"}
+        self.fields = ("selected", "priority_links", "custom_sets", "custom_weapons",
+                       "crit_rate_caps", "crit_rate_cap_sources", "tape_main_filters",
+                       "tape_main_filter_override_roles", "stat_priority_configs",
+                       "stat_priority_override_roles", "set_effect_modes")
 
-            def _iter_bp_combos(self, *args, **kwargs):
-                self.used_matrix_combo_iterator = True
-                yield from super()._iter_bp_combos(*args, **kwargs)
+    def snapshot(self):
+        from copy import deepcopy
+        return {key: deepcopy(getattr(self.selector, key)) for key in self.fields}
 
-        roles_db = {"A": {"default_set": "Set"}, "B": {"default_set": "Set"}}
-        sets_db = {"Set": {"shapes": []}}
-        blueprints_db = {
-            "A": [{"set_pieces": [], "extra_pieces": ["X"]}],
-            "B": [{"set_pieces": [], "extra_pieces": ["X"]}],
-        }
-        drives = [
-            Drive(
-                uid="drive_1",
-                quality="Gold",
-                area=1,
-                shape_id="X",
-                set_name="Set",
-                main_stats={"m1": 1, "m2": 1},
-                role_scores={"A": 10.0, "B": 9.0},
-            ),
-            Drive(
-                uid="drive_2",
-                quality="Gold",
-                area=1,
-                shape_id="X",
-                set_name="Set",
-                main_stats={"m1": 1, "m2": 1},
-                role_scores={"A": 8.0, "B": 7.0},
-            ),
-        ]
-        strategy = TrackingRolePriorityStrategy(roles_db, sets_db, blueprints_db)
+    def test_failed_load_preserves_entire_draft(self):
+        from unittest.mock import patch
+        before = self.snapshot()
+        self.path.parent.mkdir(parents=True)
+        for payload in (None, "{", "[]", json.dumps({"priority_list": ["B"], "set_effect_modes": []}),
+                        json.dumps({"priority_list": ["B"], "custom_set_overrides": {"B": ["bad"]}}),
+                        json.dumps({"priority_list": ["B"], "custom_weapons": {"B": {"bad": 1}}})):
+            with self.subTest(payload=payload), patch("PySide6.QtWidgets.QMessageBox.warning") as warning:
+                if payload is not None:
+                    self.path.write_text(payload, encoding="utf-8")
+                self.selector.load_priority_config()
+                self.assertEqual(before, self.snapshot())
+                self.assertEqual(payload is not None, warning.called)
+        with patch("builtins.open", side_effect=PermissionError("read denied")), patch(
+            "PySide6.QtWidgets.QMessageBox.warning"
+        ) as warning:
+            self.selector.load_priority_config()
+            self.assertEqual(before, self.snapshot())
+            self.assertIn("read denied", warning.call_args.args[2])
 
-        strategy.execute(
-            {"drives": drives, "tapes": {}},
-            ["A", "B"],
-            {"A": "Set", "B": "Set"},
-            priority_groups=[["A", "B"]],
-        )
+    def test_failed_save_and_reset_preserve_file_and_draft(self):
+        from unittest.mock import patch
+        from src.features.allocation.role_selector_preferences import temporary_priority_config_path
+        before = self.snapshot()
+        self.path.parent.mkdir(parents=True)
+        temp_path = temporary_priority_config_path(self.path)
+        for path in (self.path, temp_path):
+            path.write_bytes(b'{"previous": true}')
+        with patch("os.replace", side_effect=OSError("replace denied")), patch(
+            "PySide6.QtWidgets.QMessageBox.information"
+        ) as information:
+            for action in (self.selector.save_priority_config, self.selector.reset_selection):
+                with self.assertRaises(OSError):
+                    action()
+                self.assertEqual(before, self.snapshot())
+            information.assert_not_called()
+        for path in (self.path, temp_path):
+            self.assertEqual(b'{"previous": true}', path.read_bytes())
+        self.assertEqual({self.path, temp_path}, set(self.path.parent.iterdir()))
 
-        self.assertTrue(strategy.used_matrix_combo_iterator)
-
-    def test_role_priority_single_role_deduplicates_equivalent_blueprints(self):
-        from src.models.equipment import Drive
-        from src.optimizer.role_priority_strategy import RolePriorityStrategy
-
-        class TrackingRolePriorityStrategy(RolePriorityStrategy):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.fit_calls = 0
-
-            def _find_best_fit(self, *args, **kwargs):
-                self.fit_calls += 1
-                return super()._find_best_fit(*args, **kwargs)
-
-        roles_db = {"A": {"default_set": "Set"}}
-        sets_db = {"Set": {"shapes": []}}
-        blueprints_db = {
-            "A": [
-                {"set_pieces": [], "extra_pieces": ["X"], "board": [["first"]]},
-                {"set_pieces": [], "extra_pieces": ["X"], "board": [["duplicate"]]},
-            ]
-        }
-        drives = [
-            Drive(
-                uid="drive_1",
-                quality="Gold",
-                area=1,
-                shape_id="X",
-                set_name="Set",
-                main_stats={"m1": 1, "m2": 1},
-                role_scores={"A": 10.0},
-            )
-        ]
-        strategy = TrackingRolePriorityStrategy(roles_db, sets_db, blueprints_db)
-
-        strategy.execute({"drives": drives, "tapes": {}}, ["A"], {"A": "Set"})
-
-        self.assertEqual(1, strategy.fit_calls)
-
-    def test_role_priority_single_role_filters_unused_drive_shapes_before_matching(self):
-        from src.models.equipment import Drive
-        from src.optimizer.role_priority_strategy import RolePriorityStrategy
-
-        class TrackingRolePriorityStrategy(RolePriorityStrategy):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.available_shapes = []
-
-            def _find_best_fit(self, role_name, blueprint, available_pool, target_set, crit_mode=None):
-                self.available_shapes.append({drive.shape_id for drive in available_pool})
-                return super()._find_best_fit(role_name, blueprint, available_pool, target_set, crit_mode)
-
-        roles_db = {"A": {"default_set": "Set"}}
-        sets_db = {"Set": {"shapes": []}}
-        blueprints_db = {"A": [{"set_pieces": [], "extra_pieces": ["X"], "board": []}]}
-        drives = [
-            Drive(
-                uid="drive_x",
-                quality="Gold",
-                area=1,
-                shape_id="X",
-                set_name="Set",
-                main_stats={"m1": 1, "m2": 1},
-                role_scores={"A": 10.0},
-            ),
-            Drive(
-                uid="drive_y",
-                quality="Gold",
-                area=1,
-                shape_id="Y",
-                set_name="Set",
-                main_stats={"m1": 1, "m2": 1},
-                role_scores={"A": 99.0},
-            ),
-        ]
-        strategy = TrackingRolePriorityStrategy(roles_db, sets_db, blueprints_db)
-
-        strategy.execute({"drives": drives, "tapes": {}}, ["A"], {"A": "Set"})
-
-        self.assertEqual([{"X"}], strategy.available_shapes)
+    def test_load_prepares_new_weapon_and_selection_before_legacy_inference(self):
+        self.selector.weapons_db = {"新弧盘": {"sub_stats": {"暴击率%": 32.0}}}
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(json.dumps({
+            "priority_list": ["B"], "custom_sets": {"B": "旧卡带"},
+            "custom_weapons": {"B": "新弧盘"}, "crit_rate_caps": {"B": 68.0},
+            "tape_main_filters": {"B": []}, "stat_priority_override_roles": ["B"],
+        }), encoding="utf-8")
+        self.selector.load_priority_config()
+        self.assertEqual(["B"], self.selector.get_selected())
+        self.assertEqual({}, self.selector.custom_sets)
+        self.assertEqual({"B": "automatic"}, self.selector.crit_rate_cap_sources)
+        self.assertEqual({"B": []}, self.selector.tape_main_filters)
+        self.assertEqual({"B"}, self.selector.stat_priority_override_roles)
 
 
 if __name__ == "__main__":
-
     unittest.main()

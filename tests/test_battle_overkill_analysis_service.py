@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.services.battle_counterfactual_analysis_service import (
+from src.services.battle_report.build.offline_analysis import (
     BattleCounterfactualAnalysisService,
 )
 

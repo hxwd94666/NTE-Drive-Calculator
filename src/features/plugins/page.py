@@ -151,6 +151,7 @@ class PluginsPage(QWidget):
         status.style().polish(status)
 
     def refresh(self, result=None):
+        # 两张卡分别读取后验状态；设置已开不代表已显示，模式降级后仍允许关闭已开的卡。
         allowed = self.service.policy.allowed("native_load")
         settings = self.service.settings
         for key, (toggle, status) in self.cards.items():
@@ -197,6 +198,7 @@ class PluginsPage(QWidget):
         self.request_apply()
 
     def _update(self, **changes):
+        # 敌人卡至少显示一种状态；两子项全关时只关闭敌人卡，不联动冷却卡或战报。
         projected_hp = changes.get("hp", self.service.settings.hp)
         projected_unbalance = changes.get("unbalance", self.service.settings.unbalance)
         if changes.get("enemy_bars") is True and not (projected_hp or projected_unbalance):

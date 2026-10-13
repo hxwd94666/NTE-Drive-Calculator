@@ -1,81 +1,22 @@
 # PySide6 主窗口入口和功能模块挂载。
-"""NTE Drive Calc - PySide6 Desktop Application"""
+"""组合桌面窗口及功能 owner；数据准备只在显式启动时执行。"""
 
-import sys, os, ctypes
+import sys, ctypes
 from pathlib import Path
+from src.domain.equipment.loadout_management import LoadoutAccount
+from src.services.equipment.loadout_management import LoadoutManagementService
+from src.features.inventory.equipment.persistence_controller import EquipmentPersistenceController, wait_for_equipment_persistence
 from typing import Optional
-
-if getattr(sys, "frozen", False):
-    _PACKAGE_ROOT = Path(sys._MEIPASS)
-    _APP_DIR = Path(sys.executable).parent
-else:
-    _PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
-    _APP_DIR = _PACKAGE_ROOT
-sys.path.insert(0, str(_PACKAGE_ROOT))
 
 from src.app.context import (
     AccountChangedEvent,
-    AppContext,
-    ApplicationPaths,
     CallbackAccountLifecycle,
 )
-from src.app.shared_data_seed import seed_shared_database
-from src.services.character_shape_bonus_service import SHARED_DATABASE_ENV
-from src.services.workshop_weight_template_service import (
-    WORKSHOP_WEIGHT_TEMPLATE_ENV,
-    start_workshop_weight_template_refresh,
-)
+from src.ui.controllers.workshop_refresh_controller import WorkshopRefreshController
 from src.app.constants import (
-    ACCOUNT_USER_FILES,
     APP_VERSION,
-    CORE_CONFIG_FILES,
 )
-
-_BUNDLED_CONFIG_DIR = _PACKAGE_ROOT / "config"
-_ASSET_DIR = _PACKAGE_ROOT / "assets"
-_APP_ICON_PATH = _ASSET_DIR / "app_icon.ico"
-
-
-def _select_data_root() -> Path:
-    candidates = [_APP_DIR]
-    if getattr(sys, "frozen", False):
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        if local_appdata:
-            candidates.append(Path(local_appdata) / "NTE Drive Calc")
-
-    for base in candidates:
-        try:
-            for subdir in ("config", "scanned_images", "logs"):
-                (base / subdir).mkdir(parents=True, exist_ok=True)
-            probe = base / "config" / ".write_test"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink(missing_ok=True)
-            return base
-        except Exception:
-            continue
-    raise RuntimeError("无法创建可写数据目录，请检查安装目录或用户权限。")
-
-
-_DATA_ROOT = _select_data_root()
-seed_shared_database(_PACKAGE_ROOT / "data" / "app_shared.sqlite3", _DATA_ROOT)
-
-APPLICATION_PATHS = ApplicationPaths.from_roots(
-    root=_PACKAGE_ROOT,
-    app_dir=_APP_DIR,
-    data_root=_DATA_ROOT,
-    bundled_config_dir=_BUNDLED_CONFIG_DIR,
-    asset_dir=_ASSET_DIR,
-    app_icon_path=_APP_ICON_PATH,
-)
-os.environ[SHARED_DATABASE_ENV] = str(APPLICATION_PATHS.shared_database_path)
-os.environ[WORKSHOP_WEIGHT_TEMPLATE_ENV] = str(
-    APPLICATION_PATHS.workshop_weight_template_file
-)
-
-
-def _initialize_accounts():
-    return ACCOUNT_MANAGER.initialize()
-
+from src.ui.application_runtime import ApplicationRuntime, prepare_application_runtime
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -85,9 +26,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTimer, Qt, Signal, QPoint
 from PySide6.QtGui import QIcon
 
-from src.features.scanning.file_lifecycle import (
-    iter_image_files as _iter_image_files,
-)
 from src.observability import OperationContext, log_event
 from src.utils.logger import (
     disable_session_log,
@@ -97,58 +35,33 @@ from src.utils.logger import (
 from src.ui.qt_log_sink import QtLogSink
 
 
-from src.features.accounts.manager import AccountManager, populate_account_combo, show_account_manager_dialog
+from src.features.accounts.manager import populate_account_combo, show_account_manager_dialog
 from src.features.settings.page import refresh_account_scoped_settings
 from src.integrations.global_hotkeys import GlobalHotkeyManager
-from src.services.global_theme_settings_service import GlobalThemeSettingsService
-from src.services.mod_plugin_loading_service import ModPluginLoadingService
+from src.services.components.loader_service import ModPluginLoadingService
 from src.ui.work_mode_composition import (
     initialize_mode_policy, initialize_mode_runtime, migrate_legacy_component_facts, initialize_character_profile_sync,
 )
 from src.ui.main_window_mixins import FeatureMainWindowMixin
 from src.ui.equipment_presentation import EquipmentPresentation
+from src.features.configuration.page_owner import BasicWeightPage
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxPage
-from src.ui.toolbox_composition import build_toolbox_dependencies
+from src.ui.toolbox_composition import build_toolbox_dependencies, register_toolbox_account_lifecycle
 from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.dependencies import (
     build_static_catalog_domain_pages,
     build_static_catalog_providers,
 )
 from src.features.static_catalog.page import StaticCatalogPage
-from src.services.static_catalog_service import StaticCatalogService
-from src.services.warehouse_inventory_service import WarehouseInventoryService
+from src.services.static_catalog.service import StaticCatalogService
+from src.services.inventory.warehouse_inventory_service import WarehouseInventoryService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.features.battle_report.dependencies import build_battle_report_controller
 from src.features.identification.controller import IdentificationController
 from src.features.onboarding.guide import OnboardingGuide
 from src.features.official_role.page import refresh_official_role_page
 from src.features.scanning.controller import ScanningController
-
-ACCOUNT_MANAGER = AccountManager(
-    APPLICATION_PATHS.data_root,
-    APPLICATION_PATHS.bundled_config_dir,
-    _iter_image_files,
-    CORE_CONFIG_FILES,
-    ACCOUNT_USER_FILES,
-)
-
-_INITIAL_ACCOUNT_STATE = _initialize_accounts()
-APP_CONTEXT = AppContext(
-    APPLICATION_PATHS,
-    _INITIAL_ACCOUNT_STATE,
-)
-GLOBAL_THEME_SETTINGS = GlobalThemeSettingsService(
-    APPLICATION_PATHS.global_ui_preferences_file
-)
-from src.features.inventory.warehouse import configure_warehouse_view_template_roots
-
-configure_warehouse_view_template_roots(
-    APP_CONTEXT.paths.template_dir,
-    APP_CONTEXT.paths.bundled_config_dir / "templates",
-    asset_root=APP_CONTEXT.paths.game_ui_asset_root,
-)
-
 
 def _is_admin():
     if sys.platform != "win32":
@@ -190,9 +103,23 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
     inventory_sync_state_signal = Signal(object)
     W, H = 1260, 860
 
-    def __init__(self):
+    def __init__(self, runtime: ApplicationRuntime):
         super().__init__()
-        self.app_context = APP_CONTEXT
+        # 所有窗口消费者使用本次组合的同一上下文，导入模块时没有默认账号。
+        self.app_context = runtime.context
+        self._account_manager = runtime.accounts
+        self._equipment_switch_waiting = False
+        self.equipment_persistence_controller = EquipmentPersistenceController(
+            lambda: LoadoutAccount(str(self.app_context.account.active_account_id), self.app_context.generation,
+                                   Path(self.app_context.account.user_database_path).resolve()),
+            LoadoutManagementService(), self,
+        )
+        self._unregister_equipment_persistence = self.app_context.register_account_lifecycle(
+            CallbackAccountLifecycle(is_running=self.equipment_persistence_controller.is_running,
+                stop=self.equipment_persistence_controller.stop,
+                rebuild=lambda _account: self.equipment_persistence_controller.rebuild(), start=lambda: None),
+        )
+        self._language_settings = runtime.language_settings
         self.setWindowTitle("NTE Drive Calc")
         screen_geo = QApplication.primaryScreen().availableGeometry()
         initial_w = min(self.W, max(640, screen_geo.width() - 80))
@@ -230,10 +157,22 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             self._on_app_context_account_changed
         )
         from src.ui.controllers.configuration_controller import register_page_configuration_lifecycle
+        self.basic_weight_page = BasicWeightPage(
+            self.app_context, self._go, self.on_configuration_changed, self,
+        )
         self._unregister_page_tasks = register_page_configuration_lifecycle(
-            self.app_context, lambda: (getattr(self, "_basic_weight_controller", None),
+            self.app_context, lambda: (self.basic_weight_page.task_owner,
                                       getattr(self, "_official_role_controller", None),
                                       getattr(self, "allocation_catalog_controller", None)),
+            after_stop=self.basic_weight_page.clear_projection,
+        )
+        from src.features.inventory.warehouse.read_controller import reset_warehouse_account
+        # 切换前撤销旧投影；只读通道跨账号复用，慢 IO 不阻塞切换。
+        self._unregister_warehouse_reads = self.app_context.register_account_lifecycle(
+            CallbackAccountLifecycle(
+                is_running=lambda: False, stop=lambda: reset_warehouse_account(self),
+                rebuild=lambda _account: None, start=lambda: None,
+            )
         )
         self._inventory_sync_lifecycle = CallbackAccountLifecycle(
             is_running=lambda: bool(self._inventory_sync_service and self._inventory_sync_service.is_running),
@@ -265,7 +204,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         legacy_theme = self._account_settings.legacy_theme_preference()
         self._account_settings.migrate_legacy_settings()
         self._account_settings.remove_legacy_theme_preference()
-        self._global_theme_settings = GLOBAL_THEME_SETTINGS
+        self._global_theme_settings = runtime.theme_settings
         self._mod_plugin_loading_service = ModPluginLoadingService(
             application_root=self.app_context.paths.root, operation_guard=self.operation_guard,
             native_workspace_path=self.app_context.paths.config_dir / "native-loader",
@@ -349,6 +288,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             ),
             dialog_parent=self,
         )
+        self._unregister_toolbox_lifecycle = register_toolbox_account_lifecycle(self.app_context, self.toolbox_page)
         static_catalog_controller = StaticCatalogController(
             StaticCatalogService(
                 static_database_path=self.app_context.paths.static_database_path,
@@ -425,11 +365,11 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         if self._ui_preferences["log_enabled"]:
             self._toggle_log(True)
         self._load_data()
-        self._workshop_weight_refresh_thread = None
-        QTimer.singleShot(1500, lambda: setattr(
-            self, "_workshop_weight_refresh_thread", start_workshop_weight_template_refresh(
-                self.app_context.paths.workshop_weight_template_file,
-                self.app_context.paths.equipment_allocation_database_path)))
+        self.workshop_refresh_controller = WorkshopRefreshController(
+            self.app_context.paths.workshop_weight_template_file,
+            self.app_context.paths.equipment_allocation_database_path, parent=self,
+        )
+        self.workshop_refresh_controller.start()
         self.auto_sync_controller.start()
         self.work_mode_controller.start()
         self._on_log("系统就绪")
@@ -519,14 +459,30 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         if defer_page_transition(self, self.close):
             e.ignore()
             return
+        if wait_for_equipment_persistence(self, ("close",), self.close):
+            e.ignore()
+            return
+        self.equipment_persistence_controller.close()
+        # 草稿确认通过后、物理等待之前撤权；取消退出不永久关闭视觉 owner。
+        self.scanning_controller.begin_close()
+        self.workshop_refresh_controller.close()
+        self.native_plugin_update_controller.begin_close()
         from src.app.page_tasks import close_page_tasks
         self._ui_latency_timer.stop()
         self.dashboard_controller.close()
-        for owner in (getattr(self, "_basic_weight_controller", None), getattr(self, "_official_role_controller", None),
+        self.basic_weight_page.close_tasks()
+        self.toolbox_page.shutdown()
+        self.identification_controller.close()
+        warehouse_reads = getattr(self, "warehouse_read_controller", None)
+        if warehouse_reads is not None:
+            warehouse_reads.close()
+        for owner in (getattr(self, "_official_role_controller", None),
                       getattr(self, "allocation_catalog_controller", None)):
             if owner is not None:
                 owner.close()
-        if close_page_tasks(self):
+        if (close_page_tasks(self) or self.workshop_refresh_controller.is_running()
+                or self.scanning_controller.is_running()
+                or self.native_plugin_update_controller.is_running()):
             e.ignore()
             QTimer.singleShot(25, self.close)
             return
@@ -535,7 +491,6 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 self.scanning_controller.role_selector.save_temporary_priority_config()
             except Exception as exc:
                 logger.warning(f"保存临时优先级失败: {exc}")
-        self.native_plugin_update_controller.stop()
         self.performance_controller.close()
         self.character_profile_sync_controller.close()
         self.auto_sync_controller.close()
@@ -565,6 +520,9 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._unregister_character_profile_sync()
         self._account_context_unsubscribe()
         self._unregister_page_tasks()
+        self._unregister_toolbox_lifecycle()
+        self._unregister_warehouse_reads()
+        self._unregister_equipment_persistence()
         log_event(
             "INFO",
             "application.stopping",
@@ -617,20 +575,30 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.account_combo.blockSignals(True)
         populate_account_combo(
             self.account_combo,
-            ACCOUNT_MANAGER.read_index(),
+            self._account_manager.read_index(),
             self.app_context.account.active_account_id,
         )
         self.account_combo.blockSignals(False)
 
     def _on_account_combo_changed(self, index):
+        self.equipment_persistence_controller.cancel_transition()
+        token = self._equipment_switch_token = object()
         if index < 0:
             return
         account_id = self.account_combo.itemData(index)
-        if account_id and account_id != self.app_context.account.active_account_id:
+        if not account_id or account_id == self.app_context.account.active_account_id:
+            return
+        def resume():
+            if self._equipment_switch_token is not token:
+                return
             if not self._switch_account(account_id):
                 self._refresh_account_combo()
+                if self._equipment_switch_waiting:
+                    wait_for_equipment_persistence(self, ("account", account_id), resume)
+        resume()
 
     def _switch_account(self, account_id):
+        self._equipment_switch_waiting = False
         from src.ui.controllers.configuration_controller import defer_page_transition
         if defer_page_transition(self, lambda: self._switch_account(account_id)):
             return False
@@ -692,7 +660,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 reason="battle_report_running",
             )
             return False
-        data = ACCOUNT_MANAGER.read_index()
+        data = self._account_manager.read_index()
         if not any(a.get("id") == account_id for a in data.get("accounts", [])):
             log_event(
                 "ERROR",
@@ -703,9 +671,33 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 reason="account_not_found",
             )
             return False
-        ACCOUNT_MANAGER.set_active_account_id(account_id)
-        target_account = ACCOUNT_MANAGER.activate(account_id)
-        self.app_context.switch_account(target_account)
+        # 维护取消先于账号 owner.stop；尚未物理退场时不推进索引或部分停用旧账号。
+        if self.native_plugin_update_controller.is_running():
+            self.native_plugin_update_controller.stop()
+            QMessageBox.information(self, "正在等待插件更新退场", "本次更新正在收尾，账号保持不变；结束后请重试切换。")
+            return False
+        # 同步bool切换不排队；只由combo拥有可撤销continuation，索引尚未改变。
+        if not self.equipment_persistence_controller.request_stop():
+            self._equipment_switch_waiting = True
+            return False
+        self.equipment_persistence_controller.rebuild()
+        try:
+            target_account = self._account_manager.activate(account_id)
+            event = self.app_context.switch_account(target_account)
+        except Exception as exc:
+            if self.app_context.account.active_account_id == account_id:
+                self.reset_equipment_account_state()  # 已推进时先清除旧账号按钮/读取，再恢复入场。
+            if not self.equipment_persistence_controller.is_running():
+                self.equipment_persistence_controller.rebuild()
+            if self.app_context.account.active_account_id != account_id:
+                QMessageBox.warning(self, "账号切换未完成", str(exc))
+                return False
+            QMessageBox.warning(self, "账号已切换，但页面刷新未完成", str(exc))
+        try:
+            self._account_manager.set_active_account_id(account_id)
+        except Exception as exc:
+            # 当前上下文已推进，不能返回False诱使管理器删除这个活动账号。
+            QMessageBox.warning(self, "账号索引尚未保存", "当前账号已切换；请重试保存账号索引。" + str(exc))
         if not (self._inventory_sync_service and self._inventory_sync_service.is_running):
             self._maybe_auto_start_inventory_sync()
         return True
@@ -750,8 +742,6 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.scanning_controller.reset_account_state()
         self.reset_equipment_account_state()
         self._load_data()
-        if hasattr(self, "weighted_role_selector"):
-            self._refresh_weighted_allocation()
         active_page = self._nav_key_for_index(self.stack.currentIndex())
         if active_page not in {"home", "execute"}:
             self.refresh_current_account_page()
@@ -770,18 +760,23 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._account_switch_operation = None
 
     def _manage_accounts(self):
-        show_account_manager_dialog(
-            self,
-            self._current_style_sheet(),
-            ACCOUNT_MANAGER,
-            self.app_context.account.active_account_id,
-            self._switch_account,
-            self._refresh_account_combo,
-        )
+        from src.ui.controllers.configuration_controller import defer_page_transition
+        if defer_page_transition(self, self._manage_accounts):
+            return
+        if wait_for_equipment_persistence(self, ("manage",), self._manage_accounts):
+            return
+        with self.equipment_persistence_controller.management_hold():
+            show_account_manager_dialog(
+                self, self._current_style_sheet(), self._account_manager,
+                self.app_context.account.active_account_id, self._switch_account, self._refresh_account_combo,
+            )
 
 def run_gui():
+    """先确认启动权限，再准备账号，最后把明确依赖交给 Qt 入口。"""
     from src.ui.gui_startup import run_gui as start_gui
-    start_gui(APP_CONTEXT, GLOBAL_THEME_SETTINGS, MainWindow, _ensure_admin)
+    _ensure_admin()
+    runtime = prepare_application_runtime()
+    start_gui(runtime.context, runtime.theme_settings, lambda: MainWindow(runtime))
 
 
 if __name__ == "__main__":

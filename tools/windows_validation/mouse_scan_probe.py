@@ -28,6 +28,16 @@ def inspect_mouse_scan_report(path: str | Path | None) -> dict[str, Any]:
         result["issues"].append("鼠标扫描诊断报告不是有效 UTF-8 JSON。")
         return result
 
+    # 可解析的 JSON 仍可能类型错误；记录失败证据，不中断其余人工验证步骤。
+    try:
+        return _inspect_payload(payload, result)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        result["passed"] = False
+        result["issues"].append("鼠标扫描报告字段类型或数值无效。")
+        return result
+
+
+def _inspect_payload(payload: Any, result: dict[str, Any]) -> dict[str, Any]:
     resolution = payload.get("resolution") or {}
     size = (int(resolution.get("width", 0) or 0), int(resolution.get("height", 0) or 0))
     inventory = payload.get("inventory") or {}
@@ -58,7 +68,7 @@ def inspect_mouse_scan_report(path: str | Path | None) -> dict[str, Any]:
     for position, page in enumerate(pages):
         item_range = page.get("item_range") or []
         page_captured = int(page.get("captured", 0) or 0)
-        if len(item_range) != 2:
+        if not isinstance(item_range, list) or len(item_range) != 2:  # 先核对 JSON 数组，再按位置读取。
             issues.append(f"第 {position + 1} 页物品范围无效。")
             continue
         first, last = int(item_range[0]), int(item_range[1])
@@ -94,7 +104,7 @@ def compare_mouse_scan_to_account(
     report: dict[str, Any],
     account_summary: dict[str, Any],
 ) -> dict[str, Any]:
-    """Prove that the report's completed mouse inventory is the account current snapshot."""
+    """核对已完成报告与账号当前视觉快照的来源、完整性和数量。"""
 
     current = account_summary.get("current_inventory") or {}
     issues: list[str] = []

@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from src.services.cultivation_batch_planner_service import CultivationBatchPlannerService
+from src.services.progression.batch_planner import CultivationBatchPlannerService
 from tests.test_cultivation_batch_planner_service import _SingleService, _batch, _target
 
 from tests.cultivation_history_test_support import module_load_tests
@@ -29,7 +29,7 @@ def test_preparation_never_runs_stamina_solver(monkeypatch):
     def unexpected(*_args, **_kwargs):
         raise AssertionError("preparation must not solve stamina")
 
-    monkeypatch.setattr("src.services.cultivation_batch_planner_service.calculate_stamina_result", unexpected)
+    monkeypatch.setattr("src.services.progression.batch_planner.calculate_stamina_result", unexpected)
     prepared = service.prepare(_batch(_target(1), _target(2)))
     assert calls == [1, 2]
     assert prepared.merged_totals[0].quantity == 2

@@ -12,22 +12,22 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.services.battle_character_passive_service import _CATALOG, _DIRECT_RULES, BattleCharacterPassiveService
-from src.services.battle_character_skill_buff_service import BattleCharacterSkillBuffService
+from src.services.battle_report.characters.passives import _CATALOG, _DIRECT_RULES, BattleCharacterPassiveService
+from src.services.battle_report.characters.skill_buffs import BattleCharacterSkillBuffService
 from src.domain.battle_buff_rule import BattleStaticBuffRule
 from src.domain.battle_report import BattleBuffModifierEvidence
-from src.services.battle_fork_state_compute import _BASIS as FORK_STATE_BASIS
-from src.services.battle_native_fork_damage_state import _BASIS as FORK_DAMAGE_BASIS
-from src.services.battle_hit_state_compute import _NAMES as DOT_NAMES, _dot_basis
-from src.services.battle_treatment_native_text import TREATMENT_TEXT, TREATMENT_BUFF_TEXT
-from src.services.battle_creation_passive_counterfactual_service import _RULES as CREATION_RULES
-from src.services.battle_creation_passive_evaluation_service import _POLICIES as CREATION_POLICIES
-from src.storage.sqlite.static_game_data_skill_damage_queries import StaticGameDataSkillDamageQueriesMixin
-from src.services.battle_buff_inference_service import (
+from src.services.battle_report.forks.state_compute import _BASIS as FORK_STATE_BASIS
+from src.services.battle_report.native.fork_damage_state import _BASIS as FORK_DAMAGE_BASIS
+from src.services.battle_report.mechanics.dot_evidence import DOT_KIND_NAMES as DOT_NAMES, dot_basis
+from src.services.battle_report.treatment.native import TREATMENT_TEXT, TREATMENT_BUFF_TEXT
+from src.services.battle_report.creation.counterfactual import _RULES as CREATION_RULES
+from src.services.battle_report.creation.evaluation import _POLICIES as CREATION_POLICIES
+from src.storage.sqlite.catalog.static_game_data_skill_damage_queries import StaticGameDataSkillDamageQueriesMixin
+from src.services.battle_report.buffs.inference import (
     BattleBuffInferenceService, _SelectedEffect, _skill_rules,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.storage.sqlite.fork_permanent_projection import (
+from src.storage.sqlite.catalog.fork_permanent_projection import (
     FORK_PERMANENT_EVIDENCE_SQL, FORK_REFINEMENT_LEVEL_SQL,
 )
 
@@ -57,7 +57,7 @@ def main():
                                    "gameplay_effect_ids": sorted(row.gameplay_effect_ids)} for row in CREATION_RULES]
     payload["creation_policies"] = {key: asdict(value) for key, value in CREATION_POLICIES.items()}
     payload["dot_basis"] = {
-        f"{kind}:{int(lower)}:{int(early)}:{int(zankou)}": _dot_basis({
+        f"{kind}:{int(lower)}:{int(early)}:{int(zankou)}": dot_basis({
             "kind": kind, "lower": lower, "early": early,
             "effect": "buff_reaction_5_new_1036" if zankou else "buff_reaction_5_new",
         }) for kind in DOT_NAMES for lower in (False, True) for early in (False, True) for zankou in (False, True)
@@ -71,7 +71,7 @@ def main():
         templates = {}
         for identity, definition in definitions.items():
             selected = _SelectedEffect(0, "$source_name", identity, definition)
-            with patch("src.services.battle_buff_inference_service._selected_effects", return_value=(selected,)):
+            with patch("src.services.battle_report.buffs.inference._selected_effects", return_value=(selected,)):
                 templates[identity] = [asdict(row) for row in BattleBuffInferenceService.load_rules(dao, None)]
         payload["effect_rules"] = templates
         payload["skill_bound_rules"] = {

@@ -25,16 +25,20 @@ from PyInstaller.utils.hooks import (
 )
 
 from tools import build_cli
+from tools.release.ocr_build_inputs import collect_ocr_build_inputs, write_ocr_support_manifest
+from src.integrations.vision.recognition.backend_support import load_backend_support
 from tools.release.native_component_bundle_build import native_component_build_inputs
 from tools.release.pyinstaller_native_dependencies import declared_native_proxies_only
 from tools.release.game_component_bundle_build import (
     prepare_component_bundle, validate_packaged_component_bundle,
 )
 from tools.release.runtime_pruning import prune_unused_runtime_binaries, validate_pruned_runtime
-from src.integrations.ocr_model_resources import (
+from src.integrations.vision.recognition.model_resources import (
     build_source_ocr_models,
     validate_packaged_ocr_models,
 )
+
+from src.integrations.vision.recognition.language_resources import load_ocr_dictionary, shared_dictionary_path
 
 ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
@@ -167,6 +171,8 @@ def _remove_package_artifact(path: Path) -> None:
 
 
 onefile = "--onefile" in sys.argv
+# 与运行时使用同一声明；构建本次冻结，不在收集/fallback 时重读环境。
+ocr_support = load_backend_support()
 
 args = [
     str(ROOT / "main.py"),
@@ -325,8 +331,6 @@ def _find_package_dir(package_name: str) -> Path | None:
 hidden_imports = [
     "cv2", "cv2.mat_wrapper",
     "numpy", "numpy._core", "numpy.linalg",
-    "rapidocr_openvino", "rapidocr_onnxruntime", "onnxruntime",
-    "openvino", "openvino.runtime",
     "mss", "keyboard", "pyautogui", "vgamepad",
     "scipy", "scipy.optimize", "scipy.sparse", "scipy.spatial",
     "pydantic", "loguru", "pypinyin",
@@ -336,11 +340,11 @@ hidden_imports = [
     "src.scanner.gamepad_controller",
 ]
 
-for pkg_name in ("rapidocr_openvino", "rapidocr_onnxruntime"):
-    try:
-        hidden_imports.extend(collect_submodules(pkg_name))
-    except Exception as exc:
-        build_cli.warn(f"收集 {pkg_name} hidden imports 失败，按基础 hook 继续: {exc}")
+ocr_inputs = collect_ocr_build_inputs(
+    ocr_support, collect_submodules=collect_submodules, collect_data_files=collect_data_files,
+    collect_dynamic_libs=collect_dynamic_libs, copy_metadata=copy_metadata,
+)
+hidden_imports.extend(ocr_inputs.hidden_imports)
 
 for imp in hidden_imports:
     args.append(f"--hidden-import={imp}")
@@ -353,6 +357,7 @@ excludes = [
     "tkinter", "_tkinter",
     # onnxruntime 未使用的 execution provider
     "onnxruntime.transformers",
+    # 工坊模板后台按需使用 QtNetwork；保留模块 hook 和其 HTTPS TLS 插件收集。
     # PySide6 未使用子模块
     "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtPdf",
     "PySide6.QtVirtualKeyboard", "PySide6.QtWebEngine",
@@ -375,53 +380,29 @@ excludes = [
     "PySide6.QtSpatialAudio", "PySide6.QtSvgWidgets",
     "PySide6.QtSvg", "PySide6.QtUiTools",
     "PySide6.QtDesigner", "PySide6.QtOpenGL",
-    "PySide6.QtOpenGLWidgets", "PySide6.QtNetwork",
+    "PySide6.QtOpenGLWidgets",
     "PySide6.QtNetworkAuth", "PySide6.QtDBus",
     "PySide6.QtConcurrent",
     # PIL 未使用；项目图片入口与发行素材不使用 AVIF。
     "PIL.ImageTk", "PIL.AvifImagePlugin", "PIL._avif",
 ]
 
+excludes.extend(ocr_inputs.excludes)
 for exc in excludes:
     args.append(f"--exclude-module={exc}")
 
-# RapidOCR 包只收集配置和字典；两个后端共用一套经哈希校验的模型。
-for ocr_pkg_name in ("rapidocr_openvino", "rapidocr_onnxruntime"):
-    try:
-        for src, dst in collect_data_files(ocr_pkg_name, excludes=["models/*"]):
-            _append_add_data(src, dst)
-        for src, dst in copy_metadata(ocr_pkg_name):
-            _append_add_data(src, dst)
-    except Exception:
-        build_cli.warn(f"收集 {ocr_pkg_name} 数据文件失败，OCR 包可能未安装，继续打包: {ocr_pkg_name}")
-
-for model_path in build_source_ocr_models().values():
+# 所选库共享一份模型/字典；排除库不收集配置、DLL 或 metadata。
+load_ocr_dictionary(shared_dictionary_path())
+for source, destination in ocr_inputs.data:
+    _append_add_data(source, destination)
+for source, destination in ocr_inputs.binaries:
+    _append_add_binary(source, destination)
+for model_path in build_source_ocr_models(support=ocr_support).values():
     _append_add_data(model_path, "assets/ocr/models")
-
-# OpenVINO runtime: complete libs, cache.json, and package metadata.
-# A hand-written DLL list is fragile and can miss plugin/data files.
-try:
-    for src, dst in collect_dynamic_libs("openvino"):
-        _append_add_binary(src, dst)
-    for src, dst in collect_data_files("openvino", includes=["libs/cache.json"]):
-        _append_add_data(src, dst)
-    for src, dst in copy_metadata("openvino"):
-        _append_add_data(src, dst)
-except Exception:
-    build_cli.warn("收集 OpenVINO runtime 文件失败，继续打包；若运行 OCR 异常请检查依赖安装")
-
-# ONNX Runtime / DirectML runtime: required when a discrete GPU is available.
-try:
-    for src, dst in collect_dynamic_libs("onnxruntime"):
-        _append_add_binary(src, dst)
-    for package_name in ("onnxruntime-directml", "onnxruntime"):
-        try:
-            for src, dst in copy_metadata(package_name):
-                _append_add_data(src, dst)
-        except Exception:
-            build_cli.warn(f"收集 {package_name} metadata 失败，继续打包")
-except Exception:
-    build_cli.warn("收集 ONNX Runtime / DirectML 文件失败，继续打包；独显加速可能不可用")
+ocr_manifest = write_ocr_support_manifest(
+    BUILD / "ocr-support-input" / ocr_support.profile / "backend_support.json", ocr_support,
+)
+_append_add_data(ocr_manifest, "assets/ocr")
 
 # ViGEmClient.dll（虚拟手柄）
 vg_path = _find_package_dir("vgamepad")
@@ -449,8 +430,8 @@ if onefile:
 
 if output.exists():
     if not onefile:
-        removed_runtime = prune_unused_runtime_binaries(output / "_internal")
-        validate_pruned_runtime(output / "_internal")
+        removed_runtime = prune_unused_runtime_binaries(output / "_internal", support=ocr_support)
+        validate_pruned_runtime(output / "_internal", support=ocr_support)
         build_cli.info(
             "[SIZE] 已裁剪可选运行库："
             f"{sum(removed_runtime.values()) / (1024 * 1024):.1f} MiB 展开体积"
@@ -459,11 +440,9 @@ if output.exists():
         validate_packaged_ocr_models(output / "_internal")
     _validate_no_ambient_icu_dlls(output)
     _validate_no_runtime_caches(output)
-    size_mb = sum(
-        f.stat().st_size for f in output.rglob("*") if f.is_file()
-    ) / (1024 * 1024)
+    size_mib = build_cli.artifact_size_bytes(output) / (1024 * 1024)
     build_cli.ok(f"Build complete: {output}")
-    build_cli.info(f"[SIZE] {size_mb:.1f} MB")
+    build_cli.info(f"[SIZE] {size_mib:.1f} MiB")
 else:
     build_cli.fail("Build failed.")
     sys.exit(1)

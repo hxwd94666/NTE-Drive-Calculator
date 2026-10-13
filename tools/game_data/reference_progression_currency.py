@@ -16,12 +16,7 @@ _COST_COLUMNS = (
 def validate_reference_progression_currency(
     connection: sqlite3.Connection,
 ) -> dict[str, int | str]:
-    """Reject currency regressions without pinning a release's row counts.
-
-    ``Trailclone_gold`` and ``drop_fons1`` are formal source identities. A
-    future source change to either requires an explicit contract review rather
-    than allowing an importer update to silently relabel one currency.
-    """
+    """拒绝货币回归，不固定发行记录数。Trailclone_gold 与 drop_fons1 是正式来源身份；来源变化须显式审查，禁止 importer 静默改名。"""
 
     names = dict(connection.execute(
         "SELECT item_id, name_zh FROM progression_item WHERE item_id IN ('Gold','Fons')"

@@ -26,10 +26,10 @@ def serialized(value):
 
 
 def generate(output: Path):
-    from src.services.battle_target_vital_analysis_service import BattleTargetVitalAnalysisService
-    from src.services.battle_target_hp_pool_reconciliation_service import BattleTargetHpPoolReconciliationService
-    from src.services.battle_counterfactual_analysis_service import BattleCounterfactualAnalysisService
-    from src.services.battle_time_stop_projection_service import BattleTimeStopProjectionService
+    from src.services.battle_report.targets.vital_analysis import BattleTargetVitalAnalysisService
+    from src.services.battle_report.targets.hp_pool import BattleTargetHpPoolReconciliationService
+    from src.services.battle_report.build.offline_analysis import BattleCounterfactualAnalysisService
+    from src.services.battle_report.timeline.stop_projection import BattleTimeStopProjectionService
     from src.services.skill_name_rendering_service import SkillNameRenderingService
 
     fixtures = []
@@ -86,18 +86,18 @@ def generate(output: Path):
         for owner, method, kind in targets:
             stack.enter_context(patch.object(owner, method, capture(getattr(owner, method), kind)))
         suite = unittest.defaultTestLoader.loadTestsFromNames([
-            "tests.test_battle_target_vital_analysis_service",
-            "tests.test_battle_target_vital_identity_service",
-            "tests.test_battle_target_vital_v4_fadia_fallback",
-            "tests.test_battle_target_hp_pool_reconciliation_service",
-            "tests.test_battle_counterfactual_analysis_service",
-            "tests.test_battle_time_stop_projection_service",
+            "tests.battle_report.targets.test_vital_analysis",
+            "tests.battle_report.targets.test_vital_identity",
+            "tests.battle_report.targets.test_vital_v4_fadia",
+            "tests.battle_report.targets.test_hp_pool_reconciliation",
+            "tests.battle_report.build.test_battle_counterfactual_analysis_service",
+            "tests.battle_report.timeline.test_stop_projection",
             "tests.test_skill_name_rendering_service",
         ])
         result = unittest.TextTestRunner(verbosity=1).run(suite)
     if not result.wasSuccessful():
         raise RuntimeError("Public oracle regressions failed")
-    from tests.test_battle_linko_coattack_inference_service import _qte, _lte_aoe
+    from tests.battle_report.characters.linko_fixtures import _qte, _lte_aoe
     qte, _action = _qte()
     linko_rows = [{
         "sequence_order": hit.sequence, "relative_time_us": hit.relative_time_us,

@@ -59,6 +59,7 @@ class PerformanceTraceView(QWidget):
             self.status.setText(str(error))
 
     def render(self, value):
+        # 保存、失败和停止未确认分别展示；嵌套阶段不在界面相加。
         running = value.get('running', False)
         self.start.setEnabled(value.get('allowed', False) and not running)
         self.stop.setEnabled(running)

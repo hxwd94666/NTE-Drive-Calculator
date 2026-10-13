@@ -37,7 +37,7 @@ def term_source_label(
     *,
     locale: str = "zh-CN",
 ) -> str | None:
-    """Return a readable centralized label, never the raw source token."""
+    """集中投影可读来源标签；未知语言不冒用原始来源 token 作为正式名称。"""
 
     return _TERM_SOURCE_LABELS.get(locale, {}).get(source_kind)
 
@@ -56,7 +56,7 @@ class LocalizedTermRecord:
 
 @dataclass(frozen=True, slots=True)
 class LocalizedTerm:
-    """Player-facing name with the stable identity kept outside visible text."""
+    """名称与正式身份分离；缺名称保持缺失状态，不以内部 ID 补成可见正式名。"""
 
     entity_kind: str
     requested_id: str

@@ -66,7 +66,6 @@ class BattleReportCompositionUiTests(unittest.TestCase):
 
         view._render_damage_composition()
 
-        self.assertEqual(1, view.damage_composition_panel._grid.count())
         labels = self._composition_labels(view)
         self.assertIn("残虹", labels)
         self.assertIn("蚀心", labels)

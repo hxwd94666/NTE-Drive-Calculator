@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QMessageBox, QPlainTextEdit, QSizePolicy
 
 from src.features.official_role.dependencies import OfficialRoleDependencies
 from src.integrations.operation_guard import require_operation
-from src.services.official_role_profile_service import OfficialRoleProfileService
-from src.services.inventory_capture_wait import InventorySyncCancelled
+from src.services.official_role.profiles import OfficialRoleProfileService
+from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 
 
 class RoleSyncResultText(QPlainTextEdit):

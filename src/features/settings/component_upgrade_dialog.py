@@ -92,6 +92,7 @@ class ComponentUpgradeDialog(QDialog):
         self.action.setText(action)
 
     def _act(self) -> None:
+        # 显式按钮交给引导 owner；仅展示阶段不执行清理或部署。
         stage = self._stage
         self.accept()
         self._on_action(stage)

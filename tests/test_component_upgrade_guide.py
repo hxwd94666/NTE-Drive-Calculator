@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.services.component_upgrade_guide import inspect_upgrade_evidence
+from src.services.components.upgrade_guide import inspect_upgrade_evidence
 
 
 def _game(tmp_path):
@@ -25,7 +25,7 @@ def test_legacy_proxy_is_upgrade_evidence(tmp_path, monkeypatch):
     executable = _game(tmp_path)
     (tmp_path / "dwmapi.dll").write_bytes(b"old")
     monkeypatch.setattr(
-        "src.services.component_upgrade_guide.mod_workspace_registry_snapshot",
+        "src.services.components.upgrade_guide.mod_workspace_registry_snapshot",
         lambda: (False, None),
     )
     result = inspect_upgrade_evidence(
@@ -38,7 +38,7 @@ def test_legacy_proxy_is_upgrade_evidence(tmp_path, monkeypatch):
 def test_mismatched_current_component_needs_update(tmp_path, monkeypatch):
     executable = _game(tmp_path)
     monkeypatch.setattr(
-        "src.services.component_upgrade_guide.inspect_deployed_native_plugin",
+        "src.services.components.upgrade_guide.inspect_deployed_native_plugin",
         lambda **_kwargs: SimpleNamespace(files_compatible=False),
     )
     result = inspect_upgrade_evidence(
@@ -51,7 +51,7 @@ def test_mismatched_current_component_needs_update(tmp_path, monkeypatch):
 def test_matching_component_requires_business_verification(tmp_path, monkeypatch):
     executable = _game(tmp_path)
     monkeypatch.setattr(
-        "src.services.component_upgrade_guide.inspect_deployed_native_plugin",
+        "src.services.components.upgrade_guide.inspect_deployed_native_plugin",
         lambda **_kwargs: SimpleNamespace(files_compatible=True),
     )
     result = inspect_upgrade_evidence(

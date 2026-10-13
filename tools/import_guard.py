@@ -1,5 +1,5 @@
-# 静态检查拆分模块的导入完整性。
-"""Import checks for refactor boundaries."""
+# 对预审过的显式模块清单执行导入冒烟；导入可能带副作用，不是静态检查。
+"""显式导入诊断只汇总异常，不证明导入无副作用或业务就绪。"""
 
 from __future__ import annotations
 

@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from src.integrations.nte_core_protocol import NteCoreRpcError
-from src.integrations.warehouse_state_writer import WarehouseStateWriteError, WarehouseStateWriter
+from src.integrations.inventory.warehouse_state_writer import WarehouseStateWriteError, WarehouseStateWriter
 from src.services.native_game_session import NativeGameSession
 from tests.test_native_equipment_session import EquipmentCore
 
@@ -62,7 +62,7 @@ def test_busy_second_state_rpc_retries_only_the_rejected_rpc():
     sync = Mock()
     sync.set_item_discarded.side_effect = [busy, {"status": "rpc_dispatched"}]
     writer = WarehouseStateWriter(sync)
-    with patch("src.integrations.warehouse_state_writer.sleep"):
+    with patch("src.integrations.inventory.warehouse_state_writer.sleep"):
         writer.apply_one({"locked": True, "discarded": False}, "discarded", {"slot": 8, "serial": 1})
     assert sync.set_item_locked.call_count == 1
     assert sync.set_item_discarded.call_count == 2
@@ -85,7 +85,7 @@ def test_persistent_pre_dispatch_busy_stops_after_bounded_fast_retries():
     busy = NteCoreRpcError({"code": -32000, "data": {"domain_code": "EQUIPMENT_PLUGIN_BUSY"}})
     sync = Mock()
     sync.set_item_locked.side_effect = busy
-    with patch("src.integrations.warehouse_state_writer.sleep") as sleeper:
+    with patch("src.integrations.inventory.warehouse_state_writer.sleep") as sleeper:
         with pytest.raises(WarehouseStateWriteError, match="多次未派发"):
             WarehouseStateWriter(sync).apply_one({}, "locked", {"slot": 8, "serial": 1})
     assert sync.set_item_locked.call_count == 8
@@ -108,7 +108,7 @@ def test_source_changed_same_context_retries_without_per_item_snapshot_read():
         assert lease.status()["native_snapshot_ready"]
         with writer.batch():
             core.calls.clear()
-            with patch("src.integrations.warehouse_state_writer.sleep"):
+            with patch("src.integrations.inventory.warehouse_state_writer.sleep"):
                 writer.apply_one({}, "discarded", {"slot": 8, "serial": 1})
             assert sum(method == "equipment.status" for method, _ in core.calls) == 1
             assert not any(method.startswith("native.snapshot") for method, _ in core.calls)

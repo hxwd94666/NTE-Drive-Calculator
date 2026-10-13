@@ -1,0 +1,725 @@
+# 测试后台背包同步的持续监听、稳定写入和安全停止。
+from __future__ import annotations
+
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from src.services.inventory.sync.service import InventorySyncService
+from src.storage.sqlite.user_data_dao import UserDataDao
+
+
+def item(
+    serial: int,
+    *,
+    kind: str = "module",
+    level: int = 1,
+    equipped: bool = False,
+    locked: bool = False,
+) -> dict:
+    return {
+        "uid": {"slot": 8, "serial": serial},
+        "kind": kind,
+        "item_id": f"{kind}-{serial}",
+        "suit_id": "suit-1",
+        "geometry": "geometry-1",
+        "grid": 3,
+        "quality": 5,
+        "level": level,
+        "max_level": 20,
+        "locked": locked,
+        "equipped": equipped,
+        "equipped_character_uid": None,
+        "equipped_character_id": None,
+        "names": {"zh-Hans": f"驱动 {serial}"},
+        "suit_names": {"zh-Hans": "测试套装"},
+        "main_stats": [],
+        "sub_stats": [],
+    }
+
+
+def snapshot(
+    *items: dict,
+    generation: int = 1,
+    sequence: int = 1,
+    characters: list[dict] | None = None,
+) -> dict:
+    params = {
+        "complete": True,
+        "item_count": len(items),
+        "items": list(items),
+        "generation": generation,
+        "sequence": sequence,
+        "observed_at_unix_ms": 1_800_000_000_000 + sequence,
+    }
+    if characters is not None:
+        params["characters"] = characters
+        params["character_count"] = len(characters)
+    return {
+        "jsonrpc": "2.0",
+        "method": "event.inventory.snapshot",
+        "params": params,
+    }
+
+
+def capture_status(status: str) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "method": "event.capture.status",
+        "params": {
+            "sequence": 1,
+            "operation_id": "capture-1",
+            "status": status,
+            "profile": "inventory",
+        },
+    }
+
+
+class FakeCoreClient:
+    def __init__(self, *, emit_running_on_start: bool = True) -> None:
+        self.hello_result = {"protocol_version": 1, "capabilities": ["inventory"]}
+        self.handlers: dict[str | None, list] = {}
+        self.started = False
+        self.closed = False
+        self.capture_params: dict | None = None
+        self.capture_stopped = False
+        self.equipment_params = None
+        self.emit_running_on_start = emit_running_on_start
+        self.capture_started = threading.Event()
+        self._lock = threading.Lock()
+
+    def start(self):
+        self.started = True
+        return self
+
+    def add_event_handler(self, method, handler) -> None:
+        with self._lock:
+            self.handlers.setdefault(method, []).append(handler)
+
+    def remove_event_handler(self, method, handler) -> None:
+        with self._lock:
+            handlers = self.handlers.get(method, [])
+            if handler in handlers:
+                handlers.remove(handler)
+
+    def start_capture(self, **kwargs):
+        self.capture_params = kwargs
+        self.capture_started.set()
+        if self.emit_running_on_start:
+            self.emit(capture_status("running"))
+        return {"capturing": True}
+
+    def stop_capture(self):
+        self.capture_stopped = True
+        return {"capturing": False}
+
+    def equip_one_key(self, **kwargs):
+        self.equipment_params = kwargs
+        return {"status": "dry_run_ok"}
+
+    def close(self) -> None:
+        self.closed = True
+
+    def emit(self, event: dict) -> None:
+        with self._lock:
+            handlers = tuple(self.handlers.get(event.get("method"), ()))
+        for handler in handlers:
+            handler(event)
+
+
+class FakeDomainError(RuntimeError):
+    domain_code = "NPCAP_NOT_FOUND"
+
+
+class FailingCaptureCoreClient(FakeCoreClient):
+    def start_capture(self, **kwargs):
+        raise FakeDomainError("Npcap is unavailable")
+
+
+class InventorySyncServiceTests(unittest.TestCase):
+
+
+    def test_guard_records_smaller_declared_inventory_count_for_one_key_warning(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+
+        service._on_inventory_event(snapshot(item(1), sequence=4))
+
+        self.assertTrue(service.guard_observed_inventory_reduction(guard))
+        service.end_full_inventory_guard(guard)
+
+    def test_one_key_action_snapshot_requires_one_packet_covering_every_target(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        service._on_inventory_event(snapshot(item(1), item(2), sequence=4))
+        action_snapshot = service.wait_for_action_inventory_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.01,
+        )
+
+        self.assertEqual("event.inventory.snapshot", action_snapshot["method"])
+        self.assertEqual(2, len(action_snapshot["params"]["items"]))
+        service.end_full_inventory_guard(guard)
+
+    def test_guarded_role_subset_event_is_available_only_for_memory_verification(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        service._on_inventory_event(snapshot(item(1), item(2), sequence=4))
+        scoped = service.wait_for_equipment_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.1,
+        )
+
+        self.assertEqual({(8, 1), (8, 2)}, scoped.uid_pairs)
+        self.assertEqual(2, len(scoped.items))
+        self.assertIsNotNone(service._take_latest_event())
+        service.end_full_inventory_guard(guard)
+        with self.assertRaises(TimeoutError):
+            service.wait_for_equipment_snapshot(
+                frozenset({(8, 1)}),
+                after_cursor=0,
+                timeout=0.01,
+            )
+
+    def test_guarded_fragments_are_merged_by_uid_for_role_verification(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        # nte-core can split one role's changed equipment across sequential
+        # residual packets.  Neither packet is sufficient on its own.
+        service._on_inventory_event(snapshot(item(1), sequence=4))
+        service._on_inventory_event(snapshot(item(2), sequence=5))
+        scoped = service.wait_for_equipment_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.1,
+        )
+
+        self.assertEqual({(8, 1), (8, 2)}, scoped.uid_pairs)
+        self.assertEqual(2, len(scoped.items))
+        service.end_full_inventory_guard(guard)
+
+    def test_observed_equipment_event_returns_seen_target_without_waiting_for_full_plan(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        guard = service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2), (8, 3)}))
+        cursor = service.scoped_equipment_snapshot_cursor()
+
+        service._on_inventory_event(snapshot(item(1), sequence=4))
+        scoped = service.wait_for_observed_equipment_snapshot(
+            frozenset({(8, 1), (8, 2)}),
+            after_cursor=cursor,
+            timeout=0.01,
+        )
+
+        self.assertEqual({(8, 1)}, scoped.uid_pairs)
+        service.end_full_inventory_guard(guard)
+
+    def test_finished_guard_blocks_late_subset_until_full_inventory_returns(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        frozen = frozenset({(8, 1), (8, 2), (8, 3)})
+        guard = service.begin_full_inventory_guard(frozen)
+
+        self.assertTrue(service.finish_full_inventory_guard(guard, grace_seconds=30.0))
+        service._on_inventory_event(snapshot(item(1), item(2), sequence=4))
+        self.assertEqual(frozen, service._full_inventory_guard()[1])
+
+        service._on_inventory_event(snapshot(item(1), item(2), item(3), sequence=5))
+        self.assertIsNone(service._full_inventory_guard()[1])
+
+    def test_new_apply_replaces_only_finished_grace_guard(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        frozen = frozenset({(8, 1), (8, 2), (8, 3)})
+        first = service.begin_full_inventory_guard(frozen)
+        self.assertTrue(service.finish_full_inventory_guard(first, grace_seconds=90.0))
+        self.assertEqual(float("inf"), service._snapshot_guard_expires_at)
+
+        second = service.begin_full_inventory_guard(frozen)
+
+        service.end_full_inventory_guard(first)
+        self.assertEqual(frozen, service._full_inventory_guard()[1])
+        service.end_full_inventory_guard(second)
+        self.assertIsNone(service._full_inventory_guard()[1])
+
+    def test_new_apply_cannot_replace_active_guard(self) -> None:
+        service = InventorySyncService("unused.sqlite3", operation_guard=lambda _capability: None)
+        frozen = frozenset({(8, 1)})
+        service.begin_full_inventory_guard(frozen)
+
+        with self.assertRaisesRegex(RuntimeError, "已有极速装配"):
+            service.begin_full_inventory_guard(frozen)
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.temp_dir.name) / "user_data.sqlite3"
+        self.core = FakeCoreClient()
+        self.template_refreshes: list[bool] = []
+        self.service = InventorySyncService(
+            self.database_path,
+            operation_guard=lambda _capability: None,
+            account_id="tester",
+            account_name="测试账号",
+            client_factory=lambda: self.core,
+            settle_seconds=0.05,
+            poll_seconds=0.005,
+            template_refresh=lambda: self.template_refreshes.append(True) or {
+                "changed": True, "role_count": 1, "fork_count": 1,
+            },
+        )
+
+    def tearDown(self) -> None:
+        if self.service.is_running:
+            self.service.stop()
+        self.temp_dir.cleanup()
+
+    def _start(self) -> None:
+        self.service.start()
+        self.service.wait_for_phase("waiting", timeout=5.0)
+
+    def test_starts_capture_without_raw_packet_files(self) -> None:
+        self._start()
+        self.assertTrue(self.core.started)
+        self.assertEqual("inventory", self.core.capture_params["profile"])
+        self.assertEqual("disabled", self.core.capture_params["raw_capture"])
+
+    def test_waits_for_capture_running_before_prompting_game_login(self) -> None:
+        core = FakeCoreClient(emit_running_on_start=False)
+        service = InventorySyncService(
+            self.database_path,
+            operation_guard=lambda _capability: None,
+            account_id="tester",
+            account_name="测试账号",
+            client_factory=lambda: core,
+            poll_seconds=0.005,
+        )
+        try:
+            service.start()
+            self.assertTrue(core.capture_started.wait(2.0))
+            deadline = time.monotonic() + 2.0
+            while service.state.phase != "starting" and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual("starting", service.state.phase)
+            self.assertEqual("正在初始化抓包，等待网卡就绪", service.state.message)
+
+            core.emit(capture_status("running"))
+            ready = service.wait_for_phase("waiting", timeout=2.0)
+            self.assertEqual("监听已就绪，等待进入游戏并接收背包数据。", ready.message)
+        finally:
+            if service.is_running:
+                service.stop()
+
+    def test_enables_pcapng_capture_only_when_requested(self) -> None:
+        core = FakeCoreClient()
+        capture_directory = Path(self.temp_dir.name) / "raw_capture"
+        service = InventorySyncService(
+            self.database_path,
+            operation_guard=lambda _capability: None,
+            account_id="tester",
+            account_name="测试账号",
+            client_factory=lambda: core,
+            raw_capture_enabled=True,
+            raw_capture_directory=capture_directory,
+            poll_seconds=0.005,
+        )
+        try:
+            service.start()
+            service.wait_for_phase("waiting", timeout=2.0)
+            self.assertEqual("enabled", core.capture_params["raw_capture"])
+            self.assertTrue(capture_directory.is_dir())
+        finally:
+            if service.is_running:
+                service.stop()
+
+    def test_reuses_running_core_process_for_one_key_equipment(self) -> None:
+        self.core.hello_result["capabilities"].append("equipment")
+        self._start()
+        result = self.service.equip_one_key(
+            character={"slot": 1, "serial": 2},
+            placements=[
+                {"equipment": {"slot": 3, "serial": 4}, "row": 2, "column": 3}
+            ],
+            core={"slot": 5, "serial": 6},
+        )
+
+        self.assertEqual(result, {"status": "dry_run_ok"})
+        self.assertEqual(self.core.equipment_params["character"]["serial"], 2)
+
+    def test_commits_any_stable_count_and_keeps_listening(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), sequence=1))
+        state = self.service.wait_for_snapshot(timeout=2.0)
+        self.assertEqual(1, state.last_item_count)
+        self.assertEqual("listening", state.phase)
+        self.assertTrue(self.service.is_running)
+
+        with UserDataDao(self.database_path) as dao:
+            self.assertEqual(1, dao.current_inventory_summary()["stored_item_count"])
+            self.assertEqual(1, dao.summary()["snapshot_count"])
+        self.assertEqual([True], self.template_refreshes)
+
+    def test_fast_apply_guard_rejects_scoped_snapshot_before_current_pointer_moves(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), item(2), sequence=1))
+        baseline = self.service.wait_for_snapshot(timeout=2.0)
+        token = self.service.begin_full_inventory_guard(frozenset({(8, 1), (8, 2)}))
+        try:
+            # A self-consistent response scoped to one equipped character must
+            # never become the current inventory during a bulk apply.
+            self.core.emit(snapshot(item(1, equipped=True), sequence=2))
+            time.sleep(0.12)
+            self.assertEqual(baseline.last_snapshot_id, self.service.state.last_snapshot_id)
+
+            self.core.emit(snapshot(item(1, equipped=True), item(2), sequence=3))
+            committed = self.service.wait_for_snapshot(
+                after_snapshot_id=baseline.last_snapshot_id,
+                timeout=2.0,
+            )
+            self.assertEqual(2, committed.last_item_count)
+            with UserDataDao(self.database_path) as dao:
+                self.assertEqual(2, dao.current_inventory_summary()["stored_item_count"])
+        finally:
+            self.service.end_full_inventory_guard(token)
+
+    def test_snapshot_logs_include_authoritative_equipment_and_character_counts(self) -> None:
+        events: list[tuple[str, dict[str, object]]] = []
+        characters = [{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}]
+        with patch(
+            "src.services.inventory.sync.runtime.log_event",
+            side_effect=lambda _level, event, _message, _context, **fields: events.append(
+                (event, fields)
+            ),
+        ):
+            self._start()
+            self.core.emit(
+                snapshot(
+                    item(1, equipped=True),
+                    item(2, kind="core", locked=True),
+                    generation=7,
+                    sequence=9,
+                    characters=characters,
+                )
+            )
+            self.service.wait_for_snapshot(timeout=2.0)
+
+        committed = next(
+            fields for event, fields in events if event == "inventory_sync.snapshot_committed"
+        )
+        candidate = next(
+            fields for event, fields in events if event == "inventory_sync.candidate_received"
+        )
+        self.assertEqual(1, candidate["module_count"])
+        self.assertEqual(1, candidate["core_count"])
+        self.assertEqual(1, candidate["character_instance_count"])
+        self.assertEqual(2, committed["item_count"])
+        self.assertEqual(1, committed["module_count"])
+        self.assertEqual(1, committed["core_count"])
+        self.assertEqual(1, committed["equipped_count"])
+        self.assertEqual(1, committed["locked_count"])
+        self.assertEqual(1, committed["character_instance_count"])
+        self.assertTrue(committed["character_instances_independent"])
+        self.assertEqual(7, committed["generation"])
+        self.assertEqual(9, committed["sequence"])
+
+    def test_restart_logs_current_snapshot_summary_without_waiting_for_a_change(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), generation=3, sequence=4, characters=[]))
+        self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+
+        events: list[tuple[str, dict[str, object]]] = []
+        with patch(
+            "src.services.inventory.sync.runtime.log_event",
+            side_effect=lambda _level, event, _message, _context, **fields: events.append(
+                (event, fields)
+            ),
+        ):
+            self.service.start()
+            state = self.service.wait_for_phase("waiting", timeout=2.0)
+            self.assertIn("等待本次背包数据", state.message)
+            self.assertIn("上次保存的背包仍可用于计算", state.message)
+            self.assertFalse(state.source_snapshot_ready)
+
+        loaded = next(
+            fields
+            for event, fields in events
+            if event == "inventory_sync.current_snapshot_loaded"
+        )
+        self.assertEqual(1, loaded["item_count"])
+        self.assertEqual(1, loaded["module_count"])
+        self.assertEqual(0, loaded["core_count"])
+        self.assertEqual(0, loaded["character_instance_count"])
+        self.assertTrue(loaded["character_instances_independent"])
+        self.assertEqual(3, loaded["generation"])
+        self.assertEqual(4, loaded["sequence"])
+
+    def test_legacy_snapshot_describes_missing_field_without_claiming_core_version(self) -> None:
+        """A pre-v0.3.5 snapshot has items but no independent character UIDs."""
+
+        self._start()
+        self.core.emit(snapshot(item(1), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        with UserDataDao(self.database_path) as dao:
+            self.assertFalse(
+                dao.snapshot_has_independent_character_instances(first.last_snapshot_id)
+            )
+
+        self.service.stop()
+        self.service.start()
+        state = self.service.wait_for_phase("waiting", timeout=2.0)
+        self.assertIn("未附带独立角色列表", state.message)
+        self.assertNotIn("旧版", state.message)
+        self.assertNotIn("极速装配仍不可用", state.message)
+
+    def test_visual_snapshot_can_be_replaced_by_identical_native_content(self) -> None:
+        for source in ("vision", "gamepad"):
+            with self.subTest(source=source):
+                self.service.stop()
+                visual = snapshot(item(1))
+                with UserDataDao(self.database_path, account_id="tester", account_name="测试账号") as dao:
+                    visual_id = dao.import_inventory_snapshot(visual, source=source)
+
+                self.service.start()
+                state = self.service.wait_for_phase("waiting", timeout=2.0)
+                self.assertIn("视觉扫描库存", state.message)
+                self.assertNotIn("旧版", state.message)
+                self.assertIsNone(state.error)
+                self.core.emit(snapshot(item(1)))
+                native = self.service.wait_for_snapshot(after_snapshot_id=visual_id, timeout=2.0)
+
+                with UserDataDao(self.database_path) as dao:
+                    summary = dao.inventory_snapshot_summary(native.last_snapshot_id)
+                    self.assertEqual("nte_core", summary["source"])
+                    self.assertEqual(visual, dao.raw_snapshot(visual_id))
+
+    def test_empty_character_list_upgrade_is_saved_without_recreating_account(self) -> None:
+        self._start()
+        legacy = snapshot(item(1))
+        self.core.emit(legacy)
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+        self.service.start()
+        self.service.wait_for_phase("waiting", timeout=2.0)
+
+        self.core.emit(snapshot(item(1), characters=[]))
+        upgraded = self.service.wait_for_snapshot(after_snapshot_id=first.last_snapshot_id, timeout=2.0)
+        self.assertIn("尚未观测到角色实例", upgraded.message)
+        with UserDataDao(self.database_path) as dao:
+            self.assertTrue(dao.snapshot_has_independent_character_instances(upgraded.last_snapshot_id))
+            self.assertEqual(legacy, dao.raw_snapshot(first.last_snapshot_id))
+
+        self.core.emit(snapshot(
+            item(1), sequence=2,
+            characters=[{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}],
+        ))
+        ready = self.service.wait_for_snapshot(after_snapshot_id=upgraded.last_snapshot_id, timeout=2.0)
+        self.assertNotIn("尚未观测到角色实例", ready.message)
+
+    def test_unchanged_native_event_reports_receipt_without_creating_snapshot(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1)))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+        self.service.start()
+        self.service.wait_for_phase("waiting", timeout=2.0)
+        received = threading.Event()
+        self.service.add_state_handler(
+            lambda state: received.set() if "已收到原生背包" in state.message else None
+        )
+
+        self.core.emit(snapshot(item(1), sequence=2))
+        self.assertTrue(received.wait(2.0))
+        self.assertEqual(first.last_snapshot_id, self.service.state.last_snapshot_id)
+        self.assertIn("未附带独立角色列表", self.service.state.message)
+
+    def test_restart_notifications_only_claim_sync_after_current_session_confirmation(self) -> None:
+        self._start()
+        original = snapshot(item(1))
+        self.core.emit(original)
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+        states = []
+        listening = threading.Event()
+
+        def observe(state):
+            states.append(state)
+            if state.phase == "listening" and state.source_snapshot_ready:
+                listening.set()
+
+        self.service.add_state_handler(observe)
+        self.service.start()
+        waiting = self.service.wait_for_phase("waiting", timeout=2.0)
+        self.assertEqual(first.last_snapshot_id, waiting.last_snapshot_id)
+        self.assertFalse(waiting.source_snapshot_ready)
+        self.assertFalse(listening.is_set())
+        self.core.emit(snapshot(item(1), item(2), sequence=2))
+        self.assertTrue(listening.wait(2.0))
+        confirmed = next(state for state in states if state.phase == "listening" and state.source_snapshot_ready)
+        self.assertGreater(confirmed.last_snapshot_id, first.last_snapshot_id)
+        self.assertEqual(2, confirmed.last_item_count)
+        self.assertTrue(any(state.phase == "collecting" for state in states))
+        self.assertFalse(any(
+            state.phase == "listening" and state.source_snapshot_ready
+            and state.last_snapshot_id == first.last_snapshot_id for state in states
+        ))
+        self.service.stop()
+        states.clear()
+        listening.clear()
+        self.service.start()
+        self.service.wait_for_phase("waiting", timeout=2.0)
+        self.assertFalse(listening.is_set())
+        self.core.emit(snapshot(item(1), item(2), sequence=3))
+        self.assertTrue(listening.wait(2.0))
+        same = next(state for state in states if state.phase == "listening" and state.source_snapshot_ready)
+        self.assertEqual(confirmed.last_snapshot_id, same.last_snapshot_id)
+        with UserDataDao(self.database_path) as dao:
+            self.assertEqual(2, dao.summary()["snapshot_count"])
+
+    def test_keeps_new_character_instance_candidate_when_legacy_event_follows(self) -> None:
+        """A trailing old-format event must not cancel the v0.3.5 upgrade."""
+
+        self._start()
+        self.core.emit(snapshot(item(1), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.service.stop()
+
+        self.service.start()
+        self.service.wait_for_phase("waiting", timeout=2.0)
+        characters = [{"character_id": 1001, "uid": {"slot": 11, "serial": 22}}]
+        self.core.emit(snapshot(item(1), generation=2, sequence=2, characters=characters))
+        self.service.wait_for_phase("collecting", timeout=2.0)
+        self.core.emit(snapshot(item(1), generation=2, sequence=3))
+        second = self.service.wait_for_snapshot(after_snapshot_id=first.last_snapshot_id, timeout=2.0)
+
+        with UserDataDao(self.database_path) as dao:
+            self.assertTrue(dao.snapshot_has_independent_character_instances(second.last_snapshot_id))
+            self.assertEqual(1001, dao.list_character_instance_mappings()[0]["character_id"])
+
+    def test_two_separate_change_bursts_create_two_atomic_versions(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+
+        self.core.emit(snapshot(item(1), item(2), sequence=2))
+        second = self.service.wait_for_snapshot(
+            after_snapshot_id=first.last_snapshot_id,
+            timeout=2.0,
+        )
+        self.assertGreater(second.last_snapshot_id, first.last_snapshot_id)
+        self.assertEqual(2, second.last_item_count)
+
+        with UserDataDao(self.database_path) as dao:
+            self.assertEqual(2, dao.summary()["snapshot_count"])
+            diff = dao.inventory_snapshot_diff(
+                first.last_snapshot_id,
+                second.last_snapshot_id,
+            )
+            self.assertEqual(1, diff["added_count"])
+            self.assertEqual(0, diff["removed_count"])
+
+    def test_applies_configured_snapshot_retention_after_sync(self) -> None:
+        self._start()
+        with UserDataDao(self.database_path) as dao:
+            dao.update_sync_settings(inventory_snapshot_retention_count=1)
+
+        self.core.emit(snapshot(item(1), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+        self.core.emit(snapshot(item(1), item(2), sequence=2))
+        second = self.service.wait_for_snapshot(
+            after_snapshot_id=first.last_snapshot_id,
+            timeout=2.0,
+        )
+
+        with UserDataDao(self.database_path) as dao:
+            self.assertEqual(1, dao.summary()["snapshot_count"])
+            self.assertEqual(second.last_snapshot_id, dao.current_inventory_snapshot_id())
+
+    def test_duplicate_events_do_not_create_duplicate_database_snapshots(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), sequence=1))
+        self.service.wait_for_snapshot(timeout=2.0)
+        self.core.emit(snapshot(item(1), sequence=2))
+        self.core.emit(snapshot(item(1), sequence=3))
+        time.sleep(0.12)
+
+        with UserDataDao(self.database_path) as dao:
+            self.assertEqual(1, dao.summary()["snapshot_count"])
+
+    def test_later_removal_and_same_count_edit_are_not_lost(self) -> None:
+        self._start()
+        self.core.emit(snapshot(item(1), item(2), sequence=1))
+        first = self.service.wait_for_snapshot(timeout=2.0)
+
+        self.core.emit(snapshot(item(1, level=2), sequence=2))
+        second = self.service.wait_for_snapshot(
+            after_snapshot_id=first.last_snapshot_id,
+            timeout=2.0,
+        )
+        self.assertEqual(1, second.last_item_count)
+        with UserDataDao(self.database_path) as dao:
+            diff = dao.inventory_snapshot_diff(first.last_snapshot_id, second.last_snapshot_id)
+            self.assertEqual(1, diff["removed_count"])
+            self.assertEqual(1, diff["changed_count"])
+
+    def test_stop_releases_capture_and_core_process(self) -> None:
+        self._start()
+        self.service.stop()
+        self.assertTrue(self.core.capture_stopped)
+        self.assertTrue(self.core.closed)
+        self.assertEqual("stopped", self.service.state.phase)
+
+    def test_preserves_core_domain_code_for_workbench_guidance(self) -> None:
+        failing_core = FailingCaptureCoreClient()
+        service = InventorySyncService(
+            self.database_path,
+            operation_guard=lambda _capability: None,
+            account_id="tester",
+            account_name="测试账号",
+            client_factory=lambda: failing_core,
+            poll_seconds=0.005,
+        )
+
+        service.start()
+        state = service.wait_for_phase("error", timeout=2.0)
+
+        self.assertEqual("NPCAP_NOT_FOUND", state.error_code)
+        self.assertFalse(state.running)
+
+    def test_failed_capture_writes_final_diagnostic_summary(self) -> None:
+        events: list[tuple[str, dict]] = []
+        failing_core = FailingCaptureCoreClient()
+        self.service = InventorySyncService(
+            self.database_path, account_id="tester", account_name="测试账号",
+            operation_guard=lambda _capability: None,
+            client_factory=lambda: failing_core,
+        )
+
+        def capture(_level, event, _message, _context, **fields):
+            events.append((event, fields))
+
+        with patch("src.services.inventory.sync.runtime.log_event", side_effect=capture), patch(
+            "src.services.inventory.sync.logging.log_event", side_effect=capture,
+        ):
+            self.service.start()
+            self.service.wait_for_phase("error", timeout=2.0)
+            self.service.stop()
+
+        failure = next(fields for event, fields in events if event == "inventory_sync.failed")
+        summary = next(fields for event, fields in events if event == "inventory_sync.session_summary")
+        self.assertEqual("starting_capture", failure["failure_stage"])
+        self.assertEqual(0, summary["processed_event_count"])
+        self.assertEqual("failed", summary["phase"])
+        self.assertTrue(summary["final"])
+        self.assertTrue(failing_core.closed)
+
+
+if __name__ == "__main__":
+    unittest.main()

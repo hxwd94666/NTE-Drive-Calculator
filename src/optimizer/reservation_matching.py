@@ -4,7 +4,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 
 
 def match_reserved_group_slots(
@@ -17,7 +16,7 @@ def match_reserved_group_slots(
     drive_shapes: Sequence[str] | None = None,
     reservation_shapes: Sequence[str] | None = None,
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """Maximize current ranking while filling every earlier reservation row.
+    """最大化当前排名时同时填满前序预留行；不用虚拟列冒充完整回填。
 
     Current columns retain their original order and eligibility. Additional
     reservation-only UIDs have no legal edge to a current row. Earlier rows
@@ -69,6 +68,7 @@ def match_reserved_group_slots(
         for uid in candidates:
             costs[current_rows + offset, uid_columns[uid]] = 0.0
 
+    from scipy.optimize import linear_sum_assignment
     try:
         rows, columns = linear_sum_assignment(costs)
     except ValueError:
@@ -125,6 +125,7 @@ def _match_by_shape(
         for local_row, reservation_index in enumerate(reserved, start=len(rows)):
             for uid in reservation_candidates[reservation_index]:
                 costs[local_row, uid_columns[uid]] = 0.0
+        from scipy.optimize import linear_sum_assignment
         try:
             local_rows, local_columns = linear_sum_assignment(costs)
         except ValueError:

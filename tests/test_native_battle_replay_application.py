@@ -9,12 +9,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_hit_replay_service import BattleHitReplayService
-from src.services.battle_hit_replay_audit_service import BattleHitReplayAuditService
+from src.services.battle_report.replay.service import BattleHitReplayService
+from src.services.battle_report.replay.audit import BattleHitReplayAuditService
 from tests.test_native_direct_replay import frozen_fixture
 from tests.test_native_mixed_hit_replay import _fixture
-from tests.test_battle_replay_audit_repairs import _hit, _replay
-from tests.test_battle_buff_attribute_projection_service import _interval
+from tests.battle_report.replay.test_audit_repairs import _hit, _replay
+from tests.battle_report.buffs.test_attribute_projection import _interval
 from src.domain.battle_report import BattleCharacterStat, BattleCharacterSourceStat
 
 

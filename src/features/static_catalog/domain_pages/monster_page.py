@@ -58,13 +58,13 @@ from src.features.static_catalog.domain_pages.monster_widgets import (
     clear_layout,
     section_title,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_monster_service import (
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.static_catalog.monsters.service import (
     CatalogDetail,
     CatalogEntry,
     StaticCatalogMonsterService,
 )
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 

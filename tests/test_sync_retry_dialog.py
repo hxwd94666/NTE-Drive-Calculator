@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QWidget
 from auto_sync_ui_fixture import application, dispose
 
 from src.features.home.sync_retry_dialog import SyncRetryDialog
-from src.services.inventory_sync_service import InventorySyncState
+from src.services.inventory.sync.state import InventorySyncState
 
 
 class Controller(QObject):

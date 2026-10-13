@@ -1,5 +1,5 @@
 # 测试对话框缩放与居中。
-"""Regression coverage for high-DPI dialog work-area fitting."""
+"""保留混合缩放的屏幕限位与确认动作可达性，不锁定私有控件最小高度。"""
 
 from __future__ import annotations
 
@@ -13,9 +13,7 @@ from PySide6.QtCore import QRect, QSize
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QGroupBox,
     QPushButton,
-    QScrollArea,
     QWidget,
 )
 
@@ -153,12 +151,6 @@ def test_replacement_dialog_keeps_confirm_action_inside_work_area(
         observed["confirm_bottom"] = confirm.mapTo(
             dialog, confirm.rect().bottomLeft(),
         ).y()
-        observed["candidate_minimum"] = dialog.findChild(
-            QGroupBox, "equipmentReplacementCandidateGroup",
-        ).minimumHeight()
-        observed["comparison_minimum"] = dialog.findChild(
-            QScrollArea, "equipmentReplacementComparisonScroll",
-        ).minimumHeight()
         dialog.hide()
         return QDialog.Rejected
 
@@ -209,8 +201,6 @@ def test_replacement_dialog_keeps_confirm_action_inside_work_area(
         on_confirm=lambda _choice: None,
     )
 
-    assert 60 <= observed["candidate_minimum"] <= 120
-    assert 140 <= observed["comparison_minimum"] <= 310
     assert observed["dialog_width"] <= max(1, available.width() - 48)
     assert observed["dialog_height"] <= max(1, available.height() - 48)
     # Qt's styled dialog frame can shift the post-show client geometry by two

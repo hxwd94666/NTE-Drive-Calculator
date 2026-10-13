@@ -28,7 +28,7 @@ def validate_release_path(
     release: StaticCatalogRelease,
     database_path: str | Path,
 ) -> None:
-    """Reject requests whose frozen release is not this provider's database."""
+    """请求路径须等于该 Provider 的数据库且为只读；不重新选择最新发行库。"""
 
     expected = Path(database_path).expanduser().resolve()
     actual = release.database_path.expanduser().resolve()
@@ -46,7 +46,7 @@ def validate_release_identity(
     importer_version: int,
     built_at_utc: str | None = None,
 ) -> None:
-    """Compare service evidence with the identity frozen by the controller."""
+    """核对 Service 证据与 Controller 冻结的 dataset/schema/importer，提供构建时间时也须一致。"""
 
     if release.dataset_id != dataset_id:
         raise RuntimeError("资料库请求期间静态 dataset 已变化")
@@ -59,7 +59,7 @@ def validate_release_identity(
 
 
 def source_for(origin: str) -> CatalogValueSource:
-    """Map domain provenance without upgrading unavailable data to official."""
+    """沿用来源分类；不可用标为派生展示，未知来源回退项目说明，不提升为正式静态事实。"""
 
     return _SOURCE_BY_ORIGIN.get(
         str(origin),
@@ -74,6 +74,7 @@ def field(
     source: CatalogValueSource,
     copyable: bool = False,
 ) -> CatalogField:
+    # 仅 None/空串显示不可用，明确的数值零和布尔值不作缺失。
     return CatalogField(
         label=str(label),
         value="不可用" if value is None or value == "" else str(value),

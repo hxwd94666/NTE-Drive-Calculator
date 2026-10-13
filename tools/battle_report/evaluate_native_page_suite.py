@@ -1,5 +1,5 @@
 # 冻结候选核心并顺序核对全库页面、显式范围与隔离库首次拟合，不执行性能验收。
-"""Run the final native page differential suite against isolated input copies."""
+"""仅在显式准备的隔离库副本核对原生页面；差分耗时不作为性能验收。"""
 from __future__ import annotations
 
 import argparse
@@ -32,7 +32,7 @@ def main() -> int:
     if args.range_record is not None and (args.start_us is None or args.end_us is None):
         parser.error("--range-record requires --start-us and --end-us")
     destination = args.output_directory.resolve()
-    # The suite contains private DB copies and must stay in the project's ignored output.
+    # 隔离数据库副本只放本仓库忽略的 output，不能进入源码或交付目录。
     if not destination.is_relative_to((ROOT / "output").resolve()):
         parser.error("--output-directory must be under the repository output directory")
     destination.mkdir(parents=True, exist_ok=True)

@@ -4,8 +4,8 @@ import json
 import pytest
 
 from src.integrations.native_plugin_bundle import inspect_native_plugin_bundle, resolve_bundled_native_core
-from src.services.native_loader_workspace import prepare_native_loader_workspace, inspect_native_loader_workspace
-from src.services.native_plugin_deployment import deploy_native_component_files
+from src.integrations.components.loader_workspace import prepare_native_loader_workspace, inspect_native_loader_workspace
+from src.integrations.components.native_files import deploy_native_component_files
 from tests.test_native_component_bundle_build import native_source, prepare
 from tools.release.game_component_bundle_build import validate_packaged_component_bundle
 

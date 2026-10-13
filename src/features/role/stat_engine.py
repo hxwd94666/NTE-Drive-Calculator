@@ -1,9 +1,7 @@
 # 计算角色面板属性并汇总装备加成。
-"""Shared, side-effect-free character panel stat calculation.
-
-This module calculates the attributes shown on a character panel.  It does
-not include conditional weapon skills or set effects; those belong to a future
-combat layer rather than a static panel.
+"""显式上下文下的纯面板/装备聚合，不读取控件、文件或数据库。
+保留原模型面板口径；条件弧盘技能与套装效果不进入此静态面板。
+官方角色当前养成与冻结方案来源仍由正式角色/配装 Service 投影。
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ _PANEL_SYNTHESIS = (
 
 @dataclass(frozen=True)
 class CharacterStatContext:
-    """All dependencies of a panel calculation, supplied explicitly."""
+    """所有面板依赖由调用方显式提供；frozen字段不等于嵌套字典深度冻结。"""
 
     role_models: dict[str, Any]
     roles_db: dict[str, Any]
@@ -81,6 +79,7 @@ def add_stat_map(totals: StatTotals, stats: Any, aliases: dict[str, str]) -> Non
 
 
 def fallback_tape_main_value(main_stat: Any, quality: Any, stats_config: dict[str, Any], aliases: dict[str, str]) -> float:
+    """仅保留旧缺主值输入的标签回退，优先本次配置和别名；未知标签不造新值。"""
     configured = (stats_config or {}).get("tape_main_stat_values", {})
     raw_name = str(main_stat or "").strip()
     name = canonical_stat_name(raw_name, aliases)
@@ -155,8 +154,7 @@ def _stats_at_level(template: dict[str, Any], level: int | None) -> StatTotals:
 def _model_role_panel_stats(model_role: dict[str, Any]) -> tuple[StatTotals, int | None]:
     level = _highest_available_level(model_role.get("level_sub_stats", {}))
     stats = dict(model_role.get("sub_stats", {}) or {})
-    # The level table is authoritative for level-dependent base panel stats;
-    # sub_stats retains fixed panel entries such as initial crit values.
+    # 此模型选择已有最高等级；等级表覆盖成长字段，固定初始暴击等仍来自sub_stats。
     stats.update(_stats_at_level(model_role, level))
     return stats, level
 
@@ -190,11 +188,12 @@ def _extra_shape_target(role_data: dict[str, Any]) -> int | None:
 
 
 def allocation_equipment_stats(ctx: CharacterStatContext, role_name: str, tape: Any, drives: list[Any] | None) -> StatTotals:
-    """Return tape + drive contribution, including drive-shape fixed stats."""
+    """聚合传入卡带/驱动及品质形状固定属性，不包含条件技能或套装效果。"""
     totals: StatTotals = {}
     if tape:
         main_stat = item_value(tape, "main_stats", "")
         main_value = item_value(tape, "main_value", None)
+        # 传入快照主值优先，含明确零值；只有缺失主值才沿用旧标签回退。
         if main_value is None:
             main_value = fallback_tape_main_value(main_stat, item_value(tape, "quality", "Gold"), ctx.stats_config, ctx.stat_alias_mapping)
         add_stat_total(totals, main_stat, main_value, ctx.stat_alias_mapping)
@@ -213,6 +212,7 @@ def allocation_equipment_stats(ctx: CharacterStatContext, role_name: str, tape: 
 
 
 def synthesize_panel_totals(raw_totals: StatTotals) -> StatTotals:
+    """在新字典合成三项总属性，不改原来源分项或重复计入白值/百分比/固定值。"""
     totals = dict(raw_totals)
     for base_key, pct_key, flat_key, display_key in _PANEL_SYNTHESIS:
         base = totals.pop(base_key, 0.0)
@@ -224,7 +224,7 @@ def synthesize_panel_totals(raw_totals: StatTotals) -> StatTotals:
 
 
 def build_character_panel(ctx: CharacterStatContext, role_name: str, tape: Any = None, drives: list[Any] | None = None) -> CharacterPanel:
-    """Build visible panel attributes from model role + weapon + allocation."""
+    """按显式模型、选定弧盘和传入装备构造面板，并保留各来源分项。"""
     model_role = (ctx.role_models or {}).get(role_name, {})
     model_role = model_role if isinstance(model_role, dict) else {}
     role_stats, role_level = _model_role_panel_stats(model_role)

@@ -81,15 +81,15 @@ def _parser() -> argparse.ArgumentParser:
 def _marginal(history, record_id, static_database, source_root, progress, metrics):
     from src.domain.stat_catalog import StatCatalog
     from src.features.battle_report.marginal_page import BattleMarginalPage
-    from src.services.battle_marginal_calculation_service import BattleMarginalCalculationService
-    from src.services.battle_marginal_calculation_support import drive_substat_marginal_units
-    from src.services.battle_marginal_candidate_service import BattleMarginalCandidateService
-    from src.services.battle_report_analysis_load_service import (
+    from src.services.battle_report.marginal.calculation import BattleMarginalCalculationService
+    from src.services.battle_report.marginal.calculation_support import drive_substat_marginal_units
+    from src.services.battle_report.marginal.candidates import BattleMarginalCandidateService
+    from src.services.battle_report.analysis.load import (
         BattleReportAnalysisLoadRequest, BattleReportAnalysisLoadService,
     )
     worker_panel = "marginal_drive_units" in BattleReportAnalysisLoadRequest.__dataclass_fields__
     if worker_panel:
-        from src.services.battle_marginal_panel_service import character_panel_marginal_units
+        from src.services.battle_report.marginal.panel import character_panel_marginal_units
     else:
         # The frozen v0.1/v2 application calculated its panel in the UI helper.
         from src.features.battle_report.marginal_character_panel import character_panel_marginal_units
@@ -182,7 +182,7 @@ def _canonical_payload(payload):
             analysis = values['analysis']
             display = None
             if getattr(analysis, 'build_counterfactual', None) is not None:
-                from src.services.battle_build_timeline_projection_service import BattleBuildTimelineProjectionService
+                from src.services.battle_report.build.timeline_projection import BattleBuildTimelineProjectionService
                 display = BattleBuildTimelineProjectionService.project(analysis, analysis.build_counterfactual)
             values['candidate_display_analysis'] = display
         return {**payload, "page": values}
@@ -221,8 +221,8 @@ def _worker(args) -> int:
     source_root = args.source_root.resolve()
     sys.path.insert(0, str(source_root))
     os.chdir(source_root)
-    import src.services.battle_report_history_service as history_module
-    from src.services.battle_report_persistence_service import BattleReportPersistenceDependencies
+    import src.services.battle_report.history.service as history_module
+    from src.services.battle_report.persistence import BattleReportPersistenceDependencies
     from tools.battle_report.evaluate_native_analysis import compare_results
 
     if not Path(history_module.__file__).resolve().is_relative_to(source_root):
@@ -278,7 +278,7 @@ def _worker(args) -> int:
                 static_database_path=args.static_database,
             )
             if args.backend == "database":
-                from src.services.battle_native_page_service import BattleNativePageService
+                from src.services.battle_report.analysis.native_page import BattleNativePageService
                 kwargs["native_page_loader"] = BattleNativePageService(
                     client=client, dependencies=dependencies,
                     semantics_path=source_root / "config/gameplay_effect_semantics.json",

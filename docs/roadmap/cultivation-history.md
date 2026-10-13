@@ -368,10 +368,10 @@
 
 | 本文要求 | 当前实现入口 | 必须补齐的证据 |
 | --- | --- | --- |
-| §3–4 完整草稿、轻量快照、显式零/未知、4 MiB 保护 | `src/domain/cultivation_history.py`、`cultivation_history_snapshot.py`；`src/services/cultivation_history_projection.py` | 格式与畸形输入专项；完整发行目录正式求解后的序列化、数据库及 WAL 实测 |
-| §5 同草稿更新、克隆新条、冻结保存、失败重试 | `src/services/cultivation_history_service.py`；`src/features/toolbox/cultivation_history_binding.py` | 首次/更新/重启、去重、迟到结果、保存失败及删除后不复活专项 |
+| §3–4 完整草稿、轻量快照、显式零/未知、4 MiB 保护 | `src/domain/cultivation_history.py`、`cultivation_history_snapshot.py`；`src/services/progression/history_adapters.py` | 格式与畸形输入专项；完整发行目录正式求解后的序列化、数据库及 WAL 实测 |
+| §5 同草稿更新、克隆新条、冻结保存、失败重试 | `src/services/progression/history_service.py`；`src/features/toolbox/cultivation/history_binding.py` | 首次/更新/重启、去重、迟到结果、保存失败及删除后不复活专项 |
 | §6 提前材料准备、有界缓存、正式求解不重复成本 | 单/多角色 Planner、Controller 与 Calculator/Batch 页面 | 真实准备调用次数、数量/目标变更、排队与过期结果专项；正式求解环境验证 |
-| §7 原样加载、兼容验证、原子替换 | `src/services/cultivation_history_restore.py`；工具页草稿适配与 `cultivation_page.py` | 关闭模块、技能/弧盘/材料恢复、范围失配及账号切换专项 |
+| §7 原样加载、兼容验证、原子替换 | `src/services/progression/history_adapters.py`；工具页草稿适配与 `cultivation_page.py` | 关闭模块、技能/弧盘/材料恢复、范围失配及账号切换专项 |
 | §8 跨页多选、全选冻结、修订保护、删除绑定撤销 | 历史 Controller/View、History Service 与 DAO | 确认取消、更新冲突、分块回滚、并发删除/保存及迟到详情专项 |
 | §9–10 账号隔离、追加迁移、一致性备份与导入导出 | History DAO、用户库迁移、`user_data_migration_backup.py`、账号 Manager、`src/ui/toolbox_composition.py` | 新建/旧库/迁移故障重试、临时账号切换、导入导出专项 |
 | §11–12 门禁与真实界面 | 新增专项用例、既有质量入口、真实 Windows 验收流程 | Ruff 硬门禁、授权范围内专项与 core/full；三主题、键盘、混合 DPI、大列表及滚动验收 |

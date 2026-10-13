@@ -30,7 +30,7 @@ from src.app.version import __version__
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.nte_core import NteCoreClient
-from src.integrations.ocr_model_resources import validate_packaged_ocr_models
+from src.integrations.vision.recognition.model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.native_component_bundle_build import native_component_build_inputs
 

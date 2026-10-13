@@ -8,12 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 from src.features.static_catalog.contracts import CatalogLink
-from src.services.static_catalog_mechanics_models import encode_record
-from src.storage.sqlite.static_catalog_misc_queries import StaticCatalogMiscDao
+from src.services.static_catalog.mechanics.models import encode_record
+from src.storage.sqlite.catalog.static_catalog_misc_queries import StaticCatalogMiscDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 

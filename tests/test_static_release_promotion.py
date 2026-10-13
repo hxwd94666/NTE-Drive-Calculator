@@ -40,6 +40,26 @@ from tools.game_data.promote_static_release import (
 
 
 class StaticReleasePromotionTests(unittest.TestCase):
+    def test_source_hash_match_does_not_allow_paths_outside_content_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            content = root / "Content"
+            content.mkdir()
+            outside = root / "outside.json"
+            outside.write_text("fixture", encoding="utf-8")
+            digest = promotion.sha256(outside)
+            paths = ("../outside.json", "combat_blueprint/../outside.json", str(outside), "..\\outside.json", "./inside.json", "dir//inside.json", "C:outside.json", "//host/share/file")
+            for relative in paths:
+                with self.subTest(relative=relative), self.assertRaises(StaticReleasePromotionError):
+                    with patch.object(promotion, "sha256", wraps=promotion.sha256) as read_hash:
+                        try:
+                            promotion.validate_source_files([(relative, digest)], content)
+                        finally:
+                            read_hash.assert_not_called()
+            inside = content / "inside.json"
+            inside.write_text("fixture", encoding="utf-8")
+            promotion.validate_source_files([("inside.json#Rows", digest), ("combat_blueprint/inside.json", digest)], content)
+
     def test_storage_repack_preserves_every_row_and_promotes_as_one_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from src.storage.json_store import write_json
+
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -537,15 +539,14 @@ class RoleSelectorPreferencesMixin:
         }
 
     def save_priority_config(self, show_message: bool = True):
-        self._write_priority_config(self._priority_config_path())
+        self._write_priority_config(self._priority_save_path())
         if show_message:
             QMessageBox.information(self, "保存成功", "当前角色优先级方案已保存，可随时读取该方案。")
 
     def save_temporary_priority_config(self):
-        self._write_priority_config(temporary_priority_config_path(self._priority_config_path()))
+        self._write_priority_config(temporary_priority_config_path(self._priority_save_path()))
 
     def _write_priority_config(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "role_default_policy": _ROLE_DEFAULT_POLICY,
             "default_mag_character_ids": sorted(self.default_mag_character_ids),
@@ -555,8 +556,7 @@ class RoleSelectorPreferencesMixin:
             "custom_sets": self.get_custom_sets(),
             "custom_set_overrides": self.get_custom_sets(),
             "custom_weapons": self.get_custom_weapons(),
-            # Older files saved every effective default; only this marker
-            # distinguishes a deliberate same-name fork correction.
+            # 旧文件保存全部生效默认值；该标记才代表用户主动选择同名弧盘。
             "custom_weapon_selections": sorted(
                 name for name in self.selected if name in self.custom_weapons
             ),
@@ -588,118 +588,133 @@ class RoleSelectorPreferencesMixin:
             ),
             "set_effect_modes": self.get_set_effect_modes(),
         }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        write_json(path, data, indent=2)
 
     def load_priority_config(self):
-        self._load_priority_config_from(self._priority_config_path())
+        path = self._priority_load_path()
+        if self._load_priority_config_from(path):
+            self._priority_draft_path = path
 
     def load_startup_priority_config(self):
-        temp_path = temporary_priority_config_path(self._priority_config_path())
-        if temp_path.exists():
-            self._load_priority_config_from(temp_path)
-        else:
-            self.load_priority_config()
+        path = self._priority_config_path().resolve()
+        if path != self._priority_catalog_path:
+            self.prepare_priority_account()
+        # 仅已应用当前账号角色目录的启动入口可解除读取门禁；坏包仍不恢复保存。
+        self._priority_catalog_path = path
+        temp_path = temporary_priority_config_path(path)
+        if self._load_priority_config_from(temp_path if temp_path.exists() else path):
+            self._priority_draft_path = path
 
     def restore_temporary_priority_config(self):
-        self._load_priority_config_from(temporary_priority_config_path(self._priority_config_path()))
+        path = self._priority_load_path()
+        if self._load_priority_config_from(temporary_priority_config_path(path)):
+            self._priority_draft_path = path
 
     def _load_priority_config_from(self, path: Path):
-        self.selected.clear()
-        self.priority_links.clear()
-        self.custom_sets.clear()
-        self.custom_weapons.clear()
-        self.crit_rate_caps.clear()
-        self.crit_rate_cap_sources.clear()
-        self.tape_main_filters.clear()
-        self.tape_main_filter_override_roles.clear()
-        self.stat_priority_configs.clear()
-        self.stat_priority_override_roles.clear()
-        self.set_effect_modes.clear()
-        if not path.exists():
-            self._render_grid(self.search.text())
-            return
+        # 调用方已冻结本次路径；同步读取/准备阶段不改旧草稿，也不派发 UI 回调。
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self.selected, self.priority_links = load_priority_selection(data, self.all_roles)
-            self.custom_sets = self._load_custom_set_overrides(data)
-            raw_weapon_selections = data.get("custom_weapon_selections")
-            # Without the marker, a saved default name was not a user choice.
-            explicit_weapon_roles = (
-                {role for role in raw_weapon_selections if isinstance(role, str)}
-                if isinstance(raw_weapon_selections, list)
-                else None
-            )
-            self.custom_weapons = {
-                role: weapon
-                for role, weapon in data.get("custom_weapons", {}).items()
-                if role in self.all_roles and weapon and (not self.weapons_db or weapon in self.weapons_db)
-                and (
-                    role in explicit_weapon_roles
-                    if explicit_weapon_roles is not None
-                    else weapon != self._default_weapon_for_role(role)
-                )
-            }
-            self.crit_rate_caps = {}
-            self.crit_rate_cap_sources = {}
-            raw_cap_sources = data.get("crit_rate_cap_sources", {})
-            for role, value in data.get("crit_rate_caps", {}).items():
-                if role not in self.all_roles:
-                    continue
-                try:
-                    cap = round(min(max(float(value), 0.0), 100.0), 4)
-                except (TypeError, ValueError):
-                    continue
-                source = raw_cap_sources.get(role) if isinstance(raw_cap_sources, dict) else None
-                if source not in {"automatic", "manual"}:
-                    automatic_cap = self._automatic_crit_rate_cap(
-                        role, self._effective_weapon_for_role(role)
-                    )
-                    source = (
-                        "automatic"
-                        if automatic_cap is not None and abs(cap - automatic_cap) < 0.0001
-                        else "manual"
-                    )
-                self.crit_rate_caps[role] = cap
-                self.crit_rate_cap_sources[role] = source
-            raw_filters = data.get("tape_main_filters", {})
-            self.tape_main_filters = {}
-            self.tape_main_filter_override_roles = {
-                role
-                for role in data.get("tape_main_filter_override_roles", [])
-                if role in self.all_roles
-            }
-            for role, values in raw_filters.items():
-                if role not in self.all_roles or not isinstance(values, list):
-                    continue
-                filtered = [value for value in values if value in self.tape_main_stats]
-                self.tape_main_filters[role] = filtered
-                self.tape_main_filter_override_roles.add(role)
-            self.stat_priority_configs = {}
-            self.stat_priority_override_roles = {
-                role
-                for role in data.get("stat_priority_override_roles", [])
-                if role in self.all_roles
-            }
-            allowed_stats = set(self.drive_sub_stats)
-            for role, cfg_item in data.get("stat_priority_configs", {}).items():
-                if role not in self.all_roles or not isinstance(cfg_item, dict):
-                    continue
-                cfg = persistable_stat_priority_config(cfg_item, allowed_stats=allowed_stats)
-                if cfg:
-                    self.stat_priority_configs[role] = cfg
-                    self.stat_priority_override_roles.add(role)
-            self.set_effect_modes = {}
-            for role, mode in data.get("set_effect_modes", {}).items():
-                normalized = normalize_set_effect_mode(mode)
-                if role in self.all_roles and normalized in SET_EFFECT_MODES and normalized != FOUR_PIECE:
-                    self.set_effect_modes[role] = normalized
-            self._render_grid(self.search.text())
+            with open(path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            prepared = self._prepare_priority_config(data)
+        except FileNotFoundError:
+            return True
         except Exception as exc:
             QMessageBox.warning(self, "恢复优先级", f"读取优先级配置失败：{exc}")
+            return False
+        # 所有角色关联及偏好转换均完成后一次应用，半份坏包不会清空旧选择。
+        for field, value in prepared.items():
+            setattr(self, field, value)
+        self._render_grid(self.search.text())
+        return True
 
-    def _load_custom_set_overrides(self, data: dict) -> dict[str, str]:
+    def _prepare_priority_config(self, data: dict) -> dict:
+        if not isinstance(data, dict):
+            raise ValueError("优先级配置必须是 JSON 对象")
+        # 非字符串角色关联若延迟到控件呈现才报错，仍会留下已替换的半份草稿。
+        for field in ("custom_sets", "custom_set_overrides", "custom_weapons"):
+            mapping = data.get(field, {})
+            if isinstance(mapping, dict) and any(
+                role in self.all_roles and value and not isinstance(value, str)
+                for role, value in mapping.items()
+            ):
+                raise ValueError(f"{field} 中的角色关联必须是名称字符串")
+        prepared = {}
+        prepared["selected"], prepared["priority_links"] = load_priority_selection(data, self.all_roles)
+        prepared["custom_sets"] = self._load_custom_set_overrides(data, selected=prepared["selected"])
+        raw_weapon_selections = data.get("custom_weapon_selections")
+        # 无显式标记时，旧文件的默认弧盘名称不升级为手动选择。
+        explicit_weapon_roles = (
+            {role for role in raw_weapon_selections if isinstance(role, str)}
+            if isinstance(raw_weapon_selections, list)
+            else None
+        )
+        prepared["custom_weapons"] = {
+            role: weapon
+            for role, weapon in data.get("custom_weapons", {}).items()
+            if role in self.all_roles and weapon and (not self.weapons_db or weapon in self.weapons_db)
+            and (
+                role in explicit_weapon_roles
+                if explicit_weapon_roles is not None
+                else weapon != self._default_weapon_for_role(role)
+            )
+        }
+        prepared["crit_rate_caps"] = {}
+        prepared["crit_rate_cap_sources"] = {}
+        raw_cap_sources = data.get("crit_rate_cap_sources", {})
+        for role, value in data.get("crit_rate_caps", {}).items():
+            if role not in self.all_roles:
+                continue
+            try:
+                cap = round(min(max(float(value), 0.0), 100.0), 4)
+            except (TypeError, ValueError):
+                continue
+            source = raw_cap_sources.get(role) if isinstance(raw_cap_sources, dict) else None
+            if source not in {"automatic", "manual"}:
+                automatic_cap = self._automatic_crit_rate_cap(
+                    role, str(prepared["custom_weapons"].get(role) or self._default_weapon_for_role(role))
+                )
+                source = (
+                    "automatic"
+                    if automatic_cap is not None and abs(cap - automatic_cap) < 0.0001
+                    else "manual"
+                )
+            prepared["crit_rate_caps"][role] = cap
+            prepared["crit_rate_cap_sources"][role] = source
+        raw_filters = data.get("tape_main_filters", {})
+        prepared["tape_main_filters"] = {}
+        prepared["tape_main_filter_override_roles"] = {
+            role
+            for role in data.get("tape_main_filter_override_roles", [])
+            if role in self.all_roles
+        }
+        for role, values in raw_filters.items():
+            if role not in self.all_roles or not isinstance(values, list):
+                continue
+            filtered = [value for value in values if value in self.tape_main_stats]
+            prepared["tape_main_filters"][role] = filtered
+            prepared["tape_main_filter_override_roles"].add(role)
+        prepared["stat_priority_configs"] = {}
+        prepared["stat_priority_override_roles"] = {
+            role
+            for role in data.get("stat_priority_override_roles", [])
+            if role in self.all_roles
+        }
+        allowed_stats = set(self.drive_sub_stats)
+        for role, cfg_item in data.get("stat_priority_configs", {}).items():
+            if role not in self.all_roles or not isinstance(cfg_item, dict):
+                continue
+            cfg = persistable_stat_priority_config(cfg_item, allowed_stats=allowed_stats)
+            if cfg:
+                prepared["stat_priority_configs"][role] = cfg
+                prepared["stat_priority_override_roles"].add(role)
+        prepared["set_effect_modes"] = {}
+        for role, mode in data.get("set_effect_modes", {}).items():
+            normalized = normalize_set_effect_mode(mode)
+            if role in self.all_roles and normalized in SET_EFFECT_MODES and normalized != FOUR_PIECE:
+                prepared["set_effect_modes"][role] = normalized
+        return prepared
+
+    def _load_custom_set_overrides(self, data: dict, *, selected=None) -> dict[str, str]:
         if isinstance(data.get("custom_set_overrides"), dict):
             source = data.get("custom_set_overrides", {})
             return {
@@ -711,7 +726,7 @@ class RoleSelectorPreferencesMixin:
         legacy = data.get("custom_sets", {})
         if not isinstance(legacy, dict):
             return {}
-        selected = set(self.selected)
+        selected = set(self.selected if selected is None else selected)
         legacy_roles = {role for role, set_name in legacy.items() if role in self.all_roles and set_name}
         if selected and selected.issubset(legacy_roles):
             return {}

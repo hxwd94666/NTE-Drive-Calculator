@@ -12,13 +12,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.domain.stat_catalog import StatCatalog
 from src.models.equipment import DriveShape
 from src.optimizer.scoring import ScoringEngine
-from src.services.advancement_stage_service import fork_active_panel_stats
-from src.services.sqlite_allocation_inventory import legacy_shape_id
-from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
-from src.services.official_role_page_service import load_official_role_detail
+from src.domain.official_role.advancement import fork_active_panel_stats
+from src.services.allocation.inventory import legacy_shape_id
+from src.services.characters.character_shape_bonus_service import get_effective_character_shape_bonus
+from src.services.official_role.page import load_official_role_detail
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.services.characters.character_weight_service import resolve_character_base_weights
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -163,18 +166,24 @@ def _current_role_calculation_projection(
 def build_legacy_allocation_static_catalog(
     *, config_dir: str | Path, user_database_path: str | Path | None = None,
     static_database_path: str | Path | None = None,
+    expected_dataset: tuple[str, int, str] | None = None,
+    stat_catalog: StatCatalog | None = None,
+    static_read_unit=None,
 ) -> LegacyAllocationStaticCatalog:
     """Build all old-solver inputs from the static and account SQLite databases."""
 
-    scoring = ScoringEngine(
-        config_dir=str(config_dir), user_database_path=user_database_path,
-        static_database_path=static_database_path,
-    )
     roles_db: dict[str, dict[str, Any]] = {}
     sets_db: dict[str, dict[str, Any]] = {}
     shapes_db: dict[str, DriveShape] = {}
     board_matrices: dict[str, list[list[int]]] = {}
-    with StaticGameDataDao(static_database_path) as static_dao:
+    with static_catalog_read_unit(static_database_path, read_unit=static_read_unit) as read_unit:
+        static_dao = read_unit.dao
+        if expected_dataset is not None:
+            metadata = static_dao.dataset_metadata()
+            actual = (str(metadata["dataset_id"]), int(metadata["importer_version"]), str(metadata["built_at_utc"]))
+            if actual != expected_dataset:
+                raise ValueError("图纸读取的实际数据库与本批识别资料身份不一致。")
+        # 此处只组装权重，不调用会另开静态DAO的ScoringEngine构造器。
         characters = static_dao.list_role_template_characters()
         for suit in static_dao.list_suits():
             name = str(suit.get("name_zh") or suit["suit_id"])
@@ -240,7 +249,11 @@ def build_legacy_allocation_static_catalog(
                     for row in shape_bonus.get("properties") or ()
                     if attributes.get(str(row["property_id"]))
                 }
-                scoring_role = scoring.roles_db.get(role_name, {})
+                weight_record = resolve_character_base_weights(user_dao, static_dao, character_id) or {}
+                scoring_role = {
+                    "weights": _custom_weight_labels(weight_record, attributes, "property_weights"),
+                    "main_weights": _custom_weight_labels(weight_record, attributes, "main_property_weights"),
+                }
                 graduation_template = graduation_templates.get(character_id, {})
                 default_weapon = fork_names.get(
                     str(graduation_template.get("fork_id") or ""),
@@ -255,7 +268,7 @@ def build_legacy_allocation_static_catalog(
                             character_id,
                             include_inventory_contexts=False,
                             static_database_path=static_dao.database_path,
-                            request_cache=detail_cache,
+                            request_cache=detail_cache, static_read_unit=read_unit,
                         )
                         calculation_projection = (
                             _current_role_calculation_projection(detail) or None

@@ -11,8 +11,8 @@ from PySide6.QtWidgets import QMessageBox
 from src.domain.battle_report import BattleCaptureState
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability import OperationContext
-from src.services.battle_capture_service import BattleCaptureService
-from src.services.battle_report_persistence_service import BattleReportPersistenceDependencies
+from src.services.battle_report.capture.service import BattleCaptureService
+from src.services.battle_report.persistence import BattleReportPersistenceDependencies
 from src.features.battle_report.comparison_capture import ComparisonCapture
 from src.features.battle_report.entry_guidance import capture_entry_allowed, capture_unavailable
 from src.integrations.nte_core_protocol import NteCoreError

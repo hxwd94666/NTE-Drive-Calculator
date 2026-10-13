@@ -247,10 +247,6 @@ class DriveAssemblyActionExecutorTests(unittest.TestCase):
         )
         self.assertAlmostEqual(0.75, sum(call[1] for call in backend.calls if call[0] == "pause"))
 
-    def test_default_pause_between_actions_is_half_second(self):
-        from src.features.drive_assembly.executor import DEFAULT_ACTION_PAUSE_SECONDS
-
-        self.assertEqual(0.5, DEFAULT_ACTION_PAUSE_SECONDS)
 
     def test_executes_escape_key_action(self):
         from src.features.drive_assembly.executor import execute_action_sequence
@@ -578,6 +574,107 @@ class DriveAssemblyActionExecutorTests(unittest.TestCase):
 
         self.assertEqual(("left_joystick", 0.0, -1.0), backend.calls[0])
         self.assertAlmostEqual(0.3, sum(call[1] for call in backend.calls if call[0] == "pause"))
+
+
+class InputFailureCleanupTests(unittest.TestCase):
+    def test_gamepad_neutralizes_after_initial_delivery_failure(self):
+        from types import SimpleNamespace
+        from src.features.drive_assembly.input_backends import _VirtualGamepadDriver
+
+        for action in ("button", "stick"):
+            with self.subTest(action=action):
+                class Gamepad:
+                    pressed = False
+                    updates = 0
+
+                    def press_button(self, **_kwargs):
+                        self.pressed = True
+
+                    def release_button(self, **_kwargs):
+                        self.pressed = False
+
+                    def left_joystick_float(self, **kwargs):
+                        self.pressed = any(kwargs.values())
+
+                    def update(self):
+                        self.updates += 1
+                        if self.updates == 1:
+                            raise OSError("synthetic first delivery failure")
+
+                driver = _VirtualGamepadDriver(operation_guard=lambda _: None, sleeper=lambda _: None)
+                pad = Gamepad()
+                driver._gamepad = pad
+                driver._buttons = SimpleNamespace(XUSB_GAMEPAD_A="a")
+                with self.assertRaisesRegex(OSError, "first delivery"):
+                    if action == "button":
+                        driver.press("a")
+                    else:
+                        driver.push_left_joystick(1.0, 0.0)
+                self.assertFalse(pad.pressed)
+                self.assertEqual(2, pad.updates)
+
+    def test_mouse_neutralizes_when_down_raises_after_delivery(self):
+        from types import SimpleNamespace
+        from src.features.drive_assembly.input_backends import PyAutoGuiMouseBackend
+        from src.features.drive_assembly.randomization import RandomizationContext
+
+        for action in ("click", "cloud_click", "drag"):
+            with self.subTest(action=action):
+                class Mouse:
+                    pressed = False
+
+                    def mouseDown(self, **_kwargs):
+                        self.pressed = True
+                        raise OSError("synthetic mouse delivery failure")
+
+                    def mouseUp(self, **_kwargs):
+                        self.pressed = False
+
+                    def moveTo(self, *_args, **_kwargs):
+                        pass
+
+                backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+                backend.operation_guard = lambda _: None
+                backend._randomization = RandomizationContext()
+                backend._send_input = SimpleNamespace(available=False)
+                backend._pyautogui = Mouse()
+                backend._sleeper = lambda _: None
+                backend._record_mouse_delivery = lambda *_args, **_kwargs: None
+                with self.assertRaisesRegex(OSError, "delivery failure"):
+                    if action == "drag":
+                        backend.drag((10, 20), (50, 60), 100)
+                    else:
+                        getattr(backend, action)((10, 20))
+                self.assertFalse(backend._pyautogui.pressed)
+
+    def test_sendinput_neutralizes_when_down_raises_after_delivery(self):
+        from src.features.drive_assembly.input_backends import (
+            _WindowsSendInputMouseDriver, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+        )
+        from src.features.drive_assembly.randomization import RandomizationContext
+
+        for action in ("click", "drag"):
+            with self.subTest(action=action):
+                calls = []
+                driver = _WindowsSendInputMouseDriver.__new__(_WindowsSendInputMouseDriver)
+                driver._user32 = driver._input_cls = driver._mouse_input_cls = object()
+                driver._randomization = RandomizationContext()
+                driver._sleeper = lambda _: None
+                driver._move_to = lambda _: None
+
+                def send(flags, *_args, **_kwargs):
+                    calls.append(flags)
+                    if flags == MOUSEEVENTF_LEFTDOWN:
+                        raise OSError("synthetic mouse delivery failure")
+
+                driver._send = send
+                with self.assertRaisesRegex(OSError, "delivery failure"):
+                    if action == "drag":
+                        driver.drag((10, 20), (50, 60), 100)
+                    else:
+                        driver.click((10, 20))
+                self.assertEqual([MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP], calls)
+
 
 if __name__ == "__main__":
     unittest.main()

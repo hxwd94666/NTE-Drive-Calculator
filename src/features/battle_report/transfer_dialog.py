@@ -190,6 +190,7 @@ class BattleReportTransferDialog(QDialog):
             self.table.setRowHeight(row, 42)
 
     def selected_report_ids(self) -> tuple[int, ...]:
+        # 导出意图只携带正式战报 ID；包校验、账号代次与事务复核沿用 Controller/Service。
         return tuple(
             report_id
             for report_id, selector in self._selectors.items()
@@ -208,6 +209,7 @@ class BattleReportTransferDialog(QDialog):
         self.error_label.hide()
 
     def set_busy(self, busy: bool) -> None:
+        # 忙碌状态只管理交互；禁用按钮不替代后台 worker 的取消或物理退场。
         for widget in (
             self.save_name_button,
             self.import_button,

@@ -10,8 +10,11 @@ from concurrent.futures import CancelledError
 
 from PySide6.QtCore import QThread, Signal
 
-from src.scanner.drone_scanner import DroneScanner
-from src.scanner.batch_processor import BatchProcessor
+from src.integrations.vision.incremental_scan import DroneScanner
+from src.integrations.vision.recognition.image_resources import CaptureTemplateFile
+from src.integrations.vision.recognition.backend_runtime import check_cancel
+from src.integrations.vision.recognition.batch_processor import BatchProcessor
+from src.services.recognition.resources import load_recognition_resources
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -50,6 +53,7 @@ class WorkerThread(QThread):
 
 class ScanWorkerThread(QThread):
     scan_done = Signal(int)
+    canceled = Signal()
     error = Signal(str)
     scanner_ready = Signal()
 
@@ -60,23 +64,43 @@ class ScanWorkerThread(QThread):
         self.template_path = str(template_path)
         self.mode = mode
         self.scanner = None
+        self.capture_template = None
+        self.cancel_token = threading.Event()
+
+    def is_cancelled(self):
+        return self.cancel_token.is_set() or bool(getattr(self.scanner, '_stopped', False))
+
+    def request_cancel(self):
+        self.cancel_token.set()
+        if self.scanner is not None:
+            self.scanner.emergency_stop()
 
     def run(self):
         try:
-            self.scanner = DroneScanner(
-                output_dir=self.output_dir,
-                template_path=self.template_path,
-                operation_guard=self.operation_guard,
-            )
+            check_cancel(self.is_cancelled)
+            self.scanner = DroneScanner(output_dir=self.output_dir, template_path=self.template_path,
+                operation_guard=self.operation_guard, use_new_tag=self.mode == 'auto')
+            check_cancel(self.is_cancelled)
+            self.capture_template = self.scanner.capture_template
+            if self.mode == 'auto' and not isinstance(self.capture_template, CaptureTemplateFile):
+                raise ValueError("自动扫描缺少本批标记资源。")
             self.scanner_ready.emit()
-            if self.mode == "auto":
-                count = self.scanner.start_scan()
-            else:
-                count = self.scanner.start_semi_auto_scan()
+            count = self.scanner.start_scan() if self.mode == 'auto' else self.scanner.start_semi_auto_scan()
+            check_cancel(self.is_cancelled)
+            if self.capture_template is not None:
+                self.capture_template.verify()
+            check_cancel(self.is_cancelled)
             self.scan_done.emit(count)
+        except CancelledError:
+            self.cancel_token.set()
+            self.canceled.emit()
         except Exception as exc:
-            logger.error(f"ScanWorker 异常: {exc}")
-            self.error.emit(str(exc))
+            if self.is_cancelled():
+                self.cancel_token.set()
+                self.canceled.emit()
+            else:
+                logger.error(f"ScanWorker 异常: {exc}")
+                self.error.emit(str(exc))
 
 
 class FullVisualScanParseWorkerThread(QThread):
@@ -144,6 +168,19 @@ class FullVisualScanParseWorkerThread(QThread):
         self.result_is_current = result_is_current
         self.scanner = None
         self._post_actions_ready_event = threading.Event()
+        self._cancel_event = threading.Event()
+        self.cancel_token = self._cancel_event
+
+    def request_cancel(self):
+        # 停止请求与原生 OCR 使用同一个普通 Event；不把 QObject 闭包传入后端。
+        self._cancel_event.set()
+        self._post_actions_ready_event.set()
+        scanner = self.scanner
+        if scanner is not None and hasattr(scanner, "emergency_stop"):
+            scanner.emergency_stop()
+
+    def is_cancelled(self):
+        return self._cancel_event.is_set() or bool(getattr(self.scanner, "_stopped", False))
 
     def acknowledge_post_actions_ready(self):
         self._post_actions_ready_event.set()
@@ -158,7 +195,8 @@ class FullVisualScanParseWorkerThread(QThread):
     def run(self):
         worker_start = time.perf_counter()
         try:
-            from src.services.streaming_scan_service import run_streaming_scan_parse
+            check_cancel(self._cancel_event.is_set)
+            from src.services.scanning.pipeline import run_streaming_scan_parse
             if self.capture_driver == "mouse":
                 from src.integrations.vision.mouse_inventory_scan import MouseInventoryScanner
                 from src.integrations.vision.mouse_scan_runtime import require_mouse_scan_runtime
@@ -173,12 +211,15 @@ class FullVisualScanParseWorkerThread(QThread):
                 from src.scanner.gamepad_controller import GamepadScanner
 
                 self.scanner = GamepadScanner(output_dir=self.screenshot_dir, operation_guard=self.operation_guard)
+            check_cancel(self._cancel_event.is_set)
             self.scanner_ready.emit()
             init_start = time.perf_counter()
             processor = BatchProcessor(
                 input_dir=self.screenshot_dir,
                 config_dir=self.config_dir,
+                resources=load_recognition_resources(self.config_dir, self.static_database_path),
                 replace_output=True,
+                cancel_check=self._cancel_event.is_set,
                 ocr_backend_preference=(
                     "amd_compat"
                     if self.mouse_compatibility_mode
@@ -187,6 +228,7 @@ class FullVisualScanParseWorkerThread(QThread):
                     else "openvino"
                 ),
             )
+            check_cancel(self._cancel_event.is_set)
             init_ms = (time.perf_counter() - init_start) * 1000.0
             log_perf(
                 logger,
@@ -202,7 +244,7 @@ class FullVisualScanParseWorkerThread(QThread):
                 processor,
                 self.total_drives,
                 progress_callback=lambda current, total, filename: self.progress.emit(current, total, filename),
-                cancel_check=lambda: bool(getattr(self.scanner, "_stopped", False)),
+                cancel_check=lambda: self._cancel_event.is_set() or bool(getattr(self.scanner, "_stopped", False)),
                 scan_done_callback=lambda captured, total: self.scan_done.emit(captured, total),
                 parse_done_callback=lambda: self.parse_done.emit(),
                 post_action_ready_callback=self._notify_post_actions_ready,
@@ -218,11 +260,17 @@ class FullVisualScanParseWorkerThread(QThread):
                 allow_post_actions=True,
                 result_is_current=self.result_is_current,
             )
+            check_cancel(self._cancel_event.is_set)
             if stats.get("discarded_stale"):
                 self.processing_done.emit(stats)
                 return
             if int(stats.get("total_count", 0) or 0) != int(self.total_drives):
                 raise RuntimeError("全量扫描未完整结束，流水线解析结果未写入库存。")
+            from src.integrations.vision.capture_files import freeze_capture_stage
+            stats["capture_stage"] = freeze_capture_stage(
+                self.scanner.output_dir, self.scanner.capture_dir, int(self.total_drives))
+            stats["capture_cancel_token"] = self.cancel_token
+            stats["recognition_resources"] = processor.resources
             stats["vision_items"] = [item.model_dump() for item in processor.inventory]
             stats["capture_driver"] = self.capture_driver
             if self.capture_driver == "mouse":
@@ -240,7 +288,10 @@ class FullVisualScanParseWorkerThread(QThread):
                 streaming=int(self.parse_during_scan),
                 amd_compat=int(self.amd_compatibility),
             )
+            check_cancel(self._cancel_event.is_set)
             self.processing_done.emit(stats)
+        except CancelledError:
+            self.error.emit("扫描已取消")
         except (FileNotFoundError, OSError) as exc:
             logger.error(f"FullVisualScanParseWorker 系统依赖错误: {exc}")
             if self.capture_driver == "gamepad":

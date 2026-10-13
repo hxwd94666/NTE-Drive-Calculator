@@ -6,8 +6,8 @@ import pytest
 
 from src.integrations.mod_loader import ModLoaderRuntimeError, ModLoaderRuntimeSnapshot, packaged_mod_loader
 from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_DEPLOYMENT_PATHS
-from src.services import native_plugin_deployment as files
-from src.services.mod_plugin_loading_service import ModPluginLoadingError, ModPluginLoadingService
+from src.integrations.components import native_files as files
+from src.services.components.loader_service import ModPluginLoadingError, ModPluginLoadingService
 from tests.test_native_plugin_bundle import make_bundle
 
 
@@ -194,7 +194,7 @@ def test_retaining_new_writes_never_loses_old_cleanup_facts_on_read_failure(load
     relative = 'NTE_Capture.dll'
     new_hash = 'a' * 64
     record = files.NativeComponentFilesDeployment(previous.directory, previous.backup_path, {relative: new_hash})
-    with patch('src.services.native_plugin_deployment._digest', side_effect=OSError('synthetic file lock')):
+    with patch('src.integrations.components.native_files._digest', side_effect=OSError('synthetic file lock')):
         service._retain_native_workspace(record)
     expected = dict(previous.managed_files)
     expected[relative] = new_hash
@@ -243,7 +243,7 @@ def test_current_loader_payload_is_reused_without_a_file_transaction(loading):
     service.stop_loader()
     target = service.native_workspace_path / 'NTE_Capture.dll'
     before = target.stat().st_mtime_ns
-    with patch('src.services.native_loader_workspace.deploy_native_component_files', side_effect=AssertionError('current payload must not be rewritten')):
+    with patch('src.integrations.components.loader_workspace.deploy_native_component_files', side_effect=AssertionError('current payload must not be rewritten')):
         result = service.start_loader(**args)
     assert target.stat().st_mtime_ns == before
     assert result.native_workspace.backup_path is None

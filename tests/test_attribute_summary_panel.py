@@ -15,13 +15,13 @@ from src.ui.attribute_summary_panel import (
     AttributeSummaryRow,
 )
 from src.ui.equipment_presentation import EquipmentPresentation
-from src.features.inventory.equipment_plan_renderer import (
+from src.features.inventory.equipment.plan_renderer import (
     _game_official_attribute_panel,
     _saved_official_attribute_panel,
 )
 from src.features.weighted_allocation.weighted_result_view import _role_option_card
 from src.services.allocation_solver import RoleAllocationOption
-from src.services.weighted_loadout_comparison_service import WeightedLoadoutComparison
+from src.services.equipment.weighted_loadout_comparison_service import WeightedLoadoutComparison
 
 
 class AttributeSummaryPanelTests(unittest.TestCase):

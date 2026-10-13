@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from src.services.account_settings_service import AccountSettingsService
+from src.services.accounts.settings import AccountSettingsService
 from src.storage.sqlite.shared_data_dao import SharedDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -34,6 +34,16 @@ class ApplicationPaths:
     template_dir: Path
     static_database_path: Path
     role_catalog: RoleCatalogRelease | None = None
+
+    @property
+    def bundled_locale_dir(self) -> Path:
+        """发行文本目录只读，与官方游戏词库和 dataset 分离。"""
+        return self.asset_dir / "locales"
+
+    @property
+    def locale_patch_dir(self) -> Path:
+        """语言补丁属本机，不跟随账号切换或账号导出。"""
+        return self.config_dir / "locales"
 
     @property
     def cultivation_database_path(self) -> Path:

@@ -5,11 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sqlite3
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -19,16 +17,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.domain.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
-from src.services.graduation_bonus_service import graduation_extra_shape_stats
-from src.services.official_role_page_service import (
-    calculate_official_role_margins,
-    load_official_role_detail,
-)
-from src.storage.sqlite.static_game_data_dao import (
-    STATIC_DATABASE_ENV,
-    StaticGameDataDao,
-)
-from src.storage.sqlite.user_data_dao import UserDataDao
+from src.domain.official_role.graduation_shape import graduation_extra_shape_stats
+from src.services.official_role.marginal_scoring import calculate_official_role_margins
+from src.services.official_role.detail_inputs import materialize_official_role_detail_inputs
+from src.services.official_role.detail_model import assemble_official_role_detail
+from src.storage.sqlite.static_game_data_build_dao import StaticGameDataBuildDao
 
 
 SCHEMA_PATH = (
@@ -73,8 +66,7 @@ def top_stat_names(
         if (property_id := _property_id(str(name))) is not None
         and float(weights.get(property_id, 0.0)) > 0
     ]
-    # Keep the static template's tie-breaker identical to the role page,
-    # which sorts official property IDs after weight.
+    # 静态模板与角色页同分规则一致：权重之后按正式属性 ID 排序。
     rows.sort(key=lambda row: (-row[2], row[0]))
     return tuple(name for _property_id, name, _weight in rows[:4])
 
@@ -97,7 +89,7 @@ def _stat(
 
 
 def _stats(config_dir: Path) -> dict[str, Any]:
-    """Read shared stat values; character recommendations come from SQLite."""
+    """读取共享词条数值；角色推荐权重统一来自本次候选 SQLite。"""
 
     return _read_json(config_dir / "stats.json")
 
@@ -145,13 +137,7 @@ def extra_shape_drive_count(
     equipment_plan: Mapping[str, Any] | None,
     equipment_by_id: Mapping[str, Mapping[str, Any]],
 ) -> int:
-    """Count the role's bonus-shape modules from its invariant blueprint set.
-
-    A label such as ``Type-3`` identifies the grid size, not the number of
-    bonus modules.  One role can have multiple valid board layouts, but their
-    module multiset is fixed, so the official plan is the canonical and stable
-    source for this count.
-    """
+    """按官方方案固定的模块集合统计额外形状件数；Type-3 表示格数而非加成件数。"""
 
     target_grid_count = int(shape_bonus.get("shape_grid_count") or 0)
     if target_grid_count <= 0:
@@ -172,20 +158,15 @@ def populate_graduation_templates(
     database_path: Path,
     config_dir: Path,
 ) -> int:
-    """Replace all templates using the old full-board selection rules."""
+    """按既有满板规则事务替换模板，任一角色失败回滚本次模板写入。"""
 
     connection.row_factory = sqlite3.Row
-    static_schema_version = int(
-        connection.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0]
-    )
     connection.execute("BEGIN IMMEDIATE")
     connection.execute("DELETE FROM character_graduation_template")
     stats = _stats(config_dir)
     gold_values = dict(stats.get("gold_base_values") or {})
     core_sub_values = dict(stats.get("tape_stat_values") or {})
-    # The weight editor and the graduation reference must share the strict
-    # equipment sub-stat set.  Main-only core attributes (element/healing) are
-    # deliberately excluded even when they have a high role weight.
+    # 权重编辑与毕业参考共享严格副词条集合；即使高权重也排除仅作主词条的元素/治疗属性。
     sub_stat_names = tuple(
         name for name in core_sub_values
         if name in gold_values
@@ -193,197 +174,180 @@ def populate_graduation_templates(
     gold_values = {name: gold_values[name] for name in sub_stat_names}
     core_sub_values = {name: core_sub_values[name] for name in sub_stat_names}
     core_main_values = dict(stats.get("tape_main_stat_values") or {})
-    previous_static_path = os.environ.get(STATIC_DATABASE_ENV)
-    os.environ[STATIC_DATABASE_ENV] = str(database_path.resolve())
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     inserted = 0
     try:
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            user_database = Path(temporary_dir) / "graduation.sqlite3"
-            with UserDataDao(user_database, account_id="graduation-builder"):
-                pass
-            with StaticGameDataDao(
-                database_path,
-                expected_schema_version=static_schema_version,
-            ) as static_dao:
-                percent_property_ids = {
-                    str(row["attribute_id"])
-                    for row in static_dao.list_equipment_attributes()
-                    if bool(row.get("show_percent"))
-                }
-                characters = static_dao.list_role_template_characters()
-                official_suits = {
-                    int(character["character_id"]): (
-                        static_dao.get_character_default_suit(
-                            int(character["character_id"])
-                        ) or {}
-                    ).get("suit_id")
-                    for character in characters
-                }
-                equipment_plans = {
-                    int(character["character_id"]): static_dao.get_equipment_plan(
-                        int(character["character_id"])
-                    )
-                    for character in characters
-                }
-                equipment_by_id = {
-                    str(item["item_id"]): item
-                    for item in static_dao.list_equipment_items()
-                }
-                recommendations = {
-                    int(row["character_id"]): row
-                    for row in static_dao.list_character_recommended_weights()
-                }
-            for character in characters:
-                character_id = int(character["character_id"])
-                detail = load_official_role_detail(
-                    user_database,
-                    character_id,
-                    static_database_path=database_path,
-                    static_schema_version=static_schema_version,
-                )
-                recommendation = recommendations.get(character_id) or {}
-                # The API synchronization above writes these rows into the
-                # same temporary static database before templates are built.
-                # Runtime account preferences deliberately do not participate.
-                source_kind = "official_default"
-                weights = dict(recommendation.get("property_weights") or {})
-                main_weights = dict(
-                    recommendation.get("main_property_weights") or weights
-                )
-                extra_shape_count = extra_shape_drive_count(
-                    detail.get("shape_bonus") or {},
-                    equipment_plans.get(character_id),
-                    equipment_by_id,
-                )
-                drive_names = top_stat_names(gold_values, weights)
-                core_sub_names = top_stat_names(core_sub_values, weights)
-                if len(drive_names) < 4 or len(core_sub_names) < 4:
-                    fallback = dict(recommendation.get("property_weights") or {})
-                    drive_names = top_stat_names(gold_values, fallback)
-                    core_sub_names = top_stat_names(core_sub_values, fallback)
-                if len(drive_names) < 4 or len(core_sub_names) < 4:
-                    raise ValueError(f"角色 {character_id} 缺少四条毕业副词条")
+        # 借用同一构建连接读取未提交事实；reader不关闭、提交或回滚owner。
+        static_dao = StaticGameDataBuildDao(connection, database_path=database_path)
+        percent_property_ids = {
+            str(row["attribute_id"])
+            for row in static_dao.list_equipment_attributes()
+            if bool(row.get("show_percent"))
+        }
+        characters = static_dao.list_role_template_characters()
+        official_suits = {
+            int(character["character_id"]): (
+                static_dao.get_character_default_suit(
+                    int(character["character_id"])
+                ) or {}
+            ).get("suit_id")
+            for character in characters
+        }
+        equipment_plans = {
+            int(character["character_id"]): static_dao.get_equipment_plan(
+                int(character["character_id"])
+            )
+            for character in characters
+        }
+        equipment_by_id = {
+            str(item["item_id"]): item
+            for item in static_dao.list_equipment_items()
+        }
+        recommendations = {
+            int(row["character_id"]): row
+            for row in static_dao.list_character_recommended_weights()
+        }
+        for character in characters:
+            character_id = int(character["character_id"])
+            detail = assemble_official_role_detail(materialize_official_role_detail_inputs(
+                static_dao, character_id, include_inventory_contexts=False,
+                include_replacement_candidates=False,
+            ))
+            recommendation = recommendations.get(character_id) or {}
+            # 模板只读取同一临时静态库的推荐值；运行时账号偏好不参与，也不在此处发起 API 同步。
+            source_kind = "official_default"
+            weights = dict(recommendation.get("property_weights") or {})
+            main_weights = dict(
+                recommendation.get("main_property_weights") or weights
+            )
+            extra_shape_count = extra_shape_drive_count(
+                detail.get("shape_bonus") or {},
+                equipment_plans.get(character_id),
+                equipment_by_id,
+            )
+            drive_names = top_stat_names(gold_values, weights)
+            core_sub_names = top_stat_names(core_sub_values, weights)
+            if len(drive_names) < 4 or len(core_sub_names) < 4:
+                fallback = dict(recommendation.get("property_weights") or {})
+                drive_names = top_stat_names(gold_values, fallback)
+                core_sub_names = top_stat_names(core_sub_values, fallback)
+            if len(drive_names) < 4 or len(core_sub_names) < 4:
+                raise ValueError(f"角色 {character_id} 缺少四条毕业副词条")
 
-                extra_stats = graduation_extra_shape_stats(
-                    detail.get("shape_bonus"),
-                    extra_shape_count,
-                    detail.get("attributes"),
-                )
-                module = {
-                    "kind": "module",
-                    "item_id": "graduation-module",
-                    "quality": "orange",
-                    "grid_count": DRIVE_AREA,
-                    "geometry": None,
-                    "main_stats": [],
-                    "sub_stats": [
-                        _stat(
-                            name,
-                            float(gold_values[name]) * DRIVE_AREA,
-                            percent_property_ids=percent_property_ids,
-                        )
-                        for name in drive_names
-                    ] + extra_stats,
-                }
-                core_sub_stats = [
+            extra_stats = graduation_extra_shape_stats(
+                detail.get("shape_bonus"),
+                extra_shape_count,
+                detail.get("attributes"),
+            )
+            module = {
+                "kind": "module",
+                "item_id": "graduation-module",
+                "quality": "orange",
+                "grid_count": DRIVE_AREA,
+                "geometry": None,
+                "main_stats": [],
+                "sub_stats": [
                     _stat(
                         name,
-                        float(core_sub_values[name]),
+                        float(gold_values[name]) * DRIVE_AREA,
                         percent_property_ids=percent_property_ids,
                     )
-                    for name in core_sub_names
-                ]
-                candidate_names = [
-                    name
-                    for name in core_main_values
-                    if (
-                        (property_id := _property_id(name)) is not None
-                        and float(main_weights.get(property_id, 0.0)) > 0
-                    )
-                ]
-                if not candidate_names:
-                    candidate_names = [
-                        name for name in core_main_values
-                        if _property_id(name) in set(detail.get("main_property_weights") or {})
-                    ]
-                if not candidate_names:
-                    raise ValueError(f"角色 {character_id} 缺少毕业空幕主词条")
-
-                profile = _template_profile(detail)
-                suit_id = official_suits.get(character_id)
-                best_name = candidate_names[0]
-                best_damage = -1.0
-                best_equipment: list[dict[str, Any]] = []
-                for main_name in candidate_names:
-                    core = {
-                        "kind": "core",
-                        "item_id": "graduation-core",
-                        "quality": "orange",
-                        "suit_id": suit_id,
-                        "main_stats": [
-                            _stat(
-                                main_name,
-                                float(core_main_values[main_name]),
-                                percent_property_ids=percent_property_ids,
-                            )
-                        ],
-                        "sub_stats": core_sub_stats,
-                    }
-                    equipment = [module, core]
-                    candidate_detail = {
-                        **detail,
-                        "profile": profile,
-                        "property_weights": weights,
-                        "equipment_contexts": {
-                            **detail["equipment_contexts"],
-                            "graduation": {
-                                "title": "毕业基准",
-                                "available": True,
-                                "items": equipment,
-                            },
-                        },
-                    }
-                    margins = calculate_official_role_margins(
-                        candidate_detail, "graduation"
-                    )
-                    damage = float((margins or {}).get("damage") or 0.0)
-                    if damage > best_damage:
-                        best_name = main_name
-                        best_damage = damage
-                        best_equipment = equipment
-                if best_damage <= 0:
-                    raise ValueError(f"角色 {character_id} 的毕业基准伤害无效")
-                connection.execute(
-                    """
-                    INSERT INTO character_graduation_template(
-                        character_id, source_kind, fork_id, fork_level,
-                        fork_refinement_level, core_suit_id,
-                        core_main_property_id, drive_area, extra_shape_count,
-                        benchmark_damage, profile_json, equipment_json,
-                        generated_at_utc
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        character_id, source_kind, profile.get("fork_id"),
-                        profile.get("fork_level"),
-                        profile.get("fork_refinement_level"), suit_id,
-                        _property_id(best_name), DRIVE_AREA, extra_shape_count,
-                        best_damage, _json(profile), _json(best_equipment),
-                        generated_at,
-                    ),
+                    for name in drive_names
+                ] + extra_stats,
+            }
+            core_sub_stats = [
+                _stat(
+                    name,
+                    float(core_sub_values[name]),
+                    percent_property_ids=percent_property_ids,
                 )
-                inserted += 1
+                for name in core_sub_names
+            ]
+            candidate_names = [
+                name
+                for name in core_main_values
+                if (
+                    (property_id := _property_id(name)) is not None
+                    and float(main_weights.get(property_id, 0.0)) > 0
+                )
+            ]
+            if not candidate_names:
+                candidate_names = [
+                    name for name in core_main_values
+                    if _property_id(name) in set(detail.get("main_property_weights") or {})
+                ]
+            if not candidate_names:
+                raise ValueError(f"角色 {character_id} 缺少毕业空幕主词条")
+
+            profile = _template_profile(detail)
+            suit_id = official_suits.get(character_id)
+            best_name = candidate_names[0]
+            best_damage = -1.0
+            best_equipment: list[dict[str, Any]] = []
+            for main_name in candidate_names:
+                core = {
+                    "kind": "core",
+                    "item_id": "graduation-core",
+                    "quality": "orange",
+                    "suit_id": suit_id,
+                    "main_stats": [
+                        _stat(
+                            main_name,
+                            float(core_main_values[main_name]),
+                            percent_property_ids=percent_property_ids,
+                        )
+                    ],
+                    "sub_stats": core_sub_stats,
+                }
+                equipment = [module, core]
+                candidate_detail = {
+                    **detail,
+                    "profile": profile,
+                    "property_weights": weights,
+                    "equipment_contexts": {
+                        **detail["equipment_contexts"],
+                        "graduation": {
+                            "title": "毕业基准",
+                            "available": True,
+                            "items": equipment,
+                        },
+                    },
+                }
+                margins = calculate_official_role_margins(
+                    candidate_detail, "graduation"
+                )
+                damage = float((margins or {}).get("damage") or 0.0)
+                if damage > best_damage:
+                    best_name = main_name
+                    best_damage = damage
+                    best_equipment = equipment
+            if best_damage <= 0:
+                raise ValueError(f"角色 {character_id} 的毕业基准伤害无效")
+            connection.execute(
+                """
+                INSERT INTO character_graduation_template(
+                    character_id, source_kind, fork_id, fork_level,
+                    fork_refinement_level, core_suit_id,
+                    core_main_property_id, drive_area, extra_shape_count,
+                    benchmark_damage, profile_json, equipment_json,
+                    generated_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    character_id, source_kind, profile.get("fork_id"),
+                    profile.get("fork_level"),
+                    profile.get("fork_refinement_level"), suit_id,
+                    _property_id(best_name), DRIVE_AREA, extra_shape_count,
+                    best_damage, _json(profile), _json(best_equipment),
+                    generated_at,
+                ),
+            )
+            inserted += 1
         connection.commit()
         return inserted
     except BaseException:
         connection.rollback()
         raise
-    finally:
-        if previous_static_path is None:
-            os.environ.pop(STATIC_DATABASE_ENV, None)
-        else:
-            os.environ[STATIC_DATABASE_ENV] = previous_static_path
 
 
 def upgrade_and_populate(database_path: Path, config_dir: Path) -> int:

@@ -25,10 +25,10 @@ from src.app.theme import themed_style
 from src.features.official_role.controller import OfficialRoleController
 from src.features.official_role.dependencies import OfficialRoleDependencies
 from src.features.official_role.sync_controller import RoleSyncResultText
-from src.services.official_role_profile_service import (
+from src.services.official_role.profiles import (
     OfficialRoleProfileUpdate,
 )
-from src.services.world_bonus_settings_service import WorldBonusSettings
+from src.domain.official_role.models import WorldBonusSettings
 from src.ui.persistent_tab_order import bind_persistent_tab_order
 from src.utils.logger import logger
 from src.utils.perf import log_perf

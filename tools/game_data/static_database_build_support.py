@@ -3,8 +3,7 @@
 """从准备好的 Content 数据目录构建版本化 NTE 静态 SQLite 数据库。
 
 游戏官方文件和中间数据始终保存在项目外。本工具读取已有数据目录，镜像所需来源
-记录，标准化角色、装备和弧盘数据，并生成审计报告；不会改变应用当前基于 JSON 的
-运行逻辑。
+记录，标准化角色、装备和弧盘数据，并生成候选审计报告；本模块不执行正式发行晋升。
 """
 
 from __future__ import annotations
@@ -350,7 +349,7 @@ def resolved_text_parts(
     sources: dict[str, dict[str, Any]],
     value: Any,
 ) -> tuple[str | None, str | None, str | None]:
-    """Resolve a localized text through its authoritative StringTable key."""
+    """按正式 StringTable 键解析文本；显示文本不替代关联身份。"""
 
     text, table_id, key = text_parts(value)
     if table_id and key:
@@ -434,7 +433,7 @@ def parse_plan_grid(rows: Any) -> tuple[list[tuple[int, int, str | None]], list[
 
 
 def show_time(row: dict[str, Any]) -> str | None:
-    """Return the official mainland availability time for one character row."""
+    """读取单个角色正式大陆服开放时间，缺失或格式错误保留未知。"""
 
     element = row.get("ElementData")
     if not isinstance(element, dict) or not element.get("bCheckShowTime"):

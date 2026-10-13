@@ -6,7 +6,7 @@ import pytest
 from src.integrations.native_plugin_bundle import inspect_native_plugin_bundle, SPLIT_PLUGIN_LAYOUT
 from tests.native_plugin_v3_fixture import add_split_roles, write_metadata
 from tests.test_native_plugin_bundle import make_bundle, write_manifest
-from tests.test_native_plugin_update import Host, update
+from tests.components.test_native_update import Host, update
 
 
 def split_bundle(tmp_path):

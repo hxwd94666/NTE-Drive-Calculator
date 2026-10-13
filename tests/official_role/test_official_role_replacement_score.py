@@ -1,0 +1,441 @@
+# 验证角色页替换不会把直伤数值写入配装总评分。
+from contextlib import nullcontext
+from pathlib import Path
+from copy import deepcopy
+from unittest.mock import patch
+
+import pytest
+from src.services.official_role.replacement import save_official_role_replacement
+from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from tests.official_role.test_replacement_static_source import sources as sources
+
+
+@pytest.fixture
+def attach_release(sources):
+    # 评分payload用例继续窄隔离账号写入，但静态身份来自真实完整SQLite发行包。
+    release = StaticCatalogReleaseReader().freeze(sources["paths"]["B"])
+
+    def attach(detail):
+        detail.update(static_database_path=str(release.database_path),
+                      static_schema_version=release.schema_version, static_release=release)
+
+    return attach
+
+
+def test_role_replacement_updates_equipment_score_not_direct_damage(attach_release) -> None:
+    captured: dict = {}
+
+    class FakeDao:
+        def __init__(self, _path) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def replace_active_loadout_plans(self, plans):
+            captured["plan"] = plans[0]
+            return (88,)
+
+    target = {
+        "uid_slot": 10,
+        "uid_serial": 20,
+        "kind": "module",
+        "geometry": "Hen2",
+        "grid_count": 2,
+    }
+    detail = {
+        "character": {"name_zh": "测试角色"},
+        "equipment_contexts": {
+            "saved": {
+                "plan": {
+                    "plan_id": 7,
+                    "character_id": 1003,
+                    "source_snapshot_id": 1,
+                    "score": 261.0,
+                    "payload": {
+                        "schema": "game-observed-loadout-v1",
+                        "source_role_name": "测试角色",
+                        "assignment_scores": {
+                            "nte-module-10-20": 25.0,
+                            "nte-module-11-21": 236.0,
+                        },
+                    },
+                    "assignments": [
+                        {"uid_slot": 10, "uid_serial": 20, "kind": "module"},
+                        {"uid_slot": 11, "uid_serial": 21, "kind": "module"},
+                    ],
+                },
+            },
+        },
+    }
+    attach_release(detail)
+    replacement = {
+        "uid_slot": 12,
+        "uid_serial": 22,
+        "kind": "module",
+        "geometry": "Hen2",
+        "grid_count": 2,
+    }
+
+    with patch("src.services.official_role.replacement.UserDataDao", FakeDao):
+        plan_id = save_official_role_replacement(
+            Path("test.sqlite3"),
+            detail,
+            target,
+            replacement,
+            replacement_score=31.0,
+            current_assignment_scores={"nte-module-10-20": 25.0, "nte-module-11-21": 236.0},
+        )
+
+    assert plan_id == 88
+    plan = captured["plan"]
+    assert plan["score"] == 267.0
+    assert plan["score"] != 2127.0
+    assert plan["payload"]["assignment_scores"] == {
+        "nte-module-11-21": 236.0,
+        "nte-module-12-22": 31.0,
+    }
+    assert plan["payload"]["schema"] == "game-observed-loadout-v1"
+    assert plan["payload"]["source_role_name"] == "测试角色"
+
+
+def test_role_replacement_keeps_the_selected_secondary_slot(attach_release) -> None:
+    captured: dict = {}
+
+    class FakeDao:
+        def __init__(self, _path) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def save_replacement_plan_to_slot(
+            self, slot_id, *, name, assignments, source_snapshot_id,
+            status="ready", score=None, payload=None, expected_plan_id=None,
+            checkpoint=None, commit_context=None,
+        ):
+            # 消费正式专用事务签名；不能靠旧save_plan入口吞掉提交门禁。
+            captured.update(slot_id=slot_id, expected_plan_id=expected_plan_id,
+                            checkpoint=checkpoint, commit_context=commit_context)
+            checkpoint()
+            with commit_context():
+                captured["plan"] = {
+                    "name": name, "assignments": assignments,
+                    "source_snapshot_id": source_snapshot_id, "status": status,
+                    "score": score, "payload": payload,
+                }
+            return 99
+
+    target = {
+        "uid_slot": 10,
+        "uid_serial": 20,
+        "kind": "module",
+        "geometry": "Hen2",
+    }
+    detail = {
+        "character": {"name_zh": "测试角色"},
+        "equipment_contexts": {
+            "saved:27": {
+                "slot_id": 27,
+                "plan": {
+                    "plan_id": 7,
+                    "character_id": 1003,
+                    "source_snapshot_id": 1,
+                    "score": 25.0,
+                    "payload": {"source_role_name": "测试角色"},
+                    "assignments": [dict(target)],
+                },
+            },
+        },
+    }
+    attach_release(detail)
+    historical = deepcopy(detail)
+    checkpoints = []
+
+    def checkpoint():
+        checkpoints.append("checked")
+    replacement = {
+        "uid_slot": 12,
+        "uid_serial": 22,
+        "kind": "module",
+        "geometry": "Hen2",
+    }
+
+    with patch("src.services.official_role.replacement.UserDataDao", FakeDao):
+        saved_plan_id = save_official_role_replacement(
+            Path("test.sqlite3"),
+            detail,
+            target,
+            replacement,
+            context_key="saved:27",
+            replacement_score=31.0,
+            current_assignment_scores={"nte-module-10-20": 25.0},
+            checkpoint=checkpoint,
+            commit_context=nullcontext,
+        )
+
+    assert saved_plan_id == 99
+    assert captured["slot_id"] == 27
+    assert captured["expected_plan_id"] == 7
+    assert captured["checkpoint"] is checkpoint and checkpoints
+    assert captured["commit_context"] is nullcontext
+    assert captured["plan"]["source_snapshot_id"] == 1
+    assert captured["plan"]["score"] == 31.0
+    assert captured["plan"]["payload"]["assignment_scores"] == {"nte-module-12-22": 31.0}
+    assert detail == historical
+    assert captured["plan"]["assignments"][0]["uid_slot"] == 12
+
+
+def test_new_replacement_uses_current_scores_without_mutating_old_plan(attach_release) -> None:
+    captured: dict = {}
+
+    class FakeDao:
+        def __init__(self, _path) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def replace_active_loadout_plans(self, plans):
+            captured["plan"] = plans[0]
+            return (101,)
+
+    target = {"uid_slot": 10, "uid_serial": 20, "kind": "core"}
+    other = {"uid_slot": 11, "uid_serial": 21, "kind": "module"}
+    replacement = {"uid_slot": 12, "uid_serial": 22, "kind": "core"}
+    detail = {
+        "character": {"name_zh": "测试角色"},
+        "equipment_contexts": {
+            "saved": {
+                "plan": {
+                    "plan_id": 8,
+                    "character_id": 1051,
+                    "source_snapshot_id": 1,
+                    "score": 90.0,
+                    "payload": {
+                        "assignment_scores": {
+                            "nte-core-10-20": 10.0,
+                            "nte-module-11-21": 80.0,
+                        },
+                    },
+                    "assignments": [target, other],
+                },
+            },
+        },
+    }
+    attach_release(detail)
+
+    historical = deepcopy(detail)
+    with patch("src.services.official_role.replacement.UserDataDao", FakeDao):
+        saved_id = save_official_role_replacement(
+            Path("test.sqlite3"),
+            detail,
+            target,
+            replacement,
+            replacement_score=39.83,
+            current_assignment_scores={
+                "nte-core-10-20": 35.0,
+                "nte-module-11-21": 30.0,
+            },
+        )
+
+    assert saved_id == 101
+    assert captured["plan"]["score"] == 69.83
+    assert captured["plan"]["payload"]["assignment_scores"] == {
+        "nte-core-12-22": 39.83,
+        "nte-module-11-21": 30.0,
+    }
+    assert detail == historical
+    assert captured["plan"]["character_id"] == 1051
+    assert captured["plan"]["payload"]["base_scoring"]["weight_source_character_id"] == 1046
+
+
+@pytest.mark.parametrize("scores,replacement_score", [
+    (None, 39.83), ({}, 39.83),
+    ({"nte-core-10-20": 35.0}, None),
+    ({"nte-core-10-20": 35.0}, float("nan")),
+    ({"nte-core-10-20": 35.0}, -1),
+])
+def test_invalid_current_basis_never_writes_or_changes_history(scores, replacement_score):
+    target = {"uid_slot": 10, "uid_serial": 20, "kind": "core"}
+    replacement = {"uid_slot": 12, "uid_serial": 22, "kind": "core"}
+    detail = {"equipment_contexts": {"saved": {"plan": {
+        "plan_id": 8, "character_id": 1051, "source_snapshot_id": 1,
+        "score": 45, "payload": {"assignment_scores": {"nte-core-10-20": 45}},
+        "assignments": [target],
+    }}}}
+    history = deepcopy(detail)
+    with patch("src.services.official_role.replacement.UserDataDao") as dao:
+        with pytest.raises(ValueError, match="基础评分"):
+            save_official_role_replacement(Path("fixture.sqlite3"), detail, target, replacement,
+                                          replacement_score=replacement_score, current_assignment_scores=scores)
+        dao.assert_not_called()
+    assert detail == history
+
+
+def test_virtual_drive_replacement_rebuilds_stale_plan_total(attach_release) -> None:
+    _assert_virtual_replacement_rebuilds_total("module", attach_release)
+
+
+def test_virtual_tape_replacement_rebuilds_stale_plan_total(attach_release) -> None:
+    _assert_virtual_replacement_rebuilds_total("core", attach_release)
+
+
+def test_incomplete_legacy_scores_are_rebuilt_from_current_items(attach_release) -> None:
+    captured: dict = {}
+
+    class FakeDao:
+        def __init__(self, _path) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def replace_active_loadout_plans(self, plans):
+            captured["plan"] = plans[0]
+            return (100,)
+
+    virtual_core = {
+        "uid_slot": 0,
+        "uid_serial": 101,
+        "kind": "core",
+        "virtual": True,
+        "virtual_equipment": {"kind": "core"},
+    }
+    drives = [
+        {"uid_slot": index, "uid_serial": index + 1000, "kind": "module"}
+        for index in range(1, 8)
+    ]
+    replacement = {
+        "uid_slot": 9,
+        "uid_serial": 303,
+        "kind": "core",
+    }
+    detail = {
+        "character": {"name_zh": "测试角色"},
+        "equipment_contexts": {
+            "saved": {
+                "plan": {
+                    "plan_id": 54,
+                    "character_id": 1003,
+                    "source_snapshot_id": 43,
+                    "score": 234.39,
+                    "payload": {
+                        "assignment_scores": {"nte-core-0-101": 0.0},
+                    },
+                    "assignments": [*drives, virtual_core],
+                },
+            },
+        },
+    }
+    attach_release(detail)
+    drive_scores = [21.43, 21.94, 21.94, 21.94, 23.14, 24.0, 16.0]
+    current_scores = {
+        f"nte-module-{item['uid_slot']}-{item['uid_serial']}": score
+        for item, score in zip(drives, drive_scores)
+    }
+    # 虚拟占位无需消费端补造评分，服务统一按零分处理。
+
+    with patch(
+        "src.services.official_role.replacement.UserDataDao",
+        FakeDao,
+    ):
+        save_official_role_replacement(
+            Path("test.sqlite3"),
+            detail,
+            virtual_core,
+            replacement,
+            replacement_score=132.86,
+            current_assignment_scores=current_scores,
+        )
+
+    plan = captured["plan"]
+    assert sum(drive_scores) == 150.39
+    assert plan["score"] == 283.25
+    assert plan["score"] != 367.25
+    assert len(plan["payload"]["assignment_scores"]) == 8
+
+
+def _assert_virtual_replacement_rebuilds_total(target_kind: str, attach_release) -> None:
+    captured: dict = {}
+
+    class FakeDao:
+        def __init__(self, _path) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def replace_active_loadout_plans(self, plans):
+            captured["plan"] = plans[0]
+            return (99,)
+
+    other_kind = "core" if target_kind == "module" else "module"
+    target = {
+        "uid_slot": 0,
+        "uid_serial": 101,
+        "kind": target_kind,
+        "virtual": True,
+        "virtual_equipment": {"kind": target_kind},
+    }
+    other = {"uid_slot": 8, "uid_serial": 202, "kind": other_kind}
+    replacement = {
+        "uid_slot": 9,
+        "uid_serial": 303,
+        "kind": target_kind,
+        "geometry": "Hen2" if target_kind == "module" else None,
+        "grid_count": 2 if target_kind == "module" else None,
+    }
+    detail = {
+        "character": {"name_zh": "测试角色"},
+        "equipment_contexts": {
+            "saved": {
+                "plan": {
+                    "plan_id": 8,
+                    "character_id": 1003,
+                    "source_snapshot_id": 1,
+                    # Simulate the historical bug: the removed real item is
+                    # still present in the persisted aggregate score.
+                    "score": 140.0,
+                    "payload": {
+                        "assignment_scores": {
+                            f"nte-{target_kind}-0-101": 0.0,
+                            f"nte-{other_kind}-8-202": 45.0,
+                        },
+                    },
+                    "assignments": [target, other],
+                },
+            },
+        },
+    }
+    attach_release(detail)
+
+    with patch("src.services.official_role.replacement.UserDataDao", FakeDao):
+        save_official_role_replacement(
+            Path("test.sqlite3"),
+            detail,
+            target,
+            replacement,
+            replacement_score=35.0,
+            current_assignment_scores={f"nte-{other_kind}-8-202": 45.0},
+        )
+
+    plan = captured["plan"]
+    assert plan["score"] == 80.0
+    assert plan["score"] != 175.0
+    assert plan["status"] == "saved"

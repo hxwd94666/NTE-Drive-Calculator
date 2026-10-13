@@ -1,5 +1,5 @@
 # 管理工作台摘要后台读取、版本去重和隐藏页面的刷新合并。
-"""Bounded read-only dashboard refresh; sync status is a separate projection."""
+"""有界只读摘要刷新；同步瞬时状态由独立投影负责。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QTimer
 
 from src.app.page_tasks import PageRequest, PageTaskLane
-from src.services.dashboard_service import DashboardService
+from src.services.accounts.dashboard import DashboardService
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -25,7 +25,7 @@ class DashboardDependencies:
 
 
 class DashboardController(QObject):
-    """One active read, one pending revision, and no hidden-page database work."""
+    """最多一个活动读取和一个待处理修订；隐藏页面不启动数据库读取。"""
 
     def __init__(
         self, *, dependencies: Callable[[], DashboardDependencies],
@@ -83,7 +83,7 @@ class DashboardController(QObject):
             self._schedule()
 
     def refresh(self, *, version: Hashable | None = None) -> None:
-        """No version means a known mutation/explicit refresh, never a status tick."""
+        """无版本只用于已知变动或显式刷新，不因同步状态跳动重复读库。"""
         if self._closed:
             return
         self._check_identity()
@@ -93,7 +93,7 @@ class DashboardController(QObject):
         self._revision += 1
         self._dirty = True
         self._retry_blocked = False
-        # An already running result must not overwrite the new revision.
+        # 已运行结果不得覆盖新修订；取消交付由现有读取 lane 管理。
         self._reads.cancel()
         self._schedule()
 
@@ -135,7 +135,7 @@ class DashboardController(QObject):
 
         def failed(error):
             if current():
-                # Retry is explicit (return to page / next mutation), not a spin loop.
+                # 失败后等重新进页或新变动重试，不在定时器里空转重读。
                 self._dirty = True
                 self._retry_blocked = True
                 self._failed(error)
@@ -143,7 +143,7 @@ class DashboardController(QObject):
         self._reads.submit(PageRequest((identity, revision), read, apply, failed))
 
     def retry(self) -> None:
-        """Page entry permits retry after a transient failure."""
+        """重新进页允许重试上一暂态失败。"""
         self._last_started = 0.0
         self.refresh()
 
@@ -154,7 +154,7 @@ class DashboardController(QObject):
 
 
 def initialize_dashboard(window) -> None:
-    """Called by the composition root after navigation and home widgets exist."""
+    """组合根在导航与工作台控件就绪后显式接线。"""
     from src.features.home.page import refresh_home_page
 
     def loading():

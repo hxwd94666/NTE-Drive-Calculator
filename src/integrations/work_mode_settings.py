@@ -6,6 +6,7 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from time import sleep
 
 from src.domain.work_mode import WorkMode, WorkModeSettings
 
@@ -34,8 +35,7 @@ class WorkModeSettingsStore:
                 mode=mode,
                 risk_confirmed=confirmed and mode != WorkMode.OFFLINE,
                 paused=raw.get("paused") is True,
-                # The first guided release starts with synchronization disabled,
-                # even when an earlier release stored an enabled preference.
+                # 首次引导版本默认关闭同步，即使旧版本曾保存开启偏好，也不自动续启。
                 auto_sync_enabled=guided and raw.get("auto_sync_enabled") is True,
                 sync_guidance_version=1,
                 component_auto_ready=guided and raw.get("component_auto_ready") is True,
@@ -63,7 +63,16 @@ class WorkModeSettingsStore:
                 json.dump(raw, stream, ensure_ascii=False, indent=2)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, self.path)
+            # Windows 短暂只读占用也会报拒绝访问；只重试同一已落盘文件，新增等待合计 100ms。
+            # 永久权限错误仍抛出，保留旧配置；此处不重放模式切换或外部操作。
+            for delay in (0.01, 0.03, 0.06, None):
+                try:
+                    os.replace(temporary, self.path)
+                    break
+                except PermissionError as error:
+                    if os.name != "nt" or delay is None or getattr(error, "winerror", None) not in {5, 32}:
+                        raise
+                    sleep(delay)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)

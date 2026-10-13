@@ -11,7 +11,7 @@ from src.features.battle_report.build_snapshot_editor import (
     BattleBuildSnapshotEditorDialog,
 )
 from src.features.battle_report.page import BattleReportPage
-from src.services.battle_report_history_service import BattleReportHistoryService
+from src.services.battle_report.history.service import BattleReportHistoryService
 
 
 class BattleBuildSnapshotController:

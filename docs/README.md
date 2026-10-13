@@ -12,14 +12,21 @@
 | 项目用途、反滥用立场与私有源码协作 | [项目用途、反滥用与协作声明](../RESPONSIBLE_USE.md) |
 | 刷新／重启同步及跨组件迁移目标 | [同步生命周期设计](roadmap/sync-lifecycle.md) |
 | 分层、数据域、快照、方案和副作用 | [系统架构](architecture.md) |
+| Fork 环境入口、基础权重完整流程与五类修改配方 | [Fork 开发路线](reference/fork-development.md) |
+| 成熟功能框架补足、修复代码合并、中文关键注释与低配优化 | [架构重构开发方案](roadmap/architecture-renewal.md) |
+| 四日开发步骤、阶段验收、模型与额度安排 | [四日开发与验收计划](roadmap/four-day-development-plan.md) |
+| 新版解包驱动数据、素材与新角色逐功能接入 | [版本更新 skill](../skills/nte-game-update/SKILL.md) |
+| 伤害分配占位、组合搜索与最优证明边界 | [伤害分配算法备忘](roadmap/damage-allocation.md) |
 | 已交付的页面、计算、同步、配装和设置 | [功能原理](features.md) |
+| 界面语言补丁、本机偏好、生效与识别语言边界 | [界面语言预备](features/localization.md) |
 | 战报当前行为 | [战报功能](features/battle-report.md) |
 | 资料库与养成计算器当前行为 | [工具与游戏资料库](features/tools-and-catalog.md) |
 | 养成历史、材料录入与批量删除开发契约 | [养成历史方案](roadmap/cultivation-history.md) |
-| 倒带推荐的配装槽位选择、评分来源与失败隔离 | [倒带槽位选择方案](roadmap/rewind-slot-selection.md) |
+| 倒带推荐的配装槽位选择、评分来源与失败隔离：当前行为 | [倒带当前规则](features.md#7-倒带推荐与执行) |
+| 倒带推荐的槽位输入：剩余验收 | [倒带待验收事项](roadmap.md#43-倒带推荐的槽位输入) |
 | nte-core、分析组件、插件、OCR、输入和静态构建 | [外部集成](integrations.md) |
 | 尚未稳定或仍待外部事实的能力 | [当前路线图](roadmap.md) |
-| 扫描后状态管理的单件跳过与结束汇总 | [扫描后状态管理方案](roadmap/mouse-scan-state-failure-isolation.md) |
+| 扫描后状态管理的单件跳过与结束汇总 | [扫描报告与扫描后管理](features.md#32-扫描报告与扫描后管理) |
 | 战报证据、拟合与分析核心待办 | [战报路线图](roadmap/battle-report.md) |
 | 性能四项指标、计时覆盖与开关联动 | [性能指标契约](reference/performance-metrics.md) |
 | 工作模式、逐功能检测与本机生命周期 | [工作模式契约](reference/work-modes.md) |
@@ -39,7 +46,7 @@
 
 - 应用版本唯一来源为 [`src/app/version.py::__version__`](../src/app/version.py)，UI、文档和打包脚本不另写版本常量。
 - 应用版本、账号/静态 schema、采集协议和独立组件版本分别管理；修改应用版本不代替数据库迁移或组件更新。
-- 未完成范围、依赖、实施顺序和完成条件只写 `roadmap.md`；完成并验收后，将当前行为覆盖式整合进功能、架构或集成
+- 未完成范围、依赖、实施顺序和完成条件只写 `roadmap.md` 与 `roadmap/`；完成并验收后，将当前行为覆盖式整合进功能、架构或集成
   文档，并从路线图删除对应计划。
 - 仓库不维护独立发行说明文件。实际发布范围按目标版本、提交历史、构建输入、验证结果和发布平台当次信息确认。
 - [`tools/release/prepare_release.py`](../tools/release/prepare_release.py) 是本地发布准备入口，核对统一版本、静态 dataset、

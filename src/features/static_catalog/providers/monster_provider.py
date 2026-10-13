@@ -23,13 +23,13 @@ from src.features.static_catalog.providers._adapter_common import (
     validate_release_identity,
     validate_release_path,
 )
-from src.services.static_catalog_monster_service import (
+from src.services.static_catalog.monsters.service import (
     CatalogDetail as MonsterDetail,
     CatalogEntry,
     CatalogFilter,
     StaticCatalogMonsterService,
 )
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 

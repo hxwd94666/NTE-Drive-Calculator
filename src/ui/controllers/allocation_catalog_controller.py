@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Qt
 
 from src.app.page_tasks import PageRequest, PageTaskLane
-from src.services.allocation_catalog_service import AllocationCatalogService, CatalogDependencies
+from src.services.allocation.catalog import AllocationCatalogService, CatalogDependencies
 from src.utils.logger import logger
 
 
@@ -49,7 +49,7 @@ class AllocationCatalogController(QObject):
         if not self._current() or self.window.scanning_controller.is_running():
             return
         self._reload_priority |= reload_priority
-        # A click to calculate cannot be replaced by an incidental refresh request.
+        # 显式计算续接不能被普通刷新替换；仍等待本次目录校验。
         if continuation is not None and self._continuation is None:
             self._continuation = continuation
         self._set_ready(False)
@@ -68,7 +68,7 @@ class AllocationCatalogController(QObject):
             self._set_ready(True)
             continuation, self._continuation = self._continuation, None
             if continuation is not None:
-                # Leaving while validation is pending never starts a hidden task.
+                # 校验期间已离开计算页时，不启动隐藏计算。
                 stack = getattr(self.window, "stack", None)
                 if stack is None or self.window._nav_key_for_index(stack.currentIndex()) == "execute":
                     continuation()

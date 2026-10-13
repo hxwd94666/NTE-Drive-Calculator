@@ -35,7 +35,7 @@ def _schema(connection: sqlite3.Connection) -> list[tuple[str, str, str, str | N
 
 
 def _table_fingerprint(connection: sqlite3.Connection, table: str) -> tuple[int, str]:
-    """Hash a multiset of complete rows, independent of VACUUM rowid changes."""
+    """按完整行多重集合计算指纹，不受 VACUUM 的 rowid 变化影响。"""
     quoted = '"' + table.replace('"', '""') + '"'
     rows = (
         hashlib.sha256(repr(row).encode("utf-8")).digest()
@@ -49,7 +49,7 @@ def _table_fingerprint(connection: sqlite3.Connection, table: str) -> tuple[int,
 
 
 def validate_logical_equivalence(baseline: Path, candidate: Path) -> dict[str, int]:
-    """Reject changed schema, row values/counts, identities or corrupt databases."""
+    """拒绝 schema、索引、逐表行值/数量、身份或完整性变化。"""
     with closing(_readonly(baseline)) as old, closing(_readonly(candidate)) as new:
         if _schema(old) != _schema(new):
             raise ValueError("物理压缩候选的 schema 或索引发生变化")
@@ -80,7 +80,7 @@ def validate_repack_provenance(
     baseline: Path,
     baseline_manifest: Path,
 ) -> dict[str, object]:
-    """Bind the candidate to one already-verified published release."""
+    """将压缩候选绑定到同一份已验证发行库及清单。"""
     data = json.loads(provenance.read_text(encoding="utf-8"))
     manifest = json.loads(baseline_manifest.read_text(encoding="utf-8"))
     expected = {
@@ -131,7 +131,7 @@ def validate_repack_provenance(
 
 
 def create_repack_candidate(baseline_dir: Path, candidate_dir: Path) -> Path:
-    """Build in a fresh directory; never write to the published release."""
+    """只在全新隔离目录构建，不写正式发行目录。"""
     source = baseline_dir.resolve(strict=True)
     candidate = candidate_dir.resolve()
     if candidate.exists() or candidate == source or source in candidate.parents:
@@ -148,8 +148,7 @@ def create_repack_candidate(baseline_dir: Path, candidate_dir: Path) -> Path:
     try:
         with closing(_readonly(database)) as connection:
             connection.execute("VACUUM INTO ?", (str(output),))
-        # SQLite's VACUUM INTO can retain a different packing from an in-place
-        # VACUUM. The second pass is isolated to the candidate and removes it.
+        # VACUUM INTO 与原地重排的布局可能不同；第二遍仅作用于隔离候选。
         with closing(sqlite3.connect(output)) as connection:
             connection.execute("VACUUM")
         if (source / "game_ui" / "manifest.json").is_file():
@@ -175,7 +174,7 @@ def create_repack_candidate(baseline_dir: Path, candidate_dir: Path) -> Path:
         validate_repack_provenance(output, candidate / PROVENANCE_FILENAME, database, manifest)
         return output
     except BaseException:
-        # A failed candidate is retained for inspection; it is never promoted.
+        # 失败候选保留供定位，不进入晋升。
         raise
 
 

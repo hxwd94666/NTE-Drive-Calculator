@@ -13,4 +13,5 @@ class RoleRecognition:
     role_name: str | None
     method: str
     confidence: float
+    # 原文仅供本次内存识别与消歧；不得把整个识别对象写入日志或账号导出。
     raw_text: str = ""

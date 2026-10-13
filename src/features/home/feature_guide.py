@@ -103,7 +103,7 @@ FEATURE_GUIDES = (
 
 
 class FeatureGuideDialog(QDialog):
-    """Use a plain QDialog rather than an audible system message box."""
+    """普通帮助使用无系统提示音的 QDialog，导航仅消费显式点击。"""
 
     def __init__(self, parent: QWidget, guide: FeatureGuide, navigate: Callable[[str], None]):
         super().__init__(parent)
@@ -163,7 +163,7 @@ class FeatureGuideDialog(QDialog):
 
 
 def add_feature_guides(layout: QVBoxLayout, parent: QWidget, navigate: Callable[[str], None]) -> None:
-    """Show six small buttons on one row without executing the feature."""
+    """只打开功能说明；不通过帮助按钮启动同步、装配或其他业务。"""
     row = QHBoxLayout()
     row.setSpacing(10)
     for guide in FEATURE_GUIDES:

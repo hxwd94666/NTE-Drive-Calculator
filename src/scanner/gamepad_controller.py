@@ -3,7 +3,12 @@
 
 import gc
 import os
-import shutil
+from pathlib import Path
+
+from src.integrations.vision.capture_files import (
+    capture_output_lease, create_capture_directory, freeze_capture_stage,
+    prepare_capture_publication, publish_capture_files,
+)
 import time
 from dataclasses import dataclass
 from typing import Literal
@@ -17,7 +22,7 @@ from src.integrations.vision.mouse_scan_input import (
     PyAutoGuiMouseScanInput,
     inventory_top_reset_swipe_points,
 )
-from src.scanner.window_capture import (
+from src.integrations.vision.window_capture import (
     capture_foreground_window,
     game_content_rect,
     get_foreground_client_rect,
@@ -211,22 +216,8 @@ class GamepadScanner:
         logger.error("!" * 50)
         self._stopped = True
 
-    def _clear_output_images(self):
-        image_exts = {".png", ".jpg", ".jpeg", ".bmp"}
-        removed = 0
-        for name in os.listdir(self.output_dir):
-            path = os.path.join(self.output_dir, name)
-            if os.path.isfile(path) and os.path.splitext(name)[1].lower() in image_exts:
-                os.remove(path)
-                removed += 1
-        if removed:
-            logger.info(f"全量扫描前已清理旧截图 {removed} 张。")
-
-    def _prepare_temp_output(self):
-        self.capture_dir = os.path.join(self.output_dir, "temp")
-        if os.path.exists(self.capture_dir):
-            shutil.rmtree(self.capture_dir, ignore_errors=True)
-        os.makedirs(self.capture_dir, exist_ok=True)
+    def _prepare_temp_output(self) -> None:
+        self.capture_dir = create_capture_directory(self.output_dir)
 
     def _drag_inventory_list_to_top(self) -> None:
         """Run the mouse list reset before the established gamepad scan path."""
@@ -247,18 +238,15 @@ class GamepadScanner:
         )
         input_driver.drag(start, end, hold_seconds=0.3, duration_seconds=0.6)
 
-    def _commit_temp_output(self):
-        self._clear_output_images()
-        moved = 0
-        for name in sorted(os.listdir(self.capture_dir)):
-            src = os.path.join(self.capture_dir, name)
-            dst = os.path.join(self.output_dir, name)
-            if os.path.isfile(src):
-                shutil.move(src, dst)
-                moved += 1
-        shutil.rmtree(self.capture_dir, ignore_errors=True)
-        self.capture_dir = self.output_dir
-        logger.success(f"全量扫描截图已写入根目录，共 {moved} 张。")
+    def _commit_temp_output(self) -> None:
+        # 独立截图调用也使用精确发布；正式 Calc 流水线等待 DB 授权，不调用此入口。
+        with capture_output_lease(self.output_dir):
+            count = len(list(Path(self.capture_dir).glob("raw_drive_*.png")))
+            stage = freeze_capture_stage(self.output_dir, self.capture_dir, count)
+            result = publish_capture_files(prepare_capture_publication(stage))
+            if result.status != "published":
+                raise RuntimeError(result.message or "截图整理未完成，请核对本次暂存。")
+            self.capture_dir = self.output_dir
 
     def capture_panel(self, sct, counter):
         total_start = time.perf_counter()

@@ -1,5 +1,5 @@
 # 固化角色图纸工作线程启动时的账号身份和上下文代次。
-"""Immutable dependencies for one blueprint generation request."""
+"""一次图纸请求的不可变身份；静态路径与正式装备分配使用同一已选数据域。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ class BlueprintDependencies:
 
     @classmethod
     def from_app_context(cls, app_context: AppContext) -> "BlueprintDependencies":
+        """在创建请求时一次取账号/代次/路径，不由worker追随之后的上下文切换。"""
         return cls(
             account_id=app_context.account.active_account_id,
             generation=app_context.generation,

@@ -22,13 +22,24 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
         logger.error(f"显示全局异常弹窗失败: {exc}")
 
 
-def run_gui(APP_CONTEXT, GLOBAL_THEME_SETTINGS, MainWindow, _ensure_admin):
+def prepare_process_dpi_awareness():
+    """显式 GUI 启动保留旧鼠标库的系统 DPI 初始化时点，不覆盖既有感知模式。"""
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except AttributeError:
+            # 与旧依赖一致，仅兼容没有该 API 的系统；返回失败不强制切换模式。
+            pass
+
+
+def run_gui(app_context, global_theme_settings, window_factory):
+    """消费已经准备好的运行期依赖；Qt 初始化不再隐式创建默认账号。"""
     import faulthandler
 
-    _ensure_admin()
-    APP_CONTEXT.account.log_dir.mkdir(parents=True, exist_ok=True)
+    app_context.account.log_dir.mkdir(parents=True, exist_ok=True)
     _fault_log = open(
-        str(APP_CONTEXT.account.log_dir / "crash_dump.log"),
+        str(app_context.account.log_dir / "crash_dump.log"),
         "w",
         encoding="utf-8",
     )
@@ -40,23 +51,23 @@ def run_gui(APP_CONTEXT, GLOBAL_THEME_SETTINGS, MainWindow, _ensure_admin):
     )
     if hasattr(Qt, "AA_DontUseNativeDialogs"):
         QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
-    # Preserve bootstrap flags in sys.argv for UAC relaunch and theme restart,
-    # but do not pass them to Qt's platform-argument parser.
+    # 启动参数保留给 UAC/主题重启，Qt 只接收自己的平台参数。
     qt_args = [arg for arg in sys.argv if arg not in {"--gui", "--ime-compat"}]
+    prepare_process_dpi_awareness()
     app = QApplication(qt_args)
     app.setStyle("Fusion")
-    account_settings = APP_CONTEXT.account_settings
+    account_settings = app_context.account_settings
     legacy_theme = account_settings.legacy_theme_preference()
     account_settings.migrate_legacy_settings()
     account_settings.remove_legacy_theme_preference()
     apply_app_theme(
         app,
-        GLOBAL_THEME_SETTINGS.load(legacy_theme=legacy_theme),
+        global_theme_settings.load(legacy_theme=legacy_theme),
     )
     install_dialog_defaults(app)
-    if APP_CONTEXT.paths.app_icon_path.exists():
-        app.setWindowIcon(QIcon(str(APP_CONTEXT.paths.app_icon_path)))
-    w = MainWindow()
+    if app_context.paths.app_icon_path.exists():
+        app.setWindowIcon(QIcon(str(app_context.paths.app_icon_path)))
+    w = window_factory()
     w.show()
     sys.exit(app.exec())
 

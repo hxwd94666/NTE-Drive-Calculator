@@ -1,5 +1,5 @@
 # 渲染配装结果的属性加成汇总、差值比较和详情弹窗。
-"""MainWindow methods for allocation."""
+"""沿用公共面板引擎投影配装属性；不覆盖方案冻结评分或持久化事实。"""
 
 from __future__ import annotations
 
@@ -391,6 +391,7 @@ def _bonus_more_button(on_click=None):
 
 
 def _configure_bonus_more_button(button, on_click=None):
+    # 每个面板只保留本轮详情入口，重绘先断开旧闭包，避免重复打开或展示旧行。
     previous_callback = getattr(button, "_bonus_more_callback", None)
     if previous_callback is not None:
         try:
@@ -571,7 +572,7 @@ def _refresh_bonus_summary_panel(
     self._clear_layout_widgets(content_layout)
     _configure_bonus_more_button(box._bonus_summary_more_button)
     if compare_with_saved:
-        # Saved SQLite plans carry their own immutable diff.
+        # 已保存方案优先消费自身持久化差异；只有缺该证据时才沿用原展示回退。
         persisted_diff = role_diff if isinstance(role_diff, dict) and role_diff.get(DIFF_CHANGED) else None
         effective_diff = persisted_diff or resolve_comparison_role_diff(self, role_name)
         if persisted_diff is not None:

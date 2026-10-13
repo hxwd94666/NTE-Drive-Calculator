@@ -1,5 +1,5 @@
-# 从 MainWindow 抽离的控制器方法。
-"""Compatibility-installed MainWindow controller."""
+# 处理账号热键配置与共用设置读写，完整快捷键才交给全局热键 owner。
+"""现有窗口 mixin 的窄设置入口；持久化由注入的账号设置 Service 完成。"""
 
 from __future__ import annotations
 
@@ -42,9 +42,7 @@ def _save_hotkeys(self, *, announce=False):
     battle_rerecord=(
         self._hk_battle_rerecord_edit.keySequence().toString().strip()
     )
-    # A QKeySequenceEdit emits an empty intermediate sequence while a user
-    # replaces a binding.  Keep the last complete configuration until all
-    # fields are valid instead of surfacing an exception to the user.
+    # 替换热键会先产生空值；全部有效前保留上一完整配置，不提交中间状态。
     if not all((capture, finish, stop, battle_rerecord)):
         return False
     self._hk_capture=capture

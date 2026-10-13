@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from src.app.context import AppContext
+from src.app.context import AppContext, CallbackAccountLifecycle
 from src.features.toolbox.toolbox_navigation import ToolboxDependencies, cultivation_context_identity
-from src.services.cultivation_history_service import CultivationHistoryService
-from src.services.cultivation_owned_material_import import ImportedOwnedMaterials
-from src.services.cultivation_planner_service import CultivationPlannerService
-from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
+from src.services.progression.history_service import CultivationHistoryService
+from src.services.progression.owned_material_import import ImportedOwnedMaterials
+from src.services.progression.planner_service import CultivationPlannerService
+from src.services.rewind.recommendation import RewindShapeRecommendationService
+
+
+if TYPE_CHECKING:
+    from src.features.toolbox.page import ToolboxPage
 
 
 def build_toolbox_dependencies(
@@ -41,3 +45,12 @@ def build_toolbox_dependencies(
         cultivation_asset_root=lambda: context.paths.cultivation_asset_root,
         navigate_static_catalog=navigate_static_catalog,
     )
+
+
+def register_toolbox_account_lifecycle(context: AppContext, toolbox: ToolboxPage) -> Callable[[], None]:
+    """账号身份替换前撤销隐藏养成页；旧物理任务仍由原页面树保留。"""
+    # 工具页是用户打开的草稿，不是切换后自动恢复的后台服务。
+    return context.register_account_lifecycle(CallbackAccountLifecycle(
+        is_running=lambda: False, stop=toolbox.shutdown,
+        rebuild=lambda _account: None, start=lambda: None,
+    ))

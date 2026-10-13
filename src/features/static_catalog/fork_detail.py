@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.services.static_catalog_fork_service import (
+from src.services.static_catalog.forks.service import (
     CatalogOrigin,
     CatalogRelation,
     CatalogSourceTrace,

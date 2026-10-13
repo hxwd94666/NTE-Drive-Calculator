@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.character_shape_bonus_service import (
+from src.services.characters.character_shape_bonus_service import (
     static_character_shape_profile_fields,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao

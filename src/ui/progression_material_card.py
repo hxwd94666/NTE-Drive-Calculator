@@ -1,5 +1,5 @@
 # 提供资料库与养成计算器共用的带图片材料卡片。
-"""Reusable progression material presentation widget."""
+"""资料库与养成共用的材料展示，不拥有数量公式或背包状态。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from src.app.theme import themed_style
 
 
 class ProgressionMaterialCard(QFrame):
-    """Render one material identity, image and amount without owning formulas."""
+    """直接展示调用方给出的材料名称与数量；缺图使用文字占位。"""
 
     def __init__(
         self,

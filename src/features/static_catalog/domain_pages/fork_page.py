@@ -25,22 +25,22 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.domain.static_catalog_terminology import LocalizedForkCampaign
 from src.features.static_catalog.domain_pages.fork_profile import ForkProfileView
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_character_models import CharacterSummary
-from src.services.static_catalog_character_service import StaticCatalogCharacterService
-from src.services.static_catalog_fork_release_metadata import (
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.static_catalog.characters.models import CharacterSummary
+from src.services.static_catalog.characters.service import StaticCatalogCharacterService
+from src.services.static_catalog.forks.release_metadata import (
     ForkItemDisplayNameService,
     sort_fork_catalog,
 )
-from src.services.static_catalog_fork_service import (
+from src.services.static_catalog.forks.service import (
     ForkCatalogSummary,
     ForkCatalogType,
     StaticCatalogForkService,
 )
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
-from src.storage.sqlite.static_catalog_character_queries import (
+from src.storage.sqlite.catalog.static_catalog_character_queries import (
     StaticCatalogCharacterQueries,
 )
 

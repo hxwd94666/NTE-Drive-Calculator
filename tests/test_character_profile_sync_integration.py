@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 from src.features.official_role.dependencies import OfficialRoleDependencies
 from src.features.official_role import page
 from src.features.official_role.sync_controller import CharacterProfileSyncController
-from src.services.native_game_session import NativeGameSession
+from src.services.native_session.session import NativeGameSession
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.test_native_game_session import FakeNativeCore
 

@@ -181,8 +181,8 @@ def _dataset_version(database: Path) -> str:
 def _load_analysis(database: Path, static_database: Path, account: str,
                    record_id: int, mode: str, client: Any = None,
                    progress_metrics: dict[str, float] | None = None) -> tuple[Any, float]:
-    from src.services.battle_report_history_service import BattleReportHistoryService
-    from src.services.battle_report_persistence_service import (
+    from src.services.battle_report.history.service import BattleReportHistoryService
+    from src.services.battle_report.persistence import (
         BattleReportPersistenceDependencies,
     )
 

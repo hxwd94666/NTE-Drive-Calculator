@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass, field
+from concurrent.futures import CancelledError
+from src.integrations.vision.recognition.resources import RecognitionResourceError
+from src.integrations.vision.recognition.model_resources import OcrModelResourceError
 from pathlib import Path
 from typing import Iterable
 
@@ -145,7 +148,7 @@ def equipment_compare_signature(item) -> tuple:
 def _iter_account_temp_images(account_root: Path) -> list[Path]:
     """Return app-generated temporary images in the account root."""
 
-    from src.features.identification.temp_files import iter_identify_clipboard_files
+    from src.integrations.vision.recognition.identification_temp_files import iter_identify_clipboard_files
 
     return iter_identify_clipboard_files(Path(account_root))
 
@@ -201,30 +204,13 @@ def execute_screenshot_cleanup(plan: ScreenshotCleanupPlan) -> ScreenshotCleanup
 class ScanFileLifecycle:
     """Coordinate screenshot file operations after OCR parsing finishes."""
 
-    def __init__(
-        self,
-        screenshot_dir: Path,
-        config_dir: Path,
-        batch_processor_cls=None,
-        output_file: Path | None = None,
-    ):
+    def __init__(self, screenshot_dir: Path):
         self.screenshot_dir = Path(screenshot_dir)
-        self.config_dir = Path(config_dir)
-        if batch_processor_cls is None:
-            from src.scanner.batch_processor import BatchProcessor
 
-            batch_processor_cls = BatchProcessor
-        self.batch_processor_cls = batch_processor_cls
-
-    def same_equipment_by_ocr(self, left: Path, right: Path) -> bool:
+    def same_equipment_by_ocr(self, left: Path, right: Path, processor) -> bool:
         """Compare two screenshots by parsed equipment data, not image pixels."""
 
         try:
-            processor = self.batch_processor_cls(
-                input_dir=str(self.screenshot_dir),
-                config_dir=str(self.config_dir),
-                replace_output=False,
-            )
             left_item = processor._process_single_image(str(left))
             right_item = processor._process_single_image(str(right))
             left_sig = equipment_compare_signature(left_item)
@@ -236,11 +222,13 @@ class ScanFileLifecycle:
             if not same:
                 logger.debug(f"probe={left_sig} baseline={right_sig}")
             return same
+        except (CancelledError, RecognitionResourceError, OcrModelResourceError):
+            raise
         except Exception as exc:
             logger.warning(f"增量首图 OCR 数据比对失败，将保留 probe 进入正常解析: {exc}")
             return False
 
-    def prepare_incremental_parse(self, parse_scope: str) -> IncrementalParsePreparation:
+    def prepare_incremental_parse(self, parse_scope: str, processor) -> IncrementalParsePreparation:
         """Prepare duplicate-probe skipping for incremental parse scopes."""
 
         result = IncrementalParsePreparation()
@@ -262,7 +250,7 @@ class ScanFileLifecycle:
             return result
 
         first_probe = probes[0]
-        if self.same_equipment_by_ocr(first_probe, baseline):
+        if self.same_equipment_by_ocr(first_probe, baseline, processor):
             result.skip_names.add(first_probe.name)
             result.delete_after_parse.append(str(first_probe))
             result.probe_duplicate_count = 1
@@ -290,7 +278,7 @@ class ScanFileLifecycle:
             suffix += 1
         return candidate
 
-    def move_to_failed(self, paths: Iterable[str | Path]) -> int:
+    def move_to_failed(self, paths: Iterable[str | Path], before_change=None) -> int:
         """Move failed screenshots to the failed quarantine directory."""
 
         failed_dir = self.screenshot_dir / FAILED_SCREENSHOT_DIRNAME
@@ -299,6 +287,8 @@ class ScanFileLifecycle:
             src_path = Path(src)
             if not src_path.exists():
                 continue
+            if before_change is not None:
+                before_change()
             dst = self.unique_path(failed_dir, src_path.name)
             try:
                 shutil.move(str(src_path), str(dst))
@@ -307,7 +297,7 @@ class ScanFileLifecycle:
                 logger.error(f"移动失败截图失败: {src_path.name} | {exc}")
         return moved
 
-    def delete_paths(self, paths: Iterable[str | Path]) -> int:
+    def delete_paths(self, paths: Iterable[str | Path], before_change=None) -> int:
         """Delete duplicate screenshots after parsing has completed."""
 
         deleted = 0
@@ -315,6 +305,8 @@ class ScanFileLifecycle:
             src_path = Path(src)
             if not src_path.exists():
                 continue
+            if before_change is not None:
+                before_change()
             try:
                 src_path.unlink()
                 deleted += 1
@@ -330,7 +322,7 @@ class ScanFileLifecycle:
         ]
         return (max(indexes) if indexes else 0) + 1
 
-    def rename_incremental_successes(self, paths: Iterable[str | Path]) -> int:
+    def rename_incremental_successes(self, paths: Iterable[str | Path], before_change=None) -> int:
         """Append successfully parsed incremental screenshots to the full sequence."""
 
         next_index = self.next_full_scan_index()
@@ -343,6 +335,8 @@ class ScanFileLifecycle:
             while target.exists():
                 next_index += 1
                 target = self.screenshot_dir / full_scan_filename(next_index, src_path.suffix.lower() or ".png")
+            if before_change is not None:
+                before_change()
             try:
                 src_path.rename(target)
                 renamed += 1
@@ -351,7 +345,7 @@ class ScanFileLifecycle:
                 logger.error(f"增量截图重命名失败: {src_path.name} | {exc}")
         return renamed
 
-    def move_first_full_scan_to_tail(self) -> bool:
+    def move_first_full_scan_to_tail(self, before_change=None) -> bool:
         """Move raw_drive_0001 to the current tail before replacing it with a new probe."""
 
         first_candidates = [p for p in iter_root_image_files(self.screenshot_dir) if p.stem == "raw_drive_0001"]
@@ -363,6 +357,8 @@ class ScanFileLifecycle:
         while target.exists():
             next_index += 1
             target = self.screenshot_dir / full_scan_filename(next_index, first_path.suffix.lower() or ".png")
+        if before_change is not None:
+            before_change()
         first_path.rename(target)
         logger.info(f"全自动增量首图插队：旧 raw_drive_0001 已移动到 {target.name}")
         return True
@@ -372,6 +368,7 @@ class ScanFileLifecycle:
         stats: dict,
         delete_after_parse: Iterable[str | Path] | None = None,
         probe_duplicate_count: int = 0,
+        before_change=None,
     ) -> dict:
         """Apply all screenshot file mutations after a parse run succeeds."""
 
@@ -379,8 +376,8 @@ class ScanFileLifecycle:
         failed_paths = list(stats.get("failed_paths") or [])
         duplicate_paths = list(stats.get("duplicate_paths") or [])
         added_paths = list(stats.get("added_paths") or [])
-        moved_failed = self.move_to_failed(failed_paths)
-        deleted_duplicates = self.delete_paths(list(duplicate_paths) + list(delete_after_parse or []))
+        moved_failed = self.move_to_failed(failed_paths, before_change)
+        deleted_duplicates = self.delete_paths(list(duplicate_paths) + list(delete_after_parse or []), before_change)
 
         renamed = 0
         if scope in ("incremental", "incremental_auto", "incremental_semi"):
@@ -391,12 +388,14 @@ class ScanFileLifecycle:
                 ]
             if probe_success:
                 probe_path = Path(probe_success[0])
-                self.move_first_full_scan_to_tail()
+                self.move_first_full_scan_to_tail(before_change)
                 target = self.screenshot_dir / full_scan_filename(1, probe_path.suffix.lower() or ".png")
+                if before_change is not None:
+                    before_change()
                 probe_path.rename(target)
                 renamed += 1
                 added_paths = [p for p in added_paths if Path(p) != probe_path]
-            renamed += self.rename_incremental_successes(added_paths)
+            renamed += self.rename_incremental_successes(added_paths, before_change)
 
         return {
             "moved_failed": moved_failed,

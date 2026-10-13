@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.domain.drive_layout import matrix_groups_in_scan_order
-from src.services.allocation_context import AllocationCandidate, AllocationContext, AllocationRolePreference
+from src.domain.allocation.inputs import AllocationCandidate, AllocationContext, AllocationRolePreference
 
 
 class AllocationSolverError(RuntimeError):
@@ -152,20 +154,26 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
     )
 
 
+def _checkpoint(cancel_check):
+    if cancel_check is not None and cancel_check():
+        raise CancelledError("配装计算已取消")
+
+
 def _top_k(
-    context: AllocationContext, role: AllocationRolePreference, count: int, *, allow_missing_core: bool = False,
+    context: AllocationContext, role: AllocationRolePreference, count: int, *, allow_missing_core: bool = False, cancel_check=None,
 ) -> RoleTopK:
     """Branch by UID exclusion and rerun the original one-role strategy."""
 
     from heapq import heappop, heappush
     from itertools import count as counter
-    from src.services.allocation_legacy_adapter import run_legacy_allocation
+    from src.services.allocation.legacy_adapter import run_legacy_allocation
 
     serial = counter()
     queue: list[tuple[float, int, frozenset[tuple[int, int]], RoleAllocationOption]] = []
     seen_exclusions: set[frozenset[tuple[int, int]]] = set()
 
     def enqueue(excluded: frozenset[tuple[int, int]]) -> None:
+        _checkpoint(cancel_check)
         if excluded in seen_exclusions:
             return
         seen_exclusions.add(excluded)
@@ -173,9 +181,11 @@ def _top_k(
             role,
             run_legacy_allocation(
                 context, roles=(role,), excluded_uids=excluded, allow_missing_core=allow_missing_core,
+                cancel_check=cancel_check,
             ),
             rank=0,
         )
+        _checkpoint(cancel_check)
         if option is not None:
             heappush(queue, (-option.score, next(serial), excluded, option))
 
@@ -183,6 +193,7 @@ def _top_k(
     options: list[RoleAllocationOption] = []
     fingerprints: set[frozenset[tuple[int, int]]] = set()
     while queue and len(options) < count:
+        _checkpoint(cancel_check)
         _score, _serial, excluded, option = heappop(queue)
         if option.used_uids in fingerprints:
             continue
@@ -191,15 +202,19 @@ def _top_k(
             option.priority_values, option.assignments, option.generated_board,
             option.satisfied_constraints, option.missing_core_reason))
         for uid in option.used_uids:
+            _checkpoint(cancel_check)
             enqueue(excluded | {uid})
+    _checkpoint(cancel_check)
     return RoleTopK(role.character_id, tuple(options), None if options else "既有求解器未能生成满足约束的完整候选")
 
 
 def solve_allocation_context(context: AllocationContext, *, top_k: int = 5, include_role_top_k: bool = True,
                              role_search_limit: int = 20_000, global_search_limit: int = 100_000,
-                             allow_missing_core: bool = False) -> AllocationSolveResult:
+                             allow_missing_core: bool = False,
+                             cancel_check: Callable[[], bool] | None = None) -> AllocationSolveResult:
     """Run the established scorer, puzzle solver and strategy dispatcher via Context."""
 
+    _checkpoint(cancel_check)
     del role_search_limit, global_search_limit
     if not isinstance(context, AllocationContext):
         raise TypeError("求解器只接受不可变 AllocationContext")
@@ -207,18 +222,19 @@ def solve_allocation_context(context: AllocationContext, *, top_k: int = 5, incl
         raise ValueError("top_k 必须是 1 到 20 的整数")
     if not context.shapes or not context.suits or not context.attributes:
         raise AllocationSolverError("AllocationContext 缺少既有求解器所需的形状、套装或属性映射")
-    from src.services.allocation_legacy_adapter import run_legacy_allocation
+    from src.services.allocation.legacy_adapter import run_legacy_allocation
 
     role_top_k = (
-        tuple(_top_k(context, role, top_k, allow_missing_core=allow_missing_core) for role in context.roles)
+        tuple(_top_k(context, role, top_k, allow_missing_core=allow_missing_core, cancel_check=cancel_check) for role in context.roles)
         if include_role_top_k else ()
     )
-    run = run_legacy_allocation(context, allow_missing_core=allow_missing_core)
+    run = run_legacy_allocation(context, allow_missing_core=allow_missing_core, cancel_check=cancel_check)
     selected = tuple(option for role in context.roles if (option := _option(role, run, rank=1)) is not None)
     uids = [uid for option in selected for uid in option.used_uids]
     if len(uids) != len(set(uids)):
         raise AllocationSolverError("既有分配策略返回了重复的原生装备 UID")
     selected_ids = {option.character_id for option in selected}
+    _checkpoint(cancel_check)
     return AllocationSolveResult(context.snapshot.snapshot_id, context.profile_id, context.profile_version,
         context.solver_version, top_k, role_top_k,
         UnifiedAllocation(context.allocation_strategy, sum(option.score for option in selected), selected,

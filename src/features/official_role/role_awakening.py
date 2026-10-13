@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QVBoxLayout
-from src.services.official_role_awakening_service import render_awaken_effect_description
+from src.services.official_role.awakening import render_awaken_effect_description
 from src.ui.widgets import NoWheelSpinBox
 from .role_calculation import _mark_dirty, _refresh_role_calculations
 

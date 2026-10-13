@@ -72,10 +72,8 @@ class IncrementalBaselineTests(unittest.TestCase):
 
             lifecycle = ScanFileLifecycle(
                 screenshot_dir=screenshot_dir,
-                output_file=root / "config" / "real_inventory.json",
-                config_dir=root / "config",
             )
-            result = lifecycle.prepare_incremental_parse("incremental_auto")
+            result = lifecycle.prepare_incremental_parse("incremental_auto", None)
 
         self.assertTrue(result.baseline_missing)
 
@@ -91,8 +89,6 @@ class IncrementalBaselineTests(unittest.TestCase):
 
             lifecycle = ScanFileLifecycle(
                 screenshot_dir=screenshot_dir,
-                output_file=root / "config" / "real_inventory.json",
-                config_dir=root / "config",
             )
             post = lifecycle.postprocess_vision_files(
                 {
@@ -363,7 +359,7 @@ class GamepadScannerTests(unittest.TestCase):
 
     def test_gamepad_list_reset_swipe_matches_reversed_incremental_motion(self):
         from src.scanner import gamepad_controller
-        from src.scanner.window_capture import WindowRect
+        from src.integrations.vision.window_capture import WindowRect
 
         scanner = gamepad_controller.GamepadScanner.__new__(gamepad_controller.GamepadScanner)
         scanner.operation_guard = lambda _: None

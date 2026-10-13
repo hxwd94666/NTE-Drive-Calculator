@@ -1,3 +1,4 @@
+# 验证首页账号一致读取、正式角色计数及最近背包变化。
 # 测试首页聚合服务对静态数据和账号数据的只读查询。
 from __future__ import annotations
 
@@ -5,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.services.dashboard_service import DashboardService
+from src.services.accounts.dashboard import DashboardService
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 

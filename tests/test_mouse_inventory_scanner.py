@@ -19,7 +19,7 @@ from src.integrations.vision.mouse_scan_runtime import (
     require_mouse_scan_runtime,
 )
 from src.integrations.vision.mouse_scan_grid import detect_grid_occupancy
-from src.scanner.window_capture import WindowRect
+from src.integrations.vision.window_capture import WindowRect
 
 
 class MouseInventoryLayoutTests(unittest.TestCase):

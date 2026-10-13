@@ -7,7 +7,7 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from src.services.static_catalog_terminology_service import StaticCatalogTerminologyService
+from src.services.static_catalog.common.terminology import StaticCatalogTerminologyService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from tools.game_data.static_database_build_support import SCHEMA_PATHS
 from tools.game_data.static_database_progression_imports import ProgressionImportMixin

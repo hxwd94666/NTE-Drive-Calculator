@@ -1,94 +1,37 @@
-# 编排基础权重与自创角色额外形状的加载、保存及关联日志。
-"""Controller boundary for account weights and custom-role shape settings."""
-
+# 维护基础权重页读写任务、缓存与迟到结果；业务规则和事务归独立 Service。
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from copy import deepcopy
+from typing import Any, TypeVar
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 
 from src.app.page_tasks import PageCommitLane, PageRequest, PageTaskLane
-
-from src.domain.stat_catalog import StatCatalog
-from src.features.configuration.dependencies import BasicWeightDependencies
+from src.domain.basic_weight import BasicWeightDependencies
 from src.observability import OperationContext
-from src.observability.operation import log_event, operation_scope
-from src.services.character_shape_bonus_service import (
-    DEFAULT_EXTRA_SHAPE_LABEL,
-)
-from src.services.character_weight_service import (
-    ensure_account_character_weights,
-    reset_account_character_weights,
-    save_account_character_weights,
-)
-from src.services.custom_character_service import (
-    create_custom_character,
-    delete_custom_character,
-    save_custom_character_board,
-    save_custom_character_shape_bonus,
-    save_custom_character_target_suit,
-)
-from src.services.official_role_page_service import load_official_role_index
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.characters.basic_weight_service import BasicWeightService
 
 
-_EXTRA_SHAPE_LABEL_CHOICES = ("Type-3", "Type-2", "Type-4")
-_ACCOUNT_MAIN_PROPERTY_CHOICES = (
-    ("生命值百分比", "HPMaxUp"),
-    ("攻击力百分比", "AtkUp"),
-    ("防御力百分比", "DefUp"),
-    ("暴击率", "CritBase"),
-    ("暴击伤害", "CritDamageBase"),
-    ("环合强度", "MagBase"),
-    ("倾陷强度", "UnbalIntensityBase"),
-    ("治疗加成", "HealUp"),
-    ("光属性异能伤害增强", "DamageUpCosmosBase"),
-    ("灵属性异能伤害增强", "DamageUpNatureBase"),
-    ("咒属性异能伤害增强", "DamageUpIncantationBase"),
-    ("暗属性异能伤害增强", "DamageUpChaosBase"),
-    ("魂属性异能伤害增强", "DamageUpPsycheBase"),
-    ("相属性异能伤害增强", "DamageUpLakshanaBase"),
-    ("心灵伤害增强", "DamageUpPsychicallyBase"),
-)
-_WEIGHT_POOL_PROPERTY_IDS = {
-    "生命值%": "HPMaxUp",
-    "生命值": "HPMaxAdd",
-    "攻击力%": "AtkUp",
-    "攻击力": "AtkAdd",
-    "防御力%": "DefUp",
-    "防御力": "DefAdd",
-    "伤害增加%": "DamageUpGeneralBase",
-    "暴击率%": "CritBase",
-    "暴击伤害%": "CritDamageBase",
-    "环合强度": "MagBase",
-    "倾陷强度": "UnbalIntensityBase",
-    "治疗加成%": "HealUp",
-    "光属性异能伤害增强%": "DamageUpCosmosBase",
-    "灵属性异能伤害增强%": "DamageUpNatureBase",
-    "咒属性异能伤害增强%": "DamageUpIncantationBase",
-    "暗属性异能伤害增强%": "DamageUpChaosBase",
-    "魂属性异能伤害增强%": "DamageUpPsycheBase",
-    "相属性异能伤害增强%": "DamageUpLakshanaBase",
-    "心灵伤害增强%": "DamageUpPsychicallyBase",
-}
+_T = TypeVar("_T")
 
 
 class BasicWeightController(QObject):
-    """Own the account-pinned boundary consumed by the Qt form."""
+    """拥有有界后台 lane；不实现 SQL、目录规则或权重公式。"""
 
     changed = Signal()
 
     def __init__(self, dependencies: BasicWeightDependencies, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.dependencies = dependencies
+        self.service = BasicWeightService(dependencies)
         self._reads = PageTaskLane(self)
         self._writes = PageCommitLane(self)
         self._epoch = 0
         self._closed = False
-        self._form_cache = None
-        self._form_cache_key = None
+        self._retiring = False
+        self._form_cache: dict[str, Any] | None = None
+        self._form_cache_key: tuple[tuple, ...] | None = None
 
     def is_writing(self) -> bool:
         return self._writes.is_running()
@@ -96,297 +39,95 @@ class BasicWeightController(QObject):
     def cancel_reads(self) -> None:
         self._reads.cancel()
 
-    def request_form_data(self, apply, failed) -> None:
+    def request_form_data(self, apply: Callable[[dict[str, Any]], None], failed: Callable[[str], None]) -> None:
         if not self._closed and not self.is_writing():
             self._reads.submit(PageRequest(
                 (self.dependencies, self._epoch), lambda: deepcopy(self._cached_form()), apply, failed,
             ))
 
-    def _form_source_key(self):
-        from pathlib import Path
-        from src.services.workshop_weight_template_service import configured_workshop_weight_template_file
-        template = configured_workshop_weight_template_file()
-        databases = self.dependencies.user_database_path, self.dependencies.static_database_path
-        files = [self.dependencies.config_dir / "stats.json"]
-        files.extend(path for database in databases for path in (database, Path(str(database) + "-wal")))
-        if template is not None:
-            files.append(template)
-        def stamp(path):
-            try:
-                stat = path.stat()
-                return str(path), stat.st_ino, stat.st_size, stat.st_mtime_ns
-            except OSError:
-                return str(path), None
-        return tuple(stamp(path) for path in files)
+    def _cached_form(self) -> dict[str, Any]:
+        # 指纹只用于失效检测，不冒充数据库事务；输入变化最多重读一次，不投影已知混合结果。
+        for _attempt in range(2):
+            key = self.service.source_key()
+            if self._form_cache is None or key != self._form_cache_key:
+                candidate = self.load_form_data()
+            else:
+                candidate = self._form_cache
+            if key == self.service.source_key():
+                self._form_cache, self._form_cache_key = candidate, key
+                return candidate
+        self._form_cache = self._form_cache_key = None
+        raise RuntimeError("角色配置在加载期间变化，请重新载入")
 
-    def _cached_form(self):
-        key = self._form_source_key()
-        if self._form_cache is None or key != self._form_cache_key:
-            self._form_cache = self.load_form_data()
-            self._form_cache_key = key if key == self._form_source_key() else None
-        return self._form_cache
-
-    def submit_change(self, work, committed, failed, application_failed) -> bool:
+    def submit_change(
+        self, work: Callable[[], _T], committed: Callable[[_T], None],
+        failed: Callable[[str], None], application_failed: Callable[[str], None],
+    ) -> bool:
         if self._closed or self.is_writing():
             return False
         self._epoch += 1
         self._reads.cancel()
 
-        def done(value):
+        def done(value: _T) -> None:
             self._form_cache_key = None
             self.changed.emit()
             committed(value)
 
         return self._writes.submit(work, done, failed, application_failed)
 
-    def when_commit_settled(self, callback) -> None:
-        from PySide6.QtCore import Qt
+    def when_commit_settled(self, callback: Callable[[bool], None]) -> None:
         self._writes.settled.connect(callback, Qt.ConnectionType.SingleShotConnection)
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        self._reads.close()  # An accepted write always retains its completion callback.
+        # 关闭使读取失效，但已接受写入仍保留终态确认；不在主线程等待 worker。
+        self._reads.close()
         if self._reads.is_running():
-            from PySide6.QtCore import Qt
             self._reads.idle.connect(self._release_cache, Qt.ConnectionType.SingleShotConnection)
         else:
             self._release_cache()
 
-    def _release_cache(self):
+    def _release_cache(self) -> None:
         self._form_cache = self._form_cache_key = None
 
+    def retire(self) -> None:
+        """换代时停止接受工作，等物理读写终态后回收整个 owner。"""
+        if self._retiring:
+            return
+        self._retiring = True
+        self.close()
+        # 读取失效不等于线程结束；已接受写入也必须先保留终态确认。
+        # 两条 lane 可能同时运行，任何一条先结束都只重新检查，不提前销毁 QThread。
+        self._reads.idle.connect(self._delete_when_idle, Qt.ConnectionType.SingleShotConnection)
+        self._writes.settled.connect(self._delete_when_idle, Qt.ConnectionType.SingleShotConnection)
+        self._delete_when_idle()
+
+    def _delete_when_idle(self, _success: bool = True) -> None:
+        if not self._reads.is_running() and not self.is_writing():
+            self.deleteLater()
+
     def operation(self) -> OperationContext:
-        return OperationContext.create(
-            "basic_weight",
-            account_id=self.dependencies.account_id,
-            context_generation=self.dependencies.generation,
-        )
+        return self.service.operation()
 
-    def load_form_data(self) -> dict[str, object]:
-        operation = self.operation()
-        with operation_scope(
-            operation,
-            started_event="basic_weight.load_started",
-            succeeded_event="basic_weight.load_succeeded",
-            failed_event="basic_weight.load_failed",
-            message="加载角色基础权重",
-        ) as span:
-            result = self._load_form_data()
-            roles = result["roles"]
-            span.annotate(
-                role_count=len(roles) if isinstance(roles, dict) else 0
-            )
-            return result
-
-    def _load_form_data(self) -> dict[str, object]:
-        characters = load_official_role_index(
-            self.dependencies.user_database_path,
-            static_database_path=self.dependencies.static_database_path,
-        )
-        character_ids = [int(row["character_id"]) for row in characters]
-        account_weights = ensure_account_character_weights(
-            self.dependencies.user_database_path,
-            character_ids,
-            static_database_path=self.dependencies.static_database_path,
-            persist_defaults=False,
-        )
-        with StaticGameDataDao(self.dependencies.static_database_path) as static_dao:
-            attributes = {
-                str(row["attribute_id"]): row
-                for row in static_dao.list_equipment_attributes()
-            }
-            known_property_ids = set(attributes)
-            stats_catalog = StatCatalog.from_config_dir(
-                self.dependencies.config_dir
-            )
-            sub_choices = [
-                (label, _WEIGHT_POOL_PROPERTY_IDS[label])
-                for label in stats_catalog.tape_sub_stat_pool()
-                if label in _WEIGHT_POOL_PROPERTY_IDS
-                and _WEIGHT_POOL_PROPERTY_IDS[label] in known_property_ids
-            ]
-            main_choices = [
-                (label, property_id)
-                for label, property_id in _ACCOUNT_MAIN_PROPERTY_CHOICES
-                if property_id in known_property_ids
-            ]
-            stats_weight_pool = stats_catalog.weight_choice_pool()
-            weight_property_by_label: dict[str, str] = {}
-            for attribute in attributes.values():
-                property_id = str(attribute["attribute_id"])
-                label = str(
-                    attribute.get("filter_name_zh")
-                    or attribute.get("display_name_zh")
-                    or property_id
-                ).replace("百分比", "%")
-                if bool(attribute.get("show_percent")) and not label.endswith("%"):
-                    label = f"{label}%"
-                canonical_label = stats_catalog.normalize_stat_name(label) or label
-                if canonical_label not in stats_weight_pool:
-                    continue
-                existing = weight_property_by_label.get(canonical_label)
-                preferred_property_id = _WEIGHT_POOL_PROPERTY_IDS.get(
-                    canonical_label
-                )
-                if existing is None or property_id == preferred_property_id:
-                    weight_property_by_label[canonical_label] = property_id
-            shape_bonus_choices = [
-                (stat_name, weight_property_by_label[stat_name])
-                for stat_name in stats_weight_pool
-                if stat_name in weight_property_by_label
-            ]
-            suit_choices = [
-                (str(row.get("name_zh") or row["suit_id"]), str(row["suit_id"]))
-                for row in static_dao.list_suits()
-            ]
-            roles = {}
-            for character in characters:
-                character_id = int(character["character_id"])
-                record = account_weights.get(character_id) or {}
-                shape_bonus = static_dao.get_character_shape_bonus(character_id) or {}
-                roles[str(character.get("name_zh") or character_id)] = {
-                    "character_id": character_id,
-                    "source_kind": str(record.get("source_kind") or "default"),
-                    "shape_bonus_source": "static_database",
-                    "extra_shape_label": str(shape_bonus.get("shape_label") or ""),
-                    "extra_shape_buffs": {
-                        str(row["property_id"]): float(row["display_value"])
-                        for row in shape_bonus.get("properties") or ()
-                    },
-                    "weights": {
-                        str(property_id): float(weight)
-                        for property_id, weight in (
-                            record.get("property_weights") or {}
-                        ).items()
-                    },
-                    "main_weights": {
-                        str(property_id): float(weight)
-                        for property_id, weight in (
-                            record.get("main_property_weights") or {}
-                        ).items()
-                    },
-                    "is_custom": False,
-                }
-            with UserDataDao(self.dependencies.user_database_path) as user_dao:
-                for custom in user_dao.list_custom_characters():
-                    character_id = int(custom["character_id"])
-                    record = user_dao.get_character_weight_preferences(character_id) or {}
-                    shape_bonus = custom.get("shape_bonus") or {}
-                    roles[str(custom["name_zh"])] = {
-                        "character_id": character_id,
-                        "source_kind": "custom",
-                        "shape_bonus_source": "account_custom",
-                        "extra_shape_label": str(shape_bonus.get("shape_label") or DEFAULT_EXTRA_SHAPE_LABEL),
-                        "extra_shape_buffs": {
-                            str(row["property_id"]): float(row["display_value"])
-                            for row in shape_bonus.get("properties") or ()
-                        },
-                        "weights": dict(record.get("property_weights") or {}),
-                        "main_weights": dict(record.get("main_property_weights") or {}),
-                        "is_custom": True,
-                        "game_name": str(custom["game_name"]),
-                        "target_suit_id": str(custom.get("target_suit_id") or ""),
-                        "board_cells": [
-                            {"row": int(cell["row_number"]), "column": int(cell["column_number"]), "is_enabled": bool(cell["is_enabled"]), "is_locked": bool(cell["is_locked"])}
-                            for cell in custom["board_cells"]
-                        ],
-                    }
-        labels = {
-            property_id: label
-            for label, property_id in (*sub_choices, *main_choices)
-        }
-        labels.update(
-            {
-                property_id: label
-                for label, property_id in shape_bonus_choices
-            }
-        )
-        return {
-            "roles": roles,
-            "property_labels": labels,
-            "sub_choices": sub_choices,
-            "main_choices": main_choices,
-            "shape_bonus_choices": shape_bonus_choices,
-            "shape_label_choices": _EXTRA_SHAPE_LABEL_CHOICES,
-            "suit_choices": suit_choices,
-        }
+    def load_form_data(self) -> dict[str, Any]:
+        return self.service.load_form_data()
 
     def save_changes(
-        self,
-        data: dict,
-        dirty_character_ids: set[int],
-        dirty_shape_bonus_ids: set[int],
-        dirty_board_ids: set[int] | None = None,
-        dirty_target_suit_ids: set[int] | None = None,
+        self, data: dict, dirty_character_ids: set[int], dirty_shape_bonus_ids: set[int],
+        dirty_board_ids: set[int] | None = None, dirty_target_suit_ids: set[int] | None = None,
     ) -> None:
-        operation = self.operation()
-        dirty_shape_ids = {int(value) for value in dirty_shape_bonus_ids}
-        with StaticGameDataDao(self.dependencies.static_database_path) as static_dao:
-            official_shape_edits = sorted(
-                character_id
-                for character_id in dirty_shape_ids
-                if static_dao.get_character(character_id) is not None
-            )
-        if official_shape_edits:
-            joined = "、".join(str(value) for value in official_shape_edits)
-            raise ValueError(
-                f"官方角色的额外形状由静态资源库管理，不可编辑：{joined}"
-            )
-        for role_data in data.values():
-            character_id = int(role_data["character_id"])
-            if character_id in dirty_character_ids:
-                save_account_character_weights(
-                    self.dependencies.user_database_path,
-                    character_id,
-                    role_data.get("weights") or {},
-                    main_property_weights=role_data.get("main_weights") or {},
-                    operation_context=operation,
-                    static_database_path=self.dependencies.static_database_path,
-                )
-            if character_id in (dirty_board_ids or set()):
-                save_custom_character_board(
-                    self.dependencies.user_database_path,
-                    character_id,
-                    list(role_data.get("board_cells") or ()),
-                )
-            if character_id in (dirty_target_suit_ids or set()):
-                save_custom_character_target_suit(
-                    self.dependencies.user_database_path,
-                    character_id,
-                    str(role_data.get("target_suit_id") or "") or None,
-                )
-            if character_id in dirty_shape_ids:
-                if not role_data.get("is_custom"):
-                    raise ValueError("只有自创角色可以编辑额外形状")
-                save_custom_character_shape_bonus(
-                    self.dependencies.user_database_path,
-                    character_id,
-                    shape_label=str(role_data.get("extra_shape_label") or ""),
-                    property_values=role_data.get("extra_shape_buffs") or {},
-                )
+        self.service.save_changes(data, dirty_character_ids, dirty_shape_bonus_ids, dirty_board_ids, dirty_target_suit_ids)
 
     def create_custom_role(self, name_zh: str) -> dict:
-        return create_custom_character(self.dependencies.user_database_path, name_zh)
+        return self.service.create_custom_role(name_zh)
 
     def delete_custom_role(self, character_id: int) -> None:
-        delete_custom_character(self.dependencies.user_database_path, character_id)
+        self.service.delete_custom_role(character_id)
 
     def reset_weights(self, character_ids: Iterable[int]) -> dict[int, dict]:
-        return reset_account_character_weights(
-            self.dependencies.user_database_path,
-            tuple(int(character_id) for character_id in character_ids),
-            operation_context=self.operation(),
-            static_database_path=self.dependencies.static_database_path,
-        )
+        return self.service.reset_weights(character_ids)
 
     def log_dirty_exit(self, action: str, dirty_count: int) -> None:
-        log_event(
-            "INFO",
-            "basic_weight.dirty_exit_decided",
-            "处理基础权重页面未保存修改",
-            self.operation(),
-            action=action,
-            dirty_character_count=int(dirty_count),
-        )
+        self.service.log_dirty_exit(action, dirty_count)

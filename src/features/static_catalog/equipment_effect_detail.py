@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.services.static_catalog_misc_service import (
+from src.services.static_catalog.misc.service import (
     CatalogDetail,
     CatalogField,
     CatalogRelation,

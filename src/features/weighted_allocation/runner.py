@@ -1,38 +1,45 @@
 # 在后台构造固定上下文并保存词条配装方案。
-"""Pinned, background-safe entry point for the weighted allocation page."""
+"""后台冻结计算输入；恢复重绑owner，保存只消费同一预览。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, TYPE_CHECKING
 
+from src.integrations.bundled_resources import bundled_config_dir
 from src.observability import OperationContext, operation_scope
-from src.services.allocation_context import (
-    ALLOCATION_CONTEXT_SOLVER_VERSION,
-    AllocationContext,
-    StaticDatasetReference,
-    build_allocation_context,
-)
-from src.services.allocation_legacy_adapter import score_allocation_candidate
+from src.services.allocation.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION, build_allocation_context, read_allocation_scoring_rules
+from src.domain.allocation.inputs import AllocationContext, StaticDatasetReference
+from src.domain.allocation.slot_binding import WeightedSlotBinding, WeightedSaveReceipt
+from src.services.allocation.slot_binding import assert_slot_bindings_current, assert_binding_comparisons
+from src.services.allocation.legacy_adapter import score_allocation_candidate
 from src.services.allocation_solver import (
     AllocationAssignment,
     AllocationSolveResult,
     RoleAllocationOption,
     solve_allocation_context,
 )
-from src.services.weighted_allocation_save import save_weighted_preview_records
-from src.services.virtual_equipment_service import (
+from src.services.allocation.weighted_save import (
+    save_weighted_preview_records, freeze_weighted_allocation_locks,
+)
+from src.services.allocation.locks import AllocationLockSnapshot
+
+if TYPE_CHECKING:
+    from .save_owner import WeightedOperation
+from src.domain.equipment.virtual_equipment import (
     grid_count_from_geometry,
     virtual_equipment_item_id,
     virtual_equipment_uid,
 )
-from src.services.weighted_loadout_comparison_service import (
+from src.services.equipment.weighted_loadout_comparison_service import (
     WeightedLoadoutComparison,
     freeze_weighted_loadout_comparisons,
     refresh_weighted_loadout_comparisons,
 )
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.domain.static_catalog import StaticCatalogRelease
+from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.services.allocation.plan_save import require_allocation_release
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 from .role_weight_freeze import freeze_official_role_details
@@ -40,7 +47,7 @@ from .role_weight_freeze import freeze_official_role_details
 
 @dataclass(frozen=True, slots=True)
 class WeightedAllocationRequest:
-    """The exact user choices made before a background calculation starts."""
+    """计算派发前固定的用户选择；owner代次不等同于库存generation。"""
 
     user_database_path: Path
     snapshot_id: int
@@ -52,32 +59,41 @@ class WeightedAllocationRequest:
     shared_database_path: Path | None = None
     static_database_path: Path | None = None
     equipment_only: bool = False
+    ownership: WeightedOperation | None = None
+    scoring_rules_path: Path | None = None
+    slot_bindings: tuple[WeightedSlotBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class WeightedAllocationPreview:
-    """Solver output plus the static dataset fixed at calculation start."""
+    """求解结果及其冻结静态、库存、锁和账号任务身份。"""
 
     result: AllocationSolveResult
     static_dataset: StaticDatasetReference
     account_id: str
     user_database_path: Path
     context: AllocationContext
-    # Built on the solver worker from the same frozen request.  These details
-    # intentionally exclude current/saved inventory contexts: result cards
-    # provide the immutable AllocationContext candidates themselves.
+    # 角色详情与求解共用同一冻结请求；卡片直接消费不可变Context候选，
+    # 不用当前/保存库存上下文补齐计算事实。
     role_details: Mapping[int, Mapping[str, Any]] = field(default_factory=dict)
     loadout_comparisons: Mapping[int, tuple[WeightedLoadoutComparison, ...]] = field(default_factory=dict)
     operation_context: OperationContext | None = None
     shared_database_path: Path | None = None
     static_database_path: Path | None = None
     equipment_only: bool = False
-    static_file_identity: tuple[int, int] | None = None
+    # 完整发行字节身份只在运行时运输，不伪造旧预览许可或改保存payload。
+    static_release: StaticCatalogRelease | None = None
+    # AppContext代次与库存generation分属两个身份，恢复必须绑定本次新owner。
+    ownership: WeightedOperation | None = None
+    lock_snapshot: AllocationLockSnapshot | None = None
+    slot_bindings: tuple[WeightedSlotBinding, ...] = ()
+    explicit_slots: bool = False
+    save_receipt: WeightedSaveReceipt | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class WeightedSavedPlanSignature:
-    """The persisted identifiers needed to verify one restored role result."""
+    """用于核验恢复方案布局、装备身份和历史评分的持久签名。"""
 
     plan_id: int
     character_id: int
@@ -102,7 +118,7 @@ class WeightedSavedAssignmentSignature:
 
 @dataclass(frozen=True, slots=True)
 class WeightedAllocationPersistence:
-    """Latest SQLite-only preferences and an optional reproducible saved run."""
+    """账号SQLite中的最新偏好及可验证恢复请求，不保存旧owner能力。"""
 
     user_database_path: Path
     profile_id: int | None
@@ -111,174 +127,37 @@ class WeightedAllocationPersistence:
     restore_request: WeightedAllocationRequest | None
     saved_plans: tuple[WeightedSavedPlanSignature, ...]
     static_dataset: StaticDatasetReference | None
+    slot_bindings: tuple[WeightedSlotBinding, ...] = ()
+    selected_slots: tuple[tuple[int, int], ...] | None = None
+    selection_identity: tuple[tuple[object, ...], ...] = ()
 
 
 def read_weighted_allocation_persistence(
-    user_database_path: Path,
-    static_database_path: Path | None = None,
-    equipment_only: bool = False,
+    user_database_path: Path, static_database_path: Path | None = None,
+    equipment_only: bool = False, *, slot_ids_by_character: Mapping[int, int] | None = None,
+    ownership: WeightedOperation | None = None,
 ) -> WeightedAllocationPersistence:
-    """Read the latest weighted preferences and saved plans from user SQLite.
-
-    This deliberately does not consult the old JSON priority files.  A restore
-    request is exposed only when every role in the latest immutable preference
-    version has one active weighted-allocation plan from the same snapshot and
-    static dataset.
-    """
-
-    database_path = Path(user_database_path)
-    if not database_path.is_file():
-        return WeightedAllocationPersistence(database_path, None, None, (), None, (), None)
-    with UserDataDao(database_path) as user_dao:
-        profile = next(
-            (
-                row for row in user_dao.list_optimization_profiles()
-                if row.get("name") == "__weighted_allocation_role_priority__"
-            ),
-            None,
-        )
-        if profile is None or not isinstance(profile.get("version"), dict):
-            return WeightedAllocationPersistence(database_path, None, None, (), None, (), None)
-        version = profile["version"]
-        profile_id = int(profile["profile_id"])
-        profile_version = int(version["version_number"])
-        characters = tuple(dict(row) for row in version.get("characters") or ())
-        expected_character_ids = {int(row["character_id"]) for row in characters}
-        matching: dict[int, dict[str, Any]] = {}
-        for plan in user_dao.list_loadout_plans():
-            payload = plan.get("payload")
-            character_id = int(plan["character_id"])
-            if (
-                plan.get("is_active")
-                and character_id in expected_character_ids
-                and isinstance(payload, dict)
-                and payload.get("schema") == "allocation-official-snapshot-v1"
-                and payload.get("source") == "weighted_allocation"
-                and payload.get("profile_id") == profile_id
-                and payload.get("profile_version") == profile_version
-            ):
-                matching.setdefault(character_id, plan)
-
-    if not characters or set(matching) != expected_character_ids:
-        return WeightedAllocationPersistence(
-            database_path, profile_id, profile_version, characters, None, (), None,
-        )
-    snapshots = {int(plan["source_snapshot_id"]) for plan in matching.values()}
-    solver_versions = {
-        str(plan["payload"].get("solver_version") or "") for plan in matching.values()
-    }
-    dataset_rows = [plan["payload"].get("static_dataset") for plan in matching.values()]
-    if (
-        len(snapshots) != 1
-        or solver_versions != {ALLOCATION_CONTEXT_SOLVER_VERSION}
-        or not dataset_rows
-        or not isinstance(dataset_rows[0], dict)
-        or any(row != dataset_rows[0] for row in dataset_rows[1:])
-    ):
-        return WeightedAllocationPersistence(
-            database_path, profile_id, profile_version, characters, None, (), None,
-        )
-    dataset = dataset_rows[0]
-    try:
-        static_dataset = StaticDatasetReference(
-            schema_version=int(dataset["schema_version"]),
-            dataset_id=str(dataset["dataset_id"]),
-            importer_version=int(dataset["importer_version"]),
-            built_at_utc=str(dataset["built_at_utc"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        return WeightedAllocationPersistence(
-            database_path, profile_id, profile_version, characters, None, (), None,
-        )
-    signatures = tuple(
-        WeightedSavedPlanSignature(
-            plan_id=int(plan["plan_id"]),
-            character_id=character_id,
-            score=float(plan.get("score") or 0.0),
-            uids=frozenset(
-                (int(item["uid_slot"]), int(item["uid_serial"]))
-                for item in plan.get("assignments") or ()
-            ),
-            assignments=tuple(
-                WeightedSavedAssignmentSignature(
-                    uid=(int(item["uid_slot"]), int(item["uid_serial"])),
-                    kind=str(item["kind"]),
-                    target_row=(int(item["target_row"]) if item.get("target_row") is not None else None),
-                    target_column=(int(item["target_column"]) if item.get("target_column") is not None else None),
-                    score=(
-                        float((plan["payload"].get("assignment_scores") or {}).get(
-                            f"nte-{item['kind']}-{item['uid_slot']}-{item['uid_serial']}"
-                        ))
-                        if f"nte-{item['kind']}-{item['uid_slot']}-{item['uid_serial']}"
-                        in (plan["payload"].get("assignment_scores") or {})
-                        else None
-                    ),
-                    virtual=bool(
-                        (item.get("raw_assignment") or {}).get("virtual")
-                    ),
-                    item_id=(
-                        (item.get("raw_assignment") or {})
-                        .get("virtual_equipment", {})
-                        .get("item_id")
-                    ),
-                    suit_id=(
-                        (item.get("raw_assignment") or {})
-                        .get("virtual_equipment", {})
-                        .get("suit_id")
-                    ),
-                    geometry=(
-                        (item.get("raw_assignment") or {}).get("geometry")
-                        or (item.get("raw_assignment") or {})
-                        .get("virtual_equipment", {})
-                        .get("geometry")
-                    ),
-                    grid_count=(
-                        int(
-                            (item.get("raw_assignment") or {}).get("grid_count")
-                            or (item.get("raw_assignment") or {})
-                            .get("virtual_equipment", {})
-                            .get("grid_count")
-                        )
-                        if (
-                            (item.get("raw_assignment") or {}).get("grid_count")
-                            or (item.get("raw_assignment") or {})
-                            .get("virtual_equipment", {})
-                            .get("grid_count")
-                        ) is not None
-                        else None
-                    ),
-                )
-                for item in plan.get("assignments") or ()
-            ),
-        )
-        for character_id, plan in sorted(matching.items())
-    )
-    request = WeightedAllocationRequest(
-        database_path,
-        snapshot_id=next(iter(snapshots)),
-        profile_id=profile_id,
-        profile_version=profile_version,
-        top_k=1,
-        include_role_top_k=False,
-        static_database_path=static_database_path,
-        equipment_only=equipment_only,
-    )
-    return WeightedAllocationPersistence(
-        database_path, profile_id, profile_version, characters,
-        request, signatures, static_dataset,
-    )
+    from .persistence_reader import read_persistence
+    return read_persistence(user_database_path, static_database_path, equipment_only,
+                            slot_ids_by_character=slot_ids_by_character, ownership=ownership)
 
 
 def restore_weighted_allocation_preview(
     persistence: WeightedAllocationPersistence,
+    *,
+    ownership: WeightedOperation,
 ) -> WeightedAllocationPreview | None:
-    """Rebuild a saved result against the current official static constraints."""
+    """以当前校验静态约束验证历史保存布局，逐件分数仍取保存事实，绑定新owner。"""
 
     if not isinstance(persistence, WeightedAllocationPersistence):
         raise TypeError("restoring requires WeightedAllocationPersistence")
     if persistence.restore_request is None:
         return None
-    preview = run_weighted_allocation(persistence.restore_request)
+    ownership.checkpoint()
+    with UserDataDao(persistence.user_database_path) as dao, dao.read_consistent_state():
+        assert_slot_bindings_current(dao, persistence.slot_bindings)
+    preview = run_weighted_allocation(replace(persistence.restore_request, ownership=ownership))
+    assert_binding_comparisons(persistence.slot_bindings, preview.loadout_comparisons)
     if preview.static_dataset != persistence.static_dataset:
         raise RuntimeError("已保存方案的数据集已更新，请重新计算。")
     expected = {plan.character_id: plan for plan in persistence.saved_plans}
@@ -287,6 +166,7 @@ def restore_weighted_allocation_preview(
         raise RuntimeError("已保存方案与当前固定快照的可用角色不一致。")
     updated_options = []
     for option in preview.result.unified.selected:
+        ownership.checkpoint()
         character_id = option.character_id
         signature = expected[character_id]
         updated_options.append(_restore_saved_option(preview.context, option, signature))
@@ -296,8 +176,13 @@ def restore_weighted_allocation_preview(
         selected=tuple(updated_options),
         explanation=tuple(preview.result.unified.explanation) + ("已按当前官方蓝图恢复保存方案",),
     )
+    ownership.checkpoint()
+    with UserDataDao(persistence.user_database_path) as dao, dao.read_consistent_state():
+        assert_slot_bindings_current(dao, persistence.slot_bindings)
     return replace(
         preview,
+        slot_bindings=persistence.slot_bindings,
+        explicit_slots=persistence.selected_slots is not None,
         result=replace(preview.result, unified=unified),
         loadout_comparisons=refresh_weighted_loadout_comparisons(
             preview.loadout_comparisons, preview.context, updated_options,
@@ -397,15 +282,17 @@ def _restore_saved_option(context, option, signature: WeightedSavedPlanSignature
 
 
 def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAllocationPreview:
-    """Build one immutable Context and solve it without touching legacy UI state.
+    """只编排不可变Context与唯一求解入口，不读取旧UI状态。
 
-    This is deliberately a small UI-facing facade.  It does not translate,
-    score, or solve equipment itself; those behaviours remain in the audited
-    Context and solver modules.
+    装备转换、评分与求解仍属于既有领域模块；账号owner只约束任务权限。
     """
 
     if not isinstance(request, WeightedAllocationRequest):
         raise TypeError("weighted allocation requires a WeightedAllocationRequest")
+    if request.ownership is not None:
+        request.ownership.checkpoint()
+        if Path(request.user_database_path).resolve() != request.ownership.identity.user_database_path:
+            raise RuntimeError("计算请求与冻结账号数据库不一致")
     if not request.user_database_path.is_file():
         raise RuntimeError("没有可用的账号背包数据库，请先完成背包同步。")
     if not 1 <= int(request.top_k) <= 20:
@@ -431,7 +318,7 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
             role_count=len(preview.context.roles),
             candidate_count=len(preview.context.candidates),
             selected_role_count=len(preview.result.unified.selected),
-            unassigned_role_count=len(preview.result.unified.unassigned_role_ids),
+            unassigned_role_count=len(preview.result.unified.unassigned_character_ids),
             allocation_strategy=preview.result.unified.strategy,
         )
         return preview
@@ -441,59 +328,70 @@ def _run_weighted_allocation(
     request: WeightedAllocationRequest,
     operation: OperationContext,
 ) -> WeightedAllocationPreview:
-    with UserDataDao(request.user_database_path) as user_dao, StaticGameDataDao(request.static_database_path) as static_dao:
-        static_stat = static_dao.database_path.stat()
-        static_file_identity = (static_stat.st_size, static_stat.st_mtime_ns)
-        context = build_allocation_context(
-            user_dao,
-            static_dao,
-            snapshot_id=int(request.snapshot_id),
-            profile_id=int(request.profile_id),
-            profile_version=int(request.profile_version),
-            solver_version=ALLOCATION_CONTEXT_SOLVER_VERSION,
-            shared_database_path=request.shared_database_path,
+    def cancel_check():
+        if request.ownership is not None:
+            request.ownership.checkpoint()
+        return False
+    cancel_check()
+    # 加权默认继续选择发行bundled目录，AppContext本机偏好不替换公式来源。
+    rules = read_allocation_scoring_rules(request.scoring_rules_path or bundled_config_dir() / "stats.json")
+    cancel_check()
+    reader = StaticCatalogReleaseReader()
+    # 从物化到纯solve结束持续持有同一拒写pin；角色详情和比较借用同一DAO。
+    with reader.read_unit(request.static_database_path) as unit:
+        static_dao = unit.dao
+        release = require_allocation_release(unit.release, request.static_database_path)
+        static_database_path = release.database_path
+        with UserDataDao(request.user_database_path) as user_dao:
+            with user_dao.read_consistent_state():
+                context = build_allocation_context(
+                    user_dao, static_dao, scoring_rules=rules,
+                    snapshot_id=int(request.snapshot_id), profile_id=int(request.profile_id),
+                    profile_version=int(request.profile_version),
+                    solver_version=ALLOCATION_CONTEXT_SOLVER_VERSION,
+                    shared_database_path=request.shared_database_path,
+                )
+                context, lock_snapshot = freeze_weighted_allocation_locks(user_dao, context)
+        cancel_check()
+        if request.ownership is not None and context.account_id != request.ownership.identity.account_id:
+            raise RuntimeError("计算数据库不属于冻结账号")
+        role_details: dict[int, Mapping[str, Any]] = {}
+        if not request.equipment_only:
+            context, role_details = freeze_official_role_details(
+                context, user_database_path=request.user_database_path,
+                shared_database_path=request.shared_database_path,
+                static_database_path=static_database_path, static_read_unit=unit,
+            )
+        with UserDataDao(request.user_database_path) as user_dao, user_dao.read_consistent_state():
+            assert_slot_bindings_current(user_dao, request.slot_bindings)
+            baselines = freeze_weighted_loadout_comparisons(user_dao, static_dao, context, (), checkpoint=cancel_check,
+                slot_ids_by_character=({row.character_id: row.slot_id for row in request.slot_bindings}
+                                       if request.slot_bindings else None))
+            assert_binding_comparisons(request.slot_bindings, baselines)
+        cancel_check()
+        result = solve_allocation_context(
+            context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
+            allow_missing_core=True, cancel_check=cancel_check,
         )
-        static_database_path = static_dao.database_path
-    role_details: dict[int, Mapping[str, Any]] = {}
-    if not request.equipment_only:
-        context, role_details = freeze_official_role_details(
-            context,
-            user_database_path=request.user_database_path,
-            shared_database_path=request.shared_database_path,
-            static_database_path=static_database_path,
-        )
-    with UserDataDao(request.user_database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
-        baselines = freeze_weighted_loadout_comparisons(user_dao, static_dao, context, ())
-    result = solve_allocation_context(
-        context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
-        allow_missing_core=True,
-    )
-    with UserDataDao(request.user_database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
         loadout_comparisons = refresh_weighted_loadout_comparisons(baselines, context, result.unified.selected)
-        latest_stat = static_dao.database_path.stat()
-        if (latest_stat.st_size, latest_stat.st_mtime_ns) != static_file_identity:
-            raise RuntimeError("计算期间静态数据集已更新，请重新执行计算。")
-    return WeightedAllocationPreview(
-        result=result,
-        static_dataset=context.static_dataset,
-        account_id=context.account_id,
-        user_database_path=request.user_database_path,
-        context=context,
-        role_details=role_details,
-        loadout_comparisons=loadout_comparisons,
-        operation_context=operation,
-        shared_database_path=request.shared_database_path,
-        static_database_path=static_database_path,
-        equipment_only=request.equipment_only,
-        static_file_identity=static_file_identity,
-    )
+        cancel_check()
+        reader.ensure_unchanged(release)
+        return WeightedAllocationPreview(
+            result=result, static_dataset=context.static_dataset, account_id=context.account_id,
+            user_database_path=request.user_database_path, context=context,
+            role_details=role_details, loadout_comparisons=loadout_comparisons,
+            operation_context=operation, shared_database_path=request.shared_database_path,
+            static_database_path=static_database_path, equipment_only=request.equipment_only,
+            static_release=release, ownership=request.ownership, lock_snapshot=lock_snapshot,
+        )
 
 
 def save_weighted_allocation_preview(
     preview: WeightedAllocationPreview,
     operation_context: OperationContext | None = None,
     *,
-    slot_ids_by_character: Mapping[int, int] | None = None,
+    ownership: WeightedOperation,
+    slot_ids_by_character: Mapping[int, int | None] | None = None,
 ) -> tuple[int, ...]:
     """Persist the unified result as SQLite plans, without performing equip RPCs.
 
@@ -504,6 +402,9 @@ def save_weighted_allocation_preview(
 
     if not isinstance(preview, WeightedAllocationPreview):
         raise TypeError("saving requires a WeightedAllocationPreview")
+    if ownership.preview is not preview:
+        raise RuntimeError("保存任务未绑定本次预览")
+    ownership.checkpoint()
     result = preview.result
     if not result.unified.selected:
         raise RuntimeError("没有可保存的统一分配方案。")
@@ -524,10 +425,23 @@ def save_weighted_allocation_preview(
         plan_ids = save_weighted_preview_records(
             preview,
             slot_ids_by_character=slot_ids_by_character,
+            checkpoint=ownership.checkpoint,
+            commit_context=ownership.commit_context,
         )
         span.annotate(saved_plan_count=len(plan_ids))
         return plan_ids
 
+
+def confirm_weighted_allocation_save(preview: WeightedAllocationPreview, plan_ids: tuple[int, ...],
+                                    *, ownership: WeightedOperation,
+                                    slot_ids_by_character: Mapping[int, int | None] | None = None
+                                    ) -> WeightedAllocationPreview:
+    """DAO真实提交后返回新游标；原预览、历史评分与写入口保持不变。"""
+    from src.services.allocation.weighted_cursor import read_weighted_save_receipt
+    receipt, comparisons = read_weighted_save_receipt(preview, plan_ids, ownership=ownership,
+        slot_ids_by_character=slot_ids_by_character)
+    return replace(preview, slot_bindings=receipt.slot_bindings, explicit_slots=receipt.explicit_slots,
+                   save_receipt=receipt, loadout_comparisons=comparisons)
 
 
 def replace_weighted_allocation_assignment(

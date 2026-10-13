@@ -20,21 +20,21 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.services.character_progression_requirements import (
+from src.services.progression.character_requirements import (
     MaterialSummaryStatus,
     project_skill_level_requirements,
 )
 from src.features.static_catalog.domain_pages.character_terminology import (
     project_character_term,
 )
-from src.services.static_catalog_character_models import (
+from src.services.static_catalog.characters.models import (
     CharacterDetail,
     CharacterPassive,
     CharacterSkill,
     CombatLink,
     SkillDamageItem,
 )
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 

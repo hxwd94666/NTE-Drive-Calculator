@@ -1,4 +1,4 @@
-# 迁移基础 JSON 配置，补齐新版缺失字段但保留用户已有值。
+# 替换随发行版本维护的评分词表；该目录输入不是账号显式偏好合并。
 """Core configuration migration helpers."""
 
 from __future__ import annotations
@@ -12,11 +12,10 @@ def replace_core_config_dir(
     bundled_config_dir: str | Path,
     core_config_files: tuple[str, ...],
 ) -> int:
-    """Replace versioned scoring catalogs instead of preserving stale values.
+    """替换版本化评分目录，不沿用旧发行词表或与用户偏好合并。
 
-    ``stats.json`` defines the shipped OCR/scoring vocabulary and must stay in
-    lockstep with the executable.  It is not a user-preference file, so unlike
-    legacy settings it intentionally has no merge or backup path.
+    stats.json 是与程序同版的 OCR/评分词汇，不是用户偏好。
+    仅处理调用方给定的目录文件；同路径或缺发行文件时保持原状。
     """
 
     user_config_dir = Path(user_config_dir)

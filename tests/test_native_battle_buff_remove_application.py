@@ -8,14 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_buff_counterfactual_service import BattleBuffCounterfactualService
-from src.services.battle_hit_replay_service import BattleHitReplayService
-from src.services.battle_hit_projection_preparation_service import BattleHitProjectionPreparationService
+from src.services.battle_report.buffs.counterfactual import BattleBuffCounterfactualService
+from src.services.battle_report.replay.service import BattleHitReplayService
+from src.services.battle_report.replay.preparation import BattleHitProjectionPreparationService
 from tests import test_native_battle_replay_application as replay_contract
-from tests.test_battle_buff_counterfactual_service import _snapshot, _interval, _modifier
+from tests.battle_report.buffs.test_counterfactual import _snapshot, _interval, _modifier
 from tests.test_native_direct_replay import frozen_fixture
 from tests.test_native_mixed_hit_replay import _fixture
-from tests.test_battle_marginal_continuous_direct import _nightmare, _vital, _baseline
+from tests.battle_report.marginal.test_continuous_direct import _nightmare, _vital, _baseline
 
 
 @unittest.skipUnless(os.environ.get("NTE_ANALYSIS_CORE_TEST_EXE"), "explicit isolated executable required")
@@ -107,7 +107,7 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
             "test_no_covered_hit_is_not_applicable_without_zero_gain_display_semantics",
         )
         suite = unittest.defaultTestLoader.loadTestsFromNames([
-            f"tests.test_battle_buff_counterfactual_service.BattleBuffCounterfactualServiceTests.{name}"
+            f"tests.battle_report.buffs.test_counterfactual.BattleBuffCounterfactualServiceTests.{name}"
             for name in names
         ])
         result = unittest.TestResult()

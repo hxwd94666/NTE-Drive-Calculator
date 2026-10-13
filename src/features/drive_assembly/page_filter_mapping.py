@@ -58,6 +58,7 @@ def map_tape_filter_refinement(
     for name in ("status_locked", "status_discarded", "status_other"):
         result[name] = status_controls[name]
     sequence: list[dict[str, Any]] = []
+    # 状态控件仅用于重复物品的界面筛选，不读取或写入原生锁/弃置状态。
     if include_status_filters:
         sequence.extend(
             [

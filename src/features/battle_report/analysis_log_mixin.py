@@ -15,8 +15,8 @@ from src.features.battle_report.analysis_components import (
     restore_vertical_scroll_positions,
 )
 from src.features.battle_report.hit_buff_dialog import BattleHitBuffDialog
-from src.services.battle_native_evidence_rendering import field_critical_label, render_field_evidence
-from src.services.skill_name_rendering_service import (
+from src.services.battle_report.native.evidence_rendering import field_critical_label, render_field_evidence
+from src.services.official_role.skill_names import (
     battle_hit_skill_label,
     render_battle_event_type,
 )

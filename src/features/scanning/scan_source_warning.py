@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QDialog, QWidget
 
 from src.features.input_operation_entry import OperationRecommendationDialog
-from src.services.inventory_source_capabilities import is_visual_inventory_source
+from src.domain.inventory.source_capabilities import is_visual_inventory_source
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 

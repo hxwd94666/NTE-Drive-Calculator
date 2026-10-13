@@ -1,17 +1,44 @@
 # 验证帧采样在游戏切换、启动失败、停止和宿主退出时的资源归属。
+import ctypes as C
+from ctypes import wintypes as W
 import os
 from pathlib import Path
+from queue import Queue
 import subprocess
 import sys
+from threading import Thread
 import unittest
 from unittest.mock import Mock, patch
 
-from src.integrations.presentmon_lifetime import CollectorJob, _process_identity, stop_session
+from src.integrations.presentmon_lifetime import CollectorJob, _kernel, stop_session
 from src.integrations.presentmon_metrics import PresentMon
 
 NTE_TEST_TIER = 'core'
 MODULE = 'src.integrations.presentmon_metrics'
 
+
+def _process_creation(kernel, handle):
+    """读取保留句柄的创建时间；不会因 PID 复用认错测试进程。"""
+    times = [W.FILETIME() for _ in range(4)]
+    if not kernel.GetProcessTimes(handle, *(C.byref(value) for value in times)):
+        raise C.WinError(C.get_last_error())
+    return times[0].dwHighDateTime << 32 | times[0].dwLowDateTime
+
+
+def _finish_owned_process(kernel, handle, expected_creation):
+    """失败判定之后才收尾本次已核对身份的进程，始终使用同一保留句柄。"""
+    if _process_creation(kernel, handle) != expected_creation:
+        raise AssertionError('owned process creation identity changed')
+    state = kernel.WaitForSingleObject(handle, 0)
+    if state == 258:
+        terminate = kernel.TerminateProcess
+        terminate.argtypes, terminate.restype = [W.HANDLE, W.UINT], W.BOOL
+        if not terminate(handle, 99) and kernel.WaitForSingleObject(handle, 0) != 0:
+            raise C.WinError(C.get_last_error())
+    elif state != 0:
+        raise C.WinError(C.get_last_error())
+    if kernel.WaitForSingleObject(handle, 3000) != 0:
+        raise AssertionError('owned process cleanup did not reach physical termination')
 
 class PresentMonLifetimeTests(unittest.TestCase):
     def source(self, reader=lambda: None):
@@ -102,7 +129,7 @@ class PresentMonLifetimeTests(unittest.TestCase):
     @unittest.skipUnless(os.name == 'nt', 'Windows job API')
     def test_windows_job_close_really_terminates_owned_child(self):
         job = CollectorJob()
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
+        child = subprocess.Popen([sys._base_executable, '-c', 'import time; time.sleep(30)'],
                                  creationflags=subprocess.CREATE_NO_WINDOW)
         try:
             job.attach(child)
@@ -116,18 +143,79 @@ class PresentMonLifetimeTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'nt', 'Windows job API')
     def test_abrupt_owner_exit_really_terminates_collector(self):
+        # venv 的 python.exe 可能只是另有 Job 的启动器；合成 collector 必须是实际单进程。
         code = """
+import ctypes as C
+from ctypes import wintypes as W
 import os, subprocess, sys
-from src.integrations.presentmon_lifetime import CollectorJob
-job = CollectorJob()
-child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
-                         creationflags=subprocess.CREATE_NO_WINDOW)
-job.attach(child)
-print(child.pid, flush=True)
-os._exit(0)
+from src.integrations.presentmon_lifetime import CollectorJob, _kernel, _process_identity
+
+
+def main():
+    job = CollectorJob()
+    child = subprocess.Popen(
+        [sys._base_executable, '-c', 'import os, time; print(os.getpid(), flush=True); time.sleep(30)'],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
+    job.attach(child)
+    real_pid = int(child.stdout.readline())
+    kernel = _kernel()
+    member = W.BOOL()
+    check = kernel.IsProcessInJob
+    check.argtypes, check.restype = [W.HANDLE, W.HANDLE, C.POINTER(W.BOOL)], W.BOOL
+    if not check(int(child._handle), job._handle, C.byref(member)):
+        raise C.WinError(C.get_last_error())
+    print(child.pid, _process_identity(child.pid), real_pid, int(member.value), flush=True)
+    if sys.stdin.read(1) != 'x':
+        os._exit(2)
+    os._exit(0)
+
+
+if __name__ == '__main__':
+    main()
 """
-        result = subprocess.run([sys.executable, '-X', 'utf8', '-c', code],
-                                capture_output=True, text=True, timeout=5,
-                                creationflags=subprocess.CREATE_NO_WINDOW)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNone(_process_identity(int(result.stdout.strip())))
+        kernel = _kernel()
+        owner = subprocess.Popen([sys.executable, '-X', 'utf8', '-c', code],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
+        owner_creation = child_creation = child_handle = None
+        child_verified = False
+        try:
+            owner_creation = _process_creation(kernel, int(owner._handle))
+            ready = Queue()
+            reader = Thread(target=lambda: ready.put(owner.stdout.readline()), daemon=True)
+            reader.start()
+            child_pid, child_creation, real_pid, member = map(int, ready.get(timeout=5).split())
+            self.assertEqual(real_pid, child_pid, 'collector fixture is a launcher, not the worker')
+            self.assertEqual(member, 1, 'actual collector is not attached to CollectorJob')
+            child_handle = kernel.OpenProcess(0x1000 | 0x100000 | 1, False, child_pid)
+            if not child_handle:
+                raise C.WinError(C.get_last_error())
+            self.assertEqual(_process_creation(kernel, child_handle), child_creation)
+            child_verified = True
+            self.assertEqual(kernel.WaitForSingleObject(child_handle, 0), 258,
+                             'collector must be live before the owner exits')
+            _, stderr = owner.communicate(input='x', timeout=5)
+            self.assertEqual(owner.returncode, 0, stderr)
+            # owner 的退出/管道 EOF 不等于 collector 已物理终止；只认同一进程句柄的信号。
+            state = kernel.WaitForSingleObject(child_handle, 3000)
+            self.assertEqual(state, 0, f'collector termination not confirmed: wait={state}')
+        finally:
+            try:
+                if owner.poll() is None:
+                    if owner_creation is None:
+                        owner.kill()  # Popen 自己保留的句柄仍只指向本次启动的 owner。
+                    else:
+                        _finish_owned_process(kernel, int(owner._handle), owner_creation)
+                owner.wait(timeout=3)
+            finally:
+                try:
+                    if child_handle and child_verified:
+                        _finish_owned_process(kernel, child_handle, child_creation)
+                finally:
+                    if child_handle:
+                        kernel.CloseHandle(child_handle)
+                    for stream in (owner.stdin, owner.stdout, owner.stderr):
+                        if stream is not None:
+                            stream.close()
+                    owner._handle.Close()

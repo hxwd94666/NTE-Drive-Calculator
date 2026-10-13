@@ -18,19 +18,13 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.domain.allocation_rating import allocation_grade, loadout_total_grade
-from src.features.inventory.warehouse import warehouse_item_view
-from src.features.inventory.warehouse_result_card import WarehouseResultCard
-from src.services.official_role_equipment_scoring_service import (
-    score_official_role_equipment,
-)
-from src.services.official_role_page_service import (
-    calculate_official_role_equipment_gain,
-    calculate_official_role_item_gain,
-)
-from src.services.official_equipment_bonus_service import calculate_official_equipment_stats
-from src.ui.controllers.official_role_replacement_controller import (
-    show_official_role_replacement,
-)
+from src.features.inventory.warehouse.cards import warehouse_item_view
+from src.features.inventory.warehouse.result_card import WarehouseResultCard
+from src.services.official_role.base_equipment_scoring import score_official_role_equipment
+from src.services.official_role.attributes import calculate_official_role_equipment_gain
+from src.services.official_role.replacement import calculate_official_role_item_gain
+from src.domain.equipment.official_stats import calculate_official_equipment_stats
+from src.features.official_role.replacement_controller import show_official_role_replacement
 from src.ui.widgets import (
     NoWheelComboBox,
 )
@@ -151,7 +145,10 @@ def _show_replacement_optimizer(
             restore_scroll_value=restore_scroll_value,
         )
 
-    options = {"on_saved": refresh_after_save}
+    options = {"on_saved": refresh_after_save,
+               "static_database_path": detail["static_database_path"],
+               "static_schema_version": detail["static_schema_version"],
+               "static_release": detail["static_release"]}
     if context_key != "saved":
         options["context_key"] = context_key
     if detail.get("replacement_candidates_loaded", True):
@@ -177,6 +174,8 @@ def _show_replacement_optimizer(
         if (getattr(window, "_current_official_role_id", None) != int(detail["character"]["character_id"])
                 or not window._official_role_page.isVisible()):
             return
+        options.update(static_database_path=enriched["static_database_path"],
+                       static_schema_version=enriched["static_schema_version"], static_release=enriched["static_release"])
         show_official_role_replacement(window, enriched, target, prepared_candidates=candidates, **options)
 
     controller.request_replacement(

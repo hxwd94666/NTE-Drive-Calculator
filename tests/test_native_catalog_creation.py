@@ -7,10 +7,10 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from tests import test_battle_creation_passive_counterfactual_service as public
+from tests.battle_report.creation import test_passives as public
 from tests.test_native_catalog_states import normalize, _Compare
-from src.services.battle_creation_passive_counterfactual_service import BattleCreationPassiveCounterfactualService
-from src.services.battle_creation_passive_evaluation_service import (
+from src.services.battle_report.creation.counterfactual import BattleCreationPassiveCounterfactualService
+from src.services.battle_report.creation.evaluation import (
     BattleCreationPassiveEvaluationService, BattleCreationPassiveEvidence, BattleCreationPassiveAttribution,
 )
 

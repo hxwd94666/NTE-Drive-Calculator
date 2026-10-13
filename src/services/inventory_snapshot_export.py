@@ -1,5 +1,5 @@
 # 从 SQLite 导出指定的不可变背包快照给外部工具。
-"""Export a selected immutable SQLite inventory snapshot for external tools."""
+"""给外部工具导出指定的不可变 SQLite 背包快照。"""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ def export_inventory_snapshot(
     database_path: str | Path,
     snapshot_id: int | None = None,
 ) -> dict[str, Any]:
-    """Return official inventory fields from one complete SQLite snapshot.
+    """返回一份完整 SQLite 快照中的背包字段。
 
-    JSON is an optional caller-owned transport format only; this service never
-    reads or writes a mutable inventory JSON file.
+    JSON 仅是调用方选择并管理的传输格式；本服务始终读取指定快照，
+    不读取或写入可变的背包 JSON 文件。
     """
 
     with UserDataDao(database_path) as user_dao:

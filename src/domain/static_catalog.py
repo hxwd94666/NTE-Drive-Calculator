@@ -29,7 +29,7 @@ SOURCE_LABELS = {
 
 @dataclass(frozen=True, slots=True)
 class StaticCatalogRelease:
-    """One immutable release identity frozen before a catalog request."""
+    """发起资料请求前冻结的只读发行身份；运行字节指纹不进入账号或分享格式。"""
 
     database_path: Path
     dataset_id: str
@@ -38,6 +38,9 @@ class StaticCatalogRelease:
     built_at_utc: str
     source_payloads_omitted: bool
     read_only: bool = True
+    # runtime字节身份只随读模型运输，不进入账号或分享格式。
+    sha256: str = ""
+    scope: str = "game"
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +94,7 @@ class CatalogSection:
 
 @dataclass(frozen=True, slots=True)
 class CatalogRelationGroup:
-    """A high-cardinality relation that must be loaded independently."""
+    """高基数关系独立分页读取，不随详情一次全量展开。"""
 
     kind: str
     label: str
@@ -132,6 +135,7 @@ class StaticCatalogRequest:
     domain_releases: tuple[tuple[str, StaticCatalogRelease], ...] = ()
 
     def release_for(self, domain_key: str) -> StaticCatalogRelease:
+        """仅在本请求已冻结的资料身份中选择，不重新探测发行库。"""
         return next((release for key, release in self.domain_releases if key == domain_key), self.release)
 
 

@@ -12,11 +12,9 @@ from PySide6.QtWidgets import QApplication
 from src.features.battle_report.analysis_controller_mixin import (
     _AnalysisPresentationRequest, _same_analysis_request,
 )
-from src.services.battle_report_analysis_load_service import (
-    BattleReportAnalysisLoadRequest, BattleReportAnalysisLoadResult,
-    BattleReportAnalysisLoadService,
-)
-from tests.test_battle_report_analysis_load_service import _AsyncHost, _AsyncPage
+from src.domain.battle_page_models import BattleReportAnalysisLoadResult
+from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest, BattleReportAnalysisLoadService
+from tests.battle_report.analysis.test_load_lifecycle import _AsyncHost, _AsyncPage
 
 
 class AnalysisRequestCoalescingTests(unittest.TestCase):
@@ -82,23 +80,6 @@ class AnalysisRequestCoalescingTests(unittest.TestCase):
         self.assertFalse(_same_analysis_request(original, replace(original, account_id='other')))
         self.assertFalse(_same_analysis_request(original, replace(original, load=replace(
             original.load, comparison_baseline=object()))))
-
-    def test_pending_selection_updates_without_new_work(self):
-        page = _AsyncPage(QEventLoop())
-        page.begin_analysis_details = Mock()
-        host = _AsyncHost(page)
-        try:
-            # A queued request has no running thread yet.
-            with patch.object(host, '_start_pending_analysis_load'):
-                host._load_analysis(12, detail_level='hit', completion_kind='hit', completion_payload=1)
-                token = host._pending_analysis_load[0]
-                host._load_analysis(12, detail_level='hit', completion_kind='composition')
-            self.assertEqual(token, host._pending_analysis_load[0])
-            self.assertEqual('composition', host._pending_analysis_load[1].completion_kind)
-            page.begin_analysis_details.assert_called_once_with('hit')
-        finally:
-            host.deleteLater()
-            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_successful_fact_change_replaces_identical_inflight_selectors(self):
         loop = QEventLoop()

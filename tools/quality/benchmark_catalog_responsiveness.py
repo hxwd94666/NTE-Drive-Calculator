@@ -47,7 +47,7 @@ def main():
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
     from src.features.allocation.role_selector import RoleSelector
-    from src.services.character_weight_service import save_account_character_weights
+    from src.services.characters.character_weight_service import save_account_character_weights
     from src.storage.sqlite.user_data_dao import UserDataDao
     from src.ui.main_window_data_mixin import MainWindowDataMixin
     from src.utils.logger import logger

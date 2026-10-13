@@ -23,8 +23,8 @@ from src.features.official_role.profile_editor import OfficialRoleProfileEditor
 from src.features.battle_report.marginal_replacement_controller import (
     show_marginal_equipment_replacement,
 )
-from src.services.battle_build_equipment_service import freeze_equipment_context
-from src.services.battle_marginal_candidate_service import (
+from src.services.battle_report.build.equipment import freeze_equipment_context
+from src.services.battle_report.marginal.candidates import (
     BattleMarginalCandidateService,
 )
 

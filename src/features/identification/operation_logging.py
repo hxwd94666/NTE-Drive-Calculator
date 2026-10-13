@@ -46,6 +46,7 @@ def identification_event(
         operation = begin_identification_operation(
             owner, dependencies, input_source="unknown"
         )
+    # 鉴定日志不承载图片、OCR 原文或装备 payload；字段脱敏不替代调用方限制。
     log_event(level, event, message, operation, **fields)
     if event in {
         "identification.succeeded",

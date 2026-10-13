@@ -46,7 +46,7 @@ class OperationContext:
         snapshot_id: int | None = None,
         job_id: int | str | None = None,
     ) -> "OperationContext":
-        """Return a derived context while preserving the correlation ID."""
+        """派生快照/任务关联，保留原操作和账号代次；None 表示沿用，不代表清空。"""
 
         return replace(
             self,

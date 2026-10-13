@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from src.domain.work_mode import CheckState, FeatureCheck, WorkMode, WorkModeReport
 from src.features.settings.work_mode_card import ModeReportDialog
-from test_work_mode_controller import controller, qt_app  # noqa: F401 - 复用无真实游戏的控制器夹具。
+from tests.work_modes.test_controller import controller, qt_app  # noqa: F401 - 复用无真实游戏的控制器夹具。
 
 
 def report(state=CheckState.WAITING):
@@ -233,6 +233,10 @@ def test_account_manager_new_and_delete_keep_existing_cancellation_guards(monkey
         read_index=lambda: {"accounts": [{"id": "test", "name": "测试"}]},
         account_meta=lambda _account: {"name": "测试"}, create_account=Mock(), delete_account=Mock(),
     )
+    # 调用正式删除冻结入口：最后账号应在读索引阶段被拒绝，不伪造目标、不触文件。
+    manager.prepare_account_deletion = lambda account_id: account_module.AccountManager.prepare_account_deletion(
+        manager, account_id)
+    switch_account = Mock()
     monkeypatch.setattr(account_module.QInputDialog, "getText", lambda *_args: ("", False))
     warning = Mock()
     monkeypatch.setattr(account_module.QMessageBox, "information", warning)
@@ -245,11 +249,13 @@ def test_account_manager_new_and_delete_keep_existing_cancellation_guards(monkey
         manager.create_account.assert_not_called()
         buttons["删除"].click()
         manager.delete_account.assert_not_called()
-        warning.assert_called_once_with(dialog, "删除账号", "至少需要保留一个账号。")
+        switch_account.assert_not_called()
+        warning.assert_called_once()
+        assert warning.call_args.args[:2] == (dialog, "删除账号")
         return QDialog.Rejected
 
     monkeypatch.setattr(account_module.QDialog, "exec", inspect)
-    account_module.show_account_manager_dialog(owner, "", manager, "test", Mock(), Mock())
+    account_module.show_account_manager_dialog(owner, "", manager, "test", switch_account, Mock())
     owner.close()
     owner.deleteLater()
     app.processEvents()

@@ -68,10 +68,8 @@ def validate_native_snapshot_current(bundle, status, *, require_current=False):
     observations = list(bundle["domains"].values())
     observations.extend(bundle[key] for key in ("character_projection",) if key in bundle)
     for snapshot in observations:
-        # Completed pages are immutable observations, not a promise that the live
-        # cache still points to them. First-hit and in-scope evidence validates
-        # their use later; switching actors or exiting after the last hit must
-        # not destroy a successfully read observation here.
+        # 已读完整页是不可变观测，不代表实时缓存仍指向它。
+        # 历史使用由首击与半场证据核对；末击后切人或退出不应抹去已读观测。
         matches = [row for row in status["domains"] if isinstance(row, dict) and row.get("domain") == snapshot["domain"]]
         if len(matches) != 1:
             raise NteCoreProtocolError("战报快照复核缺少唯一数据域。")
@@ -82,8 +80,7 @@ def validate_native_snapshot_current(bundle, status, *, require_current=False):
             if (current.get("dirty") is not False or current.get("ready") is not True
                     or current.get("enabled") is not True
                     or any(current.get(key) != snapshot.get(key) for key in ("domainKey", "revision"))):
-                # Future hits can pin only the DLL's current observations. A later
-                # domain read may discover a scene change and retire earlier ones.
+                # 待发生首击只能固定 DLL 当前观测；后读数据域发现切场时，先读域也可能已失效。
                 raise _SnapshotChanged("首击预备期间数据域已失效，重新读取当前配置。")
 
 
@@ -104,13 +101,12 @@ def freeze_native_battle_snapshot(client, check, *, baseline=None, require_curre
         check()
         return result
 
-    # At most one restart: a transition cannot keep the start operation alive indefinitely.
+    # 切场最多重读一次，避免启动操作因连续变化而无限存活。
     for attempt in range(2):
         bundle = {**base, "domains": {}, "missing": [], "state": "observed"}
         try:
             status = call("native.snapshot.status", {}) if baseline is not None else None
-            # Publish the small context domains before a multi-pulse account read.
-            # First-hit pinned reads above keep their original, immutable order.
+            # 当前预备先读较小上下文域，再进行跨回调的角色读取；上方首击固定读取保持原顺序。
             read_order = ("team", "environment", "character") if require_current else DOMAINS
             for domain in read_order:
                 if f"{domain}.snapshot.v1" not in capabilities:
@@ -132,7 +128,7 @@ def freeze_native_battle_snapshot(client, check, *, baseline=None, require_curre
                             except NteCoreRpcError as error:
                                 if error.domain_code != "NATIVE_MAPPING_UNSUPPORTED":
                                     raise
-                                # Preserve diagnostic evidence even when formal mapping fails.
+                                # 正式字段映射失败仍保留原始观测证据，不将其提升为正式投影。
                                 bundle["domains"][domain] = read_native_raw_domain(call, check, domain)
                                 bundle["missing"].append(f"{domain}_projection_unavailable")
                             else:
@@ -146,7 +142,7 @@ def freeze_native_battle_snapshot(client, check, *, baseline=None, require_curre
                     if not _retryable(error):
                         raise
                     bundle["missing"].append(f"{domain}_snapshot_unavailable")
-                    # A failed raw refresh invalidates this domain's earlier formal projection too.
+                    # 原始刷新失败时，同域此前的正式投影也须失效，避免混用不同观测。
                     bundle.pop(f"{domain}_projection", None)
             for domain, cap in (("character", "native_character_profile_v1"),):
                 if f"{domain}_projection" in bundle:
@@ -158,7 +154,7 @@ def freeze_native_battle_snapshot(client, check, *, baseline=None, require_curre
                     bundle["missing"].append(f"{domain}_projection_unavailable")
                     continue
                 try:
-                    # Formal and raw pages must belong to the exact same frozen ID.
+                    # 正式投影页与原始页必须归属完全相同的冻结快照 ID。
                     bundle[f"{domain}_projection"] = read_native_projection(call, check, domain=domain, header=header)
                 except (NativeSnapshotPending, NteCoreRpcError) as error:
                     if not _retryable(error):

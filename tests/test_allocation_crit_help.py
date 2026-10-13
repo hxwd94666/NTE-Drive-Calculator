@@ -2,7 +2,6 @@
 """Public copy contract for allocation critical-rate thresholds."""
 
 from src.features.allocation.role_selector_help import CRIT_RATE_CAP_HELP, CRIT_THRESHOLD_HELP
-from src.features.weighted_allocation.help_text import WEIGHTED_CRIT_THRESHOLD_HELP
 
 
 def test_critical_rate_help_names_the_exact_included_and_excluded_sources() -> None:
@@ -17,5 +16,3 @@ def test_critical_rate_help_names_the_exact_included_and_excluded_sources() -> N
     assert "超过上限的方案无效" in CRIT_RATE_CAP_HELP
     assert "弧盘常驻资料待审查时暂无法核对自动上限" in CRIT_RATE_CAP_HELP
     assert expected_sources in CRIT_RATE_CAP_HELP
-    assert "5% 基础 + 空幕词条 + 额外驱动加成" in WEIGHTED_CRIT_THRESHOLD_HELP
-    assert "不含弧盘、角色成长、武器和其他 Buff" in WEIGHTED_CRIT_THRESHOLD_HELP

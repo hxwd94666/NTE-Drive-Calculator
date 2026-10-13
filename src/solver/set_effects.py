@@ -15,6 +15,7 @@ SET_EFFECT_MODES = (FOUR_PIECE, TWO_PIECE, NO_EFFECT)
 def normalize_set_effect_mode(mode: str | None) -> str:
     if mode in SET_EFFECT_MODES:
         return str(mode)
+    # 缺失/旧值沿用既有四件套默认，不能意外放宽成无套装约束。
     return FOUR_PIECE
 
 

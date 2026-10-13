@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.domain.battle_report import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
 from src.features.battle_report.comparison_capture import ComparisonCapture
-from tests.test_battle_report_persistence_service import _summary
+from tests.battle_report.persistence.test_service import _summary
 
 
 class _Lane:

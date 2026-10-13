@@ -241,6 +241,7 @@ def map_role_list_mouse_selection_from_current(
     earlier targets are clicked directly without further upward scrolling.
     """
 
+    # 消费已扫描名单的降序计划及记忆视口，不能混用侧栏顺序或重新猜角色身份。
     current_index = max(0, int(current_roster_index))
     target_index = max(0, int(target_roster_index))
     scan = map_role_list_mouse_row_scan(screen_size, content_rect, wheel_clicks_per_row)

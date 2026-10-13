@@ -12,9 +12,9 @@ from src.features.settings.work_mode_card import (
     MODE_LABELS, CleanupResultDialog, ModeReportDialog, confirm_mode,
     prompt_offline_sync_mode, report_summary,
 )
-from src.services.game_observation_service import GameObservationService, ObservationResult
-from src.services.work_mode_diagnostics import detection_failure_detail
-from src.services.sync_enable_preflight import decide_sync_activation, decide_sync_enable
+from src.services.work_modes.observation import GameObservationService, ObservationResult
+from src.services.work_modes.inspection import detection_failure_detail
+from src.services.work_modes.sync_preflight import decide_sync_activation, decide_sync_enable
 from src.ui.controllers.component_upgrade_guide import ComponentUpgradeGuideMixin, UpgradeResult
 from src.ui.controllers.work_mode_report_actions import WorkModeReportActionsMixin
 
@@ -134,7 +134,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             return
         card, focus = widgets
         if not card.isVisible():
-            return  # Navigation may have been cancelled by another page's unsaved-edit prompt.
+            return  # 其它页面未保存草稿可能取消导航；不强行聚焦隐藏卡片。
         self._clear_settings_highlight()
         self._highlighted_card, self._highlight_style = card, card.styleSheet()
         card.setProperty("workModeHighlight", True)
@@ -269,7 +269,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             return
         before = self.policy.settings
         try:
-            # Revoke at the policy boundary before stopping owners; finish calls remain legal.
+            # 先在策略边界撤销新副作用权限，再停止 owner；收尾调用仍保留。
             self.policy.select_mode(mode, risk_confirmed=mode != "offline")
             try:
                 if self._apply_plugin_policy is not None:
@@ -302,7 +302,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             self._plugin_worker.submit(apply, key="plugins")
 
     def component_state_changed(self) -> None:
-        """Refresh a visible report and the compact summary after manual component work."""
+        """显式组件动作后刷新当前报告和窄摘要，不把派发当业务成功。"""
         if not self._closed:
             self.check(show=self._report_dialog is not None,
                        preview=self._sync_preflight_callback is not None)
@@ -379,7 +379,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
                 try:
                     self.policy.set_component_auto_ready(False)
                 except OSError:
-                    pass  # The in-process automatic authority was revoked before saving.
+                    pass  # 保存前已撤销进程内自动权限，保存失败不恢复副作用。
                 self.refresh_controls()
         if dialog is not None:
             dialog.deleteLater()
@@ -482,7 +482,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         if self._controls:
             combo, _status, _check = self._controls
             selection = settings.mode.value
-            # Background status updates must preserve the user's unconfirmed choice.
+            # 后台状态刷新保留未确认的下拉草稿；显式重置才回填生效模式。
             if reset_selection or selection != self._selector_settings:
                 combo.blockSignals(True)
                 combo.setCurrentIndex(combo.findData(selection))
@@ -510,7 +510,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
                 try:
                     self._set_upgrade_progress(False)
                 except OSError:
-                    pass  # The next launch can retry clearing this app-local guide marker.
+                    pass  # 本机引导标记清理失败留待下次启动，不改变组件确认事实。
             self._refresh_upgrade_banner()
             if self._upgrade_cleanup_resume:
                 self._upgrade_cleanup_assessed = True
@@ -705,7 +705,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             try:
                 self.policy.set_component_auto_ready(False)
             except OSError:
-                pass  # revoke_first already removed the in-process automatic authority.
+                pass  # revoke_first 已撤销进程内自动权限，保存失败不恢复副作用。
             self.refresh_controls()
         self.finish_report_sync_guidance(success)
         if self._report_dialog is not None:

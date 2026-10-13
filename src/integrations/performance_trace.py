@@ -60,7 +60,7 @@ class TraceJournal:
         self.bytes += size
 
     def sample(self, value):
-        # Persist only changed summary windows and the confirmed terminal result.
+        # 仅持久化发生变化的摘要窗口及已确认终态，不把重复轮询累积成日志。
         identity = (value['summaries'], value['active'], value['failed'], value['complete'])
         if identity != self.previous:
             self.write({'kind': 'status', **value})

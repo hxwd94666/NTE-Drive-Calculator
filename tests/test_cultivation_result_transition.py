@@ -12,7 +12,7 @@ def test_batch_result_replacement_buffers_immediate_wheel_until_ready() -> None:
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QWidget
 
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
 
     class Service:
         def list_roles(self):

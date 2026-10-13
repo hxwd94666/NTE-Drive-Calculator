@@ -1,9 +1,7 @@
 # 测试极速装配完成结果汇总。
 """Behavior tests for concise fast-apply completion presentation."""
 
-from src.features.inventory.fast_apply_completion_summary import (
-    build_fast_apply_completion_summary,
-)
+from src.features.inventory.equipment.fast_apply_completion_summary import build_fast_apply_completion_summary
 
 
 def test_summary_keeps_each_role_but_hides_completed_role_statuses() -> None:

@@ -40,6 +40,7 @@ class BaseEquipment(BaseModel):
     duplicate_index: int | None = None
     duplicate_count: int | None = None
 
+    # 这些评分字段是单次计算投影；持久方案以冻结 assignment_scores 为准。
     role_scores: Dict[str, float] = Field(default_factory=dict)
     max_score: float = Field(default=0.0)
     is_mvp: bool = Field(default=False)
@@ -66,16 +67,14 @@ class Drive(BaseEquipment):
 class Tape(BaseEquipment):
     item_type: Literal["tape"] = "tape"
     shape_id: str = "TAPE_15"
-    # Official suit identity used by allocation.  Legacy OCR/test objects may
-    # omit it and use the normalized display-name compatibility path.
+    # 分配优先使用正式套装 ID；旧视觉输入缺失时才走既有名称兼容，不补造 ID。
     suit_id: str | None = None
     set_name: str
     main_stats: str
-    # Exact snapshot main-stat value, in the same display unit as ``sub_stats``.
-    # Vision snapshots synthesize it from the shared max-level stat catalogue.
+    # 主值与副词条采用相同显示单位；正式来源保留快照值，视觉来源由公共满级目录投影。
     main_value: float | None = None
 
-    # Tape main_stats remains a plain text label; ``main_value`` carries its value.
+    # 卡带 main_stats 只承载标签，数值由 main_value 独立运输。
     @model_validator(mode='after')
     def validate_cartridge_rules(self):
         if self.area != 15:

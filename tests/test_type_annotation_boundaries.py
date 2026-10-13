@@ -11,7 +11,7 @@ TYPED_BOUNDARY_FILES = (
     "src/app/context.py",
     "src/domain/allocation_rating.py",
     "src/domain/drive_layout.py",
-    "src/domain/equipment_duplicate_marker.py",
+    "src/domain/equipment/equipment_duplicate_marker.py",
     "src/domain/post_actions.py",
     "src/features/identification/dependencies.py",
     "src/features/blueprints/controller.py",

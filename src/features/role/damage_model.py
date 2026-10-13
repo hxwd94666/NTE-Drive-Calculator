@@ -1,5 +1,5 @@
 # 统一计算角色直伤评分和边际收益。
-"""Direct-damage model shared by role marginal, replacement, and future theory scoring."""
+"""既有角色粗直伤与单位边际收益模型；不是装备基础分或战报逐击公式。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def direct_damage_value(
     crit_damage_raw: float,
     crit_rate_cap: float | None = 100.0,
 ) -> float:
-    """Calculate the current coarse direct-damage score from normalized stat values."""
+    """沿用攻击、增伤与期望暴击的粗评分；暴击率服从传入上限并限于0—100%。"""
     crit_rate = min(max(crit_rate_raw, 0.0) / 100.0, _crit_rate_cap_fraction(crit_rate_cap))
     crit_damage = crit_damage_raw / 100.0
     attack = attack_base * (1 + attack_pct / 100.0) + attack_flat
@@ -41,7 +41,7 @@ def direct_damage_value(
 
 
 def direct_damage_inputs(total_stats: dict) -> dict[str, float]:
-    """Extract the normalized stat inputs used by the direct-damage formula."""
+    """读取此兼容模型约定的数值默认值；异能伤害正式标签优先于旧元素标签。"""
     return {
         "attack_base": _as_float(total_stats.get("攻击力白值")),
         "attack_pct": _as_float(total_stats.get("攻击力%")),
@@ -56,7 +56,7 @@ def direct_damage_inputs(total_stats: dict) -> dict[str, float]:
 
 
 def calc_direct_damage(total_stats: dict, crit_rate_cap: float | None = 100.0) -> float:
-    """Calculate direct-damage score from a total stat dictionary."""
+    """统一调用粗直伤数值入口，保留本次暴击上限。"""
     return direct_damage_value(**direct_damage_inputs(total_stats), crit_rate_cap=crit_rate_cap)
 
 
@@ -70,7 +70,7 @@ def calc_direct_marginal_benefits(
     benefit_one: dict,
     crit_rate_cap: float | None = 100.0,
 ) -> tuple[float, list[tuple[str, str, str, float]]]:
-    """Return current direct score and per-unit marginal gains."""
+    """每次只改变一个单位属性比较粗评分；基线为零时不生成比例收益。"""
     units = {
         "攻击力白值": _unit(benefit_one, "攻击力白值", 1.0),
         "攻击力%": _unit(benefit_one, "攻击力%", 1.25),
@@ -139,5 +139,6 @@ def calc_direct_marginal_benefits(
             gain_with(crit_damage_raw=values["crit_damage_raw"] + units["暴击伤害%"]),
         ),
     ]
+    # 用同一基线和暴击上限稳定降序；触及暴击上限后该单位不会再增加收益。
     items.sort(key=lambda item: item[3], reverse=True)
     return base_damage, items

@@ -1,5 +1,5 @@
 # 提供随可用宽度重排的养成材料卡片网格。
-"""Responsive grid for compact progression material cards."""
+"""按可用宽度重排材料卡，保持输入顺序与既有高度规则。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QGridLayout, QLayout, QSizePolicy, QWidget
 
 
 class ProgressionMaterialGrid(QWidget):
-    """Lay out material cards in stable rows without horizontal scrolling."""
+    """列数有上限；宽度变化只重排，不计算材料或更改卡片内容。"""
 
     layout_changed = Signal()
 
@@ -44,6 +44,7 @@ class ProgressionMaterialGrid(QWidget):
         return QSize(self._minimum_card_width, self.height())
 
     def set_cards(self, cards: Iterable[QWidget]) -> None:
+        # 正式养成消费者在空网格上一次初装；结果替换由父结果控件收尾。
         for card in self._cards:
             self._grid.removeWidget(card)
         self._cards = list(cards)

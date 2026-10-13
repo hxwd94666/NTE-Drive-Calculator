@@ -239,7 +239,7 @@ def validate_gold_fix_provenance(
     *, candidate_database: Path, provenance_path: Path,
     baseline_database: Path, baseline_manifest: Path, official_source_root: Path,
 ) -> dict:
-    """Verify exact audited table changes against the preserved release baseline."""
+    """相对保留基线核对已审计的精确表改动，不扩张一次性修复范围。"""
 
     provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
     if sha256(baseline_database) != EXPECTED_BASELINE_SHA256:

@@ -9,10 +9,9 @@ from src.utils.set_name import normalize_set_display_name
 
 
 def normalized_suit_name(value: object) -> str:
-    """Return a comparison-only display-name key.
+    """仅为缺正式 suit_id 的遗留输入生成名称比较键。
 
-    Names remain presentation data.  This key exists only for legacy inputs
-    that predate official ``suit_id`` propagation.
+    名称仍是显示数据；已提供正式套装 ID 时以 ID 匹配，不退回模糊名称。
     """
 
     return normalize_set_display_name(value).casefold()
@@ -56,7 +55,7 @@ def tape_matches_suit_target(
     target: object,
     sets_db: Mapping[str, Mapping],
 ) -> bool:
-    """Match by official ID, with a name-only fallback for legacy objects."""
+    """正式套装 ID 优先；仅缺 ID 的遗留对象使用规范名称回退。"""
 
     if target is None:
         return True

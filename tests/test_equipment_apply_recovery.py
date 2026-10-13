@@ -8,8 +8,8 @@ from unittest.mock import Mock
 import pytest
 
 from src.integrations.nte_core_protocol import NteCoreRpcError, NteCoreTimeoutError
-from src.services.equipment_apply_recovery import EquipmentApplyRecovery, RecoveryStopped
-from src.services.fast_equipment_execution import execute_fast_plan
+from src.services.equipment.apply_recovery import EquipmentApplyRecovery, RecoveryStopped
+from src.services.equipment.execution import execute_fast_plan
 
 
 def changed():

@@ -15,4 +15,5 @@ class PluginSettings:
 
     @property
     def enabled(self) -> bool:
+        """技能卡独立启用；敌人卡须同时启用且至少选择一种状态栏。"""
         return self.cooldown or (self.enemy_bars and (self.hp or self.unbalance))

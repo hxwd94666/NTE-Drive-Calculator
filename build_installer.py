@@ -27,7 +27,7 @@ from tools import build_cli
 from src.app.version import windows_numeric_version
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, native_deployment_paths
-from src.integrations.ocr_model_resources import validate_packaged_ocr_models
+from src.integrations.vision.recognition.model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.installer_asset_dedup import (
     InstallerAssetCopy,

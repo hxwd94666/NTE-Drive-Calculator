@@ -5,7 +5,7 @@ from __future__ import annotations
 
 
 def allocation_grade(score: float, area: float) -> str:
-    """Return the area-relative grade for one tape or drive."""
+    """单件按面积满分换算评级；完整方案累计分另走固定区间。"""
 
     maximum = float(area) * 10.0
     if maximum <= 0:
@@ -29,7 +29,7 @@ def allocation_grade(score: float, area: float) -> str:
 
 
 def loadout_total_grade(score: float) -> str:
-    """Return the fixed-interval grade for one complete loadout total."""
+    """只按完整方案累计分的固定区间评级，不套用单件面积阈值。"""
 
     value = float(score)
     if value >= 280:

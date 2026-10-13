@@ -10,7 +10,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from src.storage.sqlite.fork_permanent_projection import (
+from src.storage.sqlite.catalog.fork_permanent_projection import (
     FORK_PERMANENT_EVIDENCE_SQL,
     FORK_REFINEMENT_LEVEL_SQL,
     FORK_SOURCE_COVERAGE_SQL,

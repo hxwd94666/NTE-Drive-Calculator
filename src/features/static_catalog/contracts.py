@@ -1,11 +1,8 @@
 # 兼容导出游戏资料库跨层只读契约。
-"""Feature-local import surface; canonical contracts live in the domain layer.
+"""Feature 的窄导出入口；只读数据契约的唯一实现仍在 Domain。
 
-``CatalogLink`` is an explicit navigation action, not a generic relation DTO.
-Player-facing pages render useful related facts in place first and only emit a
-link from a clearly labelled "查看详情" action.  This keeps ordinary browsing
-inside the current page while still allowing the catalog shell to provide a
-reversible cross-domain history for deliberate drill-downs.
+CatalogLink 是明确的导航动作，不是泛用关联数据；相关事实先在本页展示，
+只有用户点击“查看详情”才跨领域，外壳保留可返回的来源历史。
 """
 
 from collections.abc import Callable
@@ -34,12 +31,9 @@ from src.domain.static_catalog import (
 
 @dataclass(frozen=True, slots=True)
 class CatalogNavigationEntry:
-    """One shell-level origin retained for an explicit cross-domain drill-down.
+    """外壳只记录明确跨领域导航的来源，不扫描或改写子页私有控件。
 
-    The domain widget itself remains alive, so its filters, selection, scroll
-    position and nested detail state stay owned by that widget.  The shell only
-    remembers which domain to reveal again; it never scans or mutates private
-    child controls.
+    领域页继续存活并拥有筛选、选择、滚动和局部详情；返回时只重新显示该领域页。
     """
 
     domain_key: str
@@ -48,13 +42,10 @@ class CatalogNavigationEntry:
 
 @runtime_checkable
 class CatalogDomainNavigation(Protocol):
-    """Public nested-navigation port implemented by a dedicated domain page.
+    """领域页提供局部导航端口，外壳维护唯一返回按钮，不另建永久导航栏。
 
-    A domain page uses this instead of drawing a second permanent back bar.
-    ``catalog_back_label`` returns the human-readable local destination while a
-    detail is open (for example ``角色列表``), or ``None`` at the domain root.
-    The listener lets the shared shell update its one back button whenever the
-    page enters or leaves a nested view.
+    catalog_back_label 在详情中返回可读目的地，在领域根返回 None；
+    进入/退出局部详情时通知外壳，不以页号或私有控件遍历定位。
     """
 
     def set_catalog_navigation_listener(

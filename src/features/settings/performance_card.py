@@ -49,6 +49,7 @@ class CostPlot(QWidget):
         self.setAccessibleName("服务平均单次耗时曲线，单位毫秒")
 
     def paintEvent(self, event):
+        # 无样本保留间断，既有服务耗时不冒充 FPS 或零耗时。
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(self.palette().text().color())

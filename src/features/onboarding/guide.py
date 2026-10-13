@@ -63,8 +63,7 @@ class OnboardingGuide:
         seen_file = self._app_context.account.user_config_dir / "guide_seen.json"
         if not seen_file.exists():
             def show_when_idle() -> None:
-                # A user-initiated preparation dialog takes precedence over the
-                # optional image tutorial. The menu can reopen it later.
+                # 用户手动准备弹窗优先于可选图片教程；本次跳过后仍可由菜单重新打开。
                 if QApplication.activeModalWidget() is None:
                     self.show(auto=True)
             QTimer.singleShot(500, show_when_idle)
@@ -89,7 +88,7 @@ class OnboardingGuide:
 
         image_label = QLabel()
         image_label.setAlignment(Qt.AlignCenter)
-        # Let the image yield space to navigation/actions on scaled notebooks.
+        # 图片让出空间给翻页与确认入口，缩放屏幕上仍保持动作可操作。
         image_label.setMinimumSize(360, 240)
         layout.addWidget(image_label, 1)
 

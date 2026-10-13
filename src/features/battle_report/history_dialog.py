@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.domain.battle_report import BattleReportHistoryEntry
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 
 
 def _format_number(value: float) -> str:
@@ -209,6 +209,7 @@ class BattleReportHistoryDialog(QDialog):
         return widget
 
     def _actions_widget(self, entry: BattleReportHistoryEntry) -> QWidget:
+        # 按正式战报 ID 发出意图；确认、账号复核、事务和保留上限由既有 Controller/Service 处理。
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(4, 5, 4, 5)

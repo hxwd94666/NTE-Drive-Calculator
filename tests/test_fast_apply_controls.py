@@ -10,7 +10,7 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QProgressDialog, QPushButton, QWidget
 
-from src.features.inventory import equipment_assembly_controller as controller
+from src.features.inventory.equipment import assembly_controller as controller
 
 
 class PendingWorker(QObject):

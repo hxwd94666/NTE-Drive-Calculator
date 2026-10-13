@@ -45,7 +45,7 @@ class NativeHostClient:
         except subprocess.TimeoutExpired as error:
             raise NativeHostOutcomeUnknown('宿主请求超时，结果未知；停止后续操作，不自动重发。') from error
         if result.returncode:
-            # A failed transport can follow a dispatched mutation; preserve uncertainty.
+            # 传输失败也可能发生在变更已派发之后；保留结果未知，不据此重发。
             raise NativeHostOutcomeUnknown('宿主控制未完成：' + result.stderr.strip()[:500])
         try:
             envelope = json.loads(result.stdout)

@@ -55,12 +55,17 @@ from src.optimizer.contracts import (
     plan_drives,
 )
 from src.utils.logger import logger
-from src.services.allocation_comparison_scoring import comparison_display_item, comparison_notice
-from src.features.weighted_allocation.result_styles import section_label
+from src.services.allocation.comparison_scoring import comparison_display_item, comparison_notice
 
 
 def _section_label(_window, text):
-    return section_label(text)
+    """方案差异只保留当前页面实际使用的区段标题，不跨不可达页面转发。"""
+    label = QLabel(text)
+    label.setStyleSheet(themed_style(
+        "font-size:14px;font-weight:700;color:#c9d1d9;"
+        "border:none;background:transparent;padding:2px 0"
+    ))
+    return label
 
 
 __all__ = [
@@ -338,16 +343,25 @@ def _diff_inventory_sources(self):
     if snapshot_id is None:
         return {}
     static_identity = getattr(self, "_pending_allocation_static_identity", None)
-    static_path = static_identity[0] if static_identity is not None else None
-    cache_key = (path_key, int(snapshot_id), static_identity)
+    release = getattr(self, "_pending_allocation_static_release", None)
+    try:
+        from src.services.allocation.plan_save import require_allocation_release
+        from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+        static_path = static_identity[0] if static_identity is not None else None
+        release = require_allocation_release(release, static_path)
+        StaticCatalogReleaseReader().ensure_unchanged(release)
+    except RuntimeError:
+        return {}
+    cache_key = (path_key, int(snapshot_id), release)
     cached = getattr(self, "_diff_inventory_index_cache", None)
     if cached and cached[0] == cache_key:
         return cached[1]
     index = {}
     try:
-        from src.services.sqlite_allocation_inventory import load_inventory_projection
+        from src.services.allocation.inventory import load_inventory_projection
 
-        data = load_inventory_projection(path_key, int(snapshot_id), static_path)
+        with StaticCatalogReleaseReader().read_unit(static_path, expected_release=release) as unit:
+            data = load_inventory_projection(path_key, int(snapshot_id), static_path, static_read_unit=unit)
     except Exception:
         data = []
     for item in data:

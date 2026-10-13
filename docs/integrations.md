@@ -25,8 +25,8 @@
 仓库状态写回中，明确未派发的 `source_changed` 与 `EQUIPMENT_PLUGIN_BUSY` 只对当前指令按 10–640ms 的短退避重试；
 `source_changed` 重试前仅在异常路径核对提供方和对象域仍属于本批次。超时、结果未知、上下文变化及其他失败不重试。
 同一装备的多步状态严格串行；全部指令完成后，只通过新的完整背包快照统一核对最终状态。
-极速装配另有当前指令退避与释放读取锁后的完整观测恢复，实施策略和验收状态见
-[极速装配来源恢复](roadmap/equipment-apply-source-recovery.md)。该策略不修改 Core/DLL 的来源校验或派发协议。
+极速装配另有当前指令退避与释放读取锁后的完整观测恢复，现有行为见
+[极速装配与游戏界面自动装配](features.md#8-极速装配与游戏界面自动装配)。该策略不修改 Core/DLL 的来源校验或派发协议。
 
 设置页的 nte-core 抓包诊断只调用 `capture.detect`，并以 Windows 只读探测补充 Npcap 驱动服务、已启用
 适配器、Npcap 安装痕迹和常见 `wpcap.dll`/`Packet.dll` 位置的摘要。它不创建抓包会话，不读写网络配置，
@@ -224,7 +224,7 @@ complete、sourceCoverage 和 integrityReasons。试用采集尚未验证完整�
 预览保存边界，响应恢复前核对角色、图纸、装备身份和 UID 唯一性。缺失或失败明确报告组件错误，
 不回退 Python 分配。取消和超时终止并回收本次分析进程；协议不读取账号库，也不写入装备状态。
 此入口只覆盖计算按钮链路，其他固定 Context 的工具入口不因部署自动切换算法。
-计算入口采用 `allocation_v1` 路由的请求/响应版本 2，要求组件清单与实际进程同时声明 `allocation_v2`。失败响应可附带可选的 `failure_diagnostic`：内部诊断版本、汇总状态，以及 `remaining`/`group_start` 两种冻结范围的状态、说明、扩展数、返回候选数和截断标记，不包含诊断候选装备 UID 或配装数组。未触发独立诊断时字段缺省；已有客户端继续读取 `reason`，无需新增请求字段。主搜索的 `search_status`、预算及候选标记保持原义，诊断状态独立，不修改 `valid` 或正式装备分配。候选数量仅指有界补救返回的候选，不代表穷尽组合总数；诊断发现可行组合也不自动提交为成功方案。组件源码、二进制、清单及静态身份须配套核对；编译部署不代替行为验收。用户行为见[计算说明](features.md)，前序问题背景见[开发方案](roadmap/allocation-correctness.md)。
+计算入口采用 `allocation_v1` 路由的请求/响应版本 2，要求组件清单与实际进程同时声明 `allocation_v2`。失败响应可附带可选的 `failure_diagnostic`：内部诊断版本、汇总状态，以及 `remaining`/`group_start` 两种冻结范围的状态、说明、扩展数、返回候选数和截断标记，不包含诊断候选装备 UID 或配装数组。未触发独立诊断时字段缺省；已有客户端继续读取 `reason`，无需新增请求字段。主搜索的 `search_status`、预算及候选标记保持原义，诊断状态独立，不修改 `valid` 或正式装备分配。候选数量仅指有界补救返回的候选，不代表穷尽组合总数；诊断发现可行组合也不自动提交为成功方案。组件源码、二进制、清单及静态身份须配套核对；编译部署不代替行为验收。用户行为见[计算说明](features.md)，当前剩余事项见[队伍收益与全局配装](roadmap.md#2-队伍收益与全局配装)。
 它不链接或启动采集 Core，不接入游戏、抓包或网络。正式战报页面消费组件声明的 `battle_page_v1` 能力；
 只更新 Python 源码不会启用未部署的能力，能力缺失或版本、哈希不匹配必须报告组件错误。
 总览、逐击、Buff 反事实、边际收益、装备副本比较及导出时的分析投影统一通过原生页面入口，缺失或失败均不回退旧计算。
@@ -312,26 +312,153 @@ Rust 不写账号库；自动目标推断以完整版本化 `derived_snapshot` �
 
 ## 2. 视觉、OCR 与游戏输入
 
+库支持声明位于 `src/integrations/vision/recognition/backend_support.py`，与设备偏好分离。
+源码开发通过 `NTE_OCR_PROFILE` 选择 `default`（OpenVINO + ORT DirectML）、`openvino`、
+`onnx_cpu` 或 `onnx_directml`，未设置时保留原双库行为。既有 `NTE_OCR_BACKEND` 的
+OpenVINO、CPU、DirectML、自动与低负载等偏好仍保留，只在本次支持集合内产生候选。
+例如 ONNX 单库收到扫描现有的 OpenVINO/低负载偏好仍能执行 CPU；DirectML 设备失败只可
+退到同一 ORT 分发的 CPU，不引入第二份 CPU 分发。排除库不做 provider/显卡探测、导入或
+安装模型校验。每次初始化冻结一个支持对象，失败期间更改环境不扩展本次集合。
+
+构建沿用同一源码声明，收集输入由 `tools/release/ocr_build_inputs.py` 统一产生：选中库的
+hidden imports、配置、原生库与 metadata，排除库的模块 exclusion，一份共享模型和字典。
+选中缺项失败，不再警告后继续生成不完整 OCR 包。profile 在隔离构建目录生成并随包放入
+`assets/ocr/backend_support.json`；冻结程序仅使用随包声明，缺失/格式错误不回落源码默认，
+环境不能把单库发行扩展为双库。裁剪与校验接收同一支持对象，仅处理所选 OpenVINO 精确清单；
+同时核对所选 ORT 共同原生成员及 DirectML 插件，排除库混入在任何删除前拒绝。
+
+### OCR 独立依赖环境
+
+OCR 依赖归 `ocr-openvino`、`ocr-onnx-cpu`、`ocr-onnx-directml` 三组；未显式选择时，
+`uv sync --locked` 默认安装 dev、OpenVINO 与 ORT DirectML，保留原双引擎行为。
+CPU 与 DirectML 组互斥，不把 CPU 分发当作 DirectML 的后备安装：同一 DirectML 分发已经提供 CPU provider。
+共享 NumPy、OpenCV 与 Pillow 仍是产品依赖，不随 OCR 组移除。三个 OCR 组也声明正式 loader 直接使用的 Loguru，
+不依赖整个产品环境偶然提供 logger；实验统一使用已锁定版本、Python 3.11。
+
+RapidOCR ONNX 1.4.4 上游声明 CPU `onnxruntime>=1.7.0`。本项目仅对该确切版本使用
+uv `dependency-metadata`，保留原 Python 边界及其余八项依赖约束，由所选组显式提供 `onnxruntime`
+命名空间；原 wheel、dist-info 和锁定来源哈希不修改。更改 RapidOCR pin 必须重新核对上游 metadata。
+这只适用于项目 uv 解析/同步，不声称普通 pip 安装或导出 requirements 后再次解析具有相同闭包。
+DirectML/default 的 `uv pip check` 仍按上游 wheel 声明报告 CPU distribution 缺失；仅此已知替代边单列，
+其他依赖错误必须排查，不安装 CPU 补绿，也不修改 dist-info。
+
+项目中普通单库同步使用 `--no-default-groups --group <OCR组>`，仍包含产品依赖；
+CPU 独选必须取消默认组，否则默认 DirectML 与 CPU 冲突并拒绝同步。
+OCR 专项从空的专属目录以 `--only-group` 创建环境，不在已混装环境中卸掉一个库后称为单库验证。
+它只安装所选 OCR 及 build 闭包，不安装产品本体或手柄等非 OCR 链；不是完整应用运行环境。
+
+| `NTE_OCR_PROFILE` | OCR 专项显式选组 |
+| --- | --- |
+| `default` | `--only-group ocr-openvino --only-group ocr-onnx-directml` |
+| `openvino` | `--only-group ocr-openvino` |
+| `onnx_cpu` | `--only-group ocr-onnx-cpu` |
+| `onnx_directml` | `--only-group ocr-onnx-directml` |
+
+例如维护者在源码根用 PowerShell 为 OCR 专项设置独立环境与 profile：
+
+```powershell
+$env:UV_PROJECT_ENVIRONMENT = "$PWD\build\ocr-env-openvino"
+$env:NTE_OCR_PROFILE = "openvino"
+uv sync --locked --python 3.11 --no-python-downloads --no-build --no-install-project --only-group ocr-openvino --only-group build
+```
+
+其他 profile 只替换专属环境名和表内选组；`--only-group` 不加入 dev 或默认 OCR 组。
+全部 OCR 缺失时非 OCR 产品功能的边界另由对应公共行为测试验证，不从 OCR-only 环境推导完整应用就绪。
+结束专项进程并清除本次 `UV_PROJECT_ENVIRONMENT`/`NTE_OCR_PROFILE` 即可回到原开发环境，
+不将实验文件复制覆盖原环境、不为本专项重复安装手柄驱动。
+依赖隔离须核对实际 distribution 集合、`onnxruntime` 的模块/原生成员与唯一分发 RECORD、provider、
+实际 RapidOCR session 和小输入推理；仅 provider 名称不证明 GPU 已推理。
+真实 hook/collector、共享模型与 frozen 声明分支和独立原生加载是不同证据；单库加载通过不等于
+单目录/单文件 EXE 已可发行。PyInstaller 构建、真实硬件 GPU、游戏扫描与发行体积仍按独立授权验收。
+
+
 OpenVINO 与 ONNX Runtime 共用发行目录 `assets/ocr/models` 下同一套检测、识别和方向分类模型。构建只从已锁定依赖中
 选取一套模型，并按文件大小与 SHA-256 校验；两个 RapidOCR 包自身的 `models/` 不进入发行目录。运行时在创建任一后端前
-解析并复核共享模型，再通过 `det_model_path`、`rec_model_path`、`cls_model_path` 显式注入。模型缺失或内容漂移属于组件
-故障，不回退到包内未知副本；源码环境可读取已安装依赖中通过同一清单校验的模型。
+冻结并校验共享模型与字符字典，通过每个候选私有的 `det_model_path`、`rec_model_path`、`cls_model_path`、
+`rec_keys_path` 显式注入，在构造/预热后再次校验同一组文件身份与 SHA-256。没有永久路径/可变参数缓存；模型缺失或内容漂移属于组件
+故障，不切另一后端掩盖，也不回退到包内未知副本；源码环境只核对本次支持集合中已安装依赖的模型，不读取排除库的副本。
+构建资源模块不导入原生引擎；后端选择、DLL 句柄与取消责任见[识别架构](architecture.md#25-视觉输入与共用识别)。
+字符字典统一为 `assets/ocr/ppocr_keys_v1.txt`，来源、许可证、锁定包和模型绑定见
+[资源来源](../assets/ocr/SOURCE.md)。两后端均使用此文件，不依赖 OpenVINO 包内默认字典或 ONNX metadata 回退。
+代码清单绑定识别模型 SHA-256；字典读取采用同一份前后版本一致的字节，精确复现两库的 rb/readlines/CR-LF 处理。
+构造、预热及每次推理检查实际 CTC 全部顺序，不仅检查字符数量；不兼容接口或顺序漂移属于资源故障。
+构建的通用 assets 收集已包含共享字典，只排除 `rapidocr_openvino/ch_ppocr_rec/ppocr_keys_v1.txt` 的确切副本；
+发行检查要求共享字典、模型绑定及包内重复副本缺席，不批量排除 txt。换模型/库须重新核对 metadata 顺序和输出维数，
+不能只改文件哈希。源码 CTC/metadata 核对不是冻结 EXE、GPU 或实际图片识别验收。
 
 发行包仅裁剪当前 OCR 与截图路径未使用的 OpenCV 视频 FFmpeg DLL，以及 OpenVINO 的 GPU/NPU 和非 ONNX 模型
-frontend；OpenVINO CPU/ONNX frontend、共享模型、ONNX Runtime/DirectML 均保留。Pillow 的 AVIF 插件及原生
+frontend；选中的 OpenVINO CPU/ONNX frontend 与 ORT 运行库保留，共享模型不按库复制。Pillow 的 AVIF 插件及原生
 编解码模块由收集规则排除，发行校验拒绝其残留；PNG、JPEG、BMP、WebP 和字体渲染依赖保留。桌面端还精确裁剪未使用的
 Qt PDF、QML、Quick、虚拟键盘及其独占插件，保留 Widgets、Qt OpenGL 和软件渲染后备；SciPy 仅裁剪不在
 `scipy.optimize` 当前依赖闭包内的 stats、interpolate、integrate、ndimage 子包。打包脚本在依赖布局变化时停止
-裁剪并要求重新审查，不按通配符清理其他运行库。裁剪后的 OCR 初始化、截图图像解码、Qt 主题及输入法、
+裁剪并要求重新审查，不按通配符清理其他运行库。裁剪只作用于独占的隔离 onedir 候选：先核对根及所有父目录、
+必要成员和完整删除计划的普通文件身份，拒绝链接、联接、重解析点与断链残留；预检失败不修改成员。
+实施阶段按固定计划逐文件删除、从深至浅删除空目录，不递归删除新出现的未知成员；I/O 中断如实报告已删除数量，
+该候选须重建，不伪称原子回退。构建体积按文件实际字节或目录文件字节总和报告 MiB，是逻辑大小而非磁盘分配空间。
+裁剪后的 OCR 初始化、截图图像解码、Qt 主题及输入法、
 MILP/线性分配与正式 Windows 扫描验收分别验证；仅凭安装包体积下降不视为发行验收通过。
 
 安装器从已校验的完整 `dist` 复制到 `build/installer-stage`。仅在统一图鉴图片目录内按文件哈希去重，
 并由 Inno `[Files]` 恢复清单要求的全部路径。暂存前后核对每个文件与映射哈希，运行时不使用图片别名。
 覆盖升级由安装器清除旧版 `_internal/assets/game_ui`，新包仅携带 `data/role_catalog/game_ui`。
 
-`src/integrations/vision` 独占窗口坐标、截图、格位检测、鼠标动作和扫描后状态同步；`src/scanner` 与解析
-Service 负责 OCR、归一化和装备字段。Integration 返回截图、索引、解析结果或诊断，不写业务快照，
-不决定评分和保留规则。
+`src/integrations/vision` 独占窗口坐标、截图、格位检测、鼠标动作和扫描后状态同步；
+`recognition/` 统一扫描与鉴定的 OCR、模型校验、形状模板、分类、词条解析及本批次去重。
+`DroneScanner` 已迁入 `vision/incremental_scan.py`，旧路径删除；`GamepadScanner` 暂留 `src/scanner`。正式鼠标全量入口
+`MouseInventoryScanner` 已在 `vision` 层。解析 Service 编排完整结果的业务提交。
+Integration 返回截图、索引、解析结果或诊断，不写业务快照，不决定评分和保留规则。
+模型资源的单一安装位置与双后端共享规则不因源码归包改变，详见[识别责任](architecture.md#25-视觉输入与共用识别)。
+
+所选词条配置和实际静态 dataset 经 `services/recognition/resources.py` 获取后，批处理、确认、匹配及
+视觉入库沿用同一份中文资料。图片处理器附加实际模板字节哈希/版本和冻结布局，普通解析与强制鉴定共用；
+模板目录只读，正式形状别名重复或解码失败报告具体原因，不覆盖旧池或自动创建空目录。
+完整图片 profile 必须包含模板、布局及 OCR 模型/字典身份；任一文件变化在确认/匹配及最终授权时使该批失效，旧背包保留。
+缓存及手工输入边界见[识别架构](architecture.md#25-视觉输入与共用识别)，不将缓存预算当峰值内存限制。
+视觉投影与完整提交入口归 `services/inventory/`，数据库事务最终授权
+拒绝资源漂移或账号/取消失效；其责任与限制见[识别架构](architecture.md#25-视觉输入与共用识别)。
+初始化模型校验不等于图片确认/持久化时所有识别资源已被一并复核；背包/截图独立结果由提交 Service 编排，不宣称跨资源原子提交。
+
+### 装配与倒带执行 OCR
+
+执行生命周期与正式入口见 [架构的共用识别责任](architecture.md#25-视觉输入与共用识别)。
+界面工单和同步执行层只传 `OcrTaskSession`，不另选后端或构造全局引擎；注入已有引擎仅为借用。
+默认引擎首次非空读取才创建，角色文字、OCR 目标及同次倒带余额/价格都复用它。执行输入仍由现有
+OperationGuard 判定授权；取消或模型/解码故障贯穿调用，不当作未匹配或默认余额继续输入。
+局部清理只在同步原生调用返回后发生，既有倒带 UI finally 释放输入和关闭后端；不调用未知的原生
+close API、不将清引用当作强制中断，也不据此承诺全部旧截图/重试路径已改造。
+
+### 增量采集与解析
+
+自动 NEW 标记仅归 `incremental_scan.py` 的本批采集，不是装备正式形状模板，也不作为全量扫描或手工输入前提。
+匹配阈值、去重距离与窗口映射沿用原算法；标记按文件版本与同字节 SHA-256 记录，不在运行中重载新模板。
+半自动不要求标记文件；用户正常结束与停止分开回报。冻结交接及最终资源授权见
+[识别架构](architecture.md#25-视觉输入与共用识别)。
+
+采集前拒绝根目录遗留增量前缀文件，提示先离线解析或清理；真正 PNG 写入排他创建，失败或取消保留原图，
+不自动清空原件。首图比对复用后台解析器，资源故障不降级成普通比对失败。
+增量结果只整理截图，不推进正式库存指针。最终后处理逐项复核轻量取消/代次和 NEW 文件身份；
+部分文件操作已完成时不宣称整批回退。尚未覆盖跨进程采集隔离、进程崩溃恢复及游戏实测。
+
+### 截图暂存与发布
+
+`vision/capture_files.py` 同时供鼠标和虚拟手柄使用。每次采集创建带身份标记的 `.capture-<id>`，
+不清空旧 `temp`、旧失败暂存或根目录图片。Calc streaming 不调用 scanner 的独立发布入口；
+提交 owner/Service 的授权顺序见 [识别架构](architecture.md#25-视觉输入与共用识别)。
+
+- 目录 `.nte-scan-output.lock` 为保留的操作系统租约文件；同输出目录预检、背包提交及发布持续独占，
+  取消不提前释放租约。程序化根目录解析使用同一租约；独立 stage 的采集不共用可清空的固定 temp。
+- 冻结 root/stage 目录身份、标记版本和编号截图版本；源及祖先均为普通路径，拒绝链接/重解析点。
+  正式图片仅精确编号 `raw_drive_0001.png` 等；未知根图片不删，同名冲突在 DB 前拒绝。
+  暂存要求完整连续编号，不把目录任意成员当成截图。
+- 预检空闲空间覆盖小型日志/元数据；同卷移动不复制整套图片。DB 保存后先把冻结旧成员移至
+  本次 `.previous-<id>`，再发布新成员；每一步重验目录、源和目标身份并记相对路径恢复记录。
+- 文件失败逐项精确反向恢复；目标或父目录变化时停止该项，保留确切未恢复步骤与备份。
+  `pending`、`restore_incomplete` 与已保存背包分开表达；文件重试不再创建快照，残缺恢复不自动重试。
+- 成功后仅清理本次已确认的原成员与空目录，未知成员/身份变化或清理失败则保留现场、标记待清理。
+  失败备份及暂存保留供核对，不由下次扫描递归删除；需按本次恢复记录精确处理空间，不能泛清隐藏目录。
+
+此契约覆盖本进程受控失败与恢复尝试；目录/叶文件检查不等于文件系统原子安全证明，
+未实现进程崩溃后的完整自动恢复或 GUI 文件专用重试，不改变游戏输入与扫描后状态管理顺序。
 
 鼠标与虚拟手柄全量扫描最终都提交为统一 `vision` 快照。游戏界面自动装配使用普通鼠标输入 contract；
 页面不创建鼠标后端或虚拟手柄。

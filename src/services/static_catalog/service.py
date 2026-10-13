@@ -1,0 +1,158 @@
+# 编排游戏资料库公共搜索与详情请求。
+"""编排游戏资料库公共搜索与详情请求。"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+
+from src.domain.static_catalog import (
+    GLOBAL_DOMAIN_KEY,
+    CatalogDetail,
+    CatalogPage,
+    CatalogRelationPage,
+    StaticCatalogProvider,
+    StaticCatalogRequest,
+)
+from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+
+
+class StaticCatalogServiceError(RuntimeError):
+    """请求的正式资料身份或冻结发行来源不符合当前路由。"""
+
+
+class StaticCatalogService:
+    """冻结主库及各领域来源身份，再将有界只读请求交给具体提供器。"""
+
+    MAX_PAGE_SIZE = 100
+
+    def __init__(
+        self,
+        *,
+        static_database_path: str | Path,
+        providers: Iterable[StaticCatalogProvider],
+        release_reader: StaticCatalogReleaseReader | None = None,
+        domain_database_paths: Mapping[str, str | Path] | None = None,
+    ) -> None:
+        self._database_path = Path(static_database_path).resolve()
+        self._release_reader = release_reader or StaticCatalogReleaseReader()
+        provider_map = {provider.domain.key: provider for provider in providers}
+        if GLOBAL_DOMAIN_KEY in provider_map:
+            raise ValueError(f"领域 key {GLOBAL_DOMAIN_KEY!r} 保留给全局搜索")
+        self._providers = provider_map
+        self._domain_paths = {key: Path(path).resolve() for key, path in (domain_database_paths or {}).items()}
+        if self._domain_paths.keys() - provider_map.keys():
+            raise ValueError("资料库数据集指定了不存在的领域")
+
+    def start_request(self) -> StaticCatalogRequest:
+        release = self._release_reader.freeze(self._database_path)
+        domains = tuple(
+            sorted((provider.domain for provider in self._providers.values()), key=lambda item: item.order)
+        )
+        releases = {self._database_path: release}
+        for path in self._domain_paths.values():
+            if path not in releases:
+                releases[path] = self._release_reader.freeze(path)
+        return StaticCatalogRequest(release=release, domains=domains, domain_releases=tuple(
+            (key, releases[path]) for key, path in self._domain_paths.items()
+        ))
+
+    def _ensure_request_unchanged(self, request: StaticCatalogRequest) -> None:
+        for release in {request.release, *(release for _, release in request.domain_releases)}:
+            self._release_reader.ensure_unchanged(release)
+
+    def search(
+        self,
+        request: StaticCatalogRequest,
+        *,
+        domain_key: str,
+        query: str,
+        offset: int,
+        limit: int,
+    ) -> CatalogPage:
+        self._ensure_request_unchanged(request)
+        safe_offset = max(0, int(offset))
+        safe_limit = max(1, min(self.MAX_PAGE_SIZE, int(limit)))
+        normalized_query = query.strip()
+        if domain_key != GLOBAL_DOMAIN_KEY:
+            provider = self._providers.get(domain_key)
+            if provider is None:
+                raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")
+            return provider.search(
+                request.release_for(domain_key),
+                query=normalized_query,
+                offset=safe_offset,
+                limit=safe_limit,
+            )
+        requested = safe_offset + safe_limit
+        pages = [
+            provider.search(
+                request.release_for(provider.domain.key),
+                query=normalized_query,
+                offset=0,
+                limit=requested,
+            )
+            for provider in self._providers.values()
+        ]
+        merged = sorted(
+            (item for page in pages for item in page.items),
+            key=lambda item: (item.title.casefold(), item.domain_key, item.record_id),
+        )
+        return CatalogPage(
+            items=tuple(merged[safe_offset:requested]),
+            total=sum(page.total for page in pages),
+            offset=safe_offset,
+            limit=safe_limit,
+        )
+
+    def detail(
+        self,
+        request: StaticCatalogRequest,
+        *,
+        domain_key: str,
+        record_id: str,
+    ) -> CatalogDetail | None:
+        self._ensure_request_unchanged(request)
+        provider = self._providers.get(domain_key)
+        if provider is None:
+            raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")
+        return provider.detail(request.release_for(domain_key), str(record_id))
+
+    def relations(
+        self,
+        request: StaticCatalogRequest,
+        *,
+        domain_key: str,
+        record_id: str,
+        relation_kind: str,
+        offset: int,
+        limit: int,
+    ) -> CatalogRelationPage:
+        """高基数关联按正式领域 owner 分页读取，统一限制页长。"""
+
+        self._ensure_request_unchanged(request)
+        provider = self._providers.get(domain_key)
+        loader = getattr(provider, "relations", None)
+        if not callable(loader):
+            raise StaticCatalogServiceError(f"资料领域不支持分页关系：{domain_key}")
+        return loader(
+            request.release_for(domain_key),
+            str(record_id),
+            str(relation_kind),
+            offset=max(0, int(offset)),
+            limit=max(1, min(self.MAX_PAGE_SIZE, int(limit))),
+        )
+
+    def close(self) -> None:
+        """关闭时让所有提供器完成只读资源收尾；一个失败不跳过其余 owner。"""
+
+        errors: list[Exception] = []
+        for provider in self._providers.values():
+            try:
+                provider.close()
+            except Exception as exc:  # provider boundaries must all get a close chance
+                errors.append(exc)
+        if errors:
+            raise StaticCatalogServiceError(
+                f"关闭游戏资料库时有 {len(errors)} 个数据提供器失败"
+            ) from errors[0]

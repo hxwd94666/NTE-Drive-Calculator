@@ -9,10 +9,10 @@ import sqlite3
 import pytest
 
 from src.domain.cultivation_history import MAX_PAYLOAD_BYTES, freeze_configuration
-from src.services.cultivation_history_projection import batch_history_payload
-from src.services.cultivation_batch_planner_service import CultivationBatchPlannerService, CultivationBatchRequest, CultivationTargetDraft
-from src.services.cultivation_planner_models import CultivationForkTarget, CultivationRequest, CultivationSkillTarget
-from src.services.cultivation_planner_service import CultivationPlannerService
+from src.services.progression.history_adapters import batch_history_payload
+from src.services.progression.batch_planner import CultivationBatchPlannerService, CultivationBatchRequest, CultivationTargetDraft
+from src.services.progression.models import CultivationForkTarget, CultivationRequest, CultivationSkillTarget
+from src.services.progression.planner_service import CultivationPlannerService
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.cultivation_history_test_support import module_load_tests
 

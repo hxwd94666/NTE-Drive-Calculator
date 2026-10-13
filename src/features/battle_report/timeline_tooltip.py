@@ -16,7 +16,7 @@ from src.features.battle_report.timeline_layout import (
     format_damage,
     format_time,
 )
-from src.services.skill_name_rendering_service import (
+from src.services.official_role.skill_names import (
     preferred_battle_damage_name,
     render_battle_event_type,
 )

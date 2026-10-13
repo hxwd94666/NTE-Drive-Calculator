@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.features.inventory.warehouse import warehouse_shape_pixmap
+from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
 from src.ui.role_portrait import custom_role_portrait
 from src.ui.widgets import match_pinyin
 from src.domain.role_name_order import role_name_sort_key

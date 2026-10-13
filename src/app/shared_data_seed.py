@@ -1,5 +1,5 @@
 # 初始化公共兼容数据库；官方额外形状不再从这里读取。
-"""Install packaged compatibility shared data over the local copy."""
+"""显式启动时安装发行公共兼容库，不读取账号运行库。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ def seed_shared_database(
     bundled_database_path: str | Path,
     data_root: str | Path,
 ) -> Path:
-    """Replace the local public database with the packaged release default."""
+    """复制发行公共库到指定数据域；源与目标同路径时保留原文件。"""
 
     destination = Path(data_root) / "data" / "app_shared.sqlite3"
     source = Path(bundled_database_path)

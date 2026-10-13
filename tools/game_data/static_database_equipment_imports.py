@@ -34,7 +34,7 @@ class EquipmentImportMixin:
             )
 
     def _import_official_character_shape_bonuses(self) -> None:
-        """Import per-drive extra-shape bonuses from the official slot relation."""
+        """从正式槽位关系导入逐件额外形状加成；关联、条件和操作须可唯一确认。"""
 
         attributes = {
             str(row[0]): bool(row[1])
@@ -332,12 +332,7 @@ class EquipmentImportMixin:
                 )
 
     def _import_default_character_weights(self) -> None:
-        """Seed role-aware fallbacks; the developer API replaces available rows.
-
-        The official plan provides an ordered recommendation, not numeric weights.
-        Keep that order, reuse only established percentage-stat weights and leave
-        incomparable flat stats out of the score fallback.
-        """
+        """官方方案只给推荐顺序，不提供数值权重。按该顺序复用已确立的百分比权重，排除不可比较的平值属性；开发者 API 可替换已提供记录。"""
 
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         override_path = (

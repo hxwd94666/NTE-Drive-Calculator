@@ -1,5 +1,5 @@
 # 配置日志输出路径和格式。
-"""Shared logging configuration for console and desktop UI output."""
+"""控制台日志可在导入时使用；账号文件日志仅由显式生命周期开启。"""
 
 import sys
 import os
@@ -10,7 +10,7 @@ from loguru import logger
 
 
 class _NullTextStream:
-    """Minimal text stream used when a windowed executable has no console."""
+    """无控制台的窗口执行物使用空文本流，避免原生 nul 设备依赖。"""
 
     encoding = "utf-8"
 
@@ -25,7 +25,7 @@ class _NullTextStream:
 
 
 def _install_missing_standard_streams() -> None:
-    """Provide harmless streams without relying on the platform null device."""
+    """仅补充缺失的标准流，不创建文件或探测数据目录。"""
     if sys.stdout is None:
         sys.stdout = _NullTextStream()
     if sys.stderr is None:
@@ -33,7 +33,7 @@ def _install_missing_standard_streams() -> None:
 
 
 def _is_test_process() -> bool:
-    """Detect supported test runners before they start executing test cases."""
+    """识别测试进程，降低控制台噪声并隔离各测试进程的日志路径。"""
     if os.environ.get("NTE_TESTING") == "1":
         return True
     runner = Path(str(sys.argv[0] or "")).stem.lower()
@@ -41,7 +41,7 @@ def _is_test_process() -> bool:
 
 
 def _configure_windows_text_streams() -> None:
-    """Keep Chinese log text UTF-8 when Windows launches Python in a legacy code page."""
+    """Windows 控制台使用 UTF-8，编码调整失败仍保留原标准流。"""
     if sys.platform != "win32":
         return
     for stream in (sys.stdout, sys.stderr):
@@ -69,35 +69,15 @@ TEST_PROCESS = _is_test_process()
 CONSOLE_LOG_LEVEL = "WARNING" if TEST_PROCESS else "DEBUG"
 
 
-def _select_log_dir() -> Path:
-    if TEST_PROCESS:
-        # Parallel unittest shards must never rotate the same Windows file.
-        return EXE_DIR / "build" / "test-logs" / str(os.getpid())
-    candidates = [EXE_DIR / "logs"]
-    if getattr(sys, "frozen", False):
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        if local_appdata:
-            candidates.append(Path(local_appdata) / "NTE Drive Calc" / "logs")
-    for path in candidates:
-        try:
-            os.makedirs(path, exist_ok=True)
-            probe = path / ".write_test"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink(missing_ok=True)
-            return path
-        except Exception:
-            continue
-    return Path(os.environ.get("TEMP", ".")) / "NTE_Drive_Calc_logs"
-
-
-LOG_DIR = _select_log_dir()
-os.makedirs(LOG_DIR, exist_ok=True)
+# 普通导入只建立控制台 sink；本机目录探测和账号文件日志由启动/账号 owner 显式接管。
+# 测试进程仍有独立的默认路径，显式开启日志后互不轮转同一文件。
+LOG_DIR = EXE_DIR / "build" / "test-logs" / str(os.getpid()) if TEST_PROCESS else EXE_DIR / "logs"
 
 logger.remove()
 
 
 def _sanitize_local_record(record: dict) -> bool:
-    """Protect local sinks from credentials without hiding diagnostic paths."""
+    """本机日志清除凭据；故障定位需要的文件路径仍按正式契约保留。"""
 
     # Import lazily: observability's public package also imports this logger.
     from src.observability.redaction import sanitize_local_log_text
@@ -116,9 +96,15 @@ logger.add(
 _LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}"
 
 
+def _literal_sink_path(path: Path) -> str:
+    """Loguru 对路径做 format；用户目录的大括号是字面量，不是日期占位符。"""
+    return str(path).replace("{", "{{").replace("}", "}}")
+
+
 def _add_runtime_sink(log_dir: Path) -> int:
+    """在已确定的账号日志目录创建有界轮转日志。"""
     return logger.add(
-        str(log_dir / "nte_runtime.log"),
+        _literal_sink_path(log_dir / "nte_runtime.log"),
         format=_LOG_FORMAT,
         level="INFO",
         rotation="5 MB",
@@ -129,6 +115,7 @@ def _add_runtime_sink(log_dir: Path) -> int:
 
 
 def _next_session_log_path(log_dir: Path) -> Path:
+    """每次显式启用均使用独立时间戳；同秒重启以数字后缀避让。"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = log_dir / f"nte_runtime_{timestamp}.log"
     suffix = 2
@@ -139,9 +126,10 @@ def _next_session_log_path(log_dir: Path) -> Path:
 
 
 def _add_session_sink(log_dir: Path) -> tuple[int, Path]:
+    """详细日志有独立文件，不与常驻日志共用开关或轮转状态。"""
     path = _next_session_log_path(log_dir)
     sink_id = logger.add(
-        str(path),
+        _literal_sink_path(path),
         format=_LOG_FORMAT,
         level="DEBUG",
         encoding="utf-8",
@@ -150,7 +138,7 @@ def _add_session_sink(log_dir: Path) -> tuple[int, Path]:
     return sink_id, path
 
 
-_file_sink_id = _add_runtime_sink(LOG_DIR)
+_file_sink_id: int | None = None
 _session_sink_id: int | None = None
 _session_log_path: Path | None = None
 
@@ -167,9 +155,12 @@ def enable_session_log(
     *,
     context: Mapping[str, object] | None = None,
 ) -> Path:
+    """显式启用详细日志；重复启用保持当前会话，不重复注册 sink。"""
     global _session_sink_id, _session_log_path
     if _session_sink_id is not None and _session_log_path is not None:
         return _session_log_path
+    if _file_sink_id is None:
+        set_log_dir(LOG_DIR, reopen_session=False)
     _session_sink_id, _session_log_path = _add_session_sink(LOG_DIR)
     logger.info(
         "logging.session_started | 独立时间戳运行日志已开启"
@@ -183,6 +174,7 @@ def disable_session_log(
     reason: str = "disabled",
     context: Mapping[str, object] | None = None,
 ) -> None:
+    """只关闭详细会话日志，常驻日志及当前目录保持。"""
     global _session_sink_id, _session_log_path
     if _session_sink_id is not None:
         logger.info(
@@ -208,16 +200,18 @@ def set_log_dir(
     reopen_session: bool = True,
     session_context: Mapping[str, object] | None = None,
 ) -> None:
+    """账号切换时更换常驻 sink；按调用者决定是否恢复详细日志。"""
     global LOG_DIR, _file_sink_id, _session_sink_id, _session_log_path
     new_dir = Path(path)
     new_dir.mkdir(parents=True, exist_ok=True)
     session_was_enabled = is_session_log_enabled()
     if session_was_enabled:
         disable_session_log(reason="log_directory_changed", context=session_context)
-    try:
-        logger.remove(_file_sink_id)
-    except Exception as exc:
-        sys.stderr.write(f"切换日志目录时移除旧日志 sink 失败，继续添加新 sink: {exc}\n")
+    if _file_sink_id is not None:
+        try:
+            logger.remove(_file_sink_id)
+        except ValueError as exc:
+            sys.stderr.write(f"切换日志目录时移除旧日志 sink 失败，继续添加新 sink: {exc}\n")
     LOG_DIR = new_dir
     _file_sink_id = _add_runtime_sink(LOG_DIR)
     if session_was_enabled and reopen_session:

@@ -8,9 +8,9 @@ import pytest
 
 from src.integrations.native_host_control import NativeHostError, NativeHostOutcomeUnknown
 from src.integrations.nte_core_protocol import NteCoreError
-from src.services.native_game_session import NativeGameSession
-from src.services.native_inventory_lease import NativeInventoryLease
-from src.services.native_plugin_maintenance import NativePluginMaintenance, active_feature_update_hint
+from src.services.native_session.session import NativeGameSession
+from src.services.native_session.inventory import NativeInventoryLease
+from src.services.components.maintenance import NativePluginMaintenance, active_feature_update_hint
 from src.services.performance_monitor import PerformanceMonitor
 
 

@@ -84,6 +84,7 @@ def pair_drive_diff_items(
     unmatched_old = list(removed_drives)
     unmatched_new = list(added_drives)
     shape_id = lambda item: str(item.get(EQUIP_SHAPE_ID, "") or "")
+    # 仅配对展示行：依次按正式形状、旋转同族、面积匹配，不改方案或装备 UID 归属。
     for key_fn in (
         shape_id,
         lambda item: drive_shape_family(shape_id(item)),
@@ -91,9 +92,7 @@ def pair_drive_diff_items(
     ):
         round_pairs, unmatched_old, unmatched_new = pair_diff_items_by_key(unmatched_old, unmatched_new, key_fn)
         pairs.extend(round_pairs)
-    # A recalculated board may replace one shape with a different-area shape.
-    # Those rows are still one equipment swap, not an unrelated removal and
-    # addition.  Preserve source order as the deterministic final fallback.
+    # 重算图纸可换成不同面积；剩余项按来源顺序一一配对，余项仍分别保留为新增/移除。
     remaining_count = min(len(unmatched_old), len(unmatched_new))
     pairs.extend(zip(unmatched_old[:remaining_count], unmatched_new[:remaining_count]))
     unmatched_old = unmatched_old[remaining_count:]

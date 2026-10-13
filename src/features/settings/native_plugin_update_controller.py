@@ -34,14 +34,19 @@ class NativePluginUpdateController(QObject):
         self.worker = None
         self.maintenance = maintenance
         self._stopping = False
+        self._closing = False
         self._result_handled = False
 
     @property
     def running(self):
         return self.worker is not None or self.maintenance.uncertain
 
+    def is_running(self):
+        # 未消费 finished 前仍持有线程；维护结果未知则只由 running 保留业务门禁。
+        return self.worker is not None
+
     def request(self):
-        if self.running:
+        if self._closing or self.running:
             return
         owner = self.parent()
         try:
@@ -129,14 +134,25 @@ class NativePluginUpdateController(QObject):
                                     '\n已恢复功能调度，正在按当前开关重新连接；各功能就绪请查看对应状态。')
 
     def _finished(self):
-        worker, self.worker = self.worker, None
+        worker = self.worker
         if worker is not None:
+            # 已接受更新仍登记一次；停止只撤销重连与弹窗，不撤销外部已生效事实。
+            self._result(worker.result)
+            self.worker = None
             worker.deleteLater()
         self.changed.emit()
 
     def stop(self):
+        # GUI 只请求取消，线程及其父对象由窗口/账号物理退场门禁继续持有。
         self._stopping = True
         if self.worker is not None:
             self.worker.requestInterruption()
-            self.worker.wait()
-            self._result(self.worker.result)
+
+    def begin_close(self):
+        self._closing = True
+        self.stop()
+
+    def stop_for_account(self):
+        self.stop()
+        if self.is_running():
+            raise RuntimeError('插件更新正在收尾，请等待结束后再切换账号。')

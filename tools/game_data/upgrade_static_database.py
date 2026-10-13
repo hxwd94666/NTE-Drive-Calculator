@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.storage.sqlite.fork_permanent_projection import (
+from src.storage.sqlite.catalog.fork_permanent_projection import (
     FORK_PERMANENT_EVIDENCE_SQL,
     FORK_REFINEMENT_LEVEL_SQL,
     cursor_dicts,
@@ -51,8 +51,7 @@ from tools.game_data.static_database_progression_imports import (
 
 
 PROVENANCE_FILENAME = "upgrade_provenance.json"
-# This historical additive path does not import newly linked calculation
-# Buff assets. It must not advertise the full rebuild's later importer version.
+# 历史追加路径不导入新增关联的 calculation Buff，不声明完整重建所具备的较新 importer 语义。
 ADDITIVE_UPGRADE_IMPORTER_VERSION = 49
 ITEM_CATALOG_PATH = Path("DataTable/Inventory/DT_ItemConfig.json")
 CHARACTER_ABILITIES_PATH = Path(
@@ -82,7 +81,7 @@ def table_fingerprint(
     connection: sqlite3.Connection,
     table_name: str,
 ) -> str:
-    """Hash every stored value in stable rowid order for migration auditing."""
+    """按稳定 rowid 顺序核对全部存储值，保留追加迁移的旧表证据。"""
 
     quoted = '"' + table_name.replace('"', '""') + '"'
     digest = hashlib.sha256()
@@ -287,7 +286,7 @@ def build_upgrade_candidate(
     dataset_id: str,
     config_dir: Path,
 ) -> dict[str, Any]:
-    """Copy, migrate, backfill, verify, and atomically install one candidate."""
+    """复制、追加迁移、补齐并核对候选，全部通过后原子安装候选文件。"""
 
     source_database = source_database.expanduser().resolve()
     source_manifest = source_manifest.expanduser().resolve()
@@ -465,7 +464,7 @@ def validate_upgrade_provenance(
     baseline_manifest: Path,
     official_source_root: Path,
 ) -> dict[str, Any]:
-    """Reopen every migration input and prove the additive release boundary."""
+    """重新读取迁移输入并核对哈希、来源行与保留表，禁止候选越权改写旧事实。"""
 
     provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
     if not isinstance(provenance, dict) or provenance.get("format_version") != 1:

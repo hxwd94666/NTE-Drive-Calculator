@@ -54,3 +54,12 @@ def skip(message: str) -> None:
 def run(cmd: list[str], cwd: Path) -> None:
     print("[RUN]", " ".join(cmd))
     subprocess.run(cmd, cwd=str(cwd), check=True)
+
+
+def artifact_size_bytes(path: Path) -> int:
+    """只统计文件逻辑字节；EXE 直接读取大小，目录汇总，不代表分配磁盘空间。"""
+    if path.is_file():
+        return path.stat().st_size
+    if path.is_dir():
+        return sum(member.stat().st_size for member in path.rglob("*") if member.is_file())
+    raise FileNotFoundError(path)

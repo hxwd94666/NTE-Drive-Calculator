@@ -79,7 +79,7 @@ def _fact_value(value) -> str:
 
 def report_text(report) -> str:
     rows = []
-    # Put failures first while retaining the original order within each group.
+    # 故障优先，其余同组顺序保持；折叠卡片不替代完整可复制证据。
     for item in sorted(report.features, key=lambda item: item.state.value != "fault"):
         row = f"{item.label}：{_check_state_label(item)}\n{item.detail}"
         facts = dict(item.facts)
@@ -108,7 +108,7 @@ def report_summary(report) -> str:
 
 
 def _report_groups(report):
-    """Keep shared causes together, without discarding any per-feature diagnostic fact."""
+    """按状态与共同原因归组显示；逐功能事实仍保留在完整检测文本中。"""
     sections = ([], [], [], [])
     for item in report.features:
         section = 0 if item.state.value in ISSUE_STATES else (
@@ -126,7 +126,7 @@ def _report_groups(report):
 
 
 def prompt_offline_sync_mode(parent) -> bool:
-    """Show only the decision needed when sync is requested in offline mode."""
+    """离线请求同步只询问是否前往设置，不提升模式或续跑同步。"""
     dialog = QDialog(parent)
     dialog.setObjectName("offlineSyncModeDialog")
     dialog.setWindowTitle("开启自动同步")
@@ -161,7 +161,7 @@ def prompt_offline_sync_mode(parent) -> bool:
 
 
 class ModeReportDialog(QDialog):
-    """Keep the explicit check visible from queued work through its final report."""
+    """展示本次显式检测与终态；预检关闭和已确认组件处理分别解释。"""
 
     def __init__(self, parent, controller, *, sync_action_provider=None):
         super().__init__(parent)
@@ -300,8 +300,7 @@ class ModeReportDialog(QDialog):
             label.setWordWrap(True)
             label.setStyleSheet(f"color:{color};font-weight:700")
             body.addWidget(label)
-            # Keep typed evidence in the copyable folded report, not in the
-            # user-facing issue card.
+            # 详细类型证据留在可复制的折叠报告，问题卡只展示决策所需说明。
             explanation = QLabel(str(detail).split("\n诊断：", 1)[0], row)
             explanation.setWordWrap(True)
             body.addWidget(explanation)
@@ -505,7 +504,7 @@ class ModeReportDialog(QDialog):
 
 
 class CleanupResultDialog(QDialog):
-    """Keep an explicit cleanup result separate from the environment report."""
+    """清理结果独立展示，不把环境连接状态当清理成功。"""
 
     def __init__(self, parent, *, continue_upgrade: bool = False):
         super().__init__(parent)
@@ -620,8 +619,7 @@ def build_work_mode_card(window):
     combo.currentIndexChanged.connect(refresh_mode_emphasis)
     refresh_mode_emphasis()
 
-    # The detailed per-feature state now belongs to the explicit report dialog.
-    # Retain a hidden projection target so the controller contract stays narrow.
+    # 逐功能状态归显式检测弹窗；隐藏标签只接收 Controller 的窄状态投影。
     status = QLabel("正在核对当前模式…", card)
     status.hide()
     controller.attach_controls(combo, status, check)

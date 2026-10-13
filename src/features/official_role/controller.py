@@ -15,24 +15,18 @@ from src.app.page_tasks import PageCommitLane, PageRequest, PageTaskLane
 from src.features.official_role.dependencies import OfficialRoleDependencies
 from src.observability.context import OperationContext
 from src.observability.operation import log_event, operation_scope
-from src.services.official_role_page_service import (
-    load_official_role_detail,
-    load_official_role_index,
-    save_official_role_replacement,
-    save_official_role_tab_order,
-)
-from src.services.official_role_profile_service import (
+from src.services.official_role.page import load_official_role_detail, load_official_role_index, save_official_role_tab_order
+from src.services.official_role.replacement import save_official_role_replacement
+from src.services.official_role.profiles import (
     OfficialRoleProfileService,
     OfficialRoleProfileUpdate,
 )
-from src.services.world_bonus_settings_service import (
-    WorldBonusSettings,
-    WorldBonusSettingsService,
-)
-from src.services.official_role_inventory_contexts import load_role_replacement_detail
-from src.services.official_role_replacement_service import replacement_candidates_for_official_role
-from src.services.workshop_weight_template_service import configured_workshop_weight_template_file
+from src.domain.official_role.models import WorldBonusSettings
+from src.services.official_role.world_bonus import WorldBonusSettingsService
+from src.services.official_role.replacement import prepare_official_role_replacement
+from src.services.characters.workshop_weight_template_service import configured_workshop_weight_template_file
 from src.integrations.bundled_resources import bundled_config_dir
+from src.integrations.official_role.read_inputs import probe_role_read_inputs
 
 
 class OfficialRoleController(QObject):
@@ -81,21 +75,14 @@ class OfficialRoleController(QObject):
         self._reads.cancel()
 
     def source_key(self) -> tuple:
-        """Conservative file probes; scoped to the frozen account and resource identity."""
-        def stamp(path):
-            try:
-                info = path.stat()
-                return info.st_ino, info.st_size, info.st_mtime_ns
-            except OSError:
-                return None
-
+        """Probe the same frozen inputs without owning filesystem access."""
         paths = (self.dependencies.user_database_path, self.dependencies.static_database_path,
                  self.dependencies.shared_database_path)
-        template = configured_workshop_weight_template_file()
-        return (self.dependencies, tuple((stamp(path), stamp(path.with_name(path.name + "-wal"))) for path in paths),
-                stamp(self.dependencies.asset_root / "manifest.json") if self.dependencies.asset_root else None,
-                stamp(template) if template is not None else None,
-                stamp(bundled_config_dir() / "gameplay_effect_semantics.json"))
+        return (self.dependencies, *probe_role_read_inputs(
+            paths, self.dependencies.asset_root,
+            template_path=configured_workshop_weight_template_file(),
+            semantics_path=bundled_config_dir() / "gameplay_effect_semantics.json",
+        ))
 
     def _prepare_cache(self) -> None:
         key = self.source_key()
@@ -151,19 +138,21 @@ class OfficialRoleController(QObject):
         frozen_detail, frozen_target = deepcopy(detail), deepcopy(target)
         def read():
             source_key = self.source_key()
-            if detail.get("_view_source_key", source_key) != source_key:
+            if frozen_detail.get("_view_source_key", source_key) != source_key:
                 raise ValueError("角色或配装资料已更新，请重新加载后再选择替换。")
-            enriched = load_role_replacement_detail(
-                self.dependencies.user_database_path, self.dependencies.static_database_path,
-                self.dependencies.asset_root, frozen_detail, context_key,
+            enriched, candidates = prepare_official_role_replacement(
+                self.dependencies.user_database_path, self.dependencies.asset_root,
+                frozen_detail, context_key, frozen_target,
+                static_database_path=frozen_detail["static_database_path"],
+                static_schema_version=frozen_detail["static_schema_version"],
+                static_release=frozen_detail["static_release"],
             )
-            candidates = replacement_candidates_for_official_role(enriched, context_key, frozen_target)
             if self.source_key() != source_key:
                 raise ValueError("角色或配装资料正在更新，请重新加载后再选择替换。")
             return enriched, candidates
 
         key = ("replacement", int(detail["character"]["character_id"]), context_key,
-               target.get("uid_serial"), target.get("uid_slot"), self._epoch)
+               target.get("uid_serial"), target.get("uid_slot"), self._epoch, object())
         self._reads.submit(PageRequest(key, read, apply, failed))
 
     def close(self) -> None:
@@ -311,25 +300,36 @@ class OfficialRoleController(QObject):
         context_key: str = "saved",
         replacement_score: float,
         current_assignment_scores: Mapping[str, float],
-    ) -> None:
+        checkpoint=None, commit_context=None,
+    ) -> dict[str, Any]:
         character_id = int((detail.get("character") or {})["character_id"])
-        with operation_scope(
-            self._operation(character_id),
-            started_event="role.replacement_save_started",
-            succeeded_event="role.replacement_save_succeeded",
-            failed_event="role.replacement_save_failed",
-            message="保存角色替换优化结果",
-            character_id=character_id,
-        ):
-            save_official_role_replacement(
-                self.dependencies.user_database_path,
-                detail,
-                target,
-                replacement,
-                context_key=context_key,
-                replacement_score=float(replacement_score),
-                current_assignment_scores=current_assignment_scores,
-            )
+        receipt, diagnostics = {"plan_id": None}, []
+        try:
+            with operation_scope(
+                self._operation(character_id),
+                started_event="role.replacement_save_started",
+                succeeded_event="role.replacement_save_succeeded",
+                failed_event="role.replacement_save_failed",
+                message="保存角色替换优化结果",
+                character_id=character_id,
+            ):
+                receipt["plan_id"] = save_official_role_replacement(
+                    self.dependencies.user_database_path,
+                    detail,
+                    target,
+                    replacement,
+                    context_key=context_key,
+                    replacement_score=float(replacement_score),
+                    current_assignment_scores=current_assignment_scores,
+                    checkpoint=checkpoint, commit_context=commit_context,
+                    expected_account_id=self.dependencies.account_id,
+                    postcommit_diagnostic=lambda error: diagnostics.append(error),
+                )
+        except Exception as exc:
+            if receipt["plan_id"] is None:
+                raise
+            diagnostics.append(str(exc))
+        return {**receipt, "postcommit_diagnostic": "; ".join(diagnostics)}
 
     def log_dirty_exit(self, action: str, dirty_count: int) -> None:
         log_event(

@@ -1,5 +1,5 @@
-# 从 MainWindow 抽离的控制器方法。
-"""Compatibility-installed MainWindow controller."""
+# 投影环境检测和部署意图；账号代次与权限失效时丢弃旧结果。
+"""现有窗口环境入口：探测与文件操作委托 Integration，界面只解释结果。"""
 
 from __future__ import annotations
 
@@ -23,13 +23,13 @@ from src.app.workers import WorkerThread
 from src.ui.controllers.native_plugin_deployment_ui import refresh_native_plugin_status, deploy_native_plugin_from_settings
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
-from src.services.equipment_plugin_deployment import (
+from src.integrations.components.environment import (
     EquipmentPluginDeploymentError,
     find_game_executables,
     game_process_running,
     npcap_installation_present,
 )
-from src.services.nte_core_diagnostics import (
+from src.integrations.components.core_diagnostics import (
     capture_device_names,
     collect_nte_core_diagnostics,
     format_nte_core_diagnostics,
@@ -62,6 +62,7 @@ def _new_environment_operation(
 
 
 def _environment_result_acceptor(self, operation: OperationContext, capability: str):
+    """只投递一次，且复核账号、代次、操作修订和对应能力。"""
     revision = self.work_mode_service.operation_revision
     delivered = False
 

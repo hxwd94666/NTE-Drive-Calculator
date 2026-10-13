@@ -28,7 +28,7 @@ from src.domain.battle_report import (
     BattleInferredInput,
     BattleTimelineDamageGroup,
 )
-from src.services.battle_timeline_time_service import (
+from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
     BattleTimelineTimeMode,
@@ -57,7 +57,7 @@ from src.features.battle_report.timeline_tooltip import build_timeline_tooltip
 from src.features.battle_report.timeline_sticky_labels import (
     paint_sticky_lane_labels,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 
 
 _HIT_PICK_TOLERANCE_US = 75_000

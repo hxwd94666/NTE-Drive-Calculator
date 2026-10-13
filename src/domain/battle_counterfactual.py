@@ -99,7 +99,7 @@ class BattleBuildRoleCounterfactual:
 
 @dataclass(frozen=True, slots=True)
 class BattleBuildCounterfactual:
-    """Whole-team fixed-axis comparison between original and edited builds."""
+    """原始冻结配装与单场编辑副本的固定轴对比，已知、完整和启发式结果分列。"""
 
     model_version: str
     baseline_damage: float

@@ -1,5 +1,5 @@
 # 在 Tab 拖拽结束时持久化其项目顺序。
-"""Reusable drag-finished persistence binding for movable Qt tab bars."""
+"""拖拽结束后，通过注入的正式身份与保存回调持久化顺序。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from shiboken6 import isValid
 
 
 class PersistentTabOrderBinding(QObject):
-    """Observe one tab bar and save exactly once after each completed drag."""
+    """仅观察本 TabBar；拖拽中不保存，顺序未变不重复提交。"""
 
     def __init__(
         self,
@@ -85,7 +85,7 @@ def bind_persistent_tab_order(
     save_order: Callable[[Sequence[Any]], None],
     on_error: Callable[[Exception], None] | None = None,
 ) -> PersistentTabOrderBinding:
-    """Make tabs movable and persist their order once the user releases the drag."""
+    """绑定拖拽完成事件，保存失败保留上次成功顺序并交给错误回调。"""
 
     return PersistentTabOrderBinding(
         tabs,

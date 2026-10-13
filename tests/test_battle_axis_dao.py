@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.storage.sqlite.battle_build_stage_support import (
+from src.storage.sqlite.battle_report.battle_build_stage_support import (
     normalize_frozen_advancement,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -272,6 +272,8 @@ class BattleAxisDaoTests(unittest.TestCase):
         final_page = {
             **old_page,
             "generation": "2",
+            "first_available_cursor": 0,
+            "retained_hits": None,
             "complete": True,
             "next_cursor": None,
             "rows": [{
@@ -299,6 +301,11 @@ class BattleAxisDaoTests(unittest.TestCase):
         self.assertEqual(1, result["stored_hits"])
         self.assertEqual("8", rows[0]["sequence_text"])
         self.assertEqual(100.0, rows[0]["max_hp_reduction"])
+        metadata = connection.execute(
+            "SELECT first_available_cursor, retained_hits FROM battle_axis_capture"
+        ).fetchone()
+        self.assertEqual("0", metadata["first_available_cursor"])
+        self.assertIsNone(metadata["retained_hits"])
 
         invalid_page = {**final_page, "generation": "3"}
         with self.assertRaisesRegex(ValueError, "different generation|不同 generation"):
@@ -311,6 +318,27 @@ class BattleAxisDaoTests(unittest.TestCase):
             "SELECT sequence_text FROM battle_hit_evidence"
         ).fetchall()
         self.assertEqual(["8"], [row["sequence_text"] for row in remaining])
+
+        # 同代次进入事务并删除旧轴后才校验失败；旧事实仍完整，修正输入可重试。
+        invalid_hit = {**final_page["rows"][0], "sequence": None}
+        with self.assertRaisesRegex(ValueError, "hit.sequence"):
+            self.dao.replace_staged_battle_axis(
+                capture_operation_id=operation_id,
+                pages=({**final_page, "rows": [invalid_hit]},),
+                source_generation="2",
+            )
+        self.assertEqual("8", connection.execute(
+            "SELECT sequence_text FROM battle_hit_evidence"
+        ).fetchone()[0])
+        retry = self.dao.replace_staged_battle_axis(
+            capture_operation_id=operation_id,
+            pages=({**final_page, "rows": [{**final_page["rows"][0], "sequence": "9"}]},),
+            source_generation="2",
+        )
+        self.assertEqual(1, retry["stored_hits"])
+        self.assertEqual("9", connection.execute(
+            "SELECT sequence_text FROM battle_hit_evidence"
+        ).fetchone()[0])
 
     def test_incomplete_final_axis_preserves_live_staged_hits(self) -> None:
         operation_id = "incomplete-final-axis"

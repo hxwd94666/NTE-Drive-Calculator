@@ -1,5 +1,5 @@
 # 提供只接受纯文本的输入控件。
-"""Text edit variants used by feature pages."""
+"""粘贴只消费纯文本；图片与富文本格式不进入编辑内容。"""
 
 from __future__ import annotations
 

@@ -24,34 +24,10 @@ class FakeMouseBackend:
         self.calls.append(("pause", round(seconds, 3)))
 
 
-class FakeScreenshotMouseBackend(FakeMouseBackend):
-    def __init__(self, image):
-        super().__init__()
-        self._image = image
-
-    def screenshot(self):
-        return self._image
 
 
-class SequenceScreenshotMouseBackend(FakeMouseBackend):
-    def __init__(self, images):
-        super().__init__()
-        self._images = list(images)
-
-    def screenshot(self):
-        if len(self._images) > 1:
-            return self._images.pop(0)
-        return self._images[0]
 
 
-class FakeOcrEngine:
-    def __init__(self, lines):
-        self.lines = lines
-        self.images = []
-
-    def extract_lines(self, image):
-        self.images.append(image)
-        return self.lines
 
 
 class DriveAssemblyWorkflowExecutorTests(unittest.TestCase):

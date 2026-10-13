@@ -98,9 +98,7 @@ def execute_role_priority(
 
         used_uids = strategy._allocated_drive_uids(group_allocation)
         if not reservations.can_consume(used_uids):
-            # A recovery routine must never hand a conflicting fallback to the
-            # commit path.  Keep this boundary guard so one failed role cannot
-            # abort the complete role-priority calculation.
+            # 恢复结果必须仍可完整回填才进入提交；本组失败不终止后续角色分配。
             logger.error("预留恢复未返回可回填图纸: 角色组={}", ",".join(group))
             group_allocation = {
                 role_name: {"valid": False, "reason": "前序同分驱动无法一对一回填"}
@@ -357,7 +355,7 @@ def _log_recovery(
     crit_priority_modes: dict[str, dict],
     crit_rate_caps: dict[str, float],
 ) -> None:
-    """Write one compact, UID-free result record for a recovered group."""
+    """仅记录恢复计数和约束摘要，不输出 protected_uids 或完整装备/方案。"""
 
     before_key = _allocation_quality_key(ordinary)
     after_key = _allocation_quality_key(committed)

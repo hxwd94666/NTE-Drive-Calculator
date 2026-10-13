@@ -1,5 +1,5 @@
-# 在静态候选副本中重建 v32 弧盘常驻属性及毕业模板。
-"""Rebuild only the v32 fork-permanent projection in a copied static candidate."""
+# 在静态候选副本中重建弧盘常驻属性及毕业模板，具体迁移身份以代码为准。
+"""只在复制的静态候选中重建弧盘常驻投影，迁移身份以代码为准。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.storage.sqlite.fork_permanent_projection import (
+from src.storage.sqlite.catalog.fork_permanent_projection import (
     FORK_PERMANENT_EVIDENCE_SQL,
     FORK_REFINEMENT_LEVEL_SQL,
     FORK_SOURCE_COVERAGE_SQL,
@@ -50,7 +50,7 @@ def reproject_candidate(
     *,
     config_dir: Path = PROJECT_ROOT / "config",
 ) -> dict[str, Any]:
-    """Copy one normalized candidate, replace its projection, and verify it."""
+    """复制规范化候选后重建指定投影并验证，保留输入原件和失败回退。"""
 
     source = source.expanduser().resolve()
     output = output.expanduser().resolve()

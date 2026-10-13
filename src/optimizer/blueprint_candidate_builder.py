@@ -92,8 +92,7 @@ class BlueprintCandidateBuilder(BaseDispatchStrategy):
                 ranked.append([])
                 continue
             target_set = self._target_set(role, custom_sets)
-            # Buckets depend on the role/pool/preferences and bonus mode, not
-            # on each blueprint. Never retain them beyond this frozen ranking.
+            # 分桶只依赖本次角色/库存/偏好和加成模式，不随图纸变化；排序结束即释放。
             buckets_by_bonus = {}
 
             def buckets(uses_bonus):

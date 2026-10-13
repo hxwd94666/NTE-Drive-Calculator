@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_special_replay_batch import SpecialReplayBatch, PendingSpecialReplay
-from src.services.battle_special_replay_numeric import numeric_replay, python_special_numeric
+from src.services.battle_report.replay.special_batch import SpecialReplayBatch, PendingSpecialReplay
+from src.services.battle_report.replay.special_numeric import numeric_replay, python_special_numeric
 
 
 def _mitigation(resistance=0.2, profile=None):

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from src.features.toolbox.rewind_preferences import preference_custom_percent as _preference_custom_percent
+from src.features.toolbox.rewind.role_selection import preference_custom_percent as _preference_custom_percent
 from src.domain.rewind_loadout import read_slot_preferences
 
 from typing import Callable
@@ -29,18 +29,18 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.workers import WorkerThread
-from src.features.toolbox.cultivation_entry import (
+from src.features.toolbox.cultivation.entry import (
     build_cultivation_calculator_entry,
 )
-from src.services.rewind_shape_recommendation_service import (
+from src.services.rewind.recommendation import (
     RewindShapeAnalysis,
     RewindShapeRecommendationService,
     RewindTargetRole,
 )
-from src.features.toolbox.rewind_execution_dialog import RewindExecutionOptions
-from src.features.toolbox.rewind_execution_ui import RewindExecutionUiMixin
-from src.features.toolbox.rewind_selection_ui import RewindSelectionUiMixin
-from src.features.toolbox.rewind_slot_ui import RewindSlotUiMixin
+from src.features.toolbox.rewind.execution_dialog import RewindExecutionOptions
+from src.features.toolbox.rewind.execution_ui import RewindExecutionUiMixin
+from src.features.toolbox.rewind.selection_ui import RewindSelectionUiMixin
+from src.features.toolbox.rewind.slot_ui import RewindSlotUiMixin
 from src.features.toolbox.static_catalog_entry import build_static_catalog_entry
 from src.features.toolbox.toolbox_navigation import (
     CultivationToolboxNavigation,
@@ -135,6 +135,11 @@ class ToolboxPage:
 
         if self._cultivation_navigation is not None:
             self._cultivation_navigation.refresh()
+
+    def shutdown(self) -> None:
+        """撤销养成草稿与排队动作；退场页仍由父对象保留到后台终态。"""
+        if self._cultivation_navigation is not None:
+            self._cultivation_navigation.discard()
 
     def _open_cultivation_calculator(self) -> None:
         if self._cultivation_navigation is not None:

@@ -7,13 +7,13 @@ from unittest.mock import patch
 import pytest
 
 from src.domain.work_mode import WorkMode
-from src.services.cultivation_owned_material_import import (
+from src.services.progression.owned_material_import import (
     CultivationOwnedMaterialImportService,
     project_observed_materials,
     project_packet_materials,
 )
 from src.ui.controllers.inventory_sync_controller import _import_cultivation_materials
-from src.storage.sqlite.all_item_snapshot_dao import read_latest_all_item_snapshot_archive
+from src.storage.sqlite.inventory.all_item_snapshot_dao import read_latest_all_item_snapshot_archive
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 from tests.test_all_item_snapshot_storage import all_items
 
@@ -135,7 +135,7 @@ def test_packet_import_uses_static_catalog_and_marks_partial_source(tmp_path):
         user_database_path=tmp_path / "account.sqlite3",
         static_database_path=tmp_path / "static.sqlite3", account_id="a",
     )
-    with patch("src.services.cultivation_owned_material_import.StaticGameDataDao", Static):
+    with patch("src.services.progression.owned_material_import.StaticGameDataDao", Static):
         result = importer.load_packet_observations(_packet(_packet_item("known", 7)))
     assert result.quantities == (("known", 7),)
     assert result.source == "packet"
@@ -164,7 +164,7 @@ def test_saved_packet_materials_import_after_sync_is_closed(tmp_path):
         def progression_item_ids(self):
             return frozenset({"known", "absent"})
 
-    with patch("src.services.cultivation_owned_material_import.StaticGameDataDao", Static):
+    with patch("src.services.progression.owned_material_import.StaticGameDataDao", Static):
         result = CultivationOwnedMaterialImportService(
             user_database_path=database,
             static_database_path=tmp_path / "static.sqlite3", account_id="a",
@@ -217,7 +217,7 @@ def test_read_only_import_checks_account_and_archive_hash(tmp_path):
         def progression_item_ids(self):
             return frozenset({"known"})
 
-    with patch("src.services.cultivation_owned_material_import.StaticGameDataDao", Static):
+    with patch("src.services.progression.owned_material_import.StaticGameDataDao", Static):
         result = CultivationOwnedMaterialImportService(
             user_database_path=database,
             static_database_path=tmp_path / "static.sqlite3",

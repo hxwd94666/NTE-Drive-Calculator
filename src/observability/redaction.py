@@ -31,12 +31,23 @@ _KEY_VALUE_SECRET = re.compile(
     r"(\s*[:=]\s*)([^,\s;&]+)"
 )
 _WINDOWS_PATH = re.compile(r"(?i)(?:[A-Z]:\\)(?:[^\\\r\n]+\\)*([^\\\r\n]+)")
-_URL = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
+# 单引号是 URL 合法字符；宁可连同外层引用遮盖，也不截断鉴权值后留下尾部。
+_URL = re.compile(r'''https?://[^\s<>"]+''', re.IGNORECASE)
 
 
 def _sensitive_key(key: object) -> bool:
     normalized = str(key).strip().lower().replace("-", "_")
-    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+    # 只遮盖明确禁记的业务正文/身份；uid_count 等聚合量和内部 account_id 仍可诊断。
+    forbidden = {
+        "uid", "uids", "uid_list", "payload", "rpc", "raw_rpc", "full_rpc",
+        "account_name", "account_display_name", "ocr_text", "screenshot",
+        "raw_payload", "rpc_payload", "request_payload", "response_payload",
+        "equipment_uids", "drive_uids", "tape_uids", "item_uids",
+    }
+    return (
+        normalized in forbidden
+        or any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+    )
 
 
 def _sanitize_url(value: str) -> str:
@@ -45,20 +56,17 @@ def _sanitize_url(value: str) -> str:
     try:
         parts = urlsplit(value)
     except ValueError:
-        return value
-    if not parts.query and not parts.fragment:
-        return value
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "<redacted>", ""))
+        # 畸形外部地址可能仍含凭据；解析失败也不能原文回落。
+        return "<redacted-url>"
+    # userinfo 与任意查询/片段都可能携带鉴权值；主机、端口和路径用于诊断。
+    netloc = parts.netloc.rsplit("@", 1)[-1]
+    query = _REDACTED if parts.query or parts.fragment else ""
+    return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
 
 
 def _sanitize_text(value: str) -> str:
-    sanitized = _BEARER.sub(f"Bearer {_REDACTED}", value)
-    sanitized = _KEY_VALUE_SECRET.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}{_REDACTED}",
-        sanitized,
-    )
-    if sanitized.lower().startswith(("http://", "https://")):
-        sanitized = _sanitize_url(sanitized)
+    # 先清洗所有嵌入 URL，避免只处理消息开头，或让凭据正则截断 URL 后留下尾部。
+    sanitized = sanitize_local_log_text(value)
     sanitized = _WINDOWS_PATH.sub(lambda match: f"<path>\\{match.group(1)}", sanitized)
     if len(sanitized) > _MAX_TEXT:
         return sanitized[:_MAX_TEXT] + "…<truncated>"
@@ -105,12 +113,13 @@ def safe_exception(error: BaseException) -> dict[str, str]:
 def sanitize_local_log_text(value: str) -> str:
     """Keep local file paths for troubleshooting, but remove common credentials."""
 
-    sanitized = _BEARER.sub(f"Bearer {_REDACTED}", value)
+    sanitized = _URL.sub(lambda match: _sanitize_url(match.group(0)), value)
+    sanitized = _BEARER.sub(f"Bearer {_REDACTED}", sanitized)
     sanitized = _KEY_VALUE_SECRET.sub(
         lambda match: f"{match.group(1)}{match.group(2)}{_REDACTED}",
         sanitized,
     )
-    return _URL.sub(lambda match: _sanitize_url(match.group(0)), sanitized)
+    return sanitized
 
 
 def format_local_exception(error: BaseException) -> str:

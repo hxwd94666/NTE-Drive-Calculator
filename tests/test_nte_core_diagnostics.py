@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from src.integrations.nte_core import NteCoreRpcError
-from src.services.nte_core_diagnostics import (
+from src.integrations.components.core_diagnostics import (
     capture_device_names,
     collect_nte_core_diagnostics,
     format_nte_core_diagnostics,
@@ -48,6 +48,21 @@ class _FakeClient:
 
 
 class NteCoreDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        # 所有用例只消费合成外部事实；FakeClient 不代替 Windows 探测边界。
+        resolver = mock.patch(
+            "src.integrations.components.core_diagnostics.resolve_nte_core_executable",
+            return_value=Path("fake.exe"),
+        )
+        support = mock.patch(
+            "src.integrations.components.core_diagnostics.collect_windows_capture_support",
+            return_value={"supported": False, "reason": "测试合成：未进行 Windows 探测。"},
+        )
+        resolver.start()
+        self.addCleanup(resolver.stop)
+        support.start()
+        self.addCleanup(support.stop)
+
     def test_collects_capture_detection_without_starting_capture(self):
         client = _FakeClient(Path("fake.exe"))
         result = collect_nte_core_diagnostics(
@@ -97,7 +112,7 @@ class NteCoreDiagnosticsTests(unittest.TestCase):
         self.assertIn("GAME_PROCESS_NOT_FOUND", report)
         self.assertIn("core diagnostic stderr", report)
 
-    @mock.patch("src.services.nte_core_diagnostics.collect_windows_capture_support")
+    @mock.patch("src.integrations.components.core_diagnostics.collect_windows_capture_support")
     def test_reports_zero_devices_with_driver_and_adapter_facts(self, capture_support):
         capture_support.return_value = {
             "supported": True,

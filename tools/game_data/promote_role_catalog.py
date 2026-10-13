@@ -11,7 +11,7 @@ from src.integrations.role_catalog_release import read_role_catalog, validate_ro
 
 
 def promote_role_skill_assets(candidate: Path, target: Path) -> dict:
-    """Asset-only maintenance of an unchanged, already validated catalog dataset."""
+    """仅维护身份完全不变且已校验目录的技能图片；数据变化必须整包晋升。"""
     candidate, target = candidate.resolve(), target.resolve()
     if candidate == target:
         raise ValueError('技能图片候选与正式目录相同')
@@ -40,7 +40,7 @@ def promote_role_skill_assets(candidate: Path, target: Path) -> dict:
     if after['total_files'] != len(after['files']) or after['total_bytes'] != sum((updated.asset_root/k).stat().st_size for k in after['files']):
         raise ValueError('技能图片清单总量不一致')
     result = promote_role_catalog({'database_path': updated.database_path}, target)
-    # Reopen the installed mapping too; no runtime fallback to share-only skills exists.
+    # 重开已安装映射核对后验结果；运行时不回退到分享专用技能副本。
     installed = json.loads((target/'game_ui/manifest.json').read_text(encoding='utf-8'))
     if installed['skills'] != after['skills']:
         raise ValueError('已安装技能图片映射校验失败')

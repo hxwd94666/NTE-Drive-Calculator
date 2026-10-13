@@ -7,26 +7,27 @@ from src.utils.logger import logger
 
 
 def on_hotkey_stop(owner) -> None:
-    worker = (
-        getattr(owner, "_scan_worker", None)
-        or getattr(owner, "_gamepad_worker", None)
-        or getattr(owner, "_gamepad_pipeline_worker", None)
-    )
-    if worker and worker.scanner:
-        logger.warning(
-            "收到停止热键 {}，准备停止当前扫描/状态同步任务。",
-            owner._hotkey_manager.configuration.stop,
-        )
-        if hasattr(worker.scanner, "emergency_stop"):
-            worker.scanner.emergency_stop()
+    # 已结束的旧 worker 仍可能被 owner 持有；按实际运行态选取，而非对象真值。
+    worker = next((candidate for candidate in (
+        getattr(owner, '_scan_worker', None), getattr(owner, '_gamepad_worker', None),
+    ) if candidate is not None and candidate.isRunning()), None)
+    if worker is None:
+        logger.warning('收到停止热键 {}，但当前没有运行中的扫描任务。',
+                       owner._hotkey_manager.configuration.stop)
+        return
+    logger.warning('收到停止热键 {}，准备停止当前扫描/状态同步任务。',
+                   owner._hotkey_manager.configuration.stop)
+    if hasattr(worker, 'request_cancel'):
+        worker.request_cancel()
+    scanner = worker.scanner
+    if scanner is None:
+        return
+    if not hasattr(worker, 'request_cancel'):
+        if hasattr(scanner, 'emergency_stop'):
+            scanner.emergency_stop()
         else:
-            worker.scanner._stopped = True
-        worker.scanner._finish_flag = True
-    else:
-        logger.warning(
-            "收到停止热键 {}，但当前没有可停止的扫描器。",
-            owner._hotkey_manager.configuration.stop,
-        )
+            scanner._stopped = True
+    scanner._finish_flag = True
 
 
 def on_hotkey_capture(owner) -> None:

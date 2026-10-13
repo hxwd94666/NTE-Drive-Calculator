@@ -30,15 +30,11 @@ from src.features.static_catalog.domain_pages.fork_components import (
     present_effects,
     refinement_skill_text,
 )
-from src.services.advancement_stage_service import (
-    fork_breakthrough_choices,
-    fork_panel_stats,
-    select_fork_breakthrough,
-)
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_character_models import CharacterSummary
-from src.services.static_catalog_fork_release_metadata import ForkItemDisplayNameService
-from src.services.static_catalog_fork_service import (
+from src.domain.official_role.advancement import fork_breakthrough_choices, fork_panel_stats, select_fork_breakthrough
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.static_catalog.characters.models import CharacterSummary
+from src.services.static_catalog.forks.release_metadata import ForkItemDisplayNameService
+from src.services.static_catalog.forks.service import (
     ForkCatalogDetail,
     ForkCatalogMetadata,
     ForkModifier,

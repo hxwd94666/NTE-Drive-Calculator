@@ -232,7 +232,7 @@ class DeferredDriveReservationState:
         )
 
     def can_consume(self, uids: Iterable[str]) -> bool:
-        """Check whether consuming UIDs leaves every prior slot matchable."""
+        """仅当所有前序槽位仍有完整一对一回填时才允许消费，局部匹配不算成功。"""
 
         proposed = set(uids)
         if proposed & self._consumed_uids:
@@ -246,7 +246,7 @@ class DeferredDriveReservationState:
         return len(self._maximum_matching(available)) == len(self._slots)
 
     def commit(self, uids: Iterable[str]) -> None:
-        """Commit a later group's drive use after its whole plan is valid."""
+        """后序整组方案有效后才登记消费；先复核回填，失败不修改已消费集合。"""
 
         values = set(uids)
         if not self.can_consume(values):
@@ -354,7 +354,7 @@ class DeferredDriveReservationMixin:
         config: dict | None,
         crit_rate_caps: dict[str, float],
     ) -> list[Drive]:
-        """Return drives that leave this already-selected role plan unchanged."""
+        """只延迟严格等价槽位：形状、实分、暴击、词条顺序及整角色上下限均保持。"""
 
         set_drives = list(plan.get("assigned_set_drives") or ())
         extra_drives = list(plan.get("assigned_extra_drives") or ())

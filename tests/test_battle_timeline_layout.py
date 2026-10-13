@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 from src.domain.battle_report import (
     BattleInferredAction,
-    BattleInferredInput,
     BattleTimelineDamageGroup,
 )
 from src.features.battle_report.timeline_layout import build_timeline_layout
@@ -65,44 +64,6 @@ def _group(
 
 
 class BattleTimelineLayoutTests(unittest.TestCase):
-    def test_tap_is_square_and_hold_uses_its_time_span(self) -> None:
-        tap = BattleInferredInput(
-            input_event_id="tap",
-            action_id="tap-action",
-            device_kind="mouse",
-            display_text="A",
-            character_id=1001,
-            character_name="测试角色",
-            start_us=1_000_000,
-            end_us=1_000_001,
-            is_character_switch=False,
-            timing_confidence="低",
-        )
-        hold = BattleInferredInput(
-            input_event_id="hold",
-            action_id="hold-action",
-            device_kind="mouse",
-            display_text="Z",
-            character_id=1001,
-            character_name="测试角色",
-            start_us=2_000_000,
-            end_us=4_000_000,
-            is_character_switch=False,
-            timing_confidence="低",
-        )
-        analysis = SimpleNamespace(
-            inferred_inputs=(tap, hold),
-            inferred_actions=(_action(1, 1_000_000, 4_000_000),),
-            timeline_hits=(),
-            timeline_damage_groups=(),
-        )
-
-        layout = build_timeline_layout(analysis, x_for_time=lambda value: value / 10_000)
-        tap_rect = layout.input_rows[0][2]
-        hold_rect = layout.input_rows[1][2]
-
-        self.assertEqual(tap_rect.height(), tap_rect.width())
-        self.assertGreater(hold_rect.width(), hold_rect.height())
 
     def test_role_has_one_action_row_with_direct_damage_above_it(self) -> None:
         analysis = SimpleNamespace(

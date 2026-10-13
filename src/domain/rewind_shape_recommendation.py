@@ -188,12 +188,10 @@ def _allocate_ratio_repeats(
     priority_values: dict[str, float],
     selection_limit: int,
 ) -> Counter[str]:
-    """Allocate remaining slots by fixed priority ratio and largest remainder.
+    """以冻结优先比和最大余数法分配剩余槽位，不逐槽反馈上一次选择。
 
-    ``selected`` already contains the mandatory under-grade drives.  The
-    remaining custom-pool slots use one frozen ``score gap / inventory`` ratio;
-    they never feed prior selections back into the next marginal score.  This
-    keeps a 2:1 ratio at five versus three after two base slots are reserved.
+    selected 先保留每种缺口形状的基础槽；此后只用本次冻结的优先值，
+    保持同输入可复现，不接入新的角色或伤害模型。
     """
 
     remaining = max(0, int(selection_limit) - sum(selected.values()))
@@ -259,8 +257,8 @@ def recommend_score_shortfall_shapes(
     if sum(selected.values()) > selection_limit:
         return ()
     by_id = {shape.shape_id: shape for shape in shapes}
-    # ``proportional`` is retained as the public focused-mode flag for saved
-    # callers. Only balanced mode compensates for the current inventory.
+    # proportional=True 沿既有集中模式使用原始分差；False 的均衡模式才除以库存。
+    # 这是保存调用方的正式标志，不从名称重新解释策略。
     _allocate_ratio_repeats(
         selected,
         priority_values={

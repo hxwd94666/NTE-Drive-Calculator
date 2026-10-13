@@ -84,7 +84,7 @@ def test_summary_includes_targets_and_corruption_does_not_prevent_deletion(tmp_p
     ("total_stamina", 0), ("version", 999), ("status", "unknown"),
 ])
 def test_malformed_summary_is_displayable_and_remains_deletable(tmp_path, field, value):
-    from src.features.toolbox.cultivation_history_display import summary_text
+    from src.features.toolbox.cultivation.history_display import summary_text
 
     payload = history_payload()
     summary = json.loads(payload.summary_json)

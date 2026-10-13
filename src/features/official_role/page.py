@@ -1,5 +1,5 @@
-# 角色页面兼容入口。
-"""Thin composition entry point for official role feature."""
+# 提供官方角色页的公共组合与离页入口，沿用既有页面和 Controller。
+"""页面入口负责展示投递/草稿选择，不接管角色业务或任务物理收尾。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def build_official_role_page(window):
 def refresh_official_role_page(
     window, *, restore_scroll_value: int | None = None, discard_pending: bool = False,
 ):
-    """Refresh the role page through its public feature entry point."""
+    """仅显式 discard_pending 丢弃草稿；普通刷新继续沿用角色页公共入口。"""
 
     if discard_pending:
         window._official_role_dirty_ids = set()
@@ -28,7 +28,7 @@ def refresh_official_role_page(
 
 
 def deactivate_official_role_page(window):
-    """Drop UI delivery/batches on leave, preserving drafts and bounded data caches."""
+    """离页撤销读取投递与构建 token，保留草稿和有界缓存；不把 token 失效当作线程已退场。"""
     controller = getattr(window, "_official_role_controller", None)
     if controller is not None:
         controller.cancel_reads()

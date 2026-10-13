@@ -1,0 +1,150 @@
+# 按原始游戏 ID 解析随程序提供的轻量界面图片。
+"""按正式 ID 解析本地公共素材；文件与清单 IO 由 Integration 持有。"""
+
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+
+@lru_cache(maxsize=8)
+def _read_manifest(path: str, identity: tuple[int, int, int]) -> dict[str, Any]:
+    # identity participates in the cache key when a resource bundle is replaced.
+    """以文件 inode、大小和 mtime 身份区分替换后的清单缓存，不跨身份复用。"""
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=8192)
+def _resolve_asset(root: Path, relative: str, identity: tuple[int, int, int]) -> Path | None:
+    """解析后仍核资源根包含关系；越界或缺文件保留 None。"""
+    path = (root / relative).resolve()
+    if root != path and root not in path.parents:
+        return None
+    return path if path.is_file() else None
+
+
+class GameUiAssetCatalog:
+    def __init__(self, asset_root: str | Path) -> None:
+        self.asset_root = Path(asset_root).expanduser().resolve()
+        manifest_path = self.asset_root / "manifest.json"
+        info = manifest_path.stat() if manifest_path.is_file() else None
+        self._manifest_identity = (info.st_ino, info.st_size, info.st_mtime_ns) if info is not None else (0, 0, 0)
+        self._manifest: dict[str, Any] = (
+            _read_manifest(str(manifest_path), self._manifest_identity)
+            if info is not None
+            else {
+                "characters": {}, "character_arts": {}, "attributes": {},
+                "equipment_items": {},
+                "equipment_modules": {}, "fork_items": {}, "monster_icons": {},
+                "progression_items": {},
+                "encounter_icons": {}, "monster_family_icons": {}, "skills": {},
+            }
+        )
+
+    def _resolve(self, group: str, key: str) -> Path | None:
+        relative = self._manifest.get(group, {}).get(key)
+        if not isinstance(relative, str):
+            return None
+        return _resolve_asset(self.asset_root, relative, self._manifest_identity)
+
+    def character_icon(self, character_id: int) -> Path | None:
+        return self._resolve("characters", str(character_id))
+
+    def character_art(self, character_id: int) -> Path | None:
+        """仅返回正式角色身份的已打包默认立绘。"""
+        return self._resolve("character_arts", str(character_id))
+
+    def attribute_icon(self, attribute_key: str) -> Path | None:
+        return self._resolve("attributes", str(attribute_key))
+
+    def skill_icon(self, skill_id: str) -> Path | None:
+        """按正式 SkillID 查同版公共技能图片，不按中文名猜测。"""
+        return self._resolve("skills", str(skill_id))
+
+    def equipment_icon(self, item_id: str) -> Path | None:
+        return self._resolve("equipment_items", str(item_id))
+
+    def module_icon(self, item_id: str) -> Path | None:
+        return self._resolve("equipment_modules", str(item_id))
+
+    def inventory_item_icon(self, kind: str, item_id: str) -> Path | None:
+        if str(kind) == "core":
+            return self.equipment_icon(item_id)
+        if str(kind) == "module":
+            return self.module_icon(item_id)
+        return None
+
+    def fork_icon(self, fork_id: str) -> Path | None:
+        return self._resolve("fork_items", str(fork_id))
+
+    def progression_item_icon(self, item_id: str) -> Path | None:
+        return self._resolve("progression_items", str(item_id))
+
+    def monster_icon(self, static_table: str, monster_id: str) -> Path | None:
+        return self._resolve("monster_icons", f"{static_table}:{monster_id}")
+
+    def monster_variant_icon(self, formal_monster_id: str) -> Path | None:
+        """只在同一正式家族中选最接近变体；最佳候选路径冲突时保持未知。"""
+
+        wanted = _monster_identity_parts(formal_monster_id)
+        if wanted is None:
+            return None
+        matches = []
+        icon_map = self._manifest.get("monster_icons", {})
+        if not isinstance(icon_map, dict):
+            return None
+        for key, relative in icon_map.items():
+            if not isinstance(key, str) or not isinstance(relative, str):
+                continue
+            candidate_id = key.split(":", 1)[-1]
+            candidate = _monster_identity_parts(candidate_id)
+            if candidate is None or candidate[:2] != wanted[:2]:
+                continue
+            shared = 2
+            for left, right in zip(wanted[2], candidate[2]):
+                if left != right:
+                    break
+                shared += 1
+            matches.append((shared, key, relative))
+        if not matches:
+            return None
+        best_score = max(score for score, _key, _relative in matches)
+        preferred = [row for row in matches if row[0] == best_score]
+        if len({relative for _score, _key, relative in preferred}) != 1:
+            return None
+        return self._resolve("monster_icons", preferred[0][1])
+
+    def encounter_icon(self, resource_path: str) -> Path | None:
+        return self._resolve("encounter_icons", str(resource_path))
+
+    def monster_family_icon(self, formal_monster_id: str) -> Path | None:
+        normalized = str(formal_monster_id).strip().casefold()
+        family_map = self._manifest.get("monster_family_icons", {})
+        if not isinstance(family_map, dict):
+            return None
+        matches = [
+            key for key in family_map
+            if isinstance(key, str)
+            and (normalized == key or normalized.startswith(f"{key}_"))
+        ]
+        if not matches:
+            return None
+        return self._resolve("monster_family_icons", max(matches, key=len))
+
+
+def _monster_identity_parts(
+    formal_monster_id: str,
+) -> tuple[str, int, tuple[str, ...]] | None:
+    parts = tuple(
+        part for part in str(formal_monster_id).strip().casefold().split("_")
+        if part
+    )
+    if len(parts) < 2 or parts[0] not in {"mon", "boss"}:
+        return None
+    try:
+        ordinal = int(parts[1])
+    except ValueError:
+        return None
+    return parts[0], ordinal, parts

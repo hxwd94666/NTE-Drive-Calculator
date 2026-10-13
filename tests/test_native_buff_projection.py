@@ -11,11 +11,11 @@ from unittest.mock import patch
 
 from src.integrations.nte_analysis_core import ENGINE_VERSION, NativeAnalysisError, NteAnalysisCoreClient
 from src.domain.native_analysis import BuffProjectionBatchTooLarge
-from src.services.battle_buff_attribute_projection_service import BattleBuffAttributeProjectionService
-from src.services.battle_buff_interval_index import BattleBuffIntervalIndex
-from src.services.battle_buff_projection_memo import BattleBuffProjectionMemo
-from src.services.battle_hit_buff_projection_cache import BattleHitBuffProjectionCache
-from tests.test_battle_buff_attribute_projection_service import _hit, _interval
+from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService
+from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex
+from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
+from src.services.battle_report.replay.buff_cache import BattleHitBuffProjectionCache
+from tests.battle_report.buffs.test_attribute_projection import _hit, _interval
 
 
 class ProjectionBackendStub:

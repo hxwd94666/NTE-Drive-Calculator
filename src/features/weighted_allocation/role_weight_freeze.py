@@ -6,8 +6,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-from src.services.allocation_context import AllocationContext
-from src.services.official_role_page_service import load_official_role_detail
+from src.domain.allocation.inputs import AllocationContext
+from src.integrations.static_catalog_release import StaticCatalogReadUnit
+from src.services.official_role.page import load_official_role_detail
 
 
 def freeze_official_role_details(
@@ -16,6 +17,7 @@ def freeze_official_role_details(
     user_database_path: Path,
     shared_database_path: Path | None,
     static_database_path: Path | None,
+    static_read_unit: StaticCatalogReadUnit | None = None,
 ) -> tuple[AllocationContext, dict[int, Mapping[str, Any]]]:
     """Freeze role details while preserving account workshop base weights.
 
@@ -35,6 +37,7 @@ def freeze_official_role_details(
                 static_database_path=static_database_path,
                 static_schema_version=context.static_dataset.schema_version,
                 shared_database_path=shared_database_path,
+                static_read_unit=static_read_unit,
             )
         except (OSError, ValueError):
             continue

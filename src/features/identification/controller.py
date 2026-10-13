@@ -9,6 +9,7 @@ import json
 import os
 import re
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,11 +26,8 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import current_style_sheet
 from src.app.context import AppContext
-from src.app.workers import WorkerThread
-from src.features.identification.lifecycle import (
-    cleanup_pending_identify_clipboard_files as _cleanup_pending_identify_clipboard_files,
+from src.features.identification.dependencies import (
     current_identification_dependencies as _current_identification_dependencies,
-    identification_is_running as _identification_is_running,
     task_identification_dependencies as _task_identification_dependencies,
 )
 from src.features.identification.dependencies import (
@@ -54,16 +52,16 @@ from src.features.identification.operation_logging import (
     begin_identification_operation as _begin_identification_operation,
     identification_event as _identification_event,
 )
-from src.features.identification.temp_files import is_identify_clipboard_file
+from src.features.identification.task_controller import (
+    IdentificationTask, IdentificationTaskController,
+)
 from src.models.equipment import Drive, Tape
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
 from src.optimizer.scoring import ScoringEngine
-from src.scanner.batch_processor import BatchProcessor
-from src.solver.orchestrator import NTEPipelineOrchestrator
-from src.services.equipment_identification_service import (
-    EquipmentIdentificationService,
+from src.services.identification.tasks import (
+    IdentificationImageJob, IdentificationImageRequest, IdentificationMatchRequest,
 )
 from src.ui.plain_text_edit import PlainTextOnlyTextEdit
 from src.ui.equipment_presentation import EquipmentPresentation
@@ -106,11 +104,16 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._shape_areas: dict[str, int] = {}
         self.all_set_names: list[str] = []
         self.scoring_engine: ScoringEngine | None = None
-        self._identify_blueprint_cache: tuple[NTEPipelineOrchestrator, dict[str, Any]] | None = None
-        self._identify_parse_worker: WorkerThread | None = None
-        self._identify_worker: WorkerThread | None = None
+        self._identify_task: IdentificationTask | None = None
         self._identify_dependencies: IdentificationDependencies | None = None
-        self._pending_identify_clipboard_cleanup: list[Path] = []
+        self._identify_tasks = IdentificationTaskController(
+            partial(_current_identification_dependencies, self), self,
+        )
+        self._identify_tasks.parsed.connect(self._on_identify_items_loaded)
+        self._identify_tasks.matched.connect(self._on_identify_matches_loaded)
+        self._identify_tasks.failed.connect(self._on_identify_task_failed)
+        self._identify_tasks.cleaned.connect(self._on_identify_clipboard_cleaned)
+        self._identify_tasks.idle.connect(self._on_identify_idle)
         self.identify_capture_signal.connect(self._add_identify_capture_path)
         self.identify_capture_done_signal.connect(self._finish_identify_capture_mode)
 
@@ -130,19 +133,29 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._shape_areas = dict(shape_areas)
         self.all_set_names = list(set_names)
         self.scoring_engine = scoring_engine
-        self._identify_blueprint_cache = None
         self.refresh_options()
 
     def reset_account_state(self) -> None:
-        self._identify_blueprint_cache = None
+        self._stop_capture_hotkeys()
+        self._identify_tasks.cancel()
+        self._identify_task = None
+        self._identify_dependencies = None
+        self._identify_result_pages = []
+        self._identify_result_page_index = 0
+        if hasattr(self, "ident_path_edit"):
+            self._clear_identify_input()
         if hasattr(self, "_identify_capture_dir"):
             self._identify_capture_dir = self.app_context.account.account_data_root / "identify_captures"
 
+    def close(self) -> None:
+        self._stop_capture_hotkeys()
+        self._identify_tasks.close()
+        self._identify_task = None
+        self._identify_dependencies = None
+
     def is_running(self) -> bool:
-        return (
-            _identification_is_running(self)
-            or self._hotkey_manager.active_owner == "identification"
-        )
+        return (self._identify_tasks.is_running()
+                or self._hotkey_manager.active_owner == "identification")
 
     def capture_foreground(self) -> None:
         self._capture_identify_foreground()
@@ -251,6 +264,9 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             self.ident_tape_row.setVisible(is_tape)
 
     def _get_tape_main_stats_pool(self):
+        resources = self._identify_tasks.resources_for(self._identify_task)
+        if resources is not None:
+            return resources.stat_catalog().tape_main_stats
         dependencies = _current_identification_dependencies(self)
         try:
             with open(dependencies.config_dir / "stats.json", "r", encoding="utf-8") as f:
@@ -297,10 +313,16 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         return self.ident_quality_combo.currentData() or "Gold"
 
     def _clear_identify_input(self):
+        self._identify_tasks.cancel()
+        self._identify_task = None
+        self._identify_dependencies = None
+        self._identify_result_pages = []
+        self._identify_result_page_index = 0
+        self._set_identify_busy(self._identify_tasks.has_worker())
         self.ident_path_edit.clear()
         self.ident_manual_text.clear()
         self._clear_identify_results()
-        self.ident_summary.setText("等待输入装备数据")
+        self.ident_summary.setText("正在结束上次鉴定..." if self._identify_tasks.has_worker() else "等待输入装备数据")
         self._refresh_identify_previews()
 
     def _clear_identify_results(self):
@@ -344,17 +366,29 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self.ident_path_edit.setText(";".join(str(p) for p in paths))
 
     def _identify_start(self):
+        if self._identify_tasks.closed or self.is_running():
+            return
         self._identify_dependencies = _current_identification_dependencies(self)
+        task = self._identify_tasks.begin(self._identify_dependencies)
+        self._identify_task = task
+        if task is None:
+            return
         has_images = bool(self._identify_paths_from_text())
         _begin_identification_operation(
-            self,
-            self._identify_dependencies,
+            self, self._identify_dependencies,
             input_source="image" if has_images else "manual",
         )
-        if has_images:
-            self._identify_from_image_path()
-        else:
-            self._identify_from_manual()
+        self._set_identify_busy(True)
+        try:
+            if has_images:
+                self._identify_from_image_path()
+            else:
+                self._identify_from_manual()
+        finally:
+            if not self._identify_tasks.has_worker():
+                self._identify_tasks.finish(task)
+                if self._identify_tasks.is_current(task):
+                    self._set_identify_busy(False)
 
     def _start_identify_capture_mode(self):
         if not request_input_entry(self, "interface_input", "截图鉴定"):
@@ -378,6 +412,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             "截图鉴定",
             f"点击 OK 后请切回游戏。\n\n按 {hotkeys.capture} 连续截图，按 {hotkeys.finish} 完成并返回鉴定页。",
         )
+        if self._identify_tasks.closed or dependencies != _current_identification_dependencies(self):
+            return
         self._identify_capture_dir = dependencies.account_data_root / "identify_captures"
         self._identify_capture_dir.mkdir(parents=True, exist_ok=True)
         self._identify_capture_count = 0
@@ -388,11 +424,15 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         )
 
     def _capture_identify_foreground(self):
+        if (self._identify_tasks.closed or self._identify_dependencies is None
+                or self._hotkey_manager.active_owner != "identification"
+                or self._identify_dependencies != _current_identification_dependencies(self)):
+            return
         dependencies = _task_identification_dependencies(self)
         try:
             import mss
             import mss.tools
-            from src.scanner.window_capture import capture_foreground_window
+            from src.integrations.vision.window_capture import capture_foreground_window
 
             with mss.MSS() as sct:
                 screenshot, _ = capture_foreground_window(sct)
@@ -425,11 +465,16 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             )
 
     def _add_identify_capture_path(self, path_text):
+        if (self._identify_tasks.closed or self._identify_dependencies is None
+                or self._identify_dependencies != _current_identification_dependencies(self)):
+            return
         paths = [str(p) for p in self._identify_paths_from_text()]
         paths.append(path_text)
         self.ident_path_edit.setText(";".join(paths))
 
     def _finish_identify_capture_mode(self):
+        if self._identify_tasks.closed or self._identify_dependencies is None:
+            return
         self._stop_capture_hotkeys()
         self.showNormal()
         self.activateWindow()
@@ -489,6 +534,9 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             self._apply_identify_manual_fields(text)
 
     def _identify_from_image_path(self):
+        task = self._identify_task
+        if not self._identify_tasks.is_current(task):
+            return
         dependencies = _task_identification_dependencies(self)
         paths = self._identify_paths_from_text()
         if not paths:
@@ -511,73 +559,71 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             options = self._choose_identify_image_options(path)
             if options is None:
                 return
+            # 选项弹窗有嵌套事件循环；账号改变后不再提交旧输入。
+            if not self._identify_tasks.is_current(task):
+                return
             image_jobs.append((path, options))
-        self._pending_identify_clipboard_cleanup = [
-            path for path, _options in image_jobs if is_identify_clipboard_file(path, dependencies.account_data_root)
-        ]
         self._set_identify_busy(True, "正在解析图片...")
-        worker = WorkerThread(
-            target=lambda: self._parse_identify_images(image_jobs),
-            parent=self,
+        request = IdentificationImageRequest(
+            dependencies.screenshot_dir,
+            dependencies.user_config_dir / "identify_preview.json",
+            dependencies.config_dir,
+            tuple(IdentificationImageJob.from_options(path, options)
+                  for path, options in image_jobs),
+            static_database_path=dependencies.static_database_path,
         )
-        self._identify_parse_worker = worker
-        worker.result_ready.connect(self._on_identify_items_loaded)
-        worker.error.connect(self._on_identify_error)
-        worker.start()
+        self._identify_tasks.submit_images(task, request)
 
-    def _parse_identify_images(
-        self,
-        image_jobs: list[tuple[Path, dict[str, Any]]],
-    ) -> list[Drive | Tape]:
-        dependencies = _task_identification_dependencies(self)
-        p = BatchProcessor(
-            input_dir=str(dependencies.screenshot_dir),
-            output_file=str(dependencies.user_config_dir / "identify_preview.json"),
-            config_dir=str(dependencies.config_dir),
-        )
-        items = []
-        for path, options in image_jobs:
-            items.extend(
-                p.parse_identify_items(
-                    str(path),
-                    forced_type=options.get("type"),
-                    forced_shape_id=options.get("shape_id"),
-                    forced_set_name=options.get("set_name"),
-                    forced_main_stat=options.get("main_stat"),
-                )
-            )
-        return items
-
-    def _on_identify_items_loaded(self, items):
-        self._set_identify_busy(False)
-        _cleanup_pending_identify_clipboard_files(self)
-        if not items:
-            _identification_event(
-                self,
-                "INFO",
-                "identification.succeeded",
-                "图片解析完成但未识别到装备",
-                item_count=0,
-                result="no_items",
-            )
-            QMessageBox.warning(
-                self._dialog_parent,
-                "鉴定",
-                "未从图片中识别到可鉴定的驱动或卡带。",
-            )
+    def _on_identify_items_loaded(self, task, items):
+        if not self._identify_tasks.is_current(task):
+            self._identify_tasks.finish(task)
             return
-        if not self._confirm_identify_tape_main_stats(items):
+        if not items:
+            self._identify_tasks.finish(task)
+            self._set_identify_busy(False)
             _identification_event(
-                self,
-                "WARNING",
-                "identification.cancelled",
-                "用户取消卡带主词条确认",
-                item_count=len(items),
+                self, "INFO", "identification.succeeded",
+                "图片解析完成但未识别到装备", item_count=0, result="no_items",
+            )
+            QMessageBox.warning(self._dialog_parent, "鉴定", "未从图片中识别到可鉴定的驱动或卡带。")
+            return
+        confirmed = self._confirm_identify_tape_main_stats(items)
+        # 模态确认期间可发生取消/关闭；返回后再核对，不投影旧任务。
+        if not self._identify_tasks.is_current(task):
+            self._identify_tasks.finish(task)
+            return
+        if not confirmed:
+            self._identify_tasks.finish(task)
+            self._set_identify_busy(False)
+            _identification_event(
+                self, "WARNING", "identification.cancelled",
+                "用户取消卡带主词条确认", item_count=len(items),
             )
             self.ident_summary.setText("已取消鉴定")
             return
         self._load_identify_item_to_form(items[0])
         self._start_identify_items(items)
+
+    def _on_identify_matches_loaded(self, task, data):
+        if self._identify_tasks.is_current(task):
+            self._render_identify_result(data)
+
+    def _on_identify_task_failed(self, task, error):
+        if self._identify_tasks.is_current(task):
+            self._on_identify_error(error)
+
+    def _on_identify_idle(self):
+        if not self._identify_tasks.closed and not self._identify_tasks.is_running():
+            self._set_identify_busy(False)
+            if self._identify_task is None and hasattr(self, "ident_summary"):
+                self.ident_summary.setText("等待输入装备数据")
+
+    def _on_identify_clipboard_cleaned(self, task, paths):
+        if not self._identify_tasks.is_current(task):
+            return
+        remaining = [path for path in self._identify_paths_from_text()
+                     if path not in paths or path.exists()]
+        self.ident_path_edit.setText(";".join(str(path) for path in remaining))
 
     def _load_identify_item_to_form(self, item):
         if isinstance(item, Tape):
@@ -593,7 +639,6 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._on_identify_type_changed()
 
     def _identify_from_manual(self):
-        self._identify_dependencies = _current_identification_dependencies(self)
         text = self.ident_manual_text.toPlainText()
         self._apply_identify_manual_fields(text)
         quality = self._identify_quality()
@@ -645,52 +690,21 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
                 f"装备数据无效：\n{e}",
             )
             return
-        self._start_identify_item(item)
-
-    def _start_identify_item(self, item):
         self._start_identify_items([item])
 
     def _start_identify_items(self, items):
+        task = self._identify_task
+        if not self._identify_tasks.is_current(task):
+            return
+        dependencies = task.dependencies
+        request = IdentificationMatchRequest.freeze(
+            config_dir=dependencies.config_dir,
+            user_database_path=dependencies.user_database_path,
+            static_database_path=dependencies.static_database_path,
+            items=items,
+        )
         self._set_identify_busy(True, "正在匹配角色图纸并评分...")
-        worker = WorkerThread(
-            target=lambda: self._run_identify_items(items),
-            parent=self,
-        )
-        self._identify_worker = worker
-        worker.result_ready.connect(self._render_identify_result)
-        worker.error.connect(self._on_identify_error)
-        worker.start()
-
-    def _get_identify_blueprints(
-        self,
-    ) -> tuple[NTEPipelineOrchestrator, dict[str, Any]]:
-        dependencies = _task_identification_dependencies(self)
-        if self._identify_blueprint_cache:
-            return self._identify_blueprint_cache
-        orchestrator = NTEPipelineOrchestrator(
-            config_dir=str(dependencies.config_dir),
-            user_database_path=dependencies.user_database_path,
-        )
-        roles = list(orchestrator.roles_db.keys())
-        blueprints = orchestrator.solve_blueprints(roles)
-        self._identify_blueprint_cache = (orchestrator, blueprints)
-        return self._identify_blueprint_cache
-
-    def _run_identify_item(self, item):
-        dependencies = _task_identification_dependencies(self)
-        orchestrator, blueprints = self._get_identify_blueprints()
-        scoring = ScoringEngine(
-            str(dependencies.config_dir),
-            user_database_path=dependencies.user_database_path,
-        )
-        return EquipmentIdentificationService(
-            orchestrator,
-            blueprints,
-            scoring,
-        ).identify_item(item)
-
-    def _run_identify_items(self, items):
-        return [self._run_identify_item(item) for item in items]
+        self._identify_tasks.submit_matches(task, request)
 
     def _render_identify_result(self, data):
         pages = data if isinstance(data, list) else [data]
@@ -735,7 +749,6 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             error=err,
         )
         self._set_identify_busy(False)
-        _cleanup_pending_identify_clipboard_files(self)
         QMessageBox.critical(
             self._dialog_parent,
             "鉴定失败",

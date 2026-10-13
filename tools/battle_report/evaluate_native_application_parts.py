@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.services.battle_build_counterfactual_service import BattleBuildCounterfactualService  # noqa: E402
-from src.services.battle_damage_composition_service import BattleDamageCompositionService  # noqa: E402
-from src.services.battle_build_timeline_projection_service import BattleBuildTimelineProjectionService  # noqa: E402
+from src.services.battle_report.build.counterfactual import BattleBuildCounterfactualService  # noqa: E402
+from src.services.battle_report.damage.composition import BattleDamageCompositionService  # noqa: E402
+from src.services.battle_report.build.timeline_projection import BattleBuildTimelineProjectionService  # noqa: E402
 from tools.battle_report.evaluate_native_analysis import compare_results  # noqa: E402
 
 
@@ -91,9 +91,9 @@ def main():
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     suite = unittest.defaultTestLoader.loadTestsFromNames([
-        "tests.test_battle_build_counterfactual_service",
-        "tests.test_battle_build_weave_source_ratio",
-        "tests.test_battle_damage_composition_service",
+        "tests.battle_report.build.test_battle_build_counterfactual_service",
+        "tests.battle_report.build.test_battle_build_weave_source_ratio",
+        "tests.battle_report.damage.test_composition",
         "tests.test_battle_partial_quantification_contract",
     ])
     with patch.object(BattleBuildCounterfactualService, "compare", side_effect=build_compare), \

@@ -258,7 +258,7 @@ class EncounterImportMixin:
         self._import_official_activity_catalog()
 
     def _import_monster_boss_support(self) -> None:
-        """Import formal Boss membership without deriving it from an ID or name."""
+        """仅导入正式 Boss 成员关系，不从编号或名字推断。"""
 
         for template_name, row in sorted(self.rows["monster_boss_support"].items()):
             self.connection.execute(
@@ -371,7 +371,7 @@ class EncounterImportMixin:
                 "WHERE inference_ordinal IS NOT NULL"
             )
         }
-        # Retain supported historical/future definitions for explicitly selected periods.
+        # 仅为显式选择的时期保留已支持的历史/未来定义。
         active_configs |= set(_AUDITED_OUTER_REALM_BUFF_COMPONENTS) & {
             str(row[0]) for row in self.connection.execute("SELECT level_config_id FROM outer_realm_rotation")
         }
@@ -528,9 +528,7 @@ class EncounterImportMixin:
                     f"轨外配置存在冲突的大陆服生效区间：{config_id}"
                 )
             rotations_by_config[config_id] = rotation
-        # Maintainer-confirmed sequence: season 10 fills the exact gap between
-        # the officially dated seasons 9 and 11. Preserve this as an annotation,
-        # never as a fabricated quest row or a generic numeric-ID fallback.
+        # 维护者确认的第10期只填正式9/11期之间的精确空档，保持注记，不伪造任务行或通用ID回退。
         supplemental = False
         if "Abyss_10" not in rotations_by_config and "Abyss_10" in self.rows["abyss_seasons"]:
             before, after = rotations_by_config.get("Abyss_9"), rotations_by_config.get("Abyss_11")
@@ -547,10 +545,7 @@ class EncounterImportMixin:
             (config_id, *values)
             for config_id, values in rotations_by_config.items()
         ]
-        # The static dataset's ``as_of`` is an effective Mainland calendar day,
-        # i.e. data built for that day's post-reset game state.  A rotation
-        # ending during the reset window on the same date is therefore already
-        # historical and must not displace the current + next pair.
+        # as_of 表示大陆服该日重置后的状态；同日重置时结束的轮次已属历史，不挤占当前/下期。
         cutoff_date = self.as_of.isoformat()
         inference_ids = {
             row[0]: ordinal

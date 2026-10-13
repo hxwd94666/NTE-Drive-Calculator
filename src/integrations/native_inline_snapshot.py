@@ -30,8 +30,7 @@ class InlineSnapshotPages:
                 raise NteCoreProtocolError("原生随页证据游标重复。")
             self._pages[offset] = {key: value for key, value in page.items() if key not in _PROJECTION_FIELDS}
             self._pages[offset]["records"] = page["rawRecords"]
-        # The formal reader bounds the complete response, including rawRecords.
-        # It returns only its explicitly selected business fields.
+        # 正式读取器对含 rawRecords 的整个响应计量限额；只输出明确选择的业务字段。
         return page
 
     def read(self, projection, check):

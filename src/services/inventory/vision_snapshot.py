@@ -1,0 +1,232 @@
+# 将全量手柄扫描的视觉识别结果写入 SQLite 背包快照，供计算和自动装配兜底使用。
+"""Persist visual full-scan inventory as a non-native SQLite snapshot."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Mapping
+from pathlib import Path
+from typing import Any
+
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
+from src.domain.stat_catalog import StatCatalog
+from src.integrations.vision.recognition.resources import RecognitionResources
+from src.services.recognition.resources import load_recognition_resources, check_recognition_resources
+from src.services.allocation.inventory import AllocationInventoryProjectionError, legacy_shape_id
+from src.utils.set_name import normalize_set_display_name
+
+
+class VisionInventorySnapshotError(RuntimeError):
+    """A visual-scan item cannot be represented by the supported solver contract."""
+
+
+_QUALITY = {"gold": "orange", "purple": "purple", "blue": "blue"}
+_GEOMETRY = {
+    "H_2": "EquipmentGeometry_Hen2", "H_3": "EquipmentGeometry_Hen3", "H_4": "EquipmentGeometry_Hen4",
+    "V_2": "EquipmentGeometry_Shu2", "V_3": "EquipmentGeometry_Shu3", "V_4": "EquipmentGeometry_Shu4",
+    "Trap_4_H": "EquipmentGeometry_Z3", "Trap_4_V": "EquipmentGeometry_Z4",
+    "L_3_BL": "EquipmentGeometry_ZhiJiao1", "L_3_TL": "EquipmentGeometry_ZhiJiao2",
+    "L_3_TR": "EquipmentGeometry_ZhiJiao3", "L_3_BR": "EquipmentGeometry_ZhiJiao4",
+}
+_PROPERTY_IDS = {
+    "攻击力": "AtkAdd", "攻击力%": "AtkUp", "暴击率": "CritBase", "暴击率%": "CritBase",
+    "暴击伤害": "CritDamageBase", "暴击伤害%": "CritDamageBase", "防御力": "DefAdd", "防御力%": "DefUp",
+    "生命值": "HPMaxAdd", "生命值%": "HPMaxUp", "治疗加成": "HealUp", "环合强度": "MagBase",
+    "倾陷强度": "UnbalIntensityBase", "伤害增加%": "DamageUpGeneralBase",
+    "光属性异能伤害增强": "DamageUpCosmosBase", "光属性异能伤害增强%": "DamageUpCosmosBase",
+    "暗属性异能伤害增强": "DamageUpChaosBase", "暗属性异能伤害增强%": "DamageUpChaosBase",
+    "咒属性异能伤害增强": "DamageUpIncantationBase", "咒属性异能伤害增强%": "DamageUpIncantationBase",
+    "相属性异能伤害增强": "DamageUpLakshanaBase", "相属性异能伤害增强%": "DamageUpLakshanaBase",
+    "灵属性异能伤害增强": "DamageUpNatureBase", "灵属性异能伤害增强%": "DamageUpNatureBase",
+    "魂属性异能伤害增强": "DamageUpPsycheBase", "魂属性异能伤害增强%": "DamageUpPsycheBase",
+    "心灵伤害增强": "DamageUpPsychicallyBase", "心灵伤害增强%": "DamageUpPsychicallyBase",
+}
+_STAT_LABEL_ALIASES = {
+    "爆伤%": "暴击伤害%", "爆伤": "暴击伤害%", "暴击伤害": "暴击伤害%",
+    "爆击%": "暴击率%", "爆击": "暴击率%", "暴击率": "暴击率%",
+    "伤害增加": "伤害增加%", "伤害%": "伤害增加%", "伤害": "伤害增加%",
+    "大攻击": "攻击力%", "大防御": "防御力%", "大生命": "生命值%",
+    "小攻击": "攻击力", "小防御": "防御力", "小生命": "生命值",
+    "攻击": "攻击力", "防御": "防御力", "生命": "生命值",
+    "心灵伤害增强": "心灵伤害增强%", "光属性伤害": "光属性异能伤害增强%",
+    "暗属性伤害": "暗属性异能伤害增强%", "灵属性伤害": "灵属性异能伤害增强%",
+    "咒属性伤害": "咒属性异能伤害增强%", "魂属性伤害": "魂属性异能伤害增强%",
+    "相属性伤害": "相属性异能伤害增强%",
+}
+_PERCENT_PROPERTY_IDS = frozenset(
+    value for key, value in _PROPERTY_IDS.items() if key.endswith("%") or key in {"暴击率", "暴击伤害"}
+)
+
+
+def _compact_set_name(value: Any) -> str:
+    return "".join(
+        char for char in normalize_set_display_name(value)
+        if char not in {" ", ":", "：", "·"}
+    )
+
+
+def _stat(label: Any, value: Any) -> dict[str, Any]:
+    name = str(label or "").strip().replace("百分比", "%")
+    name = _STAT_LABEL_ALIASES.get(name, name)
+    property_id = _PROPERTY_IDS.get(name)
+    if property_id is None:
+        raise VisionInventorySnapshotError(f"视觉扫描包含未支持的词条：{name or '<empty>'}")
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise VisionInventorySnapshotError(f"视觉扫描词条 {name} 的数值无效：{value!r}") from exc
+    return {
+        "property_id": property_id,
+        "value": numeric_value / 100.0 if property_id in _PERCENT_PROPERTY_IDS else numeric_value,
+        "percent": property_id in _PERCENT_PROPERTY_IDS,
+        "names": {"zh-CN": name},
+    }
+
+
+def _stats(
+    value: Any,
+    *,
+    core: bool = False,
+    stat_catalog: StatCatalog | None = None,
+    quality: str = "orange",
+) -> list[dict[str, Any]]:
+    if core:
+        # The scanner only reads a card's main-stat *name*.  Its value must
+        # therefore be restored from the shared max-level catalogue, rather
+        # than being persisted as the old placeholder ``1`` / ``1%``.  The
+        # latter made every visual card look like a level-0 card in warehouse
+        # and detail views even though the solver treats card mains as maxed.
+        if stat_catalog is None:
+            raise VisionInventorySnapshotError("卡带主词条缺少本批冻结规则。")
+        catalog = stat_catalog
+        main_name = catalog.normalize_tape_main_stat(value)
+        if main_name == "未知主词条" or main_name not in catalog.tape_main_values:
+            return []
+        quality_coef = {"orange": 1.0, "purple": 0.8, "blue": 0.6}.get(str(quality).casefold(), 1.0)
+        return [_stat(main_name, float(catalog.tape_main_values[main_name]) * quality_coef)]
+    if not isinstance(value, Mapping):
+        raise VisionInventorySnapshotError("视觉扫描驱动缺少词条列表")
+    return [_stat(label, amount) for label, amount in value.items()]
+
+
+def build_vision_snapshot(
+    items: Iterable[Mapping[str, Any]],
+    static_dao: StaticGameDataDao | None = None,
+    *,
+    capture_driver: str = "mouse",
+    resources: RecognitionResources | None = None,
+) -> dict[str, Any]:
+    """Convert visual parser items to the SQLite snapshot contract.
+
+    The generated UID pair is local to this visual snapshot and is deliberately
+    never eligible for nte-core's native-UID equipment RPC.
+    """
+    driver = str(capture_driver or "").strip().casefold()
+    if driver not in {"mouse", "gamepad"}:
+        raise VisionInventorySnapshotError("视觉扫描 capture_driver 必须是 mouse 或 gamepad")
+    resources = resources or load_recognition_resources(
+        static_database_path=static_dao.database_path if static_dao is not None else None)
+    suits = {_compact_set_name(name): suit_id for suit_id, name in resources.suits}
+    stat_catalog = resources.stat_catalog()
+    source_items = [dict(source) for source in items]
+    unknown_tape_main_numbers: list[int] = []
+    normalized: list[dict[str, Any]] = []
+    for ordinal, item in enumerate(source_items, start=1):
+        item_type = str(item.get("item_type") or "").strip()
+        kind = "module" if item_type == "drive" else "core" if item_type == "tape" else ""
+        if not kind:
+            raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项类型无效：{item_type!r}")
+        quality = _QUALITY.get(str(item.get("quality") or "").strip().casefold())
+        if quality is None:
+            raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项品质无效：{item.get('quality')!r}")
+        row: dict[str, Any] = {
+            "uid": {"serial": ordinal, "slot": 1},
+            "kind": kind,
+            "item_id": f"vision_{kind}_{ordinal}",
+            "suit_id": None,
+            "geometry": None,
+            "grid": int(item.get("area") or (15 if kind == "core" else 0)),
+            "quality": quality,
+            "level": 0,
+            "max_level": 0,
+            # The visual scan cannot read these state fields.  Persist neutral
+            # placeholders because the SQLite contract is non-nullable; the
+            # The unified `vision` source tells consumers that they are unknown.
+            "locked": False,
+            "discarded": False,
+            "equipped": False,
+            "equipped_character_uid": None,
+            "equipped_character_id": None,
+            "names": {"zh-CN": str(item.get("uid") or f"vision_{ordinal}")},
+            "suit_names": {},
+            "sub_stats": _stats(item.get("sub_stats")),
+        }
+        if kind == "module":
+            try:
+                shape_id = legacy_shape_id(item.get("shape_id"))
+            except AllocationInventoryProjectionError as exc:
+                raise VisionInventorySnapshotError(
+                    f"视觉扫描第 {ordinal} 项形状无效：{item.get('shape_id')!r}"
+                ) from exc
+            geometry = _GEOMETRY.get(shape_id)
+            if geometry is None:
+                raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项形状无效：{shape_id!r}")
+            row["geometry"] = geometry
+            row["main_stats"] = _stats(item.get("main_stats"))
+        else:
+            set_name = str(item.get("set_name") or "").strip()
+            suit_id = suits.get(_compact_set_name(set_name))
+            if suit_id is None:
+                raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 张卡带套装无法匹配官方静态库：{set_name!r}")
+            row["suit_id"] = suit_id
+            row["geometry"] = "Core"
+            row["grid"] = 15
+            row["suit_names"] = {"zh-CN": set_name}
+            row["main_stats"] = _stats(
+                item.get("main_stats"),
+                core=True,
+                stat_catalog=stat_catalog,
+                quality=quality,
+            )
+            if not row["main_stats"]:
+                try:
+                    scan_number = int(item.get("_scan_number") or ordinal)
+                except (TypeError, ValueError):
+                    scan_number = ordinal
+                row["vision_scan_number"] = scan_number
+                unknown_tape_main_numbers.append(scan_number)
+        normalized.append(row)
+    return {
+        "complete": True,
+        "recognition_input": resources.public_identity(),
+        "capture_driver": driver,
+        "item_count": len(normalized),
+        "items": normalized,
+        "vision_diagnostics": {
+            "unknown_tape_main_count": len(unknown_tape_main_numbers),
+            "unknown_tape_main_numbers": unknown_tape_main_numbers,
+        },
+    }
+
+
+def import_vision_inventory(
+    database_path: str | Path,
+    items: Iterable[Mapping[str, Any]],
+    *,
+    capture_driver: str = "mouse",
+    resources: RecognitionResources | None = None,
+    before_commit: Callable[[], None] | None = None,
+) -> int:
+    """直接调用同样受资源检查；最终成功检查是提交授权点，而非文件锁。"""
+    resources = resources or load_recognition_resources()
+
+    def authorize() -> None:
+        check_recognition_resources(resources)
+        if before_commit is not None:
+            before_commit()
+
+    authorize()
+    snapshot = build_vision_snapshot(items, capture_driver=capture_driver, resources=resources)
+    with UserDataDao(database_path) as user_dao:
+        authorize()
+        return user_dao.import_inventory_snapshot(snapshot, source="vision", before_commit=authorize)

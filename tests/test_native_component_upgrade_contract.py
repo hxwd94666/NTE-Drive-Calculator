@@ -5,7 +5,7 @@ import json
 import pytest
 
 from src.integrations.native_plugin_bundle import inspect_native_plugin_bundle
-from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
+from src.integrations.components.inspection import inspect_deployed_native_plugin
 from tests.test_native_component_bundle_build import native_source, prepare
 from tests.test_native_plugin_bundle import game_files, make_bundle, write_manifest
 from tools.release.game_component_bundle_build import validate_packaged_component_bundle

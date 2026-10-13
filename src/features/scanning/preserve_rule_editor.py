@@ -39,8 +39,8 @@ from src.domain.post_actions import (
 from src.domain.stat_catalog import StatCatalog
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
-from src.features.inventory.warehouse import warehouse_shape_pixmap
-from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
+from src.services.allocation.inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.widgets import NoWheelComboBox
 

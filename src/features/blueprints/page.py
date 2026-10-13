@@ -23,8 +23,8 @@ from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.features.blueprints.controller import BlueprintController
 from src.features.blueprints.dependencies import BlueprintDependencies
-from src.features.inventory.warehouse import warehouse_shape_pixmap
-from src.services.blueprint_service import (
+from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
+from src.domain.equipment.shapes import (
     OFFICIAL_SHAPE_LABELS as _OFFICIAL_SHAPE_LABELS,
 )
 from src.ui.puzzle_board import PuzzleBoardWidget

@@ -22,7 +22,7 @@ from src.domain.battle_report import (
     DamageCompositionEntry,
     RoleDamageComposition,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 
 
 _CARD_HEIGHT = 244
@@ -112,6 +112,7 @@ class BattleDamageCompositionPanel(QWidget):
         self._grid.setVerticalSpacing(12)
 
     def render(self, composition: BattleDamageComposition) -> None:
+        # 角色、已识别但无角色所有者的系统伤害与未归因项分别展示；不按名称补归属。
         self._clear()
         for index, role in enumerate(composition.roles):
             self._grid.addWidget(

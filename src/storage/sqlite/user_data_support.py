@@ -70,7 +70,7 @@ BATTLE_REPORT_MAX_MANUAL_RECORDS = 50
 
 
 class UserDataError(RuntimeError):
-    """用户数据库无效或版本不兼容。"""
+    """用户数据库访问、结构或版本校验失败。"""
 
 
 class UserDataValidationError(UserDataError, ValueError):

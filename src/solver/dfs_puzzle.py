@@ -94,6 +94,7 @@ class DFSPuzzleSolver:
                         cancel_check=cancel_check,
                     )
                 finally:
+                    # 取消和递归异常也必须撤销本层落子，不污染调用方底盘。
                     self.remove_piece(board, piece_matrix, start_r, start_c)
                 if max_solutions > 0 and len(current_results) >= max_solutions:
                     return

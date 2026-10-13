@@ -1,4 +1,4 @@
-# 格式化官方弧盘常驻属性及养成状态的玩家可读摘要。
+# 按正式精炼曲线格式化弧盘技能描述，不由描述文字生成常驻属性。
 """Qt-free formatting helpers for official fork presentation."""
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 
 def render_fork_skill_description(star: Mapping[str, Any]) -> str:
-    """Render official refinement placeholders with current curve values."""
+    """按当前曲线值替换正式参数序号；跳过未知参数但保留明确零值，百分比只换算一次。"""
 
     description = str(star.get("description_zh") or "")
     for parameter in star.get("parameters") or ():

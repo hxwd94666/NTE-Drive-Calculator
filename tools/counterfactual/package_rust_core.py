@@ -68,7 +68,7 @@ def main() -> int:
         "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel, frozen drive allocation; Python owns user input, blueprint generation, process lifecycle and rendering",
     }
     manifest["source_input_sha256"] = build_record["source_input_sha256"]
-    # Recheck after the executable probe, before modifying the destination.
+    # 可执行文件探测后、修改目标前再次核对整套构建记录，防止配给旧产物。
     if verify_build_record(source, executable) != build_record:
         raise RuntimeError("分析组件构建记录在核对期间发生变化，请重新打包")
     destination = args.destination.resolve()

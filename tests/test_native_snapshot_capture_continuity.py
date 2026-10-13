@@ -6,9 +6,9 @@ import pytest
 from src.integrations.nte_core_protocol import (
     NteCoreProcessError, NteCoreProtocolError, NteCoreRpcError, NteCoreTimeoutError,
 )
-from src.services.native_game_session import NativeGameSession
+from src.services.native_session.session import NativeGameSession
 from tests.test_native_game_session import FakeNativeCore
-from tests.test_native_battle_scopes import attempt
+from tests.battle_report.inputs.helpers import attempt
 from tests.test_battle_capture_build_freeze import native_snapshot
 
 

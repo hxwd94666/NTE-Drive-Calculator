@@ -18,10 +18,7 @@ from src.features.official_role.page import (
     refresh_official_role_page,
     deactivate_official_role_page,
 )
-from src.features.configuration.page import deactivate_config_page
-from src.features.inventory.equipment_display_view import (
-    build_equipment_mode_switch,
-)
+from src.features.inventory.equipment.display_view import build_equipment_mode_switch
 from src.ui.navigation import NAV_ITEMS, nav_index_map, nav_item_by_key
 
 class MainWindowNavigationMixin:
@@ -75,6 +72,8 @@ class MainWindowNavigationMixin:
             self._nav_buttons[item.key] = button
             if item.sidebar:
                 sl.addWidget(button)
+            else:
+                button.hide()
         self.work_mode_button = QPushButton("模式：离线")
         self.work_mode_button.clicked.connect(lambda: self._go("settings"))
         sl.addWidget(self.work_mode_button)
@@ -133,6 +132,8 @@ class MainWindowNavigationMixin:
                 page = self.scanning_controller.build_page()
             elif item.key == "blueprint":
                 page = self.blueprint_page.build()
+            elif item.key == "config":
+                page = self.basic_weight_page
             elif item.key == "my_role":
                 page = build_official_role_page(self)
             elif item.key == "static_catalog":
@@ -168,7 +169,8 @@ class MainWindowNavigationMixin:
         self._refresh_account_combo()
 
     def _nav(self, text, page):
-        b = QPushButton(text)
+        # 非侧栏入口仍保留导航状态，但其隐藏按钮必须随主窗口一起释放。
+        b = QPushButton(text, self)
         b.setCheckable(True)
         b.clicked.connect(lambda: self._go(page))
         return b
@@ -189,7 +191,7 @@ class MainWindowNavigationMixin:
             if current == "my_role":
                 deactivate_official_role_page(self)
             elif current == "config":
-                deactivate_config_page(self)
+                self.basic_weight_page.deactivate()
         self.stack.setCurrentIndex(indexes.get(item.key, 0))
         self.topbar_title.setText(item.label)
         self.topbar_catalog_return.setVisible(item.key == "static_catalog")
@@ -215,6 +217,8 @@ class MainWindowNavigationMixin:
             self.identification_controller.refresh_options()
         elif item.key == "blueprint":
             self.blueprint_page.refresh()
+        elif item.key == "config":
+            self.basic_weight_page.refresh()
         elif item.key == "my_role":
             refresh_official_role_page(self)
         elif item.key == "static_catalog":

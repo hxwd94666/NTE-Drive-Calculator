@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from src.features.inventory import equipment_plan_optimizer as optimizer
+from src.features.inventory.equipment import plan_optimizer as optimizer
 
 
 def test_custom_role_plan_routes_to_generic_weight_evaluation(monkeypatch) -> None:

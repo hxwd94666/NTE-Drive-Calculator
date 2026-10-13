@@ -14,7 +14,7 @@ from src.domain.progression_stamina import (
     ProgressionStaminaRequest,
     StaminaPlanStatus,
 )
-from src.services import cultivation_solver_process as solver
+from src.integrations.progression import solver_process as solver
 
 
 def _request() -> ProgressionStaminaRequest:

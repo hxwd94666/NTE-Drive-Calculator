@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from src.domain.battle_capture_comparison import BattleCaptureComparisonState
 from src.domain.battle_report import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
-from src.services.battle_capture_service import BattleCaptureService
+from src.services.battle_report.capture.service import BattleCaptureService
 
 
 _LANES = ('native', 'packet')

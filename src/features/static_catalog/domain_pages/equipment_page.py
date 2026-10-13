@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 from src.app.theme import theme_color, themed_style
-from src.domain.warehouse_filter import build_warehouse_filter_catalog
+from src.domain.inventory.warehouse_filter import build_warehouse_filter_catalog
 from src.features.static_catalog.domain_pages.equipment_catalog_model import (
     AttributeCurve,
     EquipmentCatalogPageController,
@@ -22,8 +22,8 @@ from src.features.static_catalog.domain_pages.equipment_catalog_model import (
     SuitRecord,
     official_suit_number,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_terminology_service import (
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 from src.ui.equipment_presentation import EquipmentPresentation

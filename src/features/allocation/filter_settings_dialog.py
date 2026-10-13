@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from src.app.dialogs import show_help
 from src.app.theme import themed_style
-from src.services.allocation_filter_settings import (
+from src.services.allocation.filter_settings import (
     AllocationFilterSettings,
     AllocationFilterValidationError,
 )

@@ -101,9 +101,6 @@ class CharacterStatEngineTests(unittest.TestCase):
             fallback_tape_main_value("暴击率%", "Gold", {}, {}),
         )
 
-    def test_conditional_weapon_skill_is_not_a_panel_stat(self):
-        panel = build_character_panel(self._context(), "测试角色")
-        self.assertEqual(150.0, panel.totals["总攻击力"])
 
     def test_marginal_benefit_uses_ability_damage_term(self):
         from src.features.role import core

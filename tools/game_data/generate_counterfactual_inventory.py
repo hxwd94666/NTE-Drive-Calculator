@@ -589,7 +589,7 @@ def _write_forks(connection: sqlite3.Connection, output: Path) -> None:
 
 
 def _write_suits(connection: sqlite3.Connection, output: Path) -> None:
-    from src.services.battle_equipment_suit_service import (
+    from src.services.battle_report.buffs.equipment_suits import (
         BattleEquipmentSuitService,
     )
 

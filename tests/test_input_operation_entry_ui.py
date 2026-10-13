@@ -26,8 +26,11 @@ class InputEntryGuidanceTests(TestCase):
         owner.operation_unavailable.assert_not_called()
 
     def test_assembly_declines_before_plan_reads_or_worker_state(self):
-        from src.features.inventory.equipment_automatic_assembly_controller import _start_automatic_equipment_assembly
-        from src.features.inventory.equipment_assembly_controller import _start_nte_core_equipment_apply, _preview_nte_core_assemble_role
+        from src.features.inventory.equipment.automatic_assembly_controller import _start_automatic_equipment_assembly
+        from src.features.inventory.equipment.assembly_controller import (
+            _start_nte_core_equipment_apply,
+            _preview_nte_core_assemble_role,
+        )
         owner = self.denied()
         _start_automatic_equipment_assembly(owner, ["test"])
         _start_nte_core_equipment_apply(owner, ["test"])
@@ -37,7 +40,7 @@ class InputEntryGuidanceTests(TestCase):
         owner.operation_unavailable.assert_not_called()
 
     def test_allowed_native_mode_reports_missing_connection_without_starting(self):
-        from src.features.inventory.equipment_assembly_controller import _start_nte_core_equipment_apply
+        from src.features.inventory.equipment.assembly_controller import _start_nte_core_equipment_apply
         owner = SimpleNamespace(operation_entry=Mock(return_value=True), operation_unavailable=Mock())
         _start_nte_core_equipment_apply(owner, ["test"])
         owner.operation_unavailable.assert_called_once()

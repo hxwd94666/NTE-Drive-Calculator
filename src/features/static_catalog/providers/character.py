@@ -22,9 +22,9 @@ from src.features.static_catalog.providers._shared import (
     lines,
     official,
 )
-from src.services.static_catalog_character_models import CharacterDetail, CharacterSummary
-from src.services.static_catalog_character_service import StaticCatalogCharacterService
-from src.storage.sqlite.static_catalog_character_queries import (
+from src.services.static_catalog.characters.models import CharacterDetail, CharacterSummary
+from src.services.static_catalog.characters.service import StaticCatalogCharacterService
+from src.storage.sqlite.catalog.static_catalog_character_queries import (
     StaticCatalogCharacterQueries,
 )
 

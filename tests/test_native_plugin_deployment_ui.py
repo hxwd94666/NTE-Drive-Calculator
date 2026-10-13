@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QPushBut
 
 from src.ui.controllers.native_plugin_deployment_ui import refresh_native_plugin_status
 from src.ui.controllers.mod_loader_controller import activate_equipment_plugin_loading_method
-from src.services.work_mode_service import WorkModeService
+from src.services.work_modes.service import WorkModeService
 from tests.test_native_plugin_bundle import make_bundle
 
 
@@ -111,7 +111,7 @@ def test_native_manual_start_uses_same_mode_owner_and_skips_legacy_workspace(tmp
 
 def test_manual_loader_wait_shows_close_launcher_prompt(monkeypatch):
     from src.ui.controllers import native_plugin_deployment_ui as native_ui
-    from src.services.mod_plugin_loading_service import ModPluginLoadingWaiting
+    from src.services.components.loader_service import ModPluginLoadingWaiting
     window = SimpleNamespace(
         _stop_inventory_sync=Mock(),
         character_profile_sync_controller=SimpleNamespace(request_stop=Mock()),

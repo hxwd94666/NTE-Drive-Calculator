@@ -13,7 +13,7 @@ os.environ.setdefault("NTE_TESTING", "1")
 
 from src.integrations.performance_diagnostics import performance_counters, PerformanceJournal
 from src.services.performance_monitor import PerformanceMonitor
-from src.services.native_game_session import NativeGameSession
+from src.services.native_session.session import NativeGameSession
 
 NTE_TEST_TIER = "core"
 
@@ -219,9 +219,8 @@ class PerformanceUiTests(unittest.TestCase):
             self.assertTrue(controller.enabled)
         card.close()
 
-    def test_settings_card_omits_status_line_but_details_keep_diagnostics(self):
+    def test_details_keep_preference_failure_visible(self):
         from PySide6.QtCore import QObject, Signal
-        from PySide6.QtWidgets import QLabel
         from src.features.settings.performance_card import PerformanceCard
 
         class Controller(QObject):
@@ -241,7 +240,6 @@ class PerformanceUiTests(unittest.TestCase):
 
         card = PerformanceCard(Controller())
         try:
-            self.assertFalse(any(label.text() for label in card.findChildren(QLabel)))
             card.show_details()
             self.assertIn("性能偏好保存失败", card.dialog.status.text())
         finally:

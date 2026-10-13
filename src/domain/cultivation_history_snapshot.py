@@ -24,7 +24,7 @@ def normalize_snapshot(value: object, configuration: dict[str, Any]) -> dict[str
     dataset = object_fields(data["dataset"], "dataset_id schema_version importer_version built_at_utc")
     text_value(dataset["dataset_id"], maximum=256)
     integer(dataset["schema_version"], 1)
-    # Dataset importers use a version label, independent of the schema integer.
+    # importer 使用独立版本标签，不与 schema 整数混作同一种身份。
     text_value(dataset["importer_version"], maximum=128)
     if utc_time(dataset["built_at_utc"]) is None:
         raise ValueError("养成历史资料缺少构建时间")

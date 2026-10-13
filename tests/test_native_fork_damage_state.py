@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 import unittest
 
-from tests.test_battle_fork_damage_completion_service import _action, _hit, _rules
+from tests.battle_report.forks.test_damage_completion import _action, _hit, _rules
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_fork_damage_state_service import BattleForkDamageStateService
+from src.services.battle_report.forks.damage_state import BattleForkDamageStateService
 
 
 def _fixture():

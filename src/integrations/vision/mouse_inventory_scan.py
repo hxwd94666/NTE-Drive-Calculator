@@ -9,9 +9,13 @@ geometry without sending real input.
 
 from __future__ import annotations
 
+from src.integrations.vision.capture_files import (
+    capture_output_lease, create_capture_directory, freeze_capture_stage,
+    prepare_capture_publication, publish_capture_files,
+)
+
 import math
 import os
-import shutil
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -38,7 +42,7 @@ from src.integrations.vision.mouse_scan_capture import (
 )
 from src.integrations.vision.mouse_scan_telemetry import MouseScanPageMetric, MouseScanTelemetry
 from src.integrations.vision.mouse_state_sync import MouseStateSyncResult
-from src.scanner.window_capture import WindowRect, game_content_rect
+from src.integrations.vision.window_capture import WindowRect, game_content_rect
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -344,29 +348,18 @@ class MouseInventoryScanner:
         finally:
             self._frame_provider.close()
 
-    def _clear_output_images(self) -> None:
-        image_exts = {".png", ".jpg", ".jpeg", ".bmp"}
-        for path in Path(self.output_dir).iterdir():
-            if path.is_file() and path.suffix.lower() in image_exts:
-                path.unlink()
-
     def _prepare_temp_output(self) -> None:
-        capture_dir = Path(self.output_dir) / "temp"
-        if capture_dir.exists():
-            shutil.rmtree(capture_dir)
-        capture_dir.mkdir(parents=True, exist_ok=True)
-        self.capture_dir = str(capture_dir)
+        self.capture_dir = create_capture_directory(self.output_dir)
 
     def _commit_temp_output(self) -> None:
-        capture_dir = Path(self.capture_dir)
-        if capture_dir.resolve() == Path(self.output_dir).resolve():
-            return
-        self._clear_output_images()
-        for source in sorted(capture_dir.iterdir()):
-            if source.is_file():
-                shutil.move(str(source), str(Path(self.output_dir) / source.name))
-        shutil.rmtree(capture_dir)
-        self.capture_dir = self.output_dir
+        # 独立截图调用也使用精确发布；正式 Calc 流水线等待 DB 授权，不调用此入口。
+        with capture_output_lease(self.output_dir):
+            count = len(list(Path(self.capture_dir).glob("raw_drive_*.png")))
+            stage = freeze_capture_stage(self.output_dir, self.capture_dir, count)
+            result = publish_capture_files(prepare_capture_publication(stage))
+            if result.status != "published":
+                raise RuntimeError(result.message or "截图整理未完成，请核对本次暂存。")
+            self.capture_dir = self.output_dir
 
     def start_scan(
         self,

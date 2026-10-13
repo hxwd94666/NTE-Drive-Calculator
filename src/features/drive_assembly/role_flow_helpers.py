@@ -7,7 +7,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from src.scanner.window_capture import game_content_rect
+from src.integrations.vision.window_capture import game_content_rect
 from src.features.drive_assembly.role_contracts import RoleRecognition
 
 

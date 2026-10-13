@@ -1,5 +1,5 @@
 # 提供可搜索下拉框和禁滚轮输入控件。
-"""Reusable PySide widgets shared by several pages."""
+"""共用搜索与禁滚轮控件；候选正式值仍由页面提供。"""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from src.domain.name_search import match_pinyin as match_pinyin
 
 
 class NoWheelComboBox(QComboBox):
-    """Combo box that ignores mouse-wheel changes."""
+    """忽略滚轮改值，让外层滚动区继续处理滚动。"""
 
     def wheelEvent(self, event):
         event.ignore()
 
 
 class SearchableComboBox(NoWheelComboBox):
-    """Editable combo box with popup completion and pinyin search."""
+    """从既有标签/数据候选中搜索与选定，不插入新的自由文本条目。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -121,7 +121,7 @@ class SearchableComboBox(NoWheelComboBox):
 
 
 class NoWheelDoubleSpinBox(QDoubleSpinBox):
-    """Double spin box without wheel changes or +/- buttons."""
+    """禁滚轮与加减按钮的浮点输入，仍可键盘编辑。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -132,7 +132,7 @@ class NoWheelDoubleSpinBox(QDoubleSpinBox):
 
 
 class NoWheelSpinBox(QSpinBox):
-    """Integer spin box without wheel changes or +/- buttons."""
+    """禁滚轮与加减按钮的整数输入，仍可键盘编辑。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)

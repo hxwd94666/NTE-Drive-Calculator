@@ -25,6 +25,7 @@ def _source_digest(root):
 
 
 def _run_case(args, record, mode):
+    """先记录旧源码结果再对照候选；等价与实际原生任务覆盖须分别成立。"""
     case = f"history:{record['record_id']}:{mode}"
     results = {}
     for label, source, backend in (
@@ -65,6 +66,7 @@ def _run_case(args, record, mode):
 
 
 def _save(args, report):
+    """原子更新审计摘要；任何差异、错误或所需原生覆盖缺口均保留失败退出。"""
     cases = report["cases"]
     candidates = [case["results"]["candidate"] for case in cases if "candidate" in case["results"]]
     comparisons = [row["comparisons"]["baseline"] for row in candidates if "baseline" in row.get("comparisons", {})]

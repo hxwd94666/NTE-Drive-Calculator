@@ -307,6 +307,21 @@ def _build_run_button(window, layout):
     window.btn_run.setStyleSheet("#btnPrimary{font-size:15px;font-weight:700;border-radius:10px}")
     window.btn_run.clicked.connect(window._do_exec)
     layout.addWidget(window.btn_run)
+    row = QHBoxLayout()
+    window.btn_resume_capture = QPushButton("继续本次暂存解析")
+    window.btn_resume_capture.setObjectName("resumeCaptureStageButton")
+    window.btn_resume_capture.setToolTip("只解析本次完整暂存截图，不扫描游戏或重放扫描后管理")
+    window.btn_resume_capture.setVisible(False)
+    window.btn_resume_capture.clicked.connect(window.resume_capture_stage)
+    row.addWidget(window.btn_resume_capture)
+    window.btn_retry_publication = QPushButton("重试本次截图整理")
+    window.btn_retry_publication.setObjectName("retryCapturePublicationButton")
+    window.btn_retry_publication.setToolTip("仅整理已保存背包的本次截图，不重复写入库存")
+    window.btn_retry_publication.setVisible(False)
+    window.btn_retry_publication.clicked.connect(window.retry_capture_publication)
+    row.addWidget(window.btn_retry_publication)
+    row.addStretch()
+    layout.addLayout(row)
 
 
 def _build_result_card(window, layout):

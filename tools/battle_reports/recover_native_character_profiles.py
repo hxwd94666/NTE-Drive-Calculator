@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.integrations.battle_report_bundle import read_battle_report_bundle, write_battle_report_bundle_atomic
-from src.services.battle_report_transfer_service import BattleReportTransferService
-from src.services.native_battle_scopes import scope_changed, validate_first_hit, team_character_ids
-from src.services.native_battle_world_bonus import native_world_bonus
+from src.services.battle_report.history.transfer import BattleReportTransferService
+from src.services.battle_report.inputs.scopes import scope_changed, validate_first_hit, team_character_ids
+from src.services.battle_report.inputs.settlement import native_world_bonus
 from src.services.native_role_profile_projection import project_native_role_profile, validate_native_cultivation
 from src.storage.sqlite.user_data_dao import UserDataDao
 

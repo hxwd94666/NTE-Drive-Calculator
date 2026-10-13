@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.services.sqlite_allocation_inventory import SqliteAllocationInventory
+from src.services.allocation.inventory import SqliteAllocationInventory
 from src.services.inventory_snapshot_export import export_inventory_snapshot
-from src.services.full_visual_snapshot_commit import (
+from src.services.inventory.visual_scan_commit import (
     IncompleteVisionScanError,
     append_tape_main_warning,
     commit_completed_vision_inventory,
 )
-from src.services.vision_inventory_snapshot import import_vision_inventory
+from src.services.inventory.vision_snapshot import import_vision_inventory
 from src.storage.sqlite import user_data_base
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao
@@ -73,7 +73,7 @@ class VisionInventorySnapshotTests(unittest.TestCase):
         self.assertEqual("EquipmentGeometry_Hen2", next(row for row in imported if row["kind"] == "module")["geometry"])
         self.assertTrue(all(row["level"] == 0 and row["max_level"] == 0 for row in imported))
         self.assertTrue(all(not row["locked"] and not row["discarded"] and not row["equipped"] for row in imported))
-        from src.features.inventory.warehouse_presenter import load_warehouse_snapshot
+        from src.features.inventory.warehouse.presenter import load_warehouse_snapshot
 
         warehouse = load_warehouse_snapshot(self.database_path)
         self.assertEqual(snapshot_id, warehouse["snapshot_id"])

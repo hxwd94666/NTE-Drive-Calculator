@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.services.battle_hit_buff_explanation_service import battle_buff_property_label
+from src.services.battle_report.buffs.hit_explanation import battle_buff_property_label
 from .hit_formula_overview import HitFormulaOverview
 
 

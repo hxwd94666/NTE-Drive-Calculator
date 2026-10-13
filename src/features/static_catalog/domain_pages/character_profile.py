@@ -27,7 +27,7 @@ from src.features.static_catalog.domain_pages.character_growth import CharacterG
 from src.features.static_catalog.domain_pages.character_terminology import (
     project_character_term,
 )
-from src.services.static_catalog_character_release_metadata import (
+from src.services.static_catalog.characters.release_metadata import (
     CharacterReleaseMetadata,
 )
 from src.features.static_catalog.domain_pages.character_skills import (
@@ -35,14 +35,14 @@ from src.features.static_catalog.domain_pages.character_skills import (
     CharacterSkillView,
     build_action_cards,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_character_models import (
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.static_catalog.characters.models import (
     CharacterDetail,
     CharacterSummary,
     CombatLinkPage,
     GrowthPage,
 )
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 

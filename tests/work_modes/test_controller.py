@@ -1,0 +1,752 @@
+# 在离屏界面和测试替身中验证工作模式意图、过期结果及观察者收尾。
+import os
+from types import SimpleNamespace
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QWidget, QPushButton
+
+from auto_sync_ui_fixture import application, dispose
+
+from src.domain.work_mode import NativeFeatureProbe, WorkModeProbe
+from src.services.work_modes.observation import ObservationResult
+from src.services.work_modes.service import WorkModeService
+from src.ui.controllers import work_mode_controller as module
+
+
+class QueuedObserver:
+    def __init__(self, *, tick, publish):
+        self.tick, self.publish = tick, publish
+        self.jobs = []
+        self.closed = False
+        self.finalize = None
+
+    def start(self):
+        pass
+
+    def submit(self, job, *, key=None):
+        if self.closed:
+            return False
+        if key is not None:
+            self.jobs = [(old_key, old) for old_key, old in self.jobs if old_key != key]
+        self.jobs.append((key, job))
+        return True
+
+    def run_jobs(self):
+        while self.jobs:
+            result = self.jobs.pop(0)[1]()
+            if result is not None and not self.closed:
+                self.publish(result)
+
+    def close(self, *, finalize=None):
+        self.closed = True
+        self.jobs.clear()
+        self.finalize = finalize
+
+
+@pytest.fixture(scope="module")
+def qt_app():
+    return application()
+
+
+@pytest.fixture
+def controller(tmp_path, monkeypatch, qt_app):
+    monkeypatch.setattr(module, "GameObservationService", QueuedObserver)
+    popups, events = [], []
+    original_report = module.ModeReportDialog.set_report
+    original_error = module.ModeReportDialog.set_error
+    monkeypatch.setattr(module.ModeReportDialog, "set_report",
+                        lambda self, report: (popups.append("report"), original_report(self, report)))
+    monkeypatch.setattr(module.ModeReportDialog, "set_error",
+                        lambda self, detail: (popups.append("warning"), original_error(self, detail)))
+    monkeypatch.setattr(module.QMessageBox, "warning", lambda *args: popups.append("warning"))
+    monkeypatch.setattr(module.QMessageBox, "information", lambda *args: popups.append("info"))
+    monkeypatch.setattr(module, "confirm_mode", lambda *args: True)
+    window = QWidget()
+    window.app_context = SimpleNamespace(generation=1, paths=SimpleNamespace(config_dir=tmp_path, root=tmp_path))
+    window.global_hotkey_manager = SimpleNamespace(request_stop=lambda: events.append("input_stop"))
+    window.battle_report_controller = SimpleNamespace(
+        stop=lambda: events.append("battle_stop"), is_running=lambda: False,
+        set_work_mode_presentation=lambda: None,
+    )
+    window.scanning_controller = SimpleNamespace(request_stop=lambda: events.append("scan_request"))
+    window._mod_plugin_loading_service = SimpleNamespace(stop_loader=lambda: events.append("loader_close"))
+    window._inventory_sync_service = None
+    window.invalidate_inventory_sync_notifications = lambda: events.append("invalidate_run")
+    window._start_inventory_sync = lambda **_kwargs: events.append("packet_start")
+    window.observed_sync_probes = []
+    window.auto_sync_controller = SimpleNamespace(
+        observe_probe=window.observed_sync_probes.append, refresh=lambda: None,
+    )
+    policy = WorkModeService(tmp_path / "settings.json")
+    policy.select_mode("low", risk_confirmed=True)
+    policy.set_cleanup_pending(False)
+    native = SimpleNamespace(
+        request_close=lambda **kwargs: events.append("native_request"),
+        close=lambda: events.append("native_close"),
+    )
+    probe = WorkModeProbe(game_running=True, npcap_available=True, core_available=True)
+    runtime = SimpleNamespace(
+        path_detail="", cleanup_detail="", cleanup_exit_detail="",
+        native_session=native, loader=None,
+        invalidate=lambda **kwargs: events.append("invalidate"),
+        tick=lambda **kwargs: probe, discover=lambda: (),
+        request_close=lambda: events.append("runtime_request"),
+        close=lambda: events.append("runtime_close"),
+    )
+    value = module.WorkModeController(window=window, policy=policy, runtime=runtime)
+    yield value, window, policy, events, popups, probe
+    value.close()
+    if value._observer.finalize:
+        value._observer.finalize()
+    dispose(window)
+
+
+def test_close_with_unverified_path_does_not_report_cleanup_failure(controller, monkeypatch):
+    c, _window, policy, _events, _popups, _probe = controller
+    messages = []
+    monkeypatch.setattr(module.QMessageBox, "information", lambda _owner, title, message: messages.append((title, message)))
+    policy.set_cleanup_pending(True)
+    c.runtime.path_detail = "尚未找到有效游戏路径。"
+    c.close()
+    assert messages == []
+    assert policy.settings.pending_cleanup
+
+
+def test_plugin_toggle_does_not_queue_behind_environment_detection(controller):
+    c, _window, _policy, _events, _popups, _probe = controller
+    applied = []
+    c._apply_plugins = lambda: applied.append(True)
+    c.check()
+    environment_jobs = len(c._observer.jobs)
+    c.refresh_plugins()
+    assert len(c._observer.jobs) == environment_jobs
+    c._plugin_worker.tick = lambda: None
+    _key, job = c._plugin_worker.jobs.pop()
+    assert job() is True and applied == [True]
+    c.close()
+    assert c._plugin_worker.closed
+
+
+def test_ready_sync_preflight_activates_without_guidance_click(controller):
+    c, _window, _policy, _events, _popups, _probe = controller
+    calls = []
+    original_tick = c.runtime.tick
+    c.runtime.tick = lambda **kwargs: (calls.append(kwargs), original_tick(**kwargs))[1]
+    confirmed = []
+    c.begin_sync_enable(lambda: (confirmed.append(True), True)[1])
+    dialog = c._report_dialog
+    pending = dialog.results_layout.itemAt(0).widget()
+    _key, preflight = c._observer.jobs.pop(0)
+    c.observed.emit(preflight())
+    assert pending.parentWidget() is dialog.results and pending.isHidden()
+    assert pending not in QApplication.topLevelWidgets()
+    assert calls and calls[0]["preview"] is True
+    assert calls[0]["allow_connect"] is False
+    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
+    assert "确认处理并开启同步" not in buttons
+    assert confirmed == []
+    c._observer.run_jobs()
+    assert confirmed == [True]
+    assert any(call["allow_connect"] is True for call in calls)
+    assert calls[-1]["preview"] is True
+    assert c._report_dialog is None
+
+
+@pytest.mark.parametrize("action, expected_route", [("取消", []), ("前往设置", ["mode"])])
+def test_offline_sync_shows_only_compact_guidance(controller, monkeypatch, action, expected_route):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("offline")
+    routes, confirms, shown = [], [], []
+    monkeypatch.setattr(c, "open_settings", routes.append)
+    monkeypatch.setattr(c.runtime, "tick", lambda **_kwargs: pytest.fail("offline sync must not inspect"))
+
+    def choose_action():
+        dialog = QApplication.activeModalWidget()
+        try:
+            assert isinstance(dialog, QDialog)
+            assert dialog.objectName() == "offlineSyncModeDialog"
+            buttons = dialog.findChildren(QPushButton)
+            assert sorted(button.text() for button in buttons) == ["前往设置", "取消"]
+            guidance = dialog.findChild(QLabel, "offlineSyncModeGuidance")
+            assert guidance is not None
+            assert [line.split("：", 1)[0] for line in guidance.text().splitlines()] == [
+                "状态", "原因", "下一步",
+            ]
+            shown.append(True)
+            next(button for button in buttons if button.text() == action).click()
+        finally:
+            if isinstance(dialog, QDialog) and dialog.isVisible():
+                dialog.reject()
+
+    QTimer.singleShot(0, choose_action)
+    c.begin_sync_enable(lambda: confirms.append(True))
+    assert shown == [True]
+    assert routes == expected_route
+    assert confirms == []
+    assert c._observer.jobs == []
+    assert not policy.settings.auto_sync_enabled
+
+
+def test_sync_preflight_close_and_failed_apply_keep_preference_off(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    called = []
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(core_available=True, npcap_available=False)
+    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    c._observer.run_jobs()
+    c._report_dialog.reject()
+    assert not policy.settings.auto_sync_enabled
+    assert not policy.settings.component_auto_ready
+    assert called == []
+
+    calls = []
+    def changing_probe(**_kwargs):
+        calls.append(True)
+        return WorkModeProbe(core_available=len(calls) == 1, npcap_available=len(calls) == 1)
+    c.runtime.tick = changing_probe
+    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    c._observer.run_jobs()
+    assert not policy.settings.auto_sync_enabled
+    assert not policy.settings.component_auto_ready
+    assert called == []
+
+
+def test_closing_report_during_auto_activation_keeps_sync_off(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    called = []
+    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    _key, preflight = c._observer.jobs.pop(0)
+    c.observed.emit(preflight())
+    assert c._sync_activation_request is not None
+    c._report_dialog.reject()
+    c._observer.run_jobs()
+    assert called == []
+    assert not policy.settings.auto_sync_enabled
+    assert not policy.settings.component_auto_ready
+
+
+def test_missing_medium_component_offers_deploy_guidance_even_when_paused(controller, monkeypatch):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.set_paused(True)
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(
+        game_path_valid=True, core_available=True,
+        native_load=NativeFeatureProbe(files=False),
+    )
+    routes = []
+    monkeypatch.setattr(c, "open_settings", routes.append)
+    c.begin_sync_enable(lambda: pytest.fail("missing component must not enable sync"))
+    c._observer.run_jobs()
+    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
+    assert "前往部署组件" in buttons
+    assert "确认处理并开启同步" not in buttons
+    buttons["前往部署组件"].click()
+    QApplication.processEvents()
+    assert routes == ["deployment"]
+    assert not policy.settings.auto_sync_enabled
+
+
+def test_confirmed_medium_mode_resumes_cleanup_pause_without_mode_guidance(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.set_paused(True)
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(
+        game_path_valid=True, core_available=True,
+        native_load=NativeFeatureProbe(files=True),
+    )
+
+    def enable():
+        policy.enable_auto_sync_after_preflight(resume_paused=policy.settings.paused)
+        return True
+
+    c.begin_sync_enable(enable)
+    c._observer.run_jobs()
+    assert policy.settings.auto_sync_enabled
+    assert not policy.settings.paused
+    assert c._report_dialog is None
+
+
+def test_loader_preflight_guides_deployment_without_duplicate_warning(controller, monkeypatch):
+    c, _window, policy, _events, _popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.update_deployment({"loading_method": "loader"})
+    c.runtime.tick = lambda **_kwargs: WorkModeProbe(
+        game_path_valid=True, core_available=True, launcher_running=True,
+        native_load=NativeFeatureProbe(files=False),
+    )
+    warnings = []
+    monkeypatch.setattr(module.QMessageBox, "warning",
+                        lambda _owner, title, message: warnings.append((title, message)))
+    c.begin_sync_enable(lambda: pytest.fail("sync must remain off"))
+    c._observer.run_jobs()
+    buttons = {button.text(): button for button in c._report_dialog.findChildren(QPushButton)}
+    assert "前往部署组件" in buttons
+    assert "关闭启动器" in c._report_dialog.preflight_summary.text()
+    assert warnings == []
+    assert not policy.settings.auto_sync_enabled
+
+
+def test_home_guidance_navigates_to_workbench_instead_of_settings(controller, monkeypatch):
+    c, _window, _policy, _events, _popups, _probe = controller
+    routes = []
+    c._navigate = routes.append
+
+    def explain(_parent, _feature, _detail, navigate, target):
+        navigate(target)
+
+    monkeypatch.setattr(module, "explain_operation_unavailable", explain)
+    c.operation_unavailable("同步状态", "请开启自动同步", "home")
+    assert routes == ["home"]
+
+
+@pytest.mark.parametrize("detail", [
+    "已停止后续加载；等待游戏退出后清理，当前 DLL 尚未卸载。",
+    "组件文件或加载配置归属未知或已修改，请手动核对；尚未清理。",
+])
+def test_close_pending_cleanup_shows_observed_reason_without_clearing_record(controller, monkeypatch, detail):
+    c, _window, policy, _events, _popups, _probe = controller
+    messages = []
+    monkeypatch.setattr(module.QMessageBox, "information", lambda _owner, title, message: messages.append((title, message)))
+    policy.update_deployment({"deployed_sha256": "old-component", "loading_method": "proxy"})
+    policy.set_cleanup_pending(True)
+    c.runtime.cleanup_exit_detail = detail
+    c.close()
+    assert messages[0][0] == "游戏组件清理提示"
+    assert detail in messages[0][1] and "按上述原因处理" in messages[0][1]
+    assert policy.settings.pending_cleanup
+    assert policy.deployment_record["deployed_sha256"] == "old-component"
+
+
+def test_close_does_not_turn_general_detection_message_into_cleanup_failure(controller):
+    c, _window, policy, _events, popups, _probe = controller
+    policy.set_cleanup_pending(True)
+    c.runtime.cleanup_detail = "原生组件已部署；启动游戏后重新核对连接和各项能力。"
+    c.close()
+    assert popups == []
+    assert policy.settings.pending_cleanup
+
+
+def test_stale_revision_generation_and_fault_do_not_start_or_show(controller):
+    c, window, policy, events, popups, probe = controller
+    c._show_request_id = 4
+    c._apply((policy.settings.revision - 1, 1, probe, 0))
+    c._apply((policy.settings.revision, 0, probe, 4))
+    c._apply(ObservationResult("fault", "stale", policy.settings.revision - 1, 1, 4))
+    assert events == [] and popups == []
+    assert window.observed_sync_probes == []
+
+
+def test_one_manual_check_one_popup_background_cannot_consume_it(controller):
+    c, _window, policy, _events, popups, probe = controller
+    c.check(show=True)
+    dialog = c._report_dialog
+    assert dialog.isVisible() and dialog.progress.isVisible()
+    assert "正在" in dialog.overview.text()
+    request_id = c._show_request_id
+    c._apply((policy.settings.revision, 1, probe, 0))
+    assert popups == []
+    c._observer.run_jobs()
+    c._apply((policy.settings.revision, 1, probe, request_id))
+    assert popups == ["report"]
+    assert c._report_dialog is dialog and not dialog.progress.isVisible()
+
+
+def test_coalesced_checks_do_not_duplicate_dialogs(controller):
+    c, *_rest, popups, _probe = controller
+    c.check(show=True)
+    dialog = c._report_dialog
+    c.check(show=True)
+    assert c._report_dialog is dialog
+    assert len(c._observer.jobs) == 1
+    c._observer.run_jobs()
+    assert popups == ["report"]
+
+
+def test_manual_failure_popup_is_consumed_once(controller):
+    c, _window, policy, _events, popups, _probe = controller
+    c.check(show=True)
+    request_id = c._show_request_id
+    result = ObservationResult("fault", "failed", policy.settings.revision, 1, request_id)
+    c._apply(result)
+    c._apply(result)
+    assert popups == ["warning"]
+    assert not c._report_dialog.progress.isVisible()
+    assert "failed" in c._report_dialog.label.text()
+    assert "failed" not in c._report_dialog.overview.text()
+
+
+def test_closed_loading_dialog_does_not_reopen_when_check_finishes(controller):
+    c, _window, _policy, _events, popups, _probe = controller
+    c.check(show=True)
+    c._report_dialog.reject()
+    c._observer.run_jobs()
+    assert c._report_dialog is None and c._show_request_id is None
+    assert popups == []
+
+
+def test_changed_revision_before_queued_check_retries_in_same_dialog(controller):
+    c, _window, policy, _events, popups, _probe = controller
+    c.check(show=True)
+    dialog = c._report_dialog
+    policy.set_paused(True)
+    c._observer.run_jobs()
+    assert c._report_dialog is dialog and not dialog.progress.isVisible()
+    assert popups == ["report"]
+
+
+def test_account_change_finishes_loading_without_showing_old_report(controller):
+    c, window, _policy, _events, popups, _probe = controller
+    c.check(show=True)
+    window.app_context.generation += 1
+    c._observer.run_jobs()
+    assert not c._report_dialog.progress.isVisible()
+    assert "账号已切换" in c._report_dialog.label.text()
+    assert popups == ["warning"]
+
+
+def test_paused_manual_check_does_not_connect(controller):
+    c, _window, policy, _events, _popups, probe = controller
+    policy.set_paused(True)
+    observed = []
+    c.runtime.tick = lambda **kwargs: observed.append(kwargs) or probe
+    c.check(show=True)
+    c._observer.run_jobs()
+    assert observed == [{"allow_connect": False}]
+
+
+def test_offline_revokes_capture_and_queues_teardown_before_next_observation(controller):
+    c, window, policy, events, _popups, probe = controller
+    c.select_mode("offline")
+    assert policy.settings.mode.value == "offline"
+    assert not policy.allowed("packet_capture", automatic=True)
+    assert events[:3] == ["input_stop", "battle_stop", "scan_request"]
+    assert "native_close" not in events and "loader_close" not in events
+    c._observer.run_jobs()
+    c._apply((policy.settings.revision, 1, probe, 0))
+    assert "packet_start" not in events
+    assert window.observed_sync_probes
+    assert events.index("battle_stop") < events.index("loader_close") < events.index("native_close")
+
+
+@pytest.mark.parametrize('mode', ['offline', 'low'])
+def test_mode_downgrade_applies_plugin_policy_before_background_teardown(controller, mode):
+    c, _window, policy, events, _popups, _probe = controller
+    policy.select_mode('medium', risk_confirmed=True)
+    observed = []
+    c._apply_plugin_policy = lambda: observed.append(policy.allowed('native_load'))
+    c.select_mode(mode)
+    assert observed == [False]
+    assert 'native_close' not in events
+    assert c._report_dialog.progress.isVisible()
+
+
+def test_plugin_preference_save_failure_still_requests_native_shutdown(controller):
+    c, _window, policy, events, popups, _probe = controller
+    policy.select_mode('medium', risk_confirmed=True)
+    def fail():
+        raise OSError('插件关闭状态保存失败')
+    c._apply_plugin_policy = fail
+    c.select_mode('offline')
+    assert not policy.allowed('native_load')
+    assert 'native_request' in events and popups == ['warning']
+
+
+def test_explicit_cleanup_has_own_result_without_opening_detection(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    calls = []
+    c.runtime.tick = lambda **kwargs: pytest.fail("cleanup must not open detection")
+    def clean(**kwargs):
+        calls.append(kwargs)
+        c.runtime.cleanup_detail = "本程序管理的组件已清理。"
+        policy.set_cleanup_pending(False)
+    c.runtime.cleanup = clean
+    c.cleanup()
+    assert policy.settings.paused
+    assert not policy.allowed("native_load", automatic=True)
+    assert policy.settings.pending_cleanup
+    assert c._report_dialog is None
+    assert c._cleanup_dialog is not None
+    c._observer.run_jobs()
+    assert calls == [{"allow_unrecorded_legacy_workspace": True}]
+    assert "状态：已清理" in c._cleanup_dialog.message.text()
+    assert not policy.settings.pending_cleanup
+    assert c._report_dialog is None
+
+
+def test_explicit_cleanup_reports_waiting_without_claiming_success(controller):
+    c, _window, policy, _events, _popups, _probe = controller
+    c.runtime.cleanup = lambda **_kwargs: setattr(
+        c.runtime, "cleanup_detail", "游戏未关闭，请先退出游戏。",
+    )
+    c.cleanup()
+    c._observer.run_jobs()
+    assert policy.settings.pending_cleanup
+    assert "状态：等待继续清理" in c._cleanup_dialog.message.text()
+    assert "退出游戏" in c._cleanup_dialog.message.text()
+
+
+def test_mode_change_does_not_take_runtime_lock_on_ui_thread(controller):
+    c, _window, policy, events, _popups, _probe = controller
+    c.select_mode("offline")
+    assert policy.settings.mode.value == "offline"
+    assert "invalidate" not in events and "native_close" not in events
+    c._observer.run_jobs()
+    assert "native_close" in events and "invalidate" in events
+
+
+def test_close_only_requests_shutdown_and_drops_late_result(controller):
+    c, window, policy, events, popups, probe = controller
+    c.check(show=True)
+    c.close()
+    assert "runtime_request" in events
+    assert "runtime_close" not in events
+    c._apply((policy.settings.revision, 1, probe, 1))
+    c.check(show=True)
+    c.start()
+    assert not c._observer.jobs and "packet_start" not in events
+    assert window.observed_sync_probes == []
+    assert popups == []
+    c._observer.finalize()
+    assert "runtime_close" in events
+
+
+def test_previous_persisted_snapshot_is_not_current_login_proof(controller):
+    c, window, policy, _events, _popups, probe = controller
+    window._inventory_sync_service = SimpleNamespace(
+        is_running=True,
+        state=SimpleNamespace(capturing=True, source_snapshot_ready=False, last_snapshot_id=99, error=None),
+    )
+    captured = []
+    original = policy.build_report
+    policy.build_report = lambda value: captured.append(value) or original(value)
+    c._apply((policy.settings.revision, 1, probe, 0))
+    assert not captured[0].packet_snapshot and not captured[0].logged_in
+    assert window.observed_sync_probes == captured
+    window._inventory_sync_service = None
+
+
+@pytest.mark.parametrize("action", ["mode", "cleanup"])
+def test_persistence_failure_still_requests_stop_after_memory_revocation(controller, monkeypatch, action):
+    c, _window, policy, events, popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.set_cleanup_pending(False)
+
+    def fail_save(_settings):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(policy._store, "save", fail_save)
+    actions = {
+        "mode": lambda: c.select_mode("offline"),
+        "cleanup": c.cleanup,
+    }
+    actions[action]()
+    assert events[:3] == ["input_stop", "battle_stop", "scan_request"]
+    assert "native_request" in events
+    assert "native_close" not in events
+    assert c._teardown_pending == 1
+    if action == "mode":
+        assert popups == ["warning"]
+    else:
+        assert c._cleanup_dialog is not None
+        assert "清理未完成" in c._cleanup_dialog.message.text()
+    if action == "mode":
+        assert policy.settings.mode.value == "offline"
+        assert not policy.allowed("native_sync")
+    if action == "cleanup":
+        assert policy.settings.pending_cleanup and policy.settings.paused
+    c._observer.run_jobs()
+    assert "native_close" in events
+
+
+def test_async_mode_stop_invalidates_run_without_clearing_live_service(controller):
+    c, window, _policy, events, _popups, _probe = controller
+    service = SimpleNamespace(is_running=True)
+    service.request_stop = lambda: events.append("packet_request")
+
+    def stop():
+        service.is_running = False
+
+    service.stop = stop
+    window._inventory_sync_service = service
+    cleared = []
+
+    def clear_owner():
+        cleared.append(window._inventory_sync_service)
+        window._inventory_sync_service = None
+
+    window._stop_inventory_sync = clear_owner
+    c.select_mode("offline")
+    assert window._inventory_sync_service is service and service.is_running
+    assert "invalidate_run" in events
+    c._observer.run_jobs()
+    assert cleared == [service] and window._inventory_sync_service is None
+
+
+def test_old_teardown_does_not_clear_replacement_service(controller):
+    c, window, policy, _events, _popups, _probe = controller
+    old = SimpleNamespace(is_running=False)
+    current = SimpleNamespace(is_running=True)
+    window._inventory_sync_service = current
+    c._apply(module._TeardownResult(policy.settings.revision, 1, service=old))
+    assert window._inventory_sync_service is current
+    window._inventory_sync_service = None
+
+
+def test_previous_pending_teardown_does_not_skip_new_failed_revocation(controller, monkeypatch):
+    c, _window, policy, events, popups, _probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    c._teardown_pending = 1
+
+    def fail_save(_settings):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(policy._store, "save", fail_save)
+    c.select_mode("offline")
+    assert events[:3] == ["input_stop", "battle_stop", "scan_request"]
+    assert "native_request" in events
+    assert c._teardown_pending == 2
+    assert policy.settings.mode.value == "offline"
+    assert popups == ["warning"]
+
+
+@pytest.mark.parametrize("target", ["offline", "low", "medium", "developer"])
+def test_cancel_then_reselect_survives_background_and_can_confirm(controller, monkeypatch, target):
+    from PySide6.QtWidgets import QVBoxLayout, QPushButton
+    from src.features.settings.work_mode_card import build_work_mode_card
+    c, window, policy, events, _popups, probe = controller
+    initial = "medium" if target == "offline" else "offline"
+    policy.select_mode(initial, risk_confirmed=initial != "offline")
+    window.work_mode_controller, window.work_mode_service = c, policy
+
+    def make_card(_title):
+        card = QWidget(window)
+        QVBoxLayout(card)
+        return card
+    window._card = make_card
+    card = build_work_mode_card(window)
+    assert all(b.text() != "选择并检测" for b in card.findChildren(QPushButton))
+    combo, *_rest = c._controls
+    combo.setCurrentIndex(combo.findData(target))
+    policy.set_cleanup_pending(False)  # An unrelated persisted revision must not replace the draft.
+    for _ in range(2):
+        c._apply((policy.settings.revision, 1, probe, 0))
+    assert combo.currentData() == target
+    monkeypatch.setattr(module, "confirm_mode", lambda *args: False)
+    combo.activated.emit(combo.currentIndex())
+    assert policy.settings.mode.value == initial
+    assert combo.currentData() == initial
+    assert events == []
+    combo.setCurrentIndex(combo.findData(target))
+    c._apply((policy.settings.revision, 1, probe, 0))
+    assert combo.currentData() == target
+    monkeypatch.setattr(module, "confirm_mode", lambda *args: True)
+    combo.activated.emit(combo.currentIndex())
+    assert policy.settings.mode.value == target
+    assert combo.currentData() == target
+    assert policy.allowed("compare_sources") == (target == "developer")
+    reopened = WorkModeService(policy._store.path)
+    assert reopened.settings.mode.value == target
+    assert reopened.settings.risk_confirmed == (target != "offline")
+    assert c._report_dialog.progress.isVisible()
+    card.close()
+
+
+@pytest.mark.parametrize("target", ["mode", "detection", "deployment"])
+def test_guidance_navigation_uses_key_focuses_anchor_without_work(controller, qt_app, target):
+    from PySide6.QtWidgets import QComboBox, QLabel, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout
+    c, window, policy, events, _popups, _probe = controller
+    window.resize(680, 400)
+    outer = QVBoxLayout(window)
+    stack = QStackedWidget(window)
+    outer.addWidget(stack)
+    other = QWidget()
+    stack.addWidget(other)
+    content = QWidget()
+    body = QVBoxLayout(content)
+    mode_card = QWidget()
+    modes = QVBoxLayout(mode_card)
+    combo = QComboBox()
+    for value in ("offline", "low", "medium", "developer"):
+        combo.addItem(value, value)
+    status, check = QLabel("当前检测结果"), QPushButton("检测详情")
+    modes.addWidget(combo)
+    modes.addWidget(check)
+    modes.addWidget(status)
+    body.addWidget(mode_card)
+    body.addSpacing(900)
+    component_card = QWidget()
+    component_layout = QVBoxLayout(component_card)
+    deploy = QPushButton("显式部署")
+    component_layout.addWidget(deploy)
+    body.addWidget(component_card)
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setWidget(content)
+    stack.addWidget(scroll)
+    c.attach_controls(combo, status, check)
+    c.attach_settings_targets(scroll=scroll, mode_card=mode_card, component_card=component_card, component_focus=deploy)
+    combo.setCurrentIndex(combo.findData("developer"))
+    routes = []
+
+    def navigate(key):
+        routes.append(key)
+        stack.setCurrentWidget(scroll)
+    c._navigate = navigate
+    frozen, jobs = policy.settings, list(c._observer.jobs)
+    window.show()
+    qt_app.processEvents()
+    c.open_settings(target)
+    qt_app.processEvents()
+    card, focus = c._settings_targets[target]
+    assert routes == ["settings"]
+    assert focus.hasFocus() and card.property("workModeHighlight") is True
+    assert combo.currentData() == "developer"
+    assert policy.settings == frozen and c._observer.jobs == jobs and events == []
+    if target == "deployment":
+        assert scroll.verticalScrollBar().value() > 0
+    c._highlight_timer.timeout.emit()
+    assert card.property("workModeHighlight") is False
+
+
+def test_guidance_respects_cancelled_page_navigation(controller, qt_app):
+    from PySide6.QtWidgets import QScrollArea
+    c, window, policy, events, _popups, _probe = controller
+    card = QWidget(window)
+    card.hide()
+    c._settings_scroll = QScrollArea()
+    c._settings_targets = {"mode": (card, card)}
+    c._navigate = lambda _key: None  # Existing page's unsaved-edit prompt prevented navigation.
+    c.open_settings()
+    qt_app.processEvents()
+    assert not card.property("workModeHighlight") and not card.hasFocus()
+    assert events == [] and not c._observer.jobs
+
+
+def test_medium_probe_without_npcap_is_forwarded_without_starting_core(controller):
+    from dataclasses import replace
+    from src.domain.work_mode import NativeFeatureProbe
+    c, window, policy, events, popups, probe = controller
+    policy.select_mode("medium", risk_confirmed=True)
+    policy.set_cleanup_pending(False)
+    probe = replace(probe, game_running=True, core_available=True, npcap_available=False,
+                    native_inventory=NativeFeatureProbe(handshake=True))
+    c._apply((policy.settings.revision, 1, probe, 0))
+    assert window.observed_sync_probes == [probe]
+    assert "packet_start" not in events
+    assert popups == []
+    c._apply((policy.settings.revision, 1, probe, 0))
+    assert window.observed_sync_probes == [probe, probe]
+    assert "packet_start" not in events
+
+
+@pytest.mark.parametrize("options,retry", [({}, False), ({"show": True}, False),
+    ({"show": True, "retry_deployment": True}, True), ({"preview": True, "retry_deployment": True}, False)])
+def test_only_explicit_deployment_retry_clears_failure(controller, options, retry):
+    c, *_ = controller
+    seen = []
+    c.runtime.invalidate = lambda **kwargs: seen.append(kwargs)
+    c.check(**options)
+    c._observer.run_jobs()
+    assert seen == [{"retry_deployment": retry}]

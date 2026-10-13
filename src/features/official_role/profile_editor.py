@@ -33,7 +33,7 @@ __all__ = ["OfficialRoleProfileEditor"]
 
 
 class OfficialRoleProfileEditor(QWidget):
-    """Edit cultivation fields while keeping persistence outside the widget."""
+    """编辑养成草稿并投影公开字段；数据库保存及原始快照保护仍由调用方负责。"""
 
     changed = Signal()
 
@@ -142,6 +142,7 @@ class OfficialRoleProfileEditor(QWidget):
             return None
         context_key = str(self._editor.get("equipment_context_key") or "battle")
         context = (self._detail.get("equipment_contexts") or {}).get(context_key)
+        # 只交付实际可冻结的配装上下文；理论模板不伪装成来源方案或正式背包 UID。
         if context is None or context_key == "theory":
             raise ValueError("请选择可冻结的空幕/驱动配装")
         return context_key, context

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+from concurrent.futures import CancelledError
+from src.integrations.vision.recognition.task_session import OcrTaskSession, use_ocr_session
 
 from src.utils.logger import logger
 
@@ -83,41 +85,45 @@ def execute_action_sequence(
     should_stop: Callable[[], bool] | None = None,
     role_name: str | None = None,
     on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
+    *, ocr_session: OcrTaskSession | None = None,
 ) -> ActionExecutionReport:
     """Execute a flat click/drag sequence."""
 
-    mouse = backend or PyAutoGuiMouseBackend()
-    report = ActionExecutionReport(role_name=role_name)
-    runtime_state: dict[str, Any] = {}
-    for action in sequence:
-        if should_stop and should_stop():
-            raise AssemblyExecutionStopped("assembly execution stopped")
-        if _execute_one_action(action, mouse, should_stop=should_stop, runtime_state=runtime_state):
-            report.executed_actions += 1
-            if action.get("duplicate_status_filter"):
-                logger.info(
-                    "重复装备状态筛选已执行 | "
-                    f"角色={role_name or '未指定'} | 块={action.get('block_id', '未指定')} | "
-                    f"分组={action.get('duplicate_group_id') or '未分组'} | 状态={action.get('name')}"
-                )
-            action_pause_seconds = float(
-                action.get("post_action_pause_seconds", _default_action_pause_seconds(action, pause_seconds))
-            )
-            if action_pause_seconds > 0:
-                _pause_with_stop(mouse, action_pause_seconds, should_stop)
-            if on_action_executed is not None:
-                try:
-                    on_action_executed(dict(action), role_name)
-                except Exception as exc:
-                    logger.warning(f"装配动作记录回调失败 | {_action_diagnostic(action)} | 原因={exc}")
-        else:
-            report.skipped_actions.append(dict(action))
-            logger.warning(
-                "装配动作跳过 | "
-                f"角色={role_name or '未指定'} | {_action_diagnostic(action)} | "
-                "原因=动作不受支持或前置检测失败"
-            )
-    return report
+    try:
+        with use_ocr_session(should_stop=should_stop, session=ocr_session) as ocr:
+            mouse = backend or PyAutoGuiMouseBackend()
+            report = ActionExecutionReport(role_name=role_name)
+            runtime_state: dict[str, Any] = {}
+            for action in sequence:
+                ocr.check_current(should_stop=should_stop)  # 同一门禁同时核对停止与解码漂移。
+                if _execute_one_action(action, mouse, should_stop=should_stop, runtime_state=runtime_state, ocr_session=ocr):
+                    report.executed_actions += 1
+                    if action.get("duplicate_status_filter"):
+                        logger.info(
+                            "重复装备状态筛选已执行 | "
+                            f"角色={role_name or '未指定'} | 块={action.get('block_id', '未指定')} | "
+                            f"分组={action.get('duplicate_group_id') or '未分组'} | 状态={action.get('name')}"
+                        )
+                    action_pause_seconds = float(
+                        action.get("post_action_pause_seconds", _default_action_pause_seconds(action, pause_seconds))
+                    )
+                    if action_pause_seconds > 0:
+                        _pause_with_stop(mouse, action_pause_seconds, should_stop)
+                    if on_action_executed is not None:
+                        try:
+                            on_action_executed(dict(action), role_name)
+                        except Exception as exc:
+                            logger.warning(f"装配动作记录回调失败 | {_action_diagnostic(action)} | 原因={exc}")
+                else:
+                    report.skipped_actions.append(dict(action))
+                    logger.warning(
+                        "装配动作跳过 | "
+                        f"角色={role_name or '未指定'} | {_action_diagnostic(action)} | "
+                        "原因=动作不受支持或前置检测失败"
+                    )
+            return report
+    except CancelledError as exc:
+        raise AssemblyExecutionStopped("assembly execution stopped") from exc
 
 
 def _default_action_pause_seconds(action: dict[str, Any], pause_seconds: float) -> float:
@@ -136,37 +142,43 @@ def execute_role_assembly_plan(
     startup_delay_seconds: float = 0.0,
     role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
     on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
+    *, ocr_session: OcrTaskSession | None = None,
 ) -> ActionExecutionReport:
     """Execute all install actions for one role plan."""
 
-    role_name = str(plan.get("role_name") or "")
-    if not plan.get("available"):
-        return ActionExecutionReport(role_name=role_name)
-    mouse = backend or PyAutoGuiMouseBackend()
-    logger.info(
-        "角色装配开始 | "
-        f"角色={role_name or '未指定'} | 卡带={plan.get('tape_count', 0)} | "
-        f"驱动={plan.get('drive_count', 0)} | 顶层动作={[action.get('name') for action in plan.get('actions', [])]}"
-    )
-    if startup_delay_seconds > 0:
-        _pause_with_stop(mouse, startup_delay_seconds, should_stop)
-    combined = _flatten_role_actions(plan.get("actions", []))
-    report = execute_action_sequence(
-        combined,
-        backend=mouse,
-        pause_seconds=pause_seconds,
-        should_stop=should_stop,
-        role_name=role_name,
-        on_action_executed=on_action_executed,
-    )
-    if role_verifier is not None:
-        role_verifier(role_name, plan)
-    logger.info(
-        "角色装配结束 | "
-        f"角色={role_name or '未指定'} | 已执行={report.executed_actions} | "
-        f"跳过={[action.get('name', '未命名') for action in report.skipped_actions]}"
-    )
-    return report
+    try:
+        with use_ocr_session(should_stop=should_stop, session=ocr_session) as ocr:
+            role_name = str(plan.get("role_name") or "")
+            if not plan.get("available"):
+                return ActionExecutionReport(role_name=role_name)
+            mouse = backend or PyAutoGuiMouseBackend()
+            logger.info(
+                "角色装配开始 | "
+                f"角色={role_name or '未指定'} | 卡带={plan.get('tape_count', 0)} | "
+                f"驱动={plan.get('drive_count', 0)} | 顶层动作={[action.get('name') for action in plan.get('actions', [])]}"
+            )
+            if startup_delay_seconds > 0:
+                _pause_with_stop(mouse, startup_delay_seconds, should_stop)
+            combined = _flatten_role_actions(plan.get("actions", []))
+            report = execute_action_sequence(
+                combined,
+                backend=mouse,
+                pause_seconds=pause_seconds,
+                should_stop=should_stop,
+                ocr_session=ocr,
+                role_name=role_name,
+                on_action_executed=on_action_executed,
+            )
+            if role_verifier is not None:
+                role_verifier(role_name, plan)
+            logger.info(
+                "角色装配结束 | "
+                f"角色={role_name or '未指定'} | 已执行={report.executed_actions} | "
+                f"跳过={[action.get('name', '未命名') for action in report.skipped_actions]}"
+            )
+            return report
+    except CancelledError as exc:
+        raise AssemblyExecutionStopped("assembly execution stopped") from exc
 
 
 def execute_all_role_assembly_plan(
@@ -174,25 +186,31 @@ def execute_all_role_assembly_plan(
     backend: MouseBackend | None = None,
     pause_seconds: float = DEFAULT_ACTION_PAUSE_SECONDS,
     should_stop: Callable[[], bool] | None = None,
+    *, ocr_session: OcrTaskSession | None = None,
 ) -> AssemblyExecutionReport:
     """Execute every available role plan in an all-role assembly plan."""
 
-    mouse = backend or PyAutoGuiMouseBackend()
-    report = AssemblyExecutionReport()
-    for role_plan in plan.get("role_plans", []):
-        role_name = str(role_plan.get("role_name") or "")
-        if not role_plan.get("available"):
-            if role_name:
-                report.skipped_roles.append(role_name)
-            continue
-        role_report = execute_role_assembly_plan(
-            role_plan,
-            backend=mouse,
-            pause_seconds=pause_seconds,
-            should_stop=should_stop,
-        )
-        report.role_reports.append(role_report)
-    return report
+    try:
+        with use_ocr_session(should_stop=should_stop, session=ocr_session) as ocr:
+            mouse = backend or PyAutoGuiMouseBackend()
+            report = AssemblyExecutionReport()
+            for role_plan in plan.get("role_plans", []):
+                role_name = str(role_plan.get("role_name") or "")
+                if not role_plan.get("available"):
+                    if role_name:
+                        report.skipped_roles.append(role_name)
+                    continue
+                role_report = execute_role_assembly_plan(
+                    role_plan,
+                    backend=mouse,
+                    pause_seconds=pause_seconds,
+                    should_stop=should_stop,
+                    ocr_session=ocr,
+                )
+                report.role_reports.append(role_report)
+            return report
+    except CancelledError as exc:
+        raise AssemblyExecutionStopped("assembly execution stopped") from exc
 
 
 def execute_role_traversal_assembly_plan(
@@ -203,79 +221,87 @@ def execute_role_traversal_assembly_plan(
     should_stop: Callable[[], bool] | None = None,
     role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
     on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
+    *, ocr_session: OcrTaskSession | None = None,
 ) -> AssemblyExecutionReport:
     """Execute role-list traversal and run the matching assembly plan for each role."""
 
-    mouse = backend or PyAutoGuiMouseBackend()
-    role_plans = _role_plan_lookup(assembly_plan)
-    report = AssemblyExecutionReport()
-    report.missing_roles = list(traversal_plan.get("missing_roles", []) or [])
-    report.duplicate_roles = list(traversal_plan.get("duplicates", []) or [])
-    report.unrecognized_roles = list(traversal_plan.get("unrecognized", []) or [])
-    logger.info(
-        "装配遍历执行开始 | "
-        f"计划角色={[step.get('role_name') for step in traversal_plan.get('plans', [])]} | "
-        f"缺失={report.missing_roles} | 未识别={report.unrecognized_roles} | 重复角色={report.duplicate_roles}"
-    )
-    for step in traversal_plan.get("plans", []):
-        logger.info(
-            "角色路径执行 | "
-            f"角色={step.get('role_name')} | 起始索引={step.get('start_roster_index')} | "
-            f"目标索引={step.get('roster_index')} | "
-            f"导航={[action.get('gamepad_button') or action.get('gamepad_stick') or action.get('name') for action in step.get('action_sequence', []) if not _is_role_blueprint_assembly_action(action)]}"
-        )
-        pending_actions: list[dict[str, Any]] = []
-        for action in step.get("action_sequence", []):
-            if not _is_role_blueprint_assembly_action(action):
-                pending_actions.append(action)
-                continue
-            if pending_actions:
-                action_report = execute_action_sequence(
-                    pending_actions,
-                    backend=mouse,
-                    pause_seconds=pause_seconds,
-                    should_stop=should_stop,
-                    role_name=step.get("role_name"),
-                    on_action_executed=on_action_executed,
+    try:
+        with use_ocr_session(should_stop=should_stop, session=ocr_session) as ocr:
+            mouse = backend or PyAutoGuiMouseBackend()
+            role_plans = _role_plan_lookup(assembly_plan)
+            report = AssemblyExecutionReport()
+            report.missing_roles = list(traversal_plan.get("missing_roles", []) or [])
+            report.duplicate_roles = list(traversal_plan.get("duplicates", []) or [])
+            report.unrecognized_roles = list(traversal_plan.get("unrecognized", []) or [])
+            logger.info(
+                "装配遍历执行开始 | "
+                f"计划角色={[step.get('role_name') for step in traversal_plan.get('plans', [])]} | "
+                f"缺失={report.missing_roles} | 未识别={report.unrecognized_roles} | 重复角色={report.duplicate_roles}"
+            )
+            for step in traversal_plan.get("plans", []):
+                logger.info(
+                    "角色路径执行 | "
+                    f"角色={step.get('role_name')} | 起始索引={step.get('start_roster_index')} | "
+                    f"目标索引={step.get('roster_index')} | "
+                    f"导航={[action.get('gamepad_button') or action.get('gamepad_stick') or action.get('name') for action in step.get('action_sequence', []) if not _is_role_blueprint_assembly_action(action)]}"
                 )
-                report.navigation_actions += action_report.executed_actions
-                pending_actions = []
-            role_name = str(action.get("role_name") or step.get("role_name") or "")
-            role_plan = role_plans.get(role_name)
-            if role_plan is None:
-                if role_name:
-                    report.skipped_roles.append(role_name)
-                logger.warning(f"角色装配跳过 | 角色={role_name or '未指定'} | 原因=未找到对应装配计划")
-                continue
-            role_report = execute_role_assembly_plan(
-                role_plan,
-                backend=mouse,
-                pause_seconds=pause_seconds,
-                should_stop=should_stop,
-                on_action_executed=on_action_executed,
+                pending_actions: list[dict[str, Any]] = []
+                for action in step.get("action_sequence", []):
+                    if not _is_role_blueprint_assembly_action(action):
+                        pending_actions.append(action)
+                        continue
+                    if pending_actions:
+                        action_report = execute_action_sequence(
+                            pending_actions,
+                            backend=mouse,
+                            pause_seconds=pause_seconds,
+                            should_stop=should_stop,
+                            ocr_session=ocr,
+                            role_name=step.get("role_name"),
+                            on_action_executed=on_action_executed,
+                        )
+                        report.navigation_actions += action_report.executed_actions
+                        pending_actions = []
+                    role_name = str(action.get("role_name") or step.get("role_name") or "")
+                    role_plan = role_plans.get(role_name)
+                    if role_plan is None:
+                        if role_name:
+                            report.skipped_roles.append(role_name)
+                        logger.warning(f"角色装配跳过 | 角色={role_name or '未指定'} | 原因=未找到对应装配计划")
+                        continue
+                    role_report = execute_role_assembly_plan(
+                        role_plan,
+                        backend=mouse,
+                        pause_seconds=pause_seconds,
+                        should_stop=should_stop,
+                        ocr_session=ocr,
+                        on_action_executed=on_action_executed,
+                    )
+                    if role_verifier is not None:
+                        verification = role_verifier(role_name, role_plan)
+                        if verification and not verification.get("ok", True):
+                            report.verification_failures.append({"role_name": role_name, **verification})
+                            logger.warning(f"角色装配校验失败 | 角色={role_name} | 详情={verification}")
+                    report.role_reports.append(role_report)
+                if pending_actions:
+                    action_report = execute_action_sequence(
+                        pending_actions,
+                        backend=mouse,
+                        pause_seconds=pause_seconds,
+                        should_stop=should_stop,
+                        ocr_session=ocr,
+                        role_name=step.get("role_name"),
+                        on_action_executed=on_action_executed,
+                    )
+                    report.navigation_actions += action_report.executed_actions
+            logger.info(
+                "装配遍历执行结束 | "
+                f"导航动作={report.navigation_actions} | 角色报告={[(item.role_name, item.executed_actions) for item in report.role_reports]} | "
+                f"跳过角色={report.skipped_roles} | 校验失败={report.verification_failures}"
             )
-            if role_verifier is not None:
-                verification = role_verifier(role_name, role_plan)
-                if verification and not verification.get("ok", True):
-                    report.verification_failures.append({"role_name": role_name, **verification})
-                    logger.warning(f"角色装配校验失败 | 角色={role_name} | 详情={verification}")
-            report.role_reports.append(role_report)
-        if pending_actions:
-            action_report = execute_action_sequence(
-                pending_actions,
-                backend=mouse,
-                pause_seconds=pause_seconds,
-                should_stop=should_stop,
-                role_name=step.get("role_name"),
-                on_action_executed=on_action_executed,
-            )
-            report.navigation_actions += action_report.executed_actions
-    logger.info(
-        "装配遍历执行结束 | "
-        f"导航动作={report.navigation_actions} | 角色报告={[(item.role_name, item.executed_actions) for item in report.role_reports]} | "
-        f"跳过角色={report.skipped_roles} | 校验失败={report.verification_failures}"
-    )
-    return report
+            return report
+    except CancelledError as exc:
+        raise AssemblyExecutionStopped("assembly execution stopped") from exc
 
 
 def _flatten_role_actions(actions: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
@@ -331,6 +357,7 @@ def _execute_one_action(
     backend: MouseBackend,
     should_stop: Callable[[], bool] | None = None,
     runtime_state: dict[str, Any] | None = None,
+    ocr_session: OcrTaskSession | None = None,
 ) -> bool:
     state = runtime_state if runtime_state is not None else {}
     if "wait_seconds" in action:
@@ -343,7 +370,9 @@ def _execute_one_action(
     if action.get("name") == "verify_drive_block_installed":
         return _retry_missing_drive_block(action, backend, should_stop, state)
     if "ocr_target_text" in action:
-        return _click_ocr_target(action, backend)
+        if ocr_session is None:
+            raise RuntimeError('执行 OCR 目标缺少任务 owner')
+        return _click_ocr_target(action, backend, ocr_session, should_stop)
     if "optional_confirm_position" in action:
         return _maybe_click_optional_confirm(action, backend)
     if "wheel_clicks" in action:
@@ -459,6 +488,7 @@ def _retry_missing_drive_block(
     backend: MouseBackend,
     should_stop: Callable[[], bool] | None = None,
     runtime_state: dict[str, Any] | None = None,
+    ocr_session: OcrTaskSession | None = None,
 ) -> bool:
     """Retry a drive drag when the target area did not change after the first drag."""
 

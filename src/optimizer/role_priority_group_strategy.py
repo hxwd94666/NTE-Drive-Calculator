@@ -1,6 +1,5 @@
 # 实现角色优先组的部分分配、恢复与最终执行策略。
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 from collections import Counter
 
@@ -126,6 +125,10 @@ class RolePriorityGroupStrategyMixin:
                 )
                 matrix[row_index, drive_index] = slot_bias + rank_score
 
+        # 求解依赖只随后台匹配加载；冷加载期间取消也不得继续分配。
+        self._check_cancelled()
+        from scipy.optimize import linear_sum_assignment
+        self._check_cancelled()
         row_indices, column_indices = linear_sum_assignment(-matrix)
         for row_index, column_index in zip(row_indices.tolist(), column_indices.tolist()):
             if column_index >= len(drives_pool) or matrix[row_index, column_index] <= 0:
@@ -313,6 +316,10 @@ class RolePriorityGroupStrategyMixin:
                         crit_priority_modes.get(role),
                         include_extra_shape_bonus=include_bonus,
                     )
+            # 求解依赖只随后台匹配加载；冷加载期间取消也不得继续分配。
+            self._check_cancelled()
+            from scipy.optimize import linear_sum_assignment
+            self._check_cancelled()
             row_indices, column_indices = linear_sum_assignment(-rank_matrix)
             for row_index, column_index in zip(row_indices.tolist(), column_indices.tolist()):
                 if (
@@ -527,11 +534,9 @@ class RolePriorityGroupStrategyMixin:
         used_tape_uids: set[str] | None = None,
         candidate_limit: int = 15,
     ) -> AllocationResult:
-        """Repair a failed same-priority group in two bounded stages.
+        """同级组先冻结必需套装件、重选额外槽位，再有界恢复约束失败角色。
 
-        The first retry freezes only blueprint-required set drives and rebuilds
-        every extra slot.  Constraint failures then release only the failed
-        roles and traverse all semantic blueprints; successful peers stay fixed.
+        已成功同级角色和前序占用保持固定；只释放失败角色，不借走成功方案 UID。
         """
 
         provisional = self._find_best_partial_group_fit(

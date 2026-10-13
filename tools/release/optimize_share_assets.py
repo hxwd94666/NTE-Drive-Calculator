@@ -33,7 +33,7 @@ def checked_path(root: Path, relative: str) -> Path:
 
 
 def prepare_candidate(source: Path, candidate: Path, bold: Path) -> dict:
-    """Bake original-size render results and preserve source provenance/licensing."""
+    """只生成独立候选，重开核对解码像素；来源、完整字体哈希和许可保持可追踪。"""
     source = source.resolve(strict=True)
     candidate = candidate.resolve()
     bold = bold.resolve(strict=True)
@@ -101,8 +101,7 @@ def prepare_candidate(source: Path, candidate: Path, bold: Path) -> dict:
     (candidate / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
                                             encoding="utf-8")
     notice = candidate / "NOTICE.md"
-    # Attribution lives in the project's unified NOTICE, not a generated duplicate.
-    # Keep both upstream and font license documents in the candidate unchanged.
+    # 归属只保留在项目统一 NOTICE，不生成重复副本；上游与字体许可原样保留。
     if notice.is_file():
         if notice.is_symlink() or not notice.resolve().is_relative_to(candidate):
             raise ValueError("候选说明文件路径越界")

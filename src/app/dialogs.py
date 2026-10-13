@@ -1,5 +1,5 @@
 # 提供通用帮助弹窗工具。
-"""Shared dialog helpers."""
+"""通用帮助弹窗：只展示说明，不启动功能。"""
 
 from __future__ import annotations
 
@@ -9,9 +9,7 @@ from src.app.theme import current_style_sheet
 
 
 def show_help(parent: QWidget | None, title: str, text: str) -> None:
-    # Feature controllers are QObjects rather than widgets.  Keep this shared
-    # boundary defensive so an accidental controller caller cannot crash Qt's
-    # strict parent overload; page builders should still pass their button.
+    # Controller 是 QObject；只接收 QWidget 父级，页面仍应传入实际按钮。
     dialog_parent = parent if isinstance(parent, QWidget) else None
     dlg = QDialog(dialog_parent)
     dlg.setWindowTitle(title)

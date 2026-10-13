@@ -6,16 +6,16 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.services.bulk_equipment_apply_service import BulkEquipmentApplyService
-from src.services.bulk_equipment_apply_postcheck import (
+from src.services.equipment.bulk_apply import BulkEquipmentApplyService
+from src.services.equipment.bulk_postcheck import (
     dispatch_retry_attempt,
     postcheck_and_repair,
     verify_complete_snapshot,
     wait_for_guarded_full_snapshot,
 )
-from src.services.equipment_apply_service import EquipmentApplyService
+from src.services.equipment.apply import EquipmentApplyService
 from src.integrations.nte_core_protocol import NteCoreError, NteCoreProtocolError
-from src.services.inventory_observation_wait import (
+from src.services.inventory.sync.observation_wait import (
     record_inventory_observation,
     wait_for_inventory_observation,
 )
@@ -108,7 +108,7 @@ def test_freeze_plans_preserves_targets_across_saved_plan_changes():
 
 def test_failure_return_is_logged_as_failure_not_bulk_success(monkeypatch):
     events = Mock()
-    monkeypatch.setattr("src.services.bulk_equipment_apply_service.log_event", events)
+    monkeypatch.setattr("src.services.equipment.bulk_apply.log_event", events)
     service = BulkEquipmentApplyService("unused.sqlite3", object(), operation_guard=Mock())
     service._run = Mock(
         return_value={"job_id": 10, "completed": False, "failure_kind": "recovery_exhausted", "applied": []}

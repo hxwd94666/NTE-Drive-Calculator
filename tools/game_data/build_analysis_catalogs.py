@@ -46,7 +46,7 @@ def populate_analysis_catalogs(database: Path) -> int:
 
 
 def validate_catalog_inputs(database: Path) -> None:
-    """Verify the catalog stored in the selected main static database."""
+    """只读校验选定主静态内的目录格式、解压上限、长度和哈希。"""
     connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         row = connection.execute(

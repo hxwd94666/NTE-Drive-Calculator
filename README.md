@@ -157,14 +157,14 @@
 ## 🧑‍💻本地开发
 
 > [!IMPORTANT]
-> 准备 Fork 开发前，请先加入 QQ 交流群 `1029030672` 并私聊群主。主仓库持续开发，提交通常按版本发布或开发交接整理；Fork 的 HEAD 可能不是当前协作基线。请先确认当前基线与合并方式，再开始开发。
+> 提交、合并或协调开发前，请先加入 QQ 交流群 `1029030672` 并私聊群主。主仓库持续开发，提交通常按版本发布或开发交接整理；Fork 的 HEAD 可能不是当前协作基线。请先确认当前基线与合并方式，再开始开发。
 
 项目使用 Python 3.11、SQLite 与 PySide6。详细设计见 [系统架构](docs/architecture.md) 与 [外部集成](docs/integrations.md)；开发文档从 [开发文档入口](docs/README.md) 进入。
 
 安装 [uv](https://docs.astral.sh/uv/) 后，在仓库根目录执行：
 
 ```powershell
-uv sync --locked --group build --group dev
+uv sync --locked
 uv run python main.py
 ```
 
@@ -175,6 +175,46 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e . coverage mypy pytest ruff pyinstaller
 ```
 
+### Fork 的公开开发路线
+
+从选定的公开 tag/commit 开始，记录实际 HEAD 与工作区状态；维护者未发布工作区不是可复现的公开 ref。
+[完整基础权重参考与五类修改配方](docs/reference/fork-development.md)沿实际页面、冻结请求、Service、Domain 和 DAO，
+说明读、编辑、保存/重置、失败保留及离页，并提供不依赖真实账号或私有组件的合成用例。
+界面语言、OCR、静态资料和组件边界分别链接其权威说明，不另维护一套教程框架。
+
+#### 仅基础权重参考的独立环境
+
+以下命令以前述参考源码、合成夹具及配套锁文件已包含在同一选定 ref 中为前提；
+当前未提交 overlay 的验证不代表该公开 ref 已发布。
+
+在干净检出的根目录准备一个尚不存在的 `.venv-fork-reference`。本环境只覆盖上述完整基础权重参考，
+不用于启动完整应用，也不替代其他领域的 core/full、OCR、系统输入或发行构建环境。
+从同一锁文件导出参考实际使用的 Python/Qt/pytest 闭包；`--prune` 只去掉该参考未消费的根依赖，
+其余传递依赖仍由锁文件解析，不复制已有 site-packages，不构建源分发。
+
+```powershell
+New-Item -ItemType Directory -Force build/fork-reference | Out-Null
+uv venv --python 3.11 .venv-fork-reference
+uv export --locked --no-default-groups --group dev --no-emit-project `
+  --prune keyboard --prune mss --prune opencv-python --prune pillow `
+  --prune pyautogui --prune vgamepad --prune coverage --prune mypy --prune ruff `
+  --output-file build/fork-reference/requirements.txt
+uv pip install --python .venv-fork-reference/Scripts/python.exe --require-hashes --no-build `
+  -r build/fork-reference/requirements.txt
+$env:UV_PROJECT_ENVIRONMENT = (Resolve-Path .venv-fork-reference).Path
+```
+
+首次依赖获取需要相应公开 wheel；已有与锁文件哈希匹配的 wheelhouse 时，安装命令追加
+`--offline --no-index --find-links <wheelhouse>`，无需网络。缺包或哈希不符应保留错误，不借其他环境补读。
+随后按[参考指南](docs/reference/fork-development.md#3-一次可复现的输入--处理--结果与失败分支)的
+三个现有质量命令执行；`uv run --no-sync` 不隐式安装项目或依赖。
+结束参考或改做完整应用前，执行 `Remove-Item Env:UV_PROJECT_ENVIRONMENT -ErrorAction SilentlyContinue`，
+让普通开发命令回到其原有环境。
+
+独立参考环境通过只证明约定离线业务；它与选定公开 ref 的全新 checkout、完整产品环境、真实 Windows
+窗口及组件资源验收是不同证据。未提交工作树 overlay 不属于公开版本，须与基线 ref 分开记录。
+下面保留质量与构建命令的唯一入口，执行用例时不隐式安装依赖。
+
 执行测试：
 
 ```powershell
@@ -182,9 +222,12 @@ uv run python tools/quality/run_tests.py core -j 3
 uv run python tools/quality/run_tests.py full
 ```
 
+发行构建另选原有 build 组并核对组件与资源清单；下面是维护者入口，不是本例已执行的步骤。
+
 打包桌面程序：
 
 ```powershell
+uv sync --locked --group build
 uv run python build_exe.py
 ```
 

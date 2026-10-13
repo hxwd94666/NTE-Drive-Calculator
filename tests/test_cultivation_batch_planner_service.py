@@ -4,20 +4,20 @@ from __future__ import annotations
 import pytest
 
 from src.domain.progression_stamina import FarmingStage, MaterialYield, StaminaPlanStatus
-from src.features.toolbox.cultivation_owned_materials import visible_materials
-from src.services.character_progression_requirements import MaterialSummaryStatus
-from src.services.cultivation_batch_planner_service import (
+from src.features.toolbox.cultivation.owned_materials import visible_materials
+from src.services.progression.character_requirements import MaterialSummaryStatus
+from src.services.progression.batch_planner import (
     CultivationBatchPlannerService,
     CultivationBatchRequest,
     CultivationTargetDraft,
 )
-from src.services.cultivation_planner_service import (
+from src.services.progression.planner_service import (
     CultivationMaterial,
     CultivationPlan,
     CultivationRequest,
     CultivationSection,
 )
-from src.services.cultivation_stamina_planner import (
+from src.services.progression.stamina_planner import (
     calculate_stamina_result,
     stamina_material_ids,
 )

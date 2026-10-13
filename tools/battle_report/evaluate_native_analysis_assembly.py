@@ -12,9 +12,9 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from src.services.battle_counterfactual_analysis_service import BattleCounterfactualAnalysisService  # noqa: E402
-from src.services.battle_environment_condition_service import resolve_battle_target_condition  # noqa: E402
-from src.services.battle_linko_coattack_inference_service import BattleLinkoCoattackInferenceService  # noqa: E402
+from src.services.battle_report.build.offline_analysis import BattleCounterfactualAnalysisService  # noqa: E402
+from src.services.battle_report.environment.conditions import resolve_battle_target_condition  # noqa: E402
+from src.services.battle_report.characters.linko_inference import BattleLinkoCoattackInferenceService  # noqa: E402
 from tools.battle_report.evaluate_native_application_parts import wire, numeric_wire  # noqa: E402
 from tools.battle_report.evaluate_native_analysis import compare_results  # noqa: E402
 
@@ -79,9 +79,9 @@ def main():
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     suite = unittest.defaultTestLoader.loadTestsFromNames([
-        'tests.test_battle_counterfactual_analysis_service',
+        'tests.battle_report.build.test_battle_counterfactual_analysis_service',
         'tests.test_battle_overkill_analysis_service',
-        'tests.test_battle_target_vital_analysis_service',
+        'tests.battle_report.targets.test_vital_analysis',
     ])
     with patch.object(BattleCounterfactualAnalysisService, 'analyze', side_effect=analyze):
         result = unittest.TextTestRunner(verbosity=1).run(suite)

@@ -7,8 +7,8 @@ import unittest
 from contextlib import nullcontext
 from types import SimpleNamespace
 
-import src.features.inventory.equipment_assembly_controller as page_module
-import src.features.inventory.equipment_automatic_assembly_controller as automatic_module
+import src.features.inventory.equipment.assembly_controller as page_module
+import src.features.inventory.equipment.automatic_assembly_controller as automatic_module
 
 
 class _EquipmentBatchSync:

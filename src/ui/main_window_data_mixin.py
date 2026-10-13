@@ -14,7 +14,7 @@ from src.features.scanning.file_lifecycle import (
     managed_screenshot_usage,
 )
 from src.features.settings.page import build_settings_page
-from src.services.allocation_catalog_service import read_allocation_catalog
+from src.services.allocation.catalog import read_allocation_catalog
 from src.ui.controllers.allocation_catalog_controller import allocation_catalog_controller
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import (
@@ -184,6 +184,9 @@ class MainWindowDataMixin:
         )
 
     def _load_data(self, reload_priority=True):
+        if reload_priority:
+            # 先撤销旧草稿的保存资格，再派发目录读取；取消/退出不覆盖新账号未读存档。
+            self.scanning_controller.role_selector.prepare_priority_account()
         self._catalog_controller().refresh(reload_priority=reload_priority)
 
     def set_allocation_catalog_ready(self, ready):
@@ -263,6 +266,7 @@ class MainWindowDataMixin:
             self.app_context,
             _iter_image_files,
             NETDISK_DOWNLOAD_LINKS,
+            language_settings=self._language_settings,
         )
 
     def _page_plugins(self):

@@ -127,7 +127,7 @@ def validate_gold_fix_provenance(
     *, candidate_database: Path, provenance_path: Path,
     baseline_database: Path, baseline_manifest: Path, official_source_root: Path,
 ) -> dict:
-    """Dispatch the existing main repair unchanged; audit reference repairs exactly."""
+    """主静态沿用原定点修复，reference 则逐表精确复算验证。"""
     provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
     if provenance.get("catalog_scope") != "reference":
         from tools.game_data.repair_published_gold_catalog import validate_gold_fix_provenance as validate_main

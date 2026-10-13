@@ -356,10 +356,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
         self.assertGreater(len(catalog.shapes_db), 0)
 
     def test_legacy_calculation_catalog_includes_custom_role_for_step_two(self):
-        from src.services.custom_character_service import (
-            create_custom_character,
-            save_custom_character_target_suit,
-        )
+        from src.services.characters.custom_character_service import create_custom_character
         from src.services.legacy_allocation_static_catalog import (
             build_legacy_allocation_static_catalog,
         )
@@ -376,11 +373,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
                     suit for suit in static_dao.list_suits()
                     if suit.get("required_shape_ids")
                 )
-            save_custom_character_target_suit(
-                database,
-                int(custom["character_id"]),
-                str(target_suit["suit_id"]),
-            )
+            with UserDataDao(database) as _custom_dao:
+                _custom_dao.save_custom_character_target_suit_id(int(custom['character_id']), str(target_suit['suit_id']))
             catalog = build_legacy_allocation_static_catalog(
                 config_dir=PROJECT_ROOT / "config",
                 user_database_path=database,
@@ -397,12 +391,14 @@ class StaticGameDatabaseTests(unittest.TestCase):
         )
         from src.storage.sqlite.shared_data_dao import SharedDataDao
         from src.storage.sqlite.user_data_dao import UserDataDao
+        from tests.allocation.static_release_helpers import publish_test_manifest
 
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "user.sqlite3"
             static_database = Path(directory) / "game_static.sqlite3"
             shared_database = Path(directory) / "app_shared.sqlite3"
             shutil.copy2(PROJECT_DATABASE_PATH, static_database)
+            publish_test_manifest(static_database)
             with UserDataDao(database, account_id="shape-override"):
                 pass
             with patch.dict(
@@ -443,7 +439,7 @@ class StaticGameDatabaseTests(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         application = QApplication.instance() or QApplication([])
         from src.features.configuration import page as configuration_page
-        from src.services.character_shape_bonus_service import get_effective_character_shape_bonus
+        from src.services.characters.character_shape_bonus_service import get_effective_character_shape_bonus
         from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
         from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -454,8 +450,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
             shutil.copy2(PROJECT_DATABASE_PATH, static_database)
             with UserDataDao(database, account_id="weight-page"):
                 pass
-            window = SimpleNamespace(
-                app_context=SimpleNamespace(
+            from src.features.configuration.page_owner import BasicWeightPage
+            context = SimpleNamespace(
                     account=SimpleNamespace(
                         active_account_id="weight-page",
                         user_database_path=database,
@@ -467,32 +463,27 @@ class StaticGameDatabaseTests(unittest.TestCase):
                         equipment_allocation_database_path=static_database,
                         shared_database_path=shared_database,
                     ),
-                ),
-                _current_config_name="account_weights",
-                _config_form_data={
-                    "「零」": {
-                        "character_id": 1051,
-                        "weights": {"CritBase": 1.25},
-                        "main_weights": {"CritBase": 0.75},
-                        "extra_shape_label": "Type-2",
-                        "extra_shape_buffs": {"AtkUp": 15.0},
-                    }
-                },
-                _config_dirty=True,
-                _config_dirty_character_ids={1051},
-                _config_dirty_shape_bonus_ids={1051},
-                reloaded=False,
-            )
-            window._load_data = lambda: setattr(window, "reloaded", True)
+                )
+            window = BasicWeightPage(context, lambda _key: None, lambda: None)
+            controller = window.controller()
+            window._current_config_name = "account_weights"
+            window._config_form_data = {"「零」": {"character_id": 1051,
+                "weights": {"CritBase": 1.25}, "main_weights": {"CritBase": 0.75},
+                "extra_shape_label": "Type-2", "extra_shape_buffs": {"AtkUp": 15.0}}}
+            window._config_dirty = True
+            window._config_dirty_character_ids = {1051}
+            window._config_dirty_shape_bonus_ids = {1051}
             with patch.object(configuration_page.QMessageBox, "information"), \
                  patch.object(configuration_page.QMessageBox, "warning") as warning:
-                configuration_page.save_config_form(window, PROJECT_ROOT / "config", None)
-                controller = configuration_page._basic_weight_controller(window)
+                configuration_page.save_config_form(window)
                 deadline = time.monotonic() + 10
                 while controller.is_writing() and time.monotonic() < deadline:
                     QTest.qWait(5)
                 self.assertFalse(controller.is_writing())
                 controller.close()
+                window.close_tasks()
+                window.close()
+                window.deleteLater()
                 application.processEvents()
             with UserDataDao(database) as user_dao:
                 weights = user_dao.get_character_weight_preferences(1051)
@@ -503,7 +494,6 @@ class StaticGameDatabaseTests(unittest.TestCase):
                     shared_database_path=shared_database,
                 )
 
-        self.assertFalse(window.reloaded)
         self.assertIsNone(weights)
         self.assertNotEqual("Type-2", shape_bonus["shape_label"])
         warning.assert_called_once()
@@ -772,11 +762,6 @@ class StaticGameDatabaseTests(unittest.TestCase):
             module.split_numbered_row("ForkUpgradePack_special_100"),
         )
 
-    def test_builder_has_no_legacy_config_input_or_shape_mapping(self):
-        source = MODULE_PATH.read_text(encoding="utf-8")
-
-        self.assertNotIn("legacy-config-dir", source)
-        self.assertNotIn("LEGACY_SHAPE_IDS", source)
 
 
 if __name__ == "__main__":

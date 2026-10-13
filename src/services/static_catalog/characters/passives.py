@@ -1,0 +1,91 @@
+# 读取角色常驻属性的静态资料。
+"""读取角色常驻属性的静态资料。"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, Protocol
+
+from src.services.static_catalog.characters.models import (
+    CharacterPassive,
+    SkillDescription,
+)
+
+
+class CharacterPassiveQueries(Protocol):
+    def list_catalog_passive_bindings(self, character_ids: tuple[int, ...]) -> list[dict[str, Any]]: ...
+
+    def list_catalog_characters(
+        self, *, query: str = "", limit: int = 50, offset: int = 0,
+    ) -> list[dict[str, Any]]: ...
+
+    def list_catalog_ability_details(
+        self, ability_ids: tuple[str, ...],
+    ) -> list[dict[str, Any]]: ...
+
+
+def _text(value: object) -> str | None:
+    result = str(value or "").strip()
+    return result or None
+
+
+class StaticCatalogCharacterPassiveService:
+    """按正式角色归属关联被动与特性，再读取同来源的本地化文本。"""
+
+    def __init__(self, queries: CharacterPassiveQueries) -> None:
+        self._queries = queries
+
+    def list_passives(
+        self,
+        character_row: Mapping[str, Any],
+    ) -> tuple[CharacterPassive, ...]:
+        character_ids = {int(character_row["character_id"])}
+        logical_key = _text(character_row.get("logical_character_key"))
+        if logical_key is not None:
+            character_ids.update(
+                int(row["character_id"])
+                for row in self._queries.list_catalog_characters(limit=200)
+                if _text(row.get("logical_character_key")) == logical_key
+            )
+        definitions = self._queries.list_catalog_passive_bindings(tuple(sorted(character_ids)))
+        details = {
+            str(row["ability_id"]): row
+            for row in self._queries.list_catalog_ability_details(tuple(
+                definition["ability_id"] for definition in definitions
+            ))
+        }
+        return tuple(
+            self._project(definition["ability_id"], definition["unlock_stage"], details,
+                          definition["ability_type"])
+            for definition in definitions
+        )
+
+    @staticmethod
+    def _project(
+        ability_id: str,
+        unlock_stage: int | None,
+        details: Mapping[str, Mapping[str, Any]],
+        ability_type: str,
+    ) -> CharacterPassive:
+        row = details.get(ability_id, {})
+        return CharacterPassive(
+            ability_id=ability_id,
+            name_zh=_text(row.get("name_zh")),
+            unlock_stage=unlock_stage,
+            ability_type=ability_type,
+            descriptions=tuple(
+                SkillDescription(
+                    ordinal=int(item["ordinal"]),
+                    description_type=_text(item.get("description_type")),
+                    title_zh=_text(item.get("title_zh")),
+                    description_zh=_text(item.get("description_zh")),
+                    short_description_zh=_text(item.get("short_description_zh")),
+                    unlock_id=_text(item.get("unlock_id")),
+                    unlock_description_zh=_text(item.get("unlock_description_zh")),
+                )
+                for item in row.get("descriptions", ())
+            ),
+        )
+
+
+__all__ = ["StaticCatalogCharacterPassiveService"]

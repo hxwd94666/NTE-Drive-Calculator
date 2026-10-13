@@ -8,7 +8,7 @@ from typing import Protocol
 
 import numpy as np
 
-from src.scanner.window_capture import WindowRect, get_foreground_client_rect
+from src.integrations.vision.window_capture import WindowRect, get_foreground_client_rect
 
 
 @dataclass(frozen=True)

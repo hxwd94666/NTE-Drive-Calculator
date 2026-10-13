@@ -9,7 +9,7 @@ from src.utils.logger import logger
 
 
 def trace_cultivation(operation: int, phase: str, **counts: int | bool) -> None:
-    """Write a synchronous phase marker to the existing bounded runtime log."""
+    """向既有运行日志同步记录阶段与有限计数，不附材料、角色或完整请求。"""
 
     metrics = " ".join(
         f"{key}={int(value)}" for key, value in sorted(counts.items())

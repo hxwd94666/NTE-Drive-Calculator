@@ -21,14 +21,14 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.services.battle_buff_attribute_projection_service import (
+from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )
-from src.services.battle_marginal_calculation_service import (
+from src.services.battle_report.marginal.calculation import (
     BattleMarginalCalculationService,
 )
-from src.services.battle_report_history_service import BattleReportHistoryService
-from src.services.battle_report_persistence_service import (
+from src.services.battle_report.history.service import BattleReportHistoryService
+from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies,
 )
 

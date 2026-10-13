@@ -49,6 +49,11 @@ class StatCatalog:
     @classmethod
     def from_config_dir(cls, config_dir: str | Path) -> "StatCatalog":
         data = read_json(Path(config_dir) / "stats.json", default={}) or {}
+        return cls.from_data(data)
+
+    @classmethod
+    def from_data(cls, data: dict[str, Any]) -> "StatCatalog":
+        """由已冻结的普通数据生成目录，不再次访问文件。"""
         return cls(
             gold_base_values=data.get("gold_base_values", {}) or {},
             tape_main_stats=data.get("tape_main_stats_pool", []) or [],

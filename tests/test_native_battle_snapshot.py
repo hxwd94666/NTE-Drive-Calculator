@@ -52,7 +52,7 @@ def test_entry_refresh_retains_prior_character_evidence_from_shared_baseline():
 
 
 def test_prior_character_evidence_uses_same_team_subset_as_current_observation():
-    from src.services.native_battle_team_snapshot import select_native_team_snapshot
+    from src.services.battle_report.inputs.scopes import select_native_team_snapshot
     snapshot = {"domains": {"character": {"records": [{"ItemID": "1072"}, {"ItemID": "1004"}]},
         "team": {"records": [{"CharacterItems": [{"ItemID": "1072"}]}]}},
         "prior_character_observation": {"revision": "1", "recordCount": 2,
@@ -209,7 +209,7 @@ def test_environment_transition_does_not_discard_completed_role_and_equipment():
 
 
 def test_transient_start_not_ready_preserves_native_lease_for_retry():
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
     core = FakeNativeCore()
     starts = []

@@ -8,11 +8,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from src.features.battle_report.page import BattleReportPage
-from src.services.battle_marginal_candidate_service import (
-    BattleMarginalCandidate,
-    BattleMarginalCandidateService,
-)
-from src.services.battle_report_history_service import BattleReportHistoryService
+from src.domain.battle_page_models import BattleMarginalCandidate
+from src.services.battle_report.marginal.candidates import BattleMarginalCandidateService
+from src.services.battle_report.history.service import BattleReportHistoryService
 
 
 @dataclass(slots=True)

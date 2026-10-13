@@ -1,5 +1,5 @@
 # 装备等级门槛常量与判断（无 scoring 依赖）。
-"""Grade ladder thresholds shared by scoring, strategies, and UI."""
+"""共享单件评级门槛；零面积仅通过 D 级，未知等级沿既有 A 级默认。"""
 
 from __future__ import annotations
 

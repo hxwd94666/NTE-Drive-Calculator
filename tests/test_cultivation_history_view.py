@@ -68,7 +68,7 @@ def test_delete_default_cancel_and_cancel_preserves_records(tmp_path, monkeypatc
 
 
 def test_list_refresh_invalidates_late_detail(tmp_path):
-    from src.features.toolbox.cultivation_history_controller import HistoryOperationResult
+    from src.features.toolbox.cultivation.history_controller import HistoryOperationResult
     from tests.test_cultivation_history import history_payload
     from tests.test_cultivation_history_page import _page, _wait
     from src.storage.sqlite.user_data_dao import UserDataDao
@@ -90,7 +90,7 @@ def test_list_refresh_invalidates_late_detail(tmp_path):
     selected = service.select_all()
     view._selected = {item.history_id: item for item in selected}
     view._delete_request = page._history_controller.submit("delete", lambda: service.delete(selected))
-    _wait(lambda: service.list().total == 0 and page._history_controller._worker is None)
+    _wait(lambda: service.list().total == 0 and not page._history_controller.is_running())
     assert page.calculator._history_binding._retry is None
     assert service.saving_suppressed(page.calculator._history_binding._session)
     page.shutdown()
@@ -99,7 +99,7 @@ def test_list_refresh_invalidates_late_detail(tmp_path):
 
 def test_manual_selection_revokes_pending_all_selection(tmp_path):
     from PySide6.QtCore import Qt
-    from src.features.toolbox.cultivation_history_controller import HistoryOperationResult
+    from src.features.toolbox.cultivation.history_controller import HistoryOperationResult
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history import history_payload
     from tests.test_cultivation_history_page import _page
@@ -125,7 +125,7 @@ def test_manual_selection_revokes_pending_all_selection(tmp_path):
 
 
 def test_delete_completion_immediately_revokes_detail_before_refresh(tmp_path, monkeypatch):
-    from src.features.toolbox.cultivation_history_controller import HistoryOperationResult
+    from src.features.toolbox.cultivation.history_controller import HistoryOperationResult
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history import history_payload
     from tests.test_cultivation_history_page import _page

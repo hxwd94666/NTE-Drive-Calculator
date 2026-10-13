@@ -8,7 +8,7 @@ from src.models.equipment import DriveShape
 class PuzzleCombinatorics:
     def __init__(self, shapes_db: Dict[str, DriveShape]):
         self.shapes_db = shapes_db
-        # Exclude virtual tape shape from physical puzzle
+        # 卡带的 15 格是评分当量，不占物理底盘；只枚举真实驱动形状。
         self.shape_list = [shape for shape in shapes_db.values() if shape.shape_id != "TAPE_15"]
 
     def generate_piece_combinations(

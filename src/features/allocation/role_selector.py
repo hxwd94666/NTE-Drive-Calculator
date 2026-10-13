@@ -105,11 +105,42 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self._shown_priority_columns = 0
         self._shown_layout_width = 0
         self._build()
+        self._priority_draft_path = self._priority_config_path().resolve()
+        self._priority_catalog_path = self._priority_draft_path
 
     def _priority_config_path(self) -> Path:
         if self._priority_config_path_provider:
             return Path(self._priority_config_path_provider())
         return bundled_config_dir() / "priority_config.json"
+
+    def prepare_priority_account(self):
+        """目录读取前撤销保存资格；仅跨账号丢弃旧展示草稿，不写临时存档。"""
+        path = self._priority_config_path().resolve()
+        if path != self._priority_draft_path:
+            for field in (
+                "selected", "priority_links", "custom_sets", "custom_weapons",
+                "crit_rate_caps", "crit_rate_cap_sources", "tape_main_filters",
+                "tape_main_filter_override_roles", "stat_priority_configs",
+                "stat_priority_override_roles", "set_effect_modes",
+            ):
+                getattr(self, field).clear()
+            self._render_grid(self.search.text())
+        self._priority_draft_path = None
+        self._priority_catalog_path = None
+        self.setEnabled(False)
+
+    def _priority_save_path(self) -> Path:
+        path = self._priority_config_path().resolve()
+        # 动态 provider 已换账号但窗口尚未收到事件时，也不把旧草稿写到新路径。
+        if path != self._priority_draft_path or path != self._priority_catalog_path:
+            raise RuntimeError("当前账号的优先级尚未读取完成，请等待资料加载后重试。")
+        return path
+
+    def _priority_load_path(self) -> Path:
+        path = self._priority_config_path().resolve()
+        if path != self._priority_catalog_path:
+            raise RuntimeError("当前账号的角色资料尚未就绪，请等待加载完成。")
+        return path
 
     def _build(self):
         layout = QVBoxLayout(self)
@@ -284,7 +315,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         self.priority_links = normalize_priority_links(self.selected, self.priority_links)
         columns = self._priority_columns()
         self._shown_priority_columns = columns
-        # Search narrows only the unselected pool; it must not hide operators.
+        # 搜索只过滤待选池；已选角色及优先级连接始终可操作，不因筛选丢失配置入口。
         visible_indexes = list(range(len(self.selected)))
         if not visible_indexes:
             empty = QLabel("未选择角色")
@@ -465,7 +496,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
             return 0.0
 
     def _automatic_crit_rate_cap(self, name: str, weapon_name: str) -> float | None:
-        """Leave room for the selected fork and enabled level-10 affinity."""
+        """扣除有效弧盘常驻与已启用好感暴击；资料未知返回 None，不冒充零。"""
 
         fork_crit = self._active_fork_crit_rate(name, weapon_name)
         affinity_crit = self._likeability_crit_rate(name)
@@ -517,11 +548,10 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         return 0.0
 
     def get_crit_rate_baselines(self):
-        """Return frozen non-equipment crit for the role-priority floor check.
+        """为本次最小暴击率检查投影非装备加成。
 
-        The solver already owns the universal 5% base rate and all selected
-        equipment stats. This value contains the selected fork's permanent,
-        breakthrough and level crit plus enabled affinity exactly once.
+        求解器已有基础 5% 与所选装备；这里只计有效弧盘常驻（含养成）和好感一次，
+        未知弧盘项不造值，调用方在创建计算请求时冻结这些结果。
         """
 
         return {

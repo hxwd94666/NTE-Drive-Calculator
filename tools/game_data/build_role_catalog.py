@@ -37,7 +37,7 @@ class RoleCatalogBuilder(StaticDatabaseBuilder):
         """角色目录的专用构建器可追加只读图鉴投影。"""
 
     def _import_role_progression_catalog(self) -> None:
-        """Import only fork-related item facts required by role-page displays."""
+        """仅为角色页导入所需弧盘物品事实，不补入主静态战斗能力。"""
 
         if self.catalog_scope != "role_page":
             return

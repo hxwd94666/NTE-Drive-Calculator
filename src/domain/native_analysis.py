@@ -5,11 +5,11 @@ from typing import Any, Protocol, runtime_checkable
 
 
 class BuffProjectionBatchTooLarge(ValueError):
-    """The exact projection batch needs partitioning to fit the wire bound."""
+    """精确投影批次超出协议上限，调用方须分批而非丢弃命中。"""
 
 
 class DirectFormulaBackend(Protocol):
-    """Calculate ordered frozen inputs; errors propagate without fallback."""
+    """按顺序计算冻结输入；错误传播，不回退为另一公式实现。"""
 
     def calculate_batch(
         self,
@@ -21,7 +21,7 @@ class DirectFormulaBackend(Protocol):
 
 @runtime_checkable
 class BuffProjectionBackend(Protocol):
-    """Project a batch of frozen hit/interval tables without Python rule evaluation."""
+    """批量投影冻结逐击和区间表，不在 Python 重算 Buff 规则。"""
 
     def project_batch(
         self, payload: dict[str, Any], *,
@@ -31,7 +31,7 @@ class BuffProjectionBackend(Protocol):
 
 @runtime_checkable
 class BuffProjectionPlanBackend(Protocol):
-    """Select time/recipient scopes and project complete frozen candidate sets."""
+    """选择时间和受益范围后投影完整冻结候选，不补读活状态。"""
 
     @property
     def supports_projection_plan(self) -> bool: ...
@@ -44,7 +44,7 @@ class BuffProjectionPlanBackend(Protocol):
 
 @runtime_checkable
 class BattleComputeBackend(Protocol):
-    """Run ordered batches of frozen battle computations in the isolated core."""
+    """在独立 Core 内顺序计算冻结批次，能力与异常由显式后端提供。"""
 
     @property
     def supports_battle_compute(self) -> bool: ...
@@ -56,7 +56,7 @@ class BattleComputeBackend(Protocol):
 
 
 def available_battle_compute(backend: object) -> BattleComputeBackend | None:
-    """Resolve only a capability explicitly supplied by the composition root."""
+    """只消费组合根显式注入且声明就绪的计算能力，不另建连接或 Python 回退。"""
     if isinstance(backend, BattleComputeBackend) and backend.supports_battle_compute:
         return backend
     return None

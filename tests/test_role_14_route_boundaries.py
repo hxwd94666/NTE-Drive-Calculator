@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 def test_rewind_and_management_offer_new_reference_roles(tmp_path: Path) -> None:
     from src.features.scanning.post_action_dialog import _load_role_options
-    from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
+    from src.services.rewind.recommendation import RewindShapeRecommendationService
 
     root = Path(__file__).resolve().parents[1] / "data" / "role_catalog"
     database = root / "game_static.sqlite3"
@@ -27,7 +27,7 @@ def test_rewind_and_management_offer_new_reference_roles(tmp_path: Path) -> None
 
 def test_post_action_scoring_uses_the_selected_catalog() -> None:
     from src.domain.post_actions import PostActionScoreContext, default_post_action_config
-    from src.services.post_action_evaluator import PostActionEvaluator
+    from src.services.inventory.post_action_evaluation import PostActionEvaluator
 
     captured: dict[str, object] = {}
 
@@ -44,7 +44,7 @@ def test_post_action_scoring_uses_the_selected_catalog() -> None:
     config["discard"]["enabled"] = True
     catalog = Path("reference.sqlite3")
     with (
-        patch("src.services.post_action_evaluator.ScoringEngine", Scoring),
+        patch("src.services.inventory.post_action_evaluation.ScoringEngine", Scoring),
         patch.object(PostActionScoreContext, "from_config_dir", return_value=PostActionScoreContext()),
     ):
         PostActionEvaluator(post_actions_config=config, static_database_path=catalog).evaluate([], [])

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.domain.equipment_duplicate_marker import (
+from src.domain.equipment.equipment_duplicate_marker import (
     mark_duplicate_drive_blocks,
     mark_duplicate_tape_filters,
 )

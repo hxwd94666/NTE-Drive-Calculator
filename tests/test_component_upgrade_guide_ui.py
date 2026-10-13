@@ -1,9 +1,9 @@
 # 验证旧版组件清理结果能继续引导，等待与故障不越级。
 from __future__ import annotations
 
-from src.services.component_upgrade_guide import UpgradeEvidence
+from src.services.components.upgrade_guide import UpgradeEvidence
 from src.features.settings.component_upgrade_dialog import ComponentUpgradeDialog
-from test_work_mode_controller import controller, qt_app  # noqa: F401 - 复用同一离屏控制器契约夹具。
+from tests.work_modes.test_controller import controller, qt_app  # noqa: F401 - 复用同一离屏控制器契约夹具。
 
 
 def test_upgrade_cleanup_continues_to_mode_step_after_result(controller, qt_app):

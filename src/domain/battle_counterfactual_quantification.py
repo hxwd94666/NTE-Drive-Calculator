@@ -34,7 +34,7 @@ class BattleQuantificationGap:
 
 @dataclass(frozen=True, slots=True)
 class BattleCounterfactualRatio:
-    """One safe formula ratio plus every cancelled or unresolved dimension."""
+    """保存有证据的公式比值、抵消维度及缺口；未知不补倍率一，部分不伪装完整。"""
 
     status: QuantificationStatus
     quantified_ratio: float | None
@@ -172,7 +172,7 @@ class BattleCounterfactualRatio:
 
 @dataclass(frozen=True, slots=True)
 class BattleDamageQuantification:
-    """Aggregate damage buckets whose sum must equal ``basis_damage``."""
+    """各量化伤害桶必须守恒到基准；部分保留缺口，未知增量为 None。"""
 
     status: QuantificationStatus
     basis_damage: float

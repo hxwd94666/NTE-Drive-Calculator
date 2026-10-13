@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from tools.game_data.static_database_encounter_imports import EncounterImportMixin
-from src.services.battle_outer_realm_buff_service import (
+from src.services.battle_report.environment.outer_realm_buffs import (
     BattleOuterRealmBuffComponent, BattleOuterRealmBuffConfig, BattleOuterRealmBuffService,
 )
 

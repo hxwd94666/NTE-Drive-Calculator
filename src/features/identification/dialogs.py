@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import current_style_sheet, themed_style
-from src.features.inventory.warehouse import warehouse_shape_pixmap
+from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
 from src.models.equipment import Tape
 from src.ui.widgets import SearchableComboBox
 

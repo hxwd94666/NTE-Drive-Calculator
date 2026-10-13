@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.features.static_catalog.contracts import CatalogDomain
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 
 
 @dataclass(frozen=True, slots=True)

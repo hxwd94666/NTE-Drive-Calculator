@@ -6,7 +6,9 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from src.scanner.window_capture import game_content_rect
+from src.integrations.vision.window_capture import crop_window_border_from_image, game_content_rect
+from src.utils.image_io import imread_unicode
+from src.utils.logger import logger
 
 
 TRASH_BUTTON_CENTER = (0.89375, 0.21944)
@@ -59,3 +61,16 @@ def lock_to_discard_confirmation_visible(img: np.ndarray) -> bool:
         return False
     gray = cv2.cvtColor(body, cv2.COLOR_BGR2GRAY)
     return bool(float((gray > 175).mean()) > 0.72)
+
+
+def equipment_screenshot_state(image_path: str) -> str:
+    try:
+        img = imread_unicode(image_path)
+        if img is None:
+            return "normal"
+        img = crop_window_border_from_image(img)
+        state = right_panel_button_state_from_image(img)
+        return state if state in {"normal", "locked", "discarded"} else "normal"
+    except Exception as exc:
+        logger.debug(f"装备状态图标检测失败，按普通处理: {image_path} | {exc}")
+        return "normal"

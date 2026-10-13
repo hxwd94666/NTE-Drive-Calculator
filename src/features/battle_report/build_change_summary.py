@@ -6,10 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from src.services.advancement_stage_service import (
-    character_growth_choices,
-    fork_breakthrough_choices,
-)
+from src.domain.official_role.advancement import character_growth_choices, fork_breakthrough_choices
 
 
 def character_level_summary(

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.storage.sqlite.fork_permanent_projection import (
+from src.storage.sqlite.catalog.fork_permanent_projection import (
     FORK_PERMANENT_EVIDENCE_SQL,
     FORK_REFINEMENT_LEVEL_SQL,
     FORK_SOURCE_COVERAGE_SQL,
@@ -41,7 +41,7 @@ class CatalogImportMixin:
         self._validate_fork_refinement_links()
 
     def _import_fork_permanent_properties(self) -> None:
-        """Project complete unconditional curves and retain an audit for misses."""
+        """只投影完整无条件曲线；逐件记录未命中原因，不用零值补齐。"""
 
         resolved, audit = resolve_projection_rows(
             cursor_dicts(self.connection.execute(FORK_PERMANENT_EVIDENCE_SQL)),

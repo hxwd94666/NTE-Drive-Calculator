@@ -56,7 +56,7 @@ def apply_inferred_scope_warning(
     analysis: object,
     condition: object,
 ) -> None:
-    """Keep a residual-selected scope visible while marking weak evidence."""
+    """保留残差选中的范围，仅为低置信或歧义来源追加冲突提示。"""
 
     inferred_source = getattr(condition, "source_kind", "") in {
         "inferred_encounter_hp_injective_default", "native_environment_with_static_candidates",
@@ -73,6 +73,7 @@ def apply_inferred_scope_warning(
     )
     if not (inferred_source or detected) or not (ambiguous or confidence == "低"):
         return
+    # 这里只选择提示中的名称；血量排序不确认目标身份，也不改变核心裁决的范围。
     environment_name = _conflict_environment_name(analysis, condition)
     target_name = _highest_max_hp_target_name(analysis)
     suffix = (

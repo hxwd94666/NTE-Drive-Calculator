@@ -23,12 +23,12 @@ from src.app.theme import themed_style
 from src.features.static_catalog.domain_pages.character_terminology import (
     project_character_term,
 )
-from src.services.static_catalog_character_models import (
+from src.services.static_catalog.characters.models import (
     AwakeningEffect,
     BuildProperty,
     CharacterDetail,
 )
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 from src.ui.puzzle_board import PuzzleBoardWidget

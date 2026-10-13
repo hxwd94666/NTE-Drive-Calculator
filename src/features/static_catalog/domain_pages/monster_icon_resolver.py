@@ -12,8 +12,8 @@ from src.features.static_catalog.domain_pages.monster_browse_models import (
 from src.features.static_catalog.domain_pages.monster_page_controller import (
     MonsterCatalogPageController,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_monster_models import CatalogDetail, CatalogEntry
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.static_catalog.monsters.models import CatalogDetail, CatalogEntry
 
 
 class MonsterIconResolver:

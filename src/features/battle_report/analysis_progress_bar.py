@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.services.battle_analysis_progress import BattleAnalysisProgress
+from src.services.battle_report.analysis.progress import BattleAnalysisProgress
 
 
 _DETAIL_COPY = {

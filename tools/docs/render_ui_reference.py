@@ -30,8 +30,12 @@ def main() -> None:
     from src.app.theme import apply_app_theme
     from src.app.version import __version__
     from src.features.home.page import build_home_page
-    from src.features.allocation.execute_page import _build_strategy_card, _build_run_button, _build_result_card
-    from src.features.inventory.equipment_display_view import _page_equipment
+    from src.features.allocation.execute_page import (
+        _build_strategy_card,
+        _build_run_button,
+        _build_result_card,
+    )
+    from src.features.inventory.equipment.display_view import _page_equipment
     from src.features.settings.work_mode_card import build_work_mode_card
 
     app = QApplication([])

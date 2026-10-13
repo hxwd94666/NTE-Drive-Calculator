@@ -53,7 +53,7 @@ class BattleObservedTarget:
 
 @dataclass(frozen=True, slots=True)
 class BattleEncounterCandidateMatch:
-    """A strict injective match and every feasible target for each observation."""
+    """记录严格一对一候选映射及每条观测的全部可行目标，不补造未观测实例。"""
 
     candidate: BattleEncounterCandidate
     possible_target_indexes: tuple[tuple[int, ...], ...]

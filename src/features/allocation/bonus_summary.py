@@ -55,6 +55,7 @@ class BonusSummaryContext:
     weapons_db: dict[str, Any] = field(default_factory=dict)
     custom_weapons: dict[str, str] = field(default_factory=dict)
 
+    # 这里只投影展示口径；frozen 不代表嵌套字典深冻结，也不承担任务/保存身份校验。
     @classmethod
     def from_window(cls, window) -> "BonusSummaryContext":
         aliases: dict[str, str] = {}
@@ -91,8 +92,7 @@ def _character_context(ctx: BonusSummaryContext) -> CharacterStatContext:
     )
 
 
-# Compatibility exports for result-view mixins.  The implementation is owned
-# by stat_engine so role and allocation pages cannot diverge again.
+# 结果展示沿用这些窄适配入口；实际面板/主值规则只由公共 stat_engine 实现，避免页面复制公式。
 def item_value(item, key, default=None):
     return _engine_item_value(item, key, default)
 
@@ -202,6 +202,7 @@ def synthesize_character_bonus_rows(rows) -> BonusRows:
     return sorted(((stat, value) for stat, value in totals.items() if value), key=lambda item: item[1], reverse=True)
 
 
+# 装备汇总只含所传装备；角色汇总才消费同一引擎的基础面板，不查询最新背包。
 def bonus_rows_for_mode(ctx: BonusSummaryContext, role_name: str, tape, drives, mode: str = "equipment") -> BonusRows:
     if mode != "character":
         return equipment_bonus_rows(ctx, role_name, tape, drives)

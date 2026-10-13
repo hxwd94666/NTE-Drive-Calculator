@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from src.services.equipment_apply_verification import (
+from src.domain.equipment.apply_verification import (
     plan_mismatch,
     scoped_plan_mismatch,
 )

@@ -5,9 +5,9 @@ from unittest.mock import Mock
 import pytest
 
 from src.integrations.nte_core_protocol import NteCoreRpcError
-from src.services.native_game_session import NativeGameSession
-from src.services.work_mode_checks import build_work_mode_report
-from tests.test_native_inventory_sync_integration import ProjectionCore
+from src.services.native_session.session import NativeGameSession
+from src.services.work_modes.inspection import build_work_mode_report
+from tests.inventory.sync.test_native_integration import ProjectionCore
 from tests.test_native_plugin_runtime import setup_runtime, module
 
 

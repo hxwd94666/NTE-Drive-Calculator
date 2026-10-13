@@ -16,20 +16,22 @@ from src.features.allocation.runner import AllocationController
 from src.features.allocation.filter_settings_dialog import AllocationFilterSettingsDialog
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.ui.equipment_presentation import EquipmentPresentation
-from src.services.allocation_filter_settings import (
+from src.services.allocation.filter_settings import (
     AllocationFilterSettings,
     AllocationFilterSettingsService,
     AllocationFilterValidationError,
 )
 from src.utils.logger import logger
 from src.features.scanning.file_workflow import (
+    clear_capture_recovery, update_capture_actions,
+    resume_capture_stage, retry_capture_publication,
+    publication_retry_done, publication_retry_failed,
     delete_paths as _delete_paths,
     matching_scope_files as _matching_scope_files,
     move_first_full_scan_to_tail as _move_first_full_scan_to_tail,
     move_to_failed as _move_to_failed,
     next_full_scan_index as _next_full_scan_index,
     postprocess_vision_files as _postprocess_vision_files,
-    prepare_incremental_parse as _prepare_incremental_parse,
     rename_incremental_successes as _rename_incremental_successes,
     scan_lifecycle as _scan_lifecycle,
     scope_image as _is_scope_image,
@@ -42,6 +44,10 @@ from src.features.scanning.hotkey_actions import (
 )
 from src.features.scanning.scan_contracts import scanning_is_running as _scanning_is_running
 from src.features.scanning.entry_controls import open_scan_post_action_manager as _open_scan_post_action_manager
+from src.features.scanning.vision_commit_controller import VisionCommitController
+from src.features.scanning.manual_recovery import ManualRecoverySession
+from src.features.scanning.dependencies import scanning_dependencies_are_current
+from functools import partial
 from src.features.scanning.workflow import (
     _page_execute,
     _on_scan_change,
@@ -50,6 +56,9 @@ from src.features.scanning.workflow import (
     _start_vision_processing,
     _on_vision_progress,
     _on_vision_done,
+    _on_vision_committed,
+    _on_vision_commit_failed,
+    _on_vision_application_failed,
     _on_vision_error,
     _on_vision_cancel,
     _on_vision_canceled,
@@ -75,12 +84,15 @@ class ScanningController(QObject):
     role_selector: Any
     btn_run: QPushButton
 
+    resume_capture_stage = resume_capture_stage
+    retry_capture_publication = retry_capture_publication
+    _on_publication_retry_done = publication_retry_done
+    _on_publication_retry_failed = publication_retry_failed
     _on_scan_change = _on_scan_change
     _on_priority_changed = _on_priority_changed
     _open_scan_post_action_manager = _open_scan_post_action_manager
     _scan_lifecycle = _scan_lifecycle
     _is_scope_image = _is_scope_image
-    _prepare_incremental_parse = _prepare_incremental_parse
     _matching_scope_files = _matching_scope_files
     _unique_path = _unique_path
     _move_to_failed = _move_to_failed
@@ -92,6 +104,9 @@ class ScanningController(QObject):
     _start_vision_processing = _start_vision_processing
     _on_vision_progress = _on_vision_progress
     _on_vision_done = _on_vision_done
+    _on_vision_committed = _on_vision_committed
+    _on_vision_commit_failed = _on_vision_commit_failed
+    _on_vision_application_failed = _on_vision_application_failed
     _on_vision_error = _on_vision_error
     _on_vision_cancel = _on_vision_cancel
     _on_vision_canceled = _on_vision_canceled
@@ -155,6 +170,14 @@ class ScanningController(QObject):
         self._equipment_presentation = equipment_presentation
         self._hotkey_manager = hotkey_manager
         self._page: QWidget | None = None
+        self._manual_recovery = ManualRecoverySession()
+        self._capture_recovery = None
+        self._vision_commit = VisionCommitController(partial(scanning_dependencies_are_current, self), self)
+        self._vision_commit.committed.connect(self._on_vision_committed)
+        self._vision_commit.failed.connect(self._on_vision_commit_failed)
+        self._vision_commit.application_failed.connect(self._on_vision_application_failed)
+        self._vision_commit.publication_retried.connect(self._on_publication_retry_done)
+        self._vision_commit.publication_retry_failed.connect(self._on_publication_retry_failed)
         self._scan_worker: Any = None
         self._gamepad_worker: Any = None
         self._vision_worker: Any = None
@@ -209,10 +232,11 @@ class ScanningController(QObject):
         )
         self._allocation_controller.bind_run_button(self.btn_run)
         self._allocation_controller.bind_save_button(self.btn_save)
+        update_capture_actions(self)
         return self._page
 
     def is_running(self) -> bool:
-        return _scanning_is_running(self) or self._allocation_controller.is_running()
+        return self._vision_commit.is_running() or _scanning_is_running(self) or self._allocation_controller.is_running()
 
     def _do_exec(self):
         if self.is_running():
@@ -224,18 +248,24 @@ class ScanningController(QObject):
 
     def request_stop(self) -> None:
         """Revoke active input/parse work without waiting on the GUI thread."""
+        self._manual_recovery.cancel()
+        self._vision_commit.cancel()
+        clear_capture_recovery(self)
         self._allocation_controller.cancel()
         self._stop_scan_hotkeys()
         for name in ("_scan_worker", "_gamepad_worker"):
             worker = getattr(self, name, None)
+            if worker is not None and hasattr(worker, "request_cancel"):
+                worker.request_cancel()
+                continue
             scanner = getattr(worker, "scanner", None) if worker is not None else None
             if scanner is not None:
                 if hasattr(scanner, "emergency_stop"):
                     scanner.emergency_stop()
         vision_worker = getattr(self, "_vision_worker", None)
-        if vision_worker is not None and vision_worker.isRunning():
-            if hasattr(vision_worker, "request_cancel"):
-                vision_worker.request_cancel()
+        # 已结束线程的 processing_done 仍可能排队；停止必须一并撤销迟到交付。
+        if vision_worker is not None and hasattr(vision_worker, "request_cancel"):
+            vision_worker.request_cancel()
 
     def stop(self) -> None:
         """Stop account-bound workers, retaining the existing shutdown deadline."""
@@ -245,10 +275,20 @@ class ScanningController(QObject):
             if worker is not None and worker.isRunning():
                 worker.wait(5000)
 
+    def begin_close(self) -> None:
+        """退出先撤销副作用与交付；保留 owner，物理等待由窗口门禁负责。"""
+        self._manual_recovery.close()
+        self._vision_commit.close()
+        self._allocation_controller.begin_close()
+        self.request_stop()
+
     def close(self) -> None:
+        self.begin_close()
         self.stop()
 
     def reset_account_state(self) -> None:
+        self.request_stop()
+        self._vision_commit.reset_account_state()
         self._pending_archive_paths = []
         self._pending_parse_only = False
         self._pending_parse_scope = "all"

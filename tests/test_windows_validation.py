@@ -15,7 +15,7 @@ from tools.windows_validation.mouse_scan_probe import (
     inspect_mouse_scan_report,
 )
 from tools.windows_validation.preflight import file_evidence
-from tools.windows_validation.redaction import redact_text
+from tools.windows_validation.redaction import redact_text, redact_value
 from tools.windows_validation.report import write_report
 from tools.windows_validation.sqlite_probe import sqlite_summary
 
@@ -147,6 +147,75 @@ class WindowsValidationTests(unittest.TestCase):
             self.assertEqual(1, len(timestamp_logs(log_dir)))
             self.assertTrue(result["operation_id_present"])
             self.assertTrue(result["expected_events"]["inventory_sync."])
+
+    def test_redacts_complete_auth_values_and_structured_secrets(self) -> None:
+        values = (
+            "Authorization: Bearer bearer-secret",
+            'token="two word secret"',
+            "https://mirror.invalid/file?token=secret&part=other-secret",
+            "https://name:secret@mirror.invalid/file",
+            "https://mirror.invalid/file?%74oken=secret",
+            "https://mirror.invalid/file#token=secret",
+        )
+        for value in values:
+            with self.subTest(value=value):
+                redacted = redact_text(value)
+                self.assertNotIn("secret", redacted)
+                self.assertNotIn("mirror.invalid", redacted)
+        self.assertEqual("https://public.invalid/docs?v=2", redact_text("https://public.invalid/docs?v=2"))
+        root = Path("C:/Users/example/private")
+        result = redact_value({"token": "dict-secret", "nested": [{"Authorization": "Bearer nested-secret"}], str(root / "evidence"): "ok"}, roots=(root,))
+        self.assertNotIn("secret", json.dumps(result))
+        self.assertTrue(all(str(root) not in key for key in result))
+        self.assertEqual("ok", result["<path>" + str(root / "evidence")[len(str(root)):]])
+
+    def test_redacts_apostrophes_inside_authenticated_urls(self) -> None:
+        values = (
+            "https://host.invalid/file?signature=A'TOKEN",
+            "https://host.invalid/file?signature=A%27TOKEN",
+            "https://USER:AA'TOKEN@host.invalid/file",
+            "https://USER:AA%27TOKEN@host.invalid/file",
+        )
+        for value in values:
+            with self.subTest(value=value):
+                self.assertEqual("<redacted-url>", redact_text(value))
+                # 外层引号的归属不确定时保守吞掉尾引号，不把凭据尾段放回报告。
+                for quote in ("'", '"'):
+                    redacted = redact_text(quote + value + quote)
+                    self.assertNotIn("TOKEN", redacted)
+                    self.assertNotIn("host.invalid", redacted)
+                    self.assertIn("<redacted-url>", redacted)
+
+    def test_dict_mouse_item_range_returns_failed_present_evidence(self) -> None:
+        payload = {
+            "schema": "mouse-visual-scan-report-v1",
+            "status": "complete",
+            "resolution": {"width": 1920, "height": 1080},
+            "inventory": {"expected": 1, "captured": 1},
+            "preflight": {"checked": 1, "matched": 1},
+            "wheel_commands": 0,
+            "pages": [{"item_range": {"first": 1, "last": 1}, "captured": 1}],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "report.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            result = inspect_mouse_scan_report(path)
+        self.assertTrue(result["present"])
+        self.assertFalse(result["passed"])
+        self.assertIn("第 1 页物品范围无效。", result["issues"])
+        self.assertEqual(1, result["expected"])
+        self.assertEqual(1, result["captured"])
+
+    def test_malformed_mouse_report_is_failed_evidence_not_an_exception(self) -> None:
+        malformed = ([], {"resolution": []}, {"resolution": {"width": "bad"}}, {"pages": [7]})
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "report.json"
+            for payload in malformed:
+                with self.subTest(payload=payload):
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    result = inspect_mouse_scan_report(path)
+                    self.assertFalse(result["passed"])
+                    self.assertTrue(result["issues"])
 
     def test_redacts_credentials_and_private_roots(self) -> None:
         root = Path("C:/Users/example/private")

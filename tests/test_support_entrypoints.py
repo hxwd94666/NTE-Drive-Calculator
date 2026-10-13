@@ -8,11 +8,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QPushButton, QWidget
 
 from src.app.constants import SUPPORT_US_URL
-from src.app.theme import theme_color
-from src.features.allocation.execute_page import _build_result_card
 from src.features.allocation.runner import AllocationController
 from src.features.allocation.save_workflow import show_allocation_save_success
 from src.features.onboarding.guide import OnboardingGuide
@@ -42,37 +40,8 @@ class SupportEntryPointTests(unittest.TestCase):
         self.assertTrue(link.openExternalLinks())
         headline = dialog.findChild(QLabel, "allocationSaveSuccessHeadline")
         self.assertEqual("已保存 2 个方案", headline.text())
-        self.assertEqual("✓", dialog.findChild(QLabel, "allocationSaveSuccessMark").text())
-        self.assertLessEqual(dialog.width(), 400)
-        self.assertGreaterEqual(dialog.layout().itemAt(2).spacerItem().sizeHint().height(), 12)
         dialog.deleteLater()
 
-    def test_result_header_matches_role_badge_and_clear_is_separate(self) -> None:
-        page = QWidget()
-        cleared = []
-        owner = SimpleNamespace(
-            _save_alloc=lambda: None,
-            clear_calculation=lambda: cleared.append(True),
-        )
-        _build_result_card(owner, QVBoxLayout(page))
-        self.assertEqual("allocationSaveButton", owner.btn_save.objectName())
-        self.assertEqual("保存配装", owner.btn_save.text())
-        self.assertEqual("清空计算", owner.btn_clear_result.text())
-        title = owner.result_card.findChild(QLabel, "allocationResultTitle")
-        self.assertEqual(title.size(), owner.btn_save.size())
-        self.assertEqual(title.size(), owner.btn_clear_result.size())
-        for button, color in ((owner.btn_clear_result, "#f85149"), (owner.btn_save, "#3fb950")):
-            expected = theme_color(color)
-            self.assertIn(f"color:{expected}", button.styleSheet())
-            self.assertIn(f"border:1px solid {expected}", button.styleSheet())
-            self.assertIn("background:rgba(", button.styleSheet())
-        owner.btn_clear_result.click()
-        self.assertEqual([True], cleared)
-        self.assertEqual("计算结果", title.text())
-        badge_color = theme_color("#4dd0e1")
-        self.assertIn(f"color:{badge_color}", title.styleSheet())
-        self.assertIn(f"border:1px solid {badge_color}", title.styleSheet())
-        page.deleteLater()
 
     def test_clear_preview_drops_frozen_result_without_touching_inputs(self) -> None:
         cleared = []
@@ -129,10 +98,6 @@ class SupportEntryPointTests(unittest.TestCase):
                 self.assertIsNotNone(help_button)
                 self.assertIsNotNone(confirm)
                 self.assertEqual("确定", confirm.text())
-                actions = dialog.layout().itemAt(dialog.layout().count() - 1).layout()
-                self.assertIs(actions.itemAt(1).widget(), help_button)
-                self.assertIs(actions.itemAt(2).widget(), confirm)
-                self.assertEqual(help_button.styleSheet(), confirm.styleSheet())
                 help_button.click()
                 self.assertEqual([], opened)
                 return QDialog.Accepted

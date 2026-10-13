@@ -11,7 +11,7 @@ from typing import Any
 
 from src.domain.battle_report import BattleSummaryPersistenceOutcome
 from src.observability import OperationContext
-from src.services.battle_capture_service import BattleCaptureService
+from src.services.battle_report.capture.service import BattleCaptureService
 
 
 def _summary_payload() -> dict[str, Any]:

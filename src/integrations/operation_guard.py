@@ -76,7 +76,7 @@ class GuardedGuiInput:
                 raise
             if args or kwargs.get("button", "left") != "left":
                 raise
-            # PyAutoGUI's corner fail-safe must stop new input, not its release.
+            # 鼠标角落急停阻止新输入，但仍须释放已经按下的左键。
             import ctypes
 
             ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)

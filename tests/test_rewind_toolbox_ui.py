@@ -20,12 +20,12 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
         QWidget,
     )
 
-    from src.services.character_progression_requirements import (
+    from src.services.progression.character_requirements import (
         MaterialSummaryStatus,
     )
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
     from src.ui.progression_material_card import ProgressionMaterialCard
-    from src.services.cultivation_planner_service import (
+    from src.services.progression.planner_service import (
         CultivationMaterial,
         CultivationPlan,
         CultivationRole,
@@ -171,7 +171,7 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
 def test_cultivation_image_selector_is_a_searchable_single_choice_card_grid() -> None:
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_selectors import CultivationImageSelector
+    from src.features.toolbox.cultivation.selectors import CultivationImageSelector
 
     QApplication.instance() or QApplication([])
     dialog = CultivationImageSelector(

@@ -57,7 +57,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
 
     def test_real_role_page_runs_independent_sync(self):
         from src.features.official_role import role_shell
-        from src.services.world_bonus_settings_service import WorldBonusSettings
+        from src.domain.official_role.models import WorldBonusSettings
         window = SimpleNamespace(character_profile_sync_controller=self.controller)
         role_controller = SimpleNamespace(
             dependencies=self.dependencies,
@@ -137,7 +137,7 @@ class CharacterProfileSyncControllerTests(unittest.TestCase):
         self.service.patch_native_profiles.assert_not_called()
 
     def test_inventory_cancel_is_silent(self):
-        from src.services.inventory_capture_wait import InventorySyncCancelled
+        from src.services.inventory.sync.capture_wait import InventorySyncCancelled
         self.reader.side_effect = InventorySyncCancelled()
         self.controller.start()
         self.finish_read()

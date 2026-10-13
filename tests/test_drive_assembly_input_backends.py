@@ -106,105 +106,51 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
 
     def test_clicks_ocr_target_text_center_when_available(self):
         import numpy as np
+        from src.features.drive_assembly.executor import execute_action_sequence
+        from src.integrations.vision.recognition.task_session import use_ocr_session
 
-        import src.features.drive_assembly.executor as executor
-        import src.features.drive_assembly.assembly_ocr as assembly_ocr
-
-        original_instance = assembly_ocr._OCR_ENGINE_INSTANCE
-        original_factory = assembly_ocr._OCR_ENGINE_FACTORY
-        try:
-            assembly_ocr._OCR_ENGINE_INSTANCE = None
-            assembly_ocr._OCR_ENGINE_FACTORY = lambda: FakeOcrEngine(
-                [{"text": "Attack Percent", "box": (20, 10, 120, 50)}]
-            )
-            backend = FakeScreenshotMouseBackend(np.zeros((500, 500, 3), dtype=np.uint8))
-
-            report = executor.execute_action_sequence(
-                [
-                    {
-                        "name": "main_stat_option",
-                        "ocr_target_text": "Attack Percent",
-                        "ocr_search_region": (100, 200, 300, 420),
-                        "fallback_position": (9, 9),
-                    }
-                ],
-                backend=backend,
-                pause_seconds=0.0,
-            )
-        finally:
-            assembly_ocr._OCR_ENGINE_INSTANCE = original_instance
-            assembly_ocr._OCR_ENGINE_FACTORY = original_factory
-
+        engine = FakeOcrEngine([{"text": "Attack Percent", "box": (20, 10, 120, 50)}])
+        backend = FakeScreenshotMouseBackend(np.zeros((500, 500, 3), dtype=np.uint8))
+        with use_ocr_session(engine=engine) as session:
+            report = execute_action_sequence([
+                {"name": "main_stat_option", "ocr_target_text": "Attack Percent",
+                 "ocr_search_region": (100, 200, 300, 420), "fallback_position": (9, 9)}
+            ], backend=backend, pause_seconds=0.0, ocr_session=session)
         self.assertEqual([("click", (170, 230))], backend.calls)
         self.assertEqual(1, report.executed_actions)
 
     def test_ocr_target_action_falls_back_to_static_position(self):
         import numpy as np
+        from src.features.drive_assembly.executor import execute_action_sequence
+        from src.integrations.vision.recognition.task_session import use_ocr_session
 
-        import src.features.drive_assembly.executor as executor
-        import src.features.drive_assembly.assembly_ocr as assembly_ocr
-
-        original_instance = assembly_ocr._OCR_ENGINE_INSTANCE
-        original_factory = assembly_ocr._OCR_ENGINE_FACTORY
-        try:
-            assembly_ocr._OCR_ENGINE_INSTANCE = None
-            assembly_ocr._OCR_ENGINE_FACTORY = lambda: FakeOcrEngine([{"text": "Other", "box": (0, 0, 20, 20)}])
-            backend = FakeScreenshotMouseBackend(np.zeros((500, 500, 3), dtype=np.uint8))
-
-            report = executor.execute_action_sequence(
-                [
-                    {
-                        "name": "main_stat_option",
-                        "ocr_target_text": "Attack Percent",
-                        "ocr_search_region": (100, 200, 300, 420),
-                        "fallback_position": (9, 9),
-                    }
-                ],
-                backend=backend,
-                pause_seconds=0.0,
-            )
-        finally:
-            assembly_ocr._OCR_ENGINE_INSTANCE = original_instance
-            assembly_ocr._OCR_ENGINE_FACTORY = original_factory
-
+        engine = FakeOcrEngine([{"text": "Other", "box": (0, 0, 20, 20)}])
+        backend = FakeScreenshotMouseBackend(np.zeros((500, 500, 3), dtype=np.uint8))
+        with use_ocr_session(engine=engine) as session:
+            report = execute_action_sequence([
+                {"name": "main_stat_option", "ocr_target_text": "Attack Percent",
+                 "ocr_search_region": (100, 200, 300, 420), "fallback_position": (9, 9)}
+            ], backend=backend, pause_seconds=0.0, ocr_session=session)
         self.assertEqual([("click", (9, 9))], backend.calls)
         self.assertEqual(1, report.executed_actions)
 
     def test_ocr_target_resizes_large_search_region_before_matching(self):
         import numpy as np
+        from src.features.drive_assembly.executor import execute_action_sequence
+        from src.integrations.vision.recognition.task_session import use_ocr_session
 
-        import src.features.drive_assembly.executor as executor
-        import src.features.drive_assembly.assembly_ocr as assembly_ocr
-
-        original_instance = assembly_ocr._OCR_ENGINE_INSTANCE
-        original_factory = assembly_ocr._OCR_ENGINE_FACTORY
         engine = FakeOcrEngine([{"text": "Attack Percent", "box": (12, 8, 60, 28)}])
-        try:
-            assembly_ocr._OCR_ENGINE_INSTANCE = None
-            assembly_ocr._OCR_ENGINE_FACTORY = lambda: engine
-            backend = FakeScreenshotMouseBackend(np.zeros((900, 5000, 3), dtype=np.uint8))
-
-            report = executor.execute_action_sequence(
-                [
-                    {
-                        "name": "main_stat_option",
-                        "ocr_target_text": "Attack Percent",
-                        "ocr_search_region": (0, 0, 4800, 736),
-                        "fallback_position": (9, 9),
-                    }
-                ],
-                backend=backend,
-                pause_seconds=0.0,
-            )
-        finally:
-            assembly_ocr._OCR_ENGINE_INSTANCE = original_instance
-            assembly_ocr._OCR_ENGINE_FACTORY = original_factory
-
+        backend = FakeScreenshotMouseBackend(np.zeros((900, 5000, 3), dtype=np.uint8))
+        with use_ocr_session(engine=engine) as session:
+            report = execute_action_sequence([
+                {"name": "main_stat_option", "ocr_target_text": "Attack Percent",
+                 "ocr_search_region": (0, 0, 4800, 736), "fallback_position": (9, 9)}
+            ], backend=backend, pause_seconds=0.0, ocr_session=session)
+        self.assertEqual([("click", (144, 72))], backend.calls)
         self.assertEqual(1, report.executed_actions)
         self.assertEqual(1, len(engine.images))
         self.assertEqual(np.uint8, engine.images[0].dtype)
         self.assertLessEqual(engine.images[0].shape[1], 1200)
-        self.assertEqual([("click", (144, 72))], backend.calls)
 
     def test_sendinput_drag_uses_long_press_segmented_motion(self):
         from src.features.drive_assembly.executor import (
@@ -528,3 +474,58 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_cold_backend_import_and_injected_driver_do_not_initialize_external_input():
+    import importlib.util
+    import json
+    import subprocess
+    import sys
+
+    source = importlib.util.find_spec("src.features.drive_assembly.input_backends").origin
+    code = r"""
+import sys, json, importlib.util, subprocess
+sys.path[:] = json.loads(sys.argv[2])
+class RejectInputImport:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'pyautogui', 'mouseinfo', 'vgamepad'}:
+            raise AssertionError('cold import reached input dependency: '+fullname)
+def reject(*args, **kwargs):
+    raise AssertionError('cold input module started a process')
+sys.meta_path.insert(0, RejectInputImport())
+subprocess.Popen = reject
+name = 'src.features.drive_assembly.input_backends'
+spec = importlib.util.spec_from_file_location(name, sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[name] = module
+spec.loader.exec_module(module)
+class Driver:
+    FAILSAFE = False
+    calls = []
+    def press(self, key): self.calls.append(key)
+allowed = False
+def guard(capability):
+    assert capability == 'interface_input'
+    if not allowed: raise PermissionError('fixture denied')
+driver = Driver()
+backend = module.PyAutoGuiMouseBackend(gui_driver=driver, operation_guard=guard)
+assert driver.FAILSAFE is True
+try:
+    backend.press_key('x')
+except PermissionError:
+    pass
+else:
+    raise AssertionError('missing explicit permission gate')
+assert driver.calls == []
+allowed = True
+backend.press_key('x')
+assert driver.calls == ['x']
+assert not {'pyautogui','mouseinfo','vgamepad'}.intersection(sys.modules)
+print('COLD_INPUT_OK: no vendor import/process; FAILSAFE and execution guard preserved')
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-B", "-X", "utf8", "-c", code, source, json.dumps(sys.path)],
+        capture_output=True, text=True, encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "COLD_INPUT_OK" in result.stdout

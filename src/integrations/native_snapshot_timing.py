@@ -69,7 +69,7 @@ class SnapshotTimingLog:
             parts = _stages(row.get("stages"))
             if parts is None or row["sequence"] == 0 or row["total_us"] <= value["slow_threshold_us"]:
                 continue
-            # Monotonic start distinguishes DLL restarts whose sequence returns to 1.
+            # 同时用单调起始时间区分 DLL 重启，避免序号重新从 1 开始时误判重复。
             key = (row["sequence"], row["started_monotonic_us"])
             if key in self._seen:
                 continue

@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.services.equipment_apply_service import EquipmentApplyError, EquipmentApplyService
-from src.services.inventory_sync_service import InventorySyncState
+from src.services.equipment.apply import EquipmentApplyError, EquipmentApplyService
+from src.services.inventory.sync.state import InventorySyncState
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -298,7 +298,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         )
         self.sync.emit_snapshot = False
 
-        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+        with patch("src.services.equipment.apply.time.sleep") as sleep:
             result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 self.plan_id,
                 stable_snapshot_id=current,
@@ -449,7 +449,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
     def test_fast_dispatch_does_not_wait_for_a_new_inventory_snapshot(self) -> None:
         self.sync.emit_snapshot = False
 
-        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+        with patch("src.services.equipment.apply.time.sleep") as sleep:
             result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 self.plan_id,
                 verify_after_dispatch=False,
@@ -464,7 +464,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
     def test_fast_reset_unmounts_mismatched_role_before_one_key_dispatch(self) -> None:
         self.sync.emit_snapshot = False
 
-        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+        with patch("src.services.equipment.apply.time.sleep") as sleep:
             result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 self.plan_id,
                 verify_after_dispatch=False,
@@ -495,7 +495,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
         )
         self.sync.emit_snapshot = False
 
-        with patch("src.services.equipment_apply_service.time.sleep") as sleep:
+        with patch("src.services.equipment.apply.time.sleep") as sleep:
             result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
                 plan_id,
                 verify_after_dispatch=False,

@@ -2,9 +2,9 @@
 from dataclasses import replace
 import unittest
 
-from src.services.battle_analysis_progress import BattleAnalysisProgress
-from src.services.battle_page_overall_progress import BattlePageOverallProgress
-from src.services.battle_report_analysis_load_service import BattleReportAnalysisLoadRequest
+from src.services.battle_report.analysis.progress import BattleAnalysisProgress
+from src.services.battle_report.analysis.progress import BattlePageOverallProgress
+from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest
 
 
 class BattlePageOverallProgressTests(unittest.TestCase):
@@ -41,14 +41,6 @@ class BattlePageOverallProgressTests(unittest.TestCase):
             self.assertEqual(tracker.project(duplicate).overall_percent, value)
         fresh = BattlePageOverallProgress(self.marginal())
         self.assertEqual(fresh.project(BattleAnalysisProgress('native_page', '开始')).overall_percent, 1)
-
-    def test_short_request_excludes_unrequested_counterfactual_work(self):
-        full = BattlePageOverallProgress(self.marginal())
-        short = BattlePageOverallProgress(BattleReportAnalysisLoadRequest(68, detail_level='hit'))
-        event = BattleAnalysisProgress('details', '详情')
-        self.assertLess(short.project(event).overall_percent, full.project(event).overall_percent)
-        self.assertLess(short.project(BattleAnalysisProgress('decode', '整理')).overall_percent, 100)
-
 
 if __name__ == '__main__':
     unittest.main()

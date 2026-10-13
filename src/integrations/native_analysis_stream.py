@@ -83,7 +83,7 @@ def communicate_progress(
     def reader(pipe: BinaryIO, kind: str) -> None:
         try:
             while not stopping.is_set():
-                # read1 returns available pipe data without waiting to fill 8 KiB.
+                # read1 只取当前可用数据，避免等待填满 8 KiB 才交付进度。
                 chunk = pipe.read1(_CHUNK_BYTES)
                 if not chunk:
                     break
@@ -99,7 +99,7 @@ def communicate_progress(
             process.stdin.write(payload)
             process.stdin.flush()
         except BrokenPipeError:
-            # A rejected request can exit before consuming stdin; stdout owns its error.
+            # 被拒绝的请求可能未读完 stdin 就退出；错误结果仍由 stdout 协议判定。
             pass
         except (OSError, ValueError):
             if not stopping.is_set():
@@ -140,9 +140,8 @@ def communicate_progress(
             started.append(worker)
         while len(finished) != 2 or process.poll() is None:
             now = time.monotonic()
-            # Pipe fragmentation is not a request boundary. A large response can
-            # contain thousands of tiny reads; keep the same 100 ms cancellation
-            # cadence as idle waiting instead of rechecking files for each chunk.
+            # 管道分片不是请求边界；大响应可能拆成数千次读取。
+            # 取消仍按空闲等待相同的 100 ms 节奏检查，避免每片都重复核对文件。
             if now >= next_checkpoint:
                 checkpoint()
                 next_checkpoint = time.monotonic() + _CHECKPOINT_SECONDS
@@ -158,7 +157,7 @@ def communicate_progress(
             if chunk is None:
                 finished.add(kind)
                 if kind == "stderr" and pending:
-                    # NDJSON requires the final newline; do not accept truncated events.
+                    # NDJSON 必须以换行结束；截断的进度事件不作为有效回执。
                     if _ERROR_LINE.fullmatch(bytes(pending).rstrip(b"\r")):
                         pending.clear()
                     else:

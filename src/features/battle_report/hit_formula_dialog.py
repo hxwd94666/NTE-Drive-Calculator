@@ -15,7 +15,7 @@ from src.domain.battle_report import (
     BattleHitReplayResult,
     BattleInferredBuffInterval,
 )
-from src.services.battle_hit_replay_explanation_service import (
+from src.services.battle_report.replay.explanation import (
     BattleHitReplayExplanationService,
 )
 from .hit_inspection_dialog import HitInspectionDialog

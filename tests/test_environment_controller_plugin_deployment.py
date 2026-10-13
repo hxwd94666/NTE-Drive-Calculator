@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
-from src.services.work_mode_service import WorkModeService
+from src.services.work_modes.service import WorkModeService
 from src.ui.controllers.environment_controller import (
     _deploy_equipment_plugin, _diagnose_nte_core,
     _refresh_equipment_plugin_status,

@@ -73,8 +73,9 @@ def decode(value: object, annotation: Any):
 
 
 def decode_page(value: dict):
-    from src.services.battle_marginal_panel_service import BattleMarginalPanelResult
-    from src.services.battle_report_analysis_load_service import BattleReportAnalysisLoadResult
+    # 解码只还原返回字段与同事件引用，缺失和未知保持原义，不导入离线算法补算。
+    from src.domain.battle_page_models import BattleMarginalPanelResult
+    from src.domain.battle_page_models import BattleReportAnalysisLoadResult
 
     required = {'analysis', 'target_catalog', 'target_catalog_error',
                 'marginal_benefits', 'marginal_panel', 'candidate_display_analysis'}
@@ -123,7 +124,7 @@ def _decode_snapshot(value):
 
 def decode_derived_snapshot(value: object, *, battle_record_id: int, dataset_version: str):
     """Validate native persistence metadata without rebuilding its inferred payload."""
-    from src.services.battle_inferred_target_condition_service import (
+    from src.domain.battle_page_models import (
         BattleInferredEncounter,
     )
     if value is None:

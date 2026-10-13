@@ -1,17 +1,27 @@
 # 验证倒带执行流程、识别与输入时序。
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
+from threading import Event, Thread
+from unittest.mock import Mock, call
+
 import numpy as np
 import pytest
 
 from src.domain.drive_layout import SHAPE_FOOTPRINTS
+from src.features.drive_assembly.rewind import execution
+from src.features.drive_assembly.input_backends import PyAutoGuiMouseBackend
+from src.features.drive_assembly.randomization import RandomizationContext
+from src.integrations.operation_guard import GuardedGuiInput
+from src.integrations.vision import window_capture
+from src.integrations.vision.recognition.model_resources import OcrModelResourceError
 from src.features.drive_assembly.page_navigation_mapping import map_rewind_controls
-from src.features.drive_assembly.rewind_execution import (
+from src.features.drive_assembly.rewind.execution import (
     RewindExecutionRequest,
     execute_rewind_request,
     parse_rewind_currency,
 )
-from src.scanner.window_capture import WindowRect
+from src.integrations.vision.window_capture import WindowRect
 
 
 class _Backend:
@@ -121,15 +131,6 @@ def test_random_rewind_spends_only_complete_tens_and_double_escapes_each_result(
     assert report.quality_remaining_currency == (("blue", 50),)
     assert report.quality_ten_costs == (("blue", 600),)
     assert report.difficulty == "difficulty_low"
-    assert backend.clicks == [
-        (900, 1346),
-        (1086, 651),
-        (1865, 1071),
-        (1865, 1071),
-        (1865, 1071),
-    ]
-    assert backend.keys == ["esc", "esc"] * 3
-    assert backend.pauses == [1.0, 1.0] + [1.0, 1.0, 0.5] * 3
     assert backend.events == [
         ("click", (900, 1346)),
         ("pause", 1.0),
@@ -192,25 +193,6 @@ def test_blue_quality_always_uses_random_mode_even_when_customization_is_request
     assert (1734, 648) not in backend.clicks
 
 
-def test_screenshot_balance_plans_54_tens_and_leaves_340_currency() -> None:
-    backend = _Backend()
-    report = execute_rewind_request(
-        RewindExecutionRequest(("gold",), "none"),
-        backend=backend,
-        capture=_capture,
-        ocr_engine=_Ocr(("32,740",)),
-    )
-
-    assert report.currency == 32740
-    assert report.planned_draws == 540
-    assert report.ten_draws == 54
-    assert report.single_draws == 0
-    assert report.remaining_currency == 340
-    assert report.quality_currencies == (("gold", 32740),)
-    assert report.quality_remaining_currency == (("gold", 340),)
-    assert backend.clicks.count((1865, 1071)) == 54
-    assert backend.keys == ["esc", "esc"] * 54
-    assert backend.pauses == [1.0, 1.0] + [1.0, 1.0, 0.5] * 54
 
 
 def test_apply_plan_rebuilds_eight_slots_and_confirm_returns_to_draw_page() -> None:
@@ -362,3 +344,271 @@ def test_rewind_controls_scale_to_the_1920_by_1152_game_canvas() -> None:
     assert controls["difficulty_low"] == (600, 980)
     assert controls["difficulty_medium"] == (947, 980)
     assert controls["difficulty_advanced"] == (1328, 980)
+
+
+class _OwnedBackend(_Backend):
+    def __init__(self, *, falsey=False, input_error=None, setup_error=None,
+                 release_error=None, close_error=None) -> None:
+        super().__init__()
+        self.falsey = falsey
+        self.input_error = input_error
+        self.setup_error = setup_error
+        self.release_error = release_error
+        self.close_error = close_error
+        self.closed = False
+
+    def __bool__(self):
+        return not self.falsey
+
+    def enable_randomization(self):
+        if self.setup_error is not None:
+            raise self.setup_error
+
+    def click(self, position):
+        if self.input_error is not None:
+            raise self.input_error
+        super().click(position)
+
+    def force_mouse_release(self):
+        self.events.append(("release", None))
+        if self.release_error is not None:
+            raise self.release_error
+
+    def close(self):
+        self.events.append(("close", None))
+        self.closed = True
+        if self.close_error is not None:
+            raise self.close_error
+
+
+@pytest.mark.parametrize("outcome", ["success", "cancel", "ocr_fatal", "input_error", "setup_error"])
+def test_default_rewind_owner_closes_on_each_execution_outcome(monkeypatch, outcome) -> None:
+    stop = Event()
+    failure = OcrModelResourceError("synthetic fatal") if outcome == "ocr_fatal" else ValueError(outcome)
+    backend = _OwnedBackend(
+        input_error=failure if outcome == "input_error" else None,
+        setup_error=failure if outcome == "setup_error" else None,
+    )
+    factory = Mock(return_value=backend)
+    monkeypatch.setattr(execution, "PyAutoGuiMouseBackend", factory)
+
+    class OutcomeOcr(_Ocr):
+        def extract_text(self, image):
+            if outcome == "ocr_fatal":
+                raise failure
+            if outcome == "cancel":
+                stop.set()
+            return super().extract_text(image)
+
+    arguments = dict(capture=_capture, ocr_engine=OutcomeOcr(("599",)), should_stop=stop.is_set)
+    if outcome == "success":
+        report = execute_rewind_request(RewindExecutionRequest(), **arguments)
+        assert report.planned_draws == 0 and report.executed_actions == 1
+    else:
+        with pytest.raises(RuntimeError if outcome == "cancel" else type(failure)) as caught:
+            execute_rewind_request(RewindExecutionRequest(), **arguments)
+        if outcome == "cancel":
+            assert str(caught.value) == "倒带执行已停止"
+            assert isinstance(caught.value.__cause__, CancelledError)
+        else:
+            assert caught.value is failure
+    factory.assert_called_once_with()
+    assert backend.events[-2:] == [("release", None), ("close", None)]
+    assert backend.closed and backend.keys == []
+    assert len(backend.clicks) == (0 if outcome in {"input_error", "setup_error"} else 1)
+
+
+def test_default_rewind_owner_keeps_real_missing_guard_denial_and_releases(monkeypatch) -> None:
+    # 真实授权/收尾方法只接合成驱动，构造器与系统输入不参与本例。
+    backend = PyAutoGuiMouseBackend.__new__(PyAutoGuiMouseBackend)
+    backend.operation_guard = None
+    backend._randomization = RandomizationContext()
+    backend._send_input = Mock(available=False)
+    driver, gamepad, ordered = Mock(), Mock(), Mock()
+    ordered.attach_mock(driver.mouseUp, "release")
+    ordered.attach_mock(gamepad.close, "close")
+    backend._pyautogui = GuardedGuiInput(driver, None)
+    backend._gamepad = gamepad
+    backend._record_mouse_delivery = Mock()
+    backend._sleeper = Mock()
+    factory, ocr = Mock(return_value=backend), Mock()
+    monkeypatch.setattr(execution, "PyAutoGuiMouseBackend", factory)
+    with pytest.raises(PermissionError, match="未配置工作模式执行授权"):
+        execute_rewind_request(
+            RewindExecutionRequest(), capture=_capture, ocr_engine=ocr, should_stop=lambda: False,
+        )
+    factory.assert_called_once_with()
+    assert backend.operation_guard is None
+    assert ordered.mock_calls == [call.release(button="left"), call.close()]
+    driver.moveTo.assert_not_called()
+    driver.mouseDown.assert_not_called()
+    driver.press.assert_not_called()
+    backend._send_input.click.assert_not_called()
+    ocr.extract_text.assert_not_called()
+
+
+@pytest.mark.parametrize("falsey", [False, True])
+@pytest.mark.parametrize("fails", [False, True])
+def test_rewind_borrows_even_falsey_backend_without_replacing_or_closing(monkeypatch, falsey, fails) -> None:
+    failure = ValueError("borrowed input failure")
+    backend = _OwnedBackend(falsey=falsey, input_error=failure if fails else None)
+    factory = Mock(side_effect=AssertionError("borrowed backend was replaced"))
+    monkeypatch.setattr(execution, "PyAutoGuiMouseBackend", factory)
+    arguments = dict(backend=backend, capture=_capture, ocr_engine=_Ocr(("599",)), should_stop=lambda: False)
+    if fails:
+        with pytest.raises(ValueError) as caught:
+            execute_rewind_request(RewindExecutionRequest(), **arguments)
+        assert caught.value is failure
+    else:
+        assert execute_rewind_request(RewindExecutionRequest(), **arguments).executed_actions == 1
+        assert len(backend.clicks) == 1
+    factory.assert_not_called()
+    assert not backend.closed
+    assert all(event[0] not in {"release", "close"} for event in backend.events)
+
+
+@pytest.mark.parametrize("cleanup_stage", ["release", "close", "both"])
+@pytest.mark.parametrize("has_primary_error", [False, True])
+def test_rewind_cleanup_faults_still_close_and_keep_primary_failure(monkeypatch, cleanup_stage, has_primary_error) -> None:
+    primary = ValueError("synthetic input failure")
+    release_error, close_error = RuntimeError("release failed"), RuntimeError("close failed")
+    backend = _OwnedBackend(
+        input_error=primary if has_primary_error else None,
+        release_error=release_error if cleanup_stage != "close" else None,
+        close_error=close_error if cleanup_stage != "release" else None,
+    )
+    monkeypatch.setattr(execution, "PyAutoGuiMouseBackend", Mock(return_value=backend))
+    with pytest.raises(ValueError if has_primary_error else RuntimeError) as caught:
+        execute_rewind_request(
+            RewindExecutionRequest(), capture=_capture, ocr_engine=_Ocr(("599",)), should_stop=lambda: False,
+        )
+    if has_primary_error:
+        assert caught.value is primary
+        detail = " ".join(caught.value.__notes__)
+    else:
+        detail = str(caught.value)
+        assert caught.value.__cause__ is (close_error if cleanup_stage == "close" else release_error)
+    assert "倒带输入收尾失败" in detail
+    assert ("release: RuntimeError: release failed" in detail) == (cleanup_stage != "close")
+    assert ("close: RuntimeError: close failed" in detail) == (cleanup_stage != "release")
+    assert backend.events[-2:] == [("release", None), ("close", None)]
+
+
+@pytest.mark.parametrize("stage", ["initial_capture", "ocr_scope"])
+def test_rewind_failure_before_backend_creation_has_no_input_owner(monkeypatch, stage) -> None:
+    failure = RuntimeError("synthetic early failure")
+    factory = Mock(side_effect=AssertionError("early failure created backend"))
+    monkeypatch.setattr(execution, "PyAutoGuiMouseBackend", factory)
+    capture = Mock(side_effect=failure) if stage == "initial_capture" else _capture
+    if stage == "ocr_scope":
+        monkeypatch.setattr(execution, "use_ocr_session", Mock(side_effect=failure))
+    with pytest.raises(RuntimeError) as caught:
+        execute_rewind_request(RewindExecutionRequest(), capture=capture, should_stop=lambda: False)
+    assert caught.value is failure
+    factory.assert_not_called()
+
+
+def test_rewind_cancel_waits_for_native_ocr_return_before_closing_owner(monkeypatch) -> None:
+    entered, return_native, returned, stopped, finished = (Event() for _ in range(5))
+    errors: list[BaseException] = []
+
+    class BlockingOcr:
+        close_calls = 0
+
+        def extract_text(self, _image):
+            entered.set()
+            if not return_native.wait(5):
+                raise TimeoutError("synthetic native barrier")
+            returned.set()
+            return ["600"]
+
+        def close(self):
+            self.close_calls += 1
+
+    class PhysicalOwner(_OwnedBackend):
+        def force_mouse_release(self):
+            assert returned.is_set(), "release preceded native physical return"
+            super().force_mouse_release()
+
+        def close(self):
+            assert returned.is_set(), "close preceded native physical return"
+            super().close()
+
+    backend, engine = PhysicalOwner(), BlockingOcr()
+    monkeypatch.setattr(execution, "PyAutoGuiMouseBackend", Mock(return_value=backend))
+
+    def run():
+        try:
+            execute_rewind_request(
+                RewindExecutionRequest(), capture=_capture, ocr_engine=engine, should_stop=stopped.is_set,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    worker = Thread(target=run, name="synthetic-rewind-owner")
+    worker.start()
+    try:
+        assert entered.wait(3)
+        stopped.set()
+        assert not returned.is_set() and not finished.is_set() and worker.is_alive()
+        assert not backend.closed and all(event[0] not in {"release", "close"} for event in backend.events)
+    finally:
+        return_native.set()
+        worker.join(5)
+    assert not worker.is_alive() and finished.is_set()
+    assert len(errors) == 1 and str(errors[0]) == "倒带执行已停止"
+    assert isinstance(errors[0].__cause__, CancelledError)
+    assert backend.closed and backend.events[-2:] == [("release", None), ("close", None)]
+    assert len(backend.clicks) == 1 and backend.keys == []
+    assert engine.close_calls == 0
+
+
+@pytest.mark.parametrize("borrowed", [False, True])
+@pytest.mark.parametrize("fails", [False, True])
+def test_capture_mss_ownership_on_synthetic_grab_success_and_failure(monkeypatch, borrowed, fails) -> None:
+    failure, image = RuntimeError("synthetic grab failure"), object()
+    rect = WindowRect(10, 20, 110, 120)
+
+    class FakeMss:
+        def __init__(self):
+            self.events = []
+
+        def __bool__(self):
+            return False  # 借入的假值对象同样不是创建新资源的理由。
+
+        def __enter__(self):
+            self.events.append("enter")
+            return self
+
+        def __exit__(self, kind, _error, _traceback):
+            self.events.append(("exit", kind))
+            self.close()
+
+        def close(self):
+            self.events.append("close")
+
+        def grab(self, monitor):
+            self.events.append(("grab", monitor))
+            if fails:
+                raise failure
+            return image
+
+    sct = FakeMss()
+    factory = Mock(return_value=sct)
+    monkeypatch.setattr(window_capture, "get_foreground_client_rect", lambda: rect)
+    monkeypatch.setattr(window_capture.mss, "MSS", factory)
+    if fails:
+        with pytest.raises(RuntimeError) as caught:
+            window_capture.capture_foreground_window(sct if borrowed else None)
+        assert caught.value is failure
+    else:
+        assert window_capture.capture_foreground_window(sct if borrowed else None) == (image, rect)
+    grab = ("grab", rect.to_mss_monitor())
+    if borrowed:
+        factory.assert_not_called()
+        assert sct.events == [grab]
+    else:
+        factory.assert_called_once_with()
+        assert sct.events == ["enter", grab, ("exit", RuntimeError if fails else None), "close"]

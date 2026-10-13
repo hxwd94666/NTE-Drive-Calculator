@@ -60,11 +60,11 @@ from src.features.battle_report.role_contribution_view import (
 from src.features.battle_report.timeline_layout import TimelineSelection
 from src.features.battle_report.timeline_view import BattleUnifiedTimelineWidget
 from src.features.official_role.profile_editor import OfficialRoleProfileEditor
-from src.services.battle_build_equipment_service import freeze_equipment_context
-from src.services.battle_marginal_candidate_service import (
+from src.services.battle_report.build.equipment import freeze_equipment_context
+from src.services.battle_report.marginal.candidates import (
     BattleMarginalCandidateService,
 )
-from src.services.battle_timeline_time_service import (
+from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
 )
@@ -255,13 +255,12 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         attribute_layout.addWidget(self.attribute_table)
         root.addWidget(attribute_card)
 
-        (
-            self.core_main_table,
-            self.core_main_notice,
-            self.fork_benefit_panel,
-            self.fork_benefit_table,
-            self.fork_benefit_notice,
+        (self.core_main_table, self.core_main_notice,
+         self.fork_benefit_panel, self.fork_benefit_table, self.fork_benefit_notice,
         ) = build_marginal_benefit_sections(root)
+        # 编辑器未挂载或重建期间由本页保管，重挂后才显示，不产生游离顶层表格。
+        self.fork_benefit_panel.setParent(self)
+        self.fork_benefit_panel.hide()
         buff_card, buff_layout = analysis_section("团队 Buff 边际")
         buff_note = QLabel("同一 Buff 的角色收益可合计；不同 Buff 请勿直接相加。")
         buff_note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
@@ -319,7 +318,8 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
         *,
         selected_character_id: int | None = None,
     ) -> None:
-        self.fork_benefit_panel.setParent(None)
+        self.fork_benefit_panel.setParent(self)
+        self.fork_benefit_panel.hide()
         while self.editor_stack.count():
             widget = self.editor_stack.widget(0)
             self.editor_stack.removeWidget(widget)
@@ -610,6 +610,7 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             editor = self._ensure_editor(index)
             if hasattr(editor, "set_fork_analysis_widget"):
                 editor.set_fork_analysis_widget(self.fork_benefit_panel)
+                self.fork_benefit_panel.show()
             self.editor_stack.setCurrentIndex(index)
         self._render_selected_role()
         self._refresh_change_summary()
@@ -706,6 +707,10 @@ class BattleMarginalPage(BattleMarginalBuffRenderMixin, QWidget):
             target,
             context_key=context_key,
             on_replaced=apply_replacement,
+            is_current=lambda: index < len(self._details) and self._details[index] is detail
+            and self.character_combo.currentIndex() == index,
+            static_database_path=detail["static_database_path"],
+            static_schema_version=detail["static_schema_version"],
         )
         if accepted:
             self._mark_draft_changed()

@@ -145,9 +145,7 @@ class BuffImportMixin:
             ORDER BY asset_path
             """
         ))
-        # Some fork star BuffObjects are classified as calculation assets by
-        # their directory, but expose Buff modifier fields. Import only those
-        # explicitly linked objects through the existing Buff contract.
+        # 部分精炼 Buff 位于 calculation 目录；仅按显式关联复用 Buff contract，不按目录猜属性。
         assets.extend(
             (path, name, "buff", character_id, source_file_id)
             for path, name, character_id, source_file_id in self.connection.execute(

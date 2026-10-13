@@ -32,7 +32,7 @@ def validate_all_item_snapshot(snapshot, *, with_records=True):
             or type(snapshot.get("sourceRecordCount")) is not int
             or snapshot["sourceRecordCount"] != count):
         raise ValueError("完整物品快照的条目数量不一致")
-    # Client enumeration never proves server account coverage.
+    # 客户端枚举完成不等于覆盖服务端账号；完整性与覆盖未知必须分别保存。
     if (snapshot.get("complete") is not False or snapshot.get("sourceCoverage") != "unknown"
             or snapshot.get("changeCoverage") != "unknown"
             or not isinstance(snapshot.get("missing"), list)

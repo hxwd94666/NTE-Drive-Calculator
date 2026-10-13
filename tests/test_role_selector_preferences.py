@@ -452,24 +452,6 @@ class RoleSelectorPreferenceTests(unittest.TestCase):
         self.assertEqual({}, selector.get_tape_main_filters())
         self.assertEqual({}, selector.get_crit_priority_modes())
 
-    def test_empty_stat_summary_can_show_not_selected(self) -> None:
-        from PySide6.QtWidgets import QApplication, QLabel
-
-        from src.features.allocation.role_selector import RoleSelector
-
-        QApplication.instance() or QApplication([])
-        selector = RoleSelector()
-        label = QLabel()
-
-        selector._refresh_selected_summary_label(
-            label,
-            [],
-            "、",
-            "未选择",
-        )
-
-        self.assertEqual("未选择", label.text())
-
     def test_protagonist_starts_empty_and_accepts_player_values(self) -> None:
         from PySide6.QtWidgets import QApplication
 
@@ -493,7 +475,6 @@ class RoleSelectorPreferenceTests(unittest.TestCase):
 
         self.assertEqual({}, selector.get_tape_main_filters())
         self.assertEqual({}, selector.get_crit_priority_modes())
-        self.assertEqual([], selector._selected_substat_priority("「零」"))
 
         selector.tape_main_filters.pop("「零」", None)
         self.assertEqual({}, selector.get_tape_main_filters())
@@ -503,7 +484,6 @@ class RoleSelectorPreferenceTests(unittest.TestCase):
 
         self.assertEqual({"「零」": ["攻击力%"]}, selector.get_tape_main_filters())
         self.assertEqual(["攻击力%"], selector.get_crit_priority_modes()["「零」"]["stats"])
-        self.assertEqual(["攻击力%"], selector._selected_substat_priority("「零」"))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,22 @@
+{
+  "format_version": 1,
+  "catalog_id": "nte-ui",
+  "locale": "qps-ploc",
+  "display_name": "伪语言 · 仅开发验证",
+  "messages": {
+    "settings.language.title": "《Language: 界面语言（预备） · extended layout text》",
+    "settings.language.scope": "《Language: 当前仅接入语言设置示范切片，其它页面仍显示中文。 · extended layout text》",
+    "settings.language.label": "《Language: 下次启动使用： · extended layout text》",
+    "settings.language.restart": "《Language: 保存后下次启动生效，不会自动重启。 · extended layout text》",
+    "settings.language.save": "《保存语言》",
+    "settings.language.restore": "《恢复中文》",
+    "settings.language.install": "《导入文本补丁》",
+    "settings.language.file_title": "《Language: 选择 UTF-8 JSON 语言补丁 · extended layout text》",
+    "settings.language.file_filter": "《JSON 文本 (*.json)》",
+    "settings.language.saved": "《Language: 已保存语言：{language}。下次启动生效。 · extended layout text》",
+    "settings.language.installed": "《Language: 已安装：{language}。请选择并保存；当前语言不变。 · extended layout text》",
+    "settings.language.fallback": "《Language: 语言目录未启用（{reason}），本次使用中文。请检查补丁后重试。 · extended layout text》",
+    "common.operation.processing": "《Language: 正在处理，请稍候。 · extended layout text》",
+    "common.operation.failed": "《Language: 操作失败（{reason}）。请检查文件或权限后重试。 · extended layout text》"
+  }
+}

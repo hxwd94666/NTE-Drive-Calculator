@@ -124,11 +124,10 @@ def stat_priority_match_depth(
     *,
     equal_priority: bool = False,
 ) -> int:
-    """Return the pool depth represented by an item's ordered stat matches.
+    """按词条匹配决定候选池深度，评分排序在选池之后。
 
-    Sequential mode models nested pools: A+B+C outranks A+B, which outranks
-    A.  A lower-priority stat after the first gap does not advance the item
-    into a deeper pool.  Equal-priority mode intentionally counts every hit.
+    顺序优先只计算连续命中前缀；首个缺项之后的低优先命中不加深。
+    同级优先则统计全部命中，二者不互相替代。
     """
 
     flags = tuple(bool(match) for match in matches)
@@ -148,7 +147,7 @@ def deepest_stat_priority_pool(
     *,
     require_match: bool,
 ) -> list[_PriorityItem]:
-    """Select the deepest non-empty preference pool before score ranking."""
+    """先选最深非空词条池；强制匹配时无首层命中即返回空集。"""
 
     ranked = [(max(0, int(depth_for_item(item))), item) for item in items]
     if not ranked:
@@ -327,12 +326,10 @@ def minimum_crit_total(
     tape_main_values: dict | None = None,
     shape_areas: dict | None = None,
 ) -> float:
-    """Crit total used by the minimum-crit preference.
+    """计算暴击下限所用的候选总暴击，不重复累加完整角色面板。
 
-    The game grants every role a fixed 5% base crit rate.  Role management
-    additionally supplies the selected fork's unconditional crit projection
-    (including its permanent refinement property); equipment and extra-shape
-    crit are then added for the candidate being evaluated.
+    基础暴击加选中弧盘的无条件暴击投影（含精炼常驻项），
+    再加本候选装备和额外形状暴击；条件弧盘效果不在此补入。
     """
     return round(
         BASE_CRIT_RATE

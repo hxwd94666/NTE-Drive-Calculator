@@ -32,7 +32,7 @@ class BattleHitDetailTables:
 
 
 class BattleHitDetailLookup:
-    """One disposable page view bound to its frozen analysis and shared tables."""
+    """绑定冻结分析与共享表的一次性页投影；事件 ID 和时间须同时匹配。"""
     def __init__(self, tables: BattleHitDetailTables, section: str,
                  analysis: BattleAnalysisSnapshot | None):
         self._tables, self._section = tables, section

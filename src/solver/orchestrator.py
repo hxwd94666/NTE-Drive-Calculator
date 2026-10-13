@@ -8,10 +8,11 @@ from concurrent.futures import CancelledError
 from pathlib import Path
 from typing import Callable, List, Dict
 
+from src.domain.stat_catalog import StatCatalog
 from src.domain.allocation_rating import loadout_total_grade
 from src.integrations.bundled_resources import bundled_config_dir
 from src.optimizer.contracts import PLAN_CUSTOM_WEAPON
-from src.domain.equipment_normalizer import normalize_equipment_item
+from src.domain.equipment.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
 from src.solver.dfs_puzzle import DFSPuzzleSolver
@@ -24,7 +25,7 @@ from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
 from src.utils.set_name import normalize_set_display_name
 from src.services.legacy_allocation_static_catalog import build_legacy_allocation_static_catalog
-from src.services.allocation_failure_text import allocation_failure_text
+from src.domain.allocation.failures import allocation_failure_text
 
 
 class NTEPipelineOrchestrator:
@@ -34,10 +35,15 @@ class NTEPipelineOrchestrator:
     def __init__(
         self, config_dir: str | Path | None = None, *, user_database_path=None,
         static_database_path: str | Path | None = None,
+        expected_dataset: tuple[str, int, str] | None = None, stat_catalog: StatCatalog | None = None,
+        static_read_unit=None,
     ):
         self.config_dir = str(Path(config_dir) if config_dir is not None else bundled_config_dir())
         self.user_database_path = user_database_path
         self.static_database_path = static_database_path
+        self._expected_dataset = expected_dataset
+        self._stat_catalog = stat_catalog
+        self._static_read_unit = static_read_unit
         self.roles_db = {}
         self.sets_db = {}
         self.shapes_db = {}
@@ -84,6 +90,8 @@ class NTEPipelineOrchestrator:
             config_dir=self.config_dir,
             user_database_path=self.user_database_path,
             static_database_path=self.static_database_path,
+            expected_dataset=self._expected_dataset, stat_catalog=self._stat_catalog,
+            static_read_unit=self._static_read_unit,
         )
         self.roles_db = catalog.roles_db
         self.sets_db = catalog.sets_db

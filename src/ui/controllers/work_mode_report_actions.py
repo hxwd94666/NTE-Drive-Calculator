@@ -25,8 +25,7 @@ class WorkModeReportActionsMixin:
             ):
                 return
             self._report_sync_home_generation = frozen[1]
-            # This is the same public entry used by the workbench switch; it
-            # performs a fresh preflight rather than trusting the displayed report.
+            # 复用工作台显式开关入口，重新预检，不拿已显示报告直接授权同步。
             callback()
 
         return request

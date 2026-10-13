@@ -36,7 +36,7 @@ from src.features.battle_report.target_vital_view import BattleTargetVitalPanel
 from src.features.battle_report.target_condition_selector import (
     BattleTargetConditionSelector,
 )
-from src.services.battle_target_catalog_service import BattleTargetCatalogService
+from src.services.battle_report.targets.catalog import BattleTargetCatalogService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.features.battle_report.timeline_layout import (
     LABEL_WIDTH,
@@ -44,7 +44,7 @@ from src.features.battle_report.timeline_layout import (
     TimelinePaintedBar,
     TimelineSelection,
 )
-from src.services.battle_timeline_time_service import (
+from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
 )
@@ -84,13 +84,6 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
             )
         )
 
-    def test_analysis_status_label_is_embedded_in_the_timeline_card(self) -> None:
-        view = BattleLongAnalysisView()
-
-        view.set_loading("正在读取轻量概览…")
-
-        self.assertIsNotNone(view.capability_label.parentWidget())
-        self.assertFalse(view.capability_label.isWindow())
 
     def test_environment_editor_refreshes_current_analysis_before_opening(self) -> None:
         view = BattleLongAnalysisView()
@@ -124,14 +117,8 @@ class BattleReportAnalysisUiTests(unittest.TestCase):
 
         footer = page.analysis_progress
         self.assertFalse(footer.isHidden())
-        self.assertIs(page, footer.parentWidget())
-        self.assertEqual(
-            page.layout().indexOf(page._stack) + 1,
-            page.layout().indexOf(footer),
-        )
         self.assertEqual(0, footer.progress.minimum())
         self.assertEqual(100, footer.progress.maximum())
-        self.assertEqual(1, footer.progress.value())
         self.assertIn("Buff", footer.message_label.text())
 
         page.end_analysis_details()

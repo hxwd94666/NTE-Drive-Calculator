@@ -18,10 +18,9 @@ def _operation_enabled_window(**attributes):
     )
 
 
-
 class DriveAssemblyUiExecutionTests(unittest.TestCase):
     def test_single_role_button_executes_confirmed_plan(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
+        import src.features.inventory.equipment.assembly_controller as page_module
 
         calls = []
         old_select = page_module._select_single_role_assembly_mode
@@ -39,7 +38,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([("真红", {"confirmed": True})], calls)
 
     def test_single_role_button_forwards_selected_loadout_slot(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
+        import src.features.inventory.equipment.assembly_controller as page_module
 
         calls = []
         old_select = page_module._select_single_role_assembly_mode
@@ -57,7 +56,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([("真红", {"slot_id": 71, "confirmed": True})], calls)
 
     def test_all_role_button_does_not_execute_when_cancelled(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
+        import src.features.inventory.equipment.assembly_controller as page_module
 
         calls = []
 
@@ -88,7 +87,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([], calls)
 
     def test_all_role_button_executes_current_game_role_flow_when_confirmed(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
+        import src.features.inventory.equipment.assembly_controller as page_module
 
         class PlansDao:
             def __enter__(self):
@@ -146,7 +145,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([([], {"slot_ids": [11]})], calls)
 
     def test_weighted_result_can_limit_fast_equipment_to_its_selected_roles(self):
-        import src.features.inventory.equipment_assembly_controller as page_module
+        import src.features.inventory.equipment.assembly_controller as page_module
 
         class PlansDao:
             def __enter__(self):
@@ -216,7 +215,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([([], {"slot_ids": [21]})], calls)
 
     def test_weighted_result_can_limit_automatic_equipment_to_its_selected_roles(self):
-        import src.features.inventory.equipment_automatic_assembly_controller as page_module
+        import src.features.inventory.equipment.automatic_assembly_controller as page_module
 
         class PlansDao:
             def __enter__(self):
@@ -286,7 +285,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([([], {"slot_ids": [31]})], calls)
 
     def test_confirmed_assembly_minimizes_calculator_before_execution(self):
-        import src.features.inventory.equipment_automatic_assembly_controller as page_module
+        import src.features.inventory.equipment.automatic_assembly_controller as page_module
 
         class Signal:
             def __init__(self):
@@ -377,7 +376,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.QMessageBox.critical = old_critical
 
     def test_automatic_assembly_uses_mouse_only_execution_contract(self):
-        import src.features.inventory.equipment_automatic_assembly_controller as page_module
+        import src.features.inventory.equipment.automatic_assembly_controller as page_module
 
         class Signal:
             def connect(self, _callback):
@@ -436,7 +435,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         )
 
     def test_automatic_assembly_uses_configured_global_stop_hotkey(self):
-        import src.features.inventory.equipment_automatic_assembly_controller as page_module
+        import src.features.inventory.equipment.automatic_assembly_controller as page_module
 
         class Signal:
             def connect(self, _callback):
@@ -503,7 +502,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertTrue(calls[0]["should_stop"]())
 
     def test_single_role_f12_stop_restores_equipment_page_before_dialog(self):
-        from src.features.inventory.page import _return_to_equipment_after_assembly
+        from src.features.inventory.equipment.assembly_controller import _return_to_equipment_after_assembly
 
         calls = []
 
@@ -524,7 +523,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual(["show_normal", "equipment", "raise", "activate"], calls)
 
     def test_all_roles_f12_stop_restores_equipment_page_before_dialog(self):
-        from src.features.inventory.page import _assembly_report_dialog
+        from src.features.inventory.equipment.assembly_controller import _assembly_report_dialog
 
         report = SimpleNamespace(
             role_reports=[],
@@ -557,14 +556,11 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([{"block_id": 2, "position": (90, 90)}], result["missing_blocks"])
 
 
-
-
-
 class AutomaticAssemblyRecommendationTests(unittest.TestCase):
     def test_only_confirmed_medium_mode_offers_fast_assembly_recommendation(self):
         from unittest.mock import patch
         from src.domain.work_mode import WorkMode
-        from src.features.inventory import equipment_automatic_assembly_controller as module
+        from src.features.inventory.equipment import automatic_assembly_controller as module
 
         for mode in WorkMode:
             window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=mode)))
@@ -581,7 +577,7 @@ class AutomaticAssemblyRecommendationTests(unittest.TestCase):
     def test_medium_cancellation_stops_single_and_batch_before_any_operation(self):
         from unittest.mock import patch
         from src.domain.work_mode import WorkMode
-        from src.features.inventory import equipment_automatic_assembly_controller as module
+        from src.features.inventory.equipment import automatic_assembly_controller as module
 
         window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
         with patch.object(module, "confirm_operation_recommendation", return_value=False) as warning, \
@@ -598,7 +594,7 @@ class AutomaticAssemblyRecommendationTests(unittest.TestCase):
     def test_medium_continue_preserves_selected_slot_and_existing_execution_guards(self):
         from unittest.mock import patch
         from src.domain.work_mode import WorkMode
-        from src.features.inventory import equipment_automatic_assembly_controller as module
+        from src.features.inventory.equipment import automatic_assembly_controller as module
 
         window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
         with patch.object(module, "confirm_operation_recommendation", return_value=True) as warning, \

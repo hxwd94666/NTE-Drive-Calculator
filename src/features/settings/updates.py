@@ -1,5 +1,5 @@
 # 检查 Mirror 酱资源更新并显示版本更新弹窗。
-"""MirrorChyan update API integration and update-dialog helpers."""
+"""更新请求、临时下载和弹窗适配；检查与用户显式下载分别执行。"""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ _UPDATE_DOWNLOAD_CHUNK_SIZE = 128 * 1024
 
 
 class UpdateDownloadCancelled(RuntimeError):
-    """Raised when the user cancels an in-app installer download."""
+    """用户取消本次安装器下载，保留为独立终态。"""
 
 
 def is_newer_version(remote, current) -> bool:
@@ -36,7 +36,7 @@ def is_newer_version(remote, current) -> bool:
 
 
 def mirror_update_request_url(api_url: str, app_version: str, cdk: str = "") -> str:
-    """Build the documented Mirror API request without logging the CDK."""
+    """构造本次请求；CDK 只作为参数传递，不在此记录日志。"""
     params = {"current_version": str(app_version).strip()}
     if str(cdk).strip():
         params["cdk"] = str(cdk).strip()
@@ -50,12 +50,7 @@ def fetch_update_info(
     cdk: str = "",
     timeout: int = UPDATE_CHECK_TIMEOUT_SECONDS,
 ) -> dict:
-    """Read one Mirror resource response.
-
-    ``data.url`` is a short-lived download URL.  It is intentionally kept out
-    of account settings and logs; it is only opened when the user explicitly
-    requests a download.
-    """
+    """读取本次更新响应；短期下载地址仅返回给显式下载流程，不写配置或日志。"""
     request = urllib.request.Request(
         mirror_update_request_url(api_url, app_version, cdk),
         headers={"User-Agent": f"NTE-Drive-Calc/{app_version}", "Accept": "application/json"},
@@ -116,12 +111,7 @@ def download_update_installer(
     progress_callback=None,
     cancel_check=None,
 ) -> dict:
-    """Download a Mirror installer to a temporary directory.
-
-    The URL returned by Mirror is short-lived, so the file is deliberately not
-    stored in account settings.  A partial file is never launched and is
-    removed if downloading fails or is cancelled.
-    """
+    """下载到本次临时目录，MZ 与已知长度通过后原子改名；失败/取消清除残件。"""
     if not str(url).strip().lower().startswith(("https://", "http://")):
         raise ValueError("Mirror 下载地址无效。")
     if cancel_check and cancel_check():
@@ -175,7 +165,7 @@ def update_dialog_link_url(info: dict) -> str:
 
 
 def update_notes_markdown(message: object) -> str:
-    """Normalize common release-note shorthand into Qt-compatible Markdown."""
+    """只规范更新说明的 Markdown 显示，不解释为可执行动作。"""
 
     text = str(message or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not text:

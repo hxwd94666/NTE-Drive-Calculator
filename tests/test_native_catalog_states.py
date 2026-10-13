@@ -7,28 +7,28 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from src.services.battle_zankou_form_buff_service import BattleZankouFormBuffService
-from src.services.battle_shinku_rage_buff_service import BattleShinkuRageBuffService
-from src.services.battle_fadia_hp_stack_service import BattleFadiaHpStackService
-from src.services.battle_daffodill_awakening_service import BattleDaffodillAwakeningService
-from src.services.battle_outer_realm_buff_service import BattleOuterRealmBuffService
-from src.services.battle_linko_coattack_buff_service import BattleLinkoCoattackBuffService
-from src.services.battle_treatment_event_service import BattleTreatmentEventService
-from src.services.battle_treatment_buff_service import BattleTreatmentBuffService
-from src.services.battle_buff_inference_service import BattleBuffInferenceService
-from tests import test_battle_zankou_form_buff_service as zankou
-from tests import test_battle_shinku_rage_buff_service as shinku
-from tests import test_battle_fadia_hp_stack_service as fadia
-from tests import test_battle_daffodill_awakening_service as daffodill
-from tests import test_battle_outer_realm_buff_service as outer
-from tests import test_battle_linko_formula_projection as linko
-from tests import test_battle_treatment_event_service as treatment
-from tests import test_battle_buff_inference_service as buff
-from tests import test_battle_fork_refinement_service as fork
-from tests import test_battle_fork_state_refinement_service as fork_state
-from tests import test_battle_fork_damage_completion_service as fork_damage
-from tests import test_battle_fork_trigger_refinement_service as fork_trigger
-from tests import test_battle_fork_periodic_refinement_service as fork_periodic
+from src.services.battle_report.characters.zankou import BattleZankouFormBuffService
+from src.services.battle_report.characters.shinku import BattleShinkuRageBuffService
+from src.services.battle_report.characters.fadia import BattleFadiaHpStackService
+from src.services.battle_report.characters.daffodill import BattleDaffodillAwakeningService
+from src.services.battle_report.environment.outer_realm_buffs import BattleOuterRealmBuffService
+from src.services.battle_report.characters.linko_buffs import BattleLinkoCoattackBuffService
+from src.services.battle_report.treatment.mechanisms import BattleTreatmentEventService
+from src.services.battle_report.treatment.mechanisms import BattleTreatmentBuffService
+from src.services.battle_report.buffs.inference import BattleBuffInferenceService
+from tests.battle_report.characters import test_zankou_form as zankou
+from tests.battle_report.characters import test_shinku_rage as shinku
+from tests.battle_report.characters import test_fadia as fadia
+from tests.battle_report.characters import test_daffodill as daffodill
+from tests.battle_report.environment import test_outer_realm_buffs as outer
+from tests.battle_report.characters import test_linko_formula as linko
+from tests.battle_report.treatment import test_events as treatment
+from tests.battle_report.buffs import test_inference as buff
+from tests.battle_report.forks import test_refinement as fork
+from tests.battle_report.forks import test_state_refinement as fork_state
+from tests.battle_report.forks import test_damage_completion as fork_damage
+from tests.battle_report.forks import test_trigger_refinement as fork_trigger
+from tests.battle_report.forks import test_periodic_refinement as fork_periodic
 
 
 def normalize(value):

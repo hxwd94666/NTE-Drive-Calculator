@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_marginal_calculation_service import BattleMarginalCalculationService
+from src.services.battle_report.marginal.calculation import BattleMarginalCalculationService
 from tools.battle_report.evaluate_native_analysis import compare_results
 
 

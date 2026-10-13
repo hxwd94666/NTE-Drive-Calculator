@@ -1,5 +1,5 @@
 # 角色与词条配装共用的卡片式装备替换比较窗口。
-"""Shared warehouse-card replacement picker with explicit confirmation."""
+"""复用仓库卡片比较展示副本，只有显式确认才提交替换。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
+from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QDialog,
     QBoxLayout,
@@ -26,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.features.inventory.warehouse_result_card import WarehouseResultCard
+from src.features.inventory.warehouse.result_card import WarehouseResultCard
 
 
 REPLACEMENT_CANDIDATE_COLUMNS = 4
@@ -71,13 +72,7 @@ def comparison_item_views(
     current: Mapping[str, Any],
     selected: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Mark each displayed stat by its actual old-to-new direction.
-
-    Both exclusive stats and the same stat with a different value are relevant:
-    the current card is red for a loss and the selected card is green for a
-    gain.  The former implementation reversed the sides and only handled
-    exclusive property IDs, which made a replacement appear to have gains only.
-    """
+    """在深拷贝的比较副本中标记词条增减；优先用 property_id 对齐，不回写输入。"""
 
     old_view = deepcopy(dict(current))
     new_view = deepcopy(dict(selected))
@@ -124,9 +119,11 @@ def show_equipment_replacement_dialog(
     summary: str,
     current: EquipmentReplacementCard,
     candidates: list[EquipmentReplacementCard],
-    on_confirm: Callable[[EquipmentReplacementCard], None],
+    on_confirm: Callable[[EquipmentReplacementCard], None] | None = None,
+    submit_confirm=None, is_current: Callable[[], bool] = lambda: True,
+    cancel_pending: Callable[[], None] = lambda: None,
 ) -> bool:
-    """Show one current card, selectable candidate cards, then commit explicitly."""
+    """未知边际值保留占位；异步提交区分已保存事实、失败和失效展示。"""
 
     dialog = QDialog(parent)
     dialog.setObjectName("equipmentReplacementDialog")
@@ -246,7 +243,11 @@ def show_equipment_replacement_dialog(
     confirm.setObjectName("btnAction")
     confirm.setEnabled(False)
 
+    submitting = [False]
+
     def select(choice: EquipmentReplacementCard) -> None:
+        if submitting[0]:
+            return
         selected[0] = choice
         for key, card in candidate_widgets.items():
             card.set_selected(key == choice.key)
@@ -342,17 +343,64 @@ def show_equipment_replacement_dialog(
     actions.addWidget(confirm)
     root.addLayout(actions)
 
+    def active() -> bool:
+        return isValid(dialog) and dialog.isVisible() and is_current()
+
+    def committed(receipt) -> None:
+        if not active():
+            return  # 数据库事实已提交；离页/取消只撤销这次界面投递。
+        diagnostic = receipt.get("postcommit_diagnostic") if isinstance(receipt, Mapping) else None
+        if diagnostic:
+            QMessageBox.information(dialog, "方案已保存", f"保存已完成；读取收尾出现诊断，请刷新核对。\n{diagnostic}")
+        dialog.accept()
+
+    def failed(error) -> None:
+        if not active():
+            return
+        submitting[0] = False
+        confirm.setEnabled(True)
+        confirm.setText("确定替换")
+        QMessageBox.warning(dialog, "替换失败", str(error))
+
+    def application_failed(error) -> None:
+        if active():
+            QMessageBox.information(dialog, "保存结果待刷新", f"提交已经结束，请刷新配装核对；不要重复提交。\n{error}")
+            dialog.reject()
+
     def commit() -> None:
         choice = selected[0]
-        if choice is None:
+        if choice is None or submitting[0] or not active():
+            return
+        if submit_confirm is not None:
+            submitting[0] = True
+            confirm.setEnabled(False)
+            confirm.setText("正在保存…")
+            try:
+                if not submit_confirm(choice, committed, failed, application_failed):
+                    failed("已有替换方案正在保存，请等待完成。")
+            except Exception as exc:
+                failed(str(exc))
             return
         try:
-            on_confirm(choice)
+            if on_confirm is not None:
+                on_confirm(choice)
         except Exception as exc:
             QMessageBox.warning(dialog, "替换失败", str(exc))
             return
         dialog.accept()
 
+    monitor = QTimer(dialog)
+    monitor.setInterval(25)
+    def watch():
+        if not is_current():
+            cancel_pending()
+            dialog.reject()
+    monitor.timeout.connect(watch)
+    dialog.rejected.connect(cancel_pending)
     confirm.clicked.connect(commit)
     fit_dialog_to_available_screen(dialog, fitted_size)
-    return dialog.exec() == QDialog.Accepted
+    monitor.start()
+    accepted = dialog.exec() == QDialog.Accepted
+    monitor.stop()
+    dialog.deleteLater()
+    return accepted

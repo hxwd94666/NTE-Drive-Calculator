@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from src.app.constants import APP_VERSION
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.features.home.feature_guide import add_feature_guides
 from src.ui.dashboard_widgets import metric_card, set_status_badge
 from src.ui.image_scaling import asset_pixmap
@@ -116,7 +116,7 @@ _WORKBENCH_VERSION = ".".join(APP_VERSION.split(".")[:2])
 
 
 def inventory_sync_error_guidance(error_code: str | None, error: str | None, *, capture_source: str) -> str:
-    """Translate sync failures into concrete user actions while retaining diagnostics."""
+    """按错误码和同步来源给出下一步；未分类错误不伪装成功。"""
     code = str(error_code or "").strip()
     if code == "GAME_PROCESS_NOT_FOUND":
         if capture_source == "native":
@@ -171,7 +171,7 @@ def _section(title: str, description: str = "") -> tuple[QFrame, QVBoxLayout]:
 
 
 def _home_sync_help_text(mode: str) -> str:
-    """Keep the next action clear for the current synchronization source."""
+    """帮助只解释当前已确认模式的准备顺序，不开启自动同步。"""
 
     if mode == "offline":
         return (

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.services.bulk_equipment_apply_postcheck import (
+from src.services.equipment.bulk_postcheck import (
     postcheck_and_repair,
     wait_for_guarded_full_snapshot,
 )

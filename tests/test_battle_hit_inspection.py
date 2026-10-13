@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QTableWidget
 from src.domain.battle_native_evidence import BattleNativeHitEvidence
 from src.domain.battle_report import BattleHitReplayTerm, BattleHitReplayFactor
 from src.features.battle_report.hit_inspection_widget import HitInspectionWidget, contribution_source, term_source
-from tests.test_battle_hit_buff_detail import _hit
+from tests.battle_report.buffs.test_hit_explanation import _hit
 
 
 class ContributionSourceTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class HitInspectionTests(unittest.TestCase):
         hit=replace(_hit(),native_evidence=BattleNativeHitEvidence(json.dumps({"rawHit":raw})))
         view=HitInspectionWidget()
         try:
-            with patch('src.services.battle_buff_attribute_projection_service.BattleBuffAttributeProjectionService.project_hit',
+            with patch('src.services.battle_report.buffs.attribute_projection.BattleBuffAttributeProjectionService.project_hit',
                        side_effect=AssertionError('UI must not compute')):
                 view.set_hit(hit)
                 view.participant("attacker")

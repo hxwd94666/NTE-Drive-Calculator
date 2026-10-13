@@ -7,7 +7,7 @@ import pytest
 
 from src.domain.drive_layout import SHAPE_FOOTPRINTS
 from src.features.drive_assembly.page_navigation_mapping import map_rewind_controls
-from src.features.drive_assembly.rewind_shape_detection import (
+from src.features.drive_assembly.rewind.shape_detection import (
     detect_rewind_shape_positions,
 )
 

@@ -6,7 +6,7 @@ from typing import Iterable
 
 
 def blueprint_piece_signature(blueprint: dict) -> tuple:
-    """Keep set qualification distinct from identical total board geometry."""
+    """同样的总几何仍须区分套装模式、必需件及额外件，避免去重丢掉套装资格。"""
     set_counts = Counter(str(piece) for piece in blueprint.get("set_pieces") or [])
     extra_counts = Counter(str(piece) for piece in blueprint.get("extra_pieces") or [])
     return (

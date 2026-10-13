@@ -13,6 +13,7 @@ GRADUATION_ASSUMPTION_WARNING = (
 
 
 def assumed_graduation_equipment(profile: Mapping[str, Any]) -> list[dict[str, Any]] | None:
+    """只复制有正式假定标记和版本的模板物品，不提升为真实库存或 UID。"""
     assumption = profile.get("equipment_assumption")
     if not isinstance(assumption, Mapping):
         return None

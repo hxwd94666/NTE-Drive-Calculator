@@ -174,7 +174,7 @@ def test_v41_migration_failure_rolls_back_and_retries(tmp_path):
 
 
 def test_cultivation_seed_uses_sparse_growth_without_inventing_skills_or_fork(tmp_path):
-    from src.services.cultivation_planner_service import CultivationPlannerService
+    from src.services.progression.planner_service import CultivationPlannerService
 
     database, service = setup(tmp_path)
     service.patch_native_profiles([{"character_id": 1003, "character_level": 70}], check=lambda: None)
@@ -182,7 +182,7 @@ def test_cultivation_seed_uses_sparse_growth_without_inventing_skills_or_fork(tm
     planner = CultivationPlannerService(static_database_path=static_path, user_database_path=database)
     detail = SimpleNamespace(character=SimpleNamespace(character_id=1003, name_zh="fixture"), skills=())
     with patch.object(planner, "_load_detail", return_value=detail), patch(
-        "src.services.cultivation_planner_service.load_template_growth_defaults", return_value=defaults((1003,)),
+        "src.services.progression.planner_service.load_template_growth_defaults", return_value=defaults((1003,)),
     ) as load_defaults:
         result = planner.load_seed(1003)
     assert (result.current_level, result.current_breakthrough_stage) == (70, 6)

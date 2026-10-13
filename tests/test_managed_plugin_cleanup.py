@@ -7,11 +7,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.services.equipment_plugin_deployment import (
+from src.integrations.components.environment import (
     EquipmentPluginDeploymentError,
     cleanup_mod_workspace,
 )
-from src.services.managed_plugin_cleanup import cleanup_managed_plugin, inspect_managed_plugin
+from src.integrations.components.legacy_cleanup import cleanup_managed_plugin, inspect_managed_plugin
 
 
 class ManagedPluginCleanupTests(unittest.TestCase):
@@ -25,11 +25,11 @@ class ManagedPluginCleanupTests(unittest.TestCase):
         self.dll.write_bytes(b"managed")
         self.workspace = self.root / "workspace"
         self.registry = patch(
-            "src.services.managed_plugin_cleanup.mod_workspace_registry_snapshot",
+            "src.integrations.components.legacy_cleanup.mod_workspace_registry_snapshot",
             return_value=(False, None),
         ).start()
         self.clear_registry = patch(
-            "src.services.managed_plugin_cleanup.cleanup_mod_workspace", return_value=True,
+            "src.integrations.components.legacy_cleanup.cleanup_mod_workspace", return_value=True,
         ).start()
         self.addCleanup(patch.stopall)
 
@@ -159,8 +159,8 @@ class WorkspaceRegistrationCleanupTests(unittest.TestCase):
             QueryValueEx=MagicMock(return_value=(str(workspace), 1)),
             DeleteValue=MagicMock(), SetValueEx=MagicMock(),
         )
-        with patch("src.services.equipment_plugin_deployment.os.name", "nt"), patch(
-            "src.services.equipment_plugin_deployment.mod_workspace_registry_snapshot",
+        with patch("src.integrations.components.environment.os.name", "nt"), patch(
+            "src.integrations.components.environment.mod_workspace_registry_snapshot",
             return_value=(True, str(workspace)),
         ), patch.dict("sys.modules", {"winreg": registry}):
             self.assertTrue(cleanup_mod_workspace(workspace_path=workspace))
@@ -169,14 +169,14 @@ class WorkspaceRegistrationCleanupTests(unittest.TestCase):
 
     def test_absent_registration_is_already_cleaned(self) -> None:
         with patch(
-            "src.services.equipment_plugin_deployment.mod_workspace_registry_snapshot",
+            "src.integrations.components.environment.mod_workspace_registry_snapshot",
             return_value=(False, None),
         ):
             self.assertTrue(cleanup_mod_workspace(workspace_path=None))
 
     def test_unknown_registration_is_not_removed(self) -> None:
         with patch(
-            "src.services.equipment_plugin_deployment.mod_workspace_registry_snapshot",
+            "src.integrations.components.environment.mod_workspace_registry_snapshot",
             return_value=(True, "another-workspace"),
         ):
             with self.assertRaisesRegex(EquipmentPluginDeploymentError, "已修改"):

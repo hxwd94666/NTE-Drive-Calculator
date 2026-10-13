@@ -229,7 +229,7 @@ class BattleAnalysisHit:
 
 @dataclass(frozen=True, slots=True)
 class BattleInferredAction:
-    """Derived action window backed by one or more immutable damage hits."""
+    """以不可变逐击为证据的派生动作区间，不改写原始命中。"""
 
     action_id: str
     character_id: int
@@ -281,7 +281,7 @@ class BattleLinkoCoattackInference:
 
 @dataclass(frozen=True, slots=True)
 class BattleTreatmentEvent:
-    """One source-side treatment occurrence derived without mutating raw hits."""
+    """从来源侧证据派生的一次治疗事件，原始逐击保持不变。"""
 
     event_id: str
     relative_time_us: int
@@ -420,7 +420,7 @@ class BattleTargetCondition:
 
 @dataclass(frozen=True, slots=True)
 class BattleMaxHpReductionEvent:
-    """Observed target-max-HP transition with separately inferred attribution."""
+    """目标最大生命的观测变化与另行推断的归属分开保存。"""
 
     event_id: str
     target_id: str
@@ -466,7 +466,7 @@ class BattleBuffModifierEvidence:
 
 @dataclass(frozen=True, slots=True)
 class BattleInferredBuffInterval:
-    """Deletable Buff-state inference; never an observed runtime fact."""
+    """可重算和删除的 Buff 状态推断，始终区别于实际采集事实。"""
 
     interval_id: str
     buff_asset_path: str
@@ -634,7 +634,7 @@ class BattleHitReplayTerm:
 
 @dataclass(frozen=True, slots=True)
 class BattleHitReplayResult:
-    """Observed hit compared with non-critical and critical formula candidates."""
+    """实测逐击与非暴击、暴击候选并列；歧义、未知和不可重放单独标记。"""
 
     event_id: str
     observed_damage: float
@@ -790,7 +790,7 @@ EMPTY_BATTLE_CAPTURE_STATE = BattleCaptureState(
 
 
 def active_abyss_half(summary: BattleSummary) -> BattleAbyssHalfSummary | None:
-    """Return the currently active half without making UI code parse labels."""
+    """只定位摘要明确标记的活动半场，未确认时返回 None，不借另一半场。"""
 
     active = (summary.abyss.active_half or "").lower()
     if "ascending" in active or "first" in active or "上" in active:

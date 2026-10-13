@@ -7,7 +7,7 @@ from functools import lru_cache
 
 @lru_cache(maxsize=2048)
 def role_name_sort_key(name: str) -> tuple[str, str, str]:
-    """Sort by the first meaningful character's initial, then full pinyin."""
+    """仅生成名称排序键；缓存有界，缺拼音依赖回退原文，不改变正式角色身份。"""
 
     label = str(name).strip()
     meaningful = "".join(char for char in label if char.isalnum())

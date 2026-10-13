@@ -17,7 +17,7 @@ from tempfile import NamedTemporaryFile
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
-from src.domain.loadout_share import LoadoutSharePanel, ShareEquipment
+from src.domain.equipment.loadout_share import LoadoutSharePanel, ShareEquipment
 from src.integrations.bundled_resources import bundled_root
 from src.integrations.loadout_share_assets import share_asset, share_template
 

@@ -6,7 +6,7 @@ import unittest
 from PySide6.QtWidgets import QApplication
 
 from src.features.battle_report.analysis_progress_bar import BattleAnalysisProgressBar
-from src.services.battle_analysis_progress import BattleAnalysisProgress
+from src.services.battle_report.analysis.progress import BattleAnalysisProgress
 
 
 class BattleProgressFooterTests(unittest.TestCase):

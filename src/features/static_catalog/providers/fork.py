@@ -23,7 +23,7 @@ from src.features.static_catalog.providers._shared import (
     lines,
     official,
 )
-from src.services.static_catalog_fork_service import (
+from src.services.static_catalog.forks.service import (
     CatalogOrigin,
     ForkCatalogDetail,
     ForkCatalogSummary,

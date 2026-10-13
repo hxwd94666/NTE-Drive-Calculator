@@ -7,6 +7,7 @@ from src.features.home.page import inventory_sync_error_guidance
 
 
 class SyncRetryDialog(QDialog):
+    """窗口关闭/Esc 只收起；准备阶段仅“取消重启”按钮取消请求。"""
     def __init__(self, parent, *, controller, native=False):
         super().__init__(parent)
         self.controller = controller

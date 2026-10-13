@@ -18,18 +18,18 @@ from src.domain.battle_report import (
     BattleHitReplayTerm,
     BattleInferredBuffInterval,
 )
-from src.services.battle_buff_counterfactual_plan_service import (
+from src.services.battle_report.buffs.counterfactual_plan import (
     battle_buff_applied_hits,
     battle_buff_counterfactual_key,
 )
-from src.services.battle_buff_counterfactual_service import (
+from src.services.battle_report.buffs.counterfactual import (
     BattleBuffCounterfactualService,
 )
-from src.services.battle_hit_counterfactual_ratio_service import (
+from src.services.battle_report.damage.counterfactual import (
     BattleHitCounterfactualRatioService,
 )
-from src.services.battle_hit_replay_service import BattleHitReplayService
-from src.services.battle_marginal_calculation_service import (
+from src.services.battle_report.replay.service import BattleHitReplayService
+from src.services.battle_report.marginal.calculation import (
     BattleMarginalCalculationService,
 )
 

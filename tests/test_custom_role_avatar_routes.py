@@ -9,13 +9,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 
-from src.features.inventory import equipment_display_loaders
+from src.features.inventory.equipment import display_loaders as equipment_display_loaders
 from src.features.inventory import warehouse
-from src.features.inventory.equipment_master_detail_view import (
+from src.features.inventory.equipment.master_detail_view import (
     _equipment_role_icon,
     sorted_equipment_role_states,
 )
-from src.features.inventory.warehouse import (
+from src.features.inventory.warehouse.cards import (
     _equipped_owner_portrait,
     warehouse_item_view,
 )

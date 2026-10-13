@@ -1,0 +1,313 @@
+# 验证配装角色排序、定位与卡带数值加载。
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from types import SimpleNamespace
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtWidgets import QApplication, QLabel
+
+from src.features.inventory.equipment import display_loaders as equipment_display_loaders
+from src.features.inventory.equipment import display_view as equipment_display_view
+from src.features.inventory.equipment import plan_display_state
+from src.features.inventory.equipment.display_controller import _slot_suit_names
+from src.features.inventory.equipment.display_controller import invalidate_saved_equipment_cache
+from src.features.inventory.equipment.master_detail_view import sorted_equipment_role_states
+from src.optimizer.contracts import DIFF_CHANGED, ROLE_LAST_DIFF, ROLE_TOTAL_SCORE
+from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.ui.equipment_presentation import _equip_card
+
+
+def test_loadout_roles_sort_by_score_descending_then_name() -> None:
+    roles = sorted_equipment_role_states(
+        {
+            "低分": {ROLE_TOTAL_SCORE: 10},
+            "乙": {ROLE_TOTAL_SCORE: 80},
+            "甲": {ROLE_TOTAL_SCORE: 80},
+            "无效": {ROLE_TOTAL_SCORE: float("nan")},
+        }
+    )
+
+    assert [name for name, _state in roles] == ["乙", "甲", "低分", "无效"]
+
+
+def test_unchanged_saved_equipment_read_keeps_existing_widgets(monkeypatch) -> None:
+    events = []
+    window = SimpleNamespace(_equipment_mode="saved", _equip_rendered_mode="saved",
+                             _equip_rendered_states={"slot:1": {"score": 10}})
+    def clear(_window):
+        events.append("clear")
+        _window._equip_rendered_mode = None
+        _window._equip_rendered_states = None
+    monkeypatch.setattr(equipment_display_view, "_clear_equip_content", clear)
+    monkeypatch.setattr(equipment_display_view, "_queue_equipment_render",
+                        lambda _window, _states: events.append("render"))
+
+    equipment_display_view._publish_equipment_states(window, {"slot:1": {"score": 10}})
+    assert events == []
+    equipment_display_view._publish_equipment_states(window, {"slot:1": {"score": 11}})
+    assert events == ["clear", "render"]
+
+
+def test_mutation_invalidates_inflight_equipment_read() -> None:
+    prior = object()
+    window = SimpleNamespace(_saved_equipment_cache_valid=True, _equip_load_token=prior)
+    invalidate_saved_equipment_cache(window)
+    assert not window._saved_equipment_cache_valid
+    assert window._equip_load_token is not prior
+    equipment_display_view._on_sqlite_equipment_display_loaded(
+        window, prior, {"obsolete": {"score": 99}},
+    )
+    assert not hasattr(window, "_saved_equipment_states")
+
+
+def test_game_loadout_state_is_not_misread_as_a_saved_slot_group() -> None:
+    roles = sorted_equipment_role_states(
+        {
+            "零": {
+                "_game_mode": True,
+                "_role_name": "零",
+                ROLE_TOTAL_SCORE: 80,
+            }
+        }
+    )
+
+    assert roles[0][0] == "零"
+    assert "_role_slot_states" not in roles[0][1]
+
+
+def test_role_summary_keeps_any_slot_change_but_hides_slot_lock_state() -> None:
+    roles = sorted_equipment_role_states(
+        {
+            "slot:1": {
+                "_role_name": "零",
+                "_loadout_slot_key": "primary",
+                "_loadout_slot_name": "零",
+                "_allocation_locked": True,
+                ROLE_LAST_DIFF: {DIFF_CHANGED: False},
+                ROLE_TOTAL_SCORE: 40,
+            },
+            "slot:2": {
+                "_role_name": "零",
+                "_loadout_slot_key": "slot-2",
+                "_loadout_slot_name": "副本",
+                "_allocation_locked": False,
+                ROLE_LAST_DIFF: {DIFF_CHANGED: True},
+                ROLE_TOTAL_SCORE: 20,
+            },
+        }
+    )
+
+    summary = roles[0][1]
+    assert not summary["_allocation_locked"]
+    assert summary[ROLE_LAST_DIFF][DIFF_CHANGED]
+
+
+def test_loadout_slot_manager_reads_the_suit_from_the_equipped_tape() -> None:
+    assert _slot_suit_names(
+        {
+            "slot:7": {
+                "_loadout_slot_id": 7,
+                "equipped_tape": {"set_name": "失落光芒"},
+                "equipped_drives": [{"shape_id": "H_2"}],
+            }
+        },
+        7,
+    ) == ("失落光芒",)
+
+
+def test_saved_tape_projection_uses_the_full_level_main_value() -> None:
+    tape = plan_display_state._sqlite_inventory_item_display(
+        {
+            "kind": "core",
+            "uid_slot": 1,
+            "uid_serial": 2,
+            "item_id": "core_1",
+            "suit_id": "suit_1",
+            "quality": "orange",
+            "main_stats": [{"property_id": "AtkUp", "value": 0.125, "percent": True}],
+            "sub_stats": [],
+        },
+        {"suit_1": "测试空幕"},
+    )
+
+    assert tape["main_stats"] == "攻击力%"
+    assert tape["main_value"] == 37.5
+    assert tape["_role_main_stats"] == {"攻击力%": 12.5}
+
+
+def test_saved_tape_card_displays_its_exact_main_value() -> None:
+    app = QApplication.instance() or QApplication([])
+    del app
+
+    class Presentation:
+        @staticmethod
+        def _stat_w(*_args):
+            return 1.0
+
+        @staticmethod
+        def _stat_c(*_args):
+            return "#58a6ff"
+
+    card = _equip_card(
+        Presentation(),
+        "测试空幕",
+        "攻击力%",
+        {},
+        None,
+        "nte-core-1-2",
+        {},
+        main_value=12.5,
+        card_variant="inventory",
+    )
+
+    assert any(label.text() == "攻击力% 12.5%" for label in card.findChildren(QLabel))
+    card.deleteLater()
+
+def test_saved_plan_without_diff_does_not_project_whole_inventory(
+    monkeypatch,
+) -> None:
+    def unexpected_projection(*_args, **_kwargs):
+        raise AssertionError("inventory diff projection should stay lazy")
+
+    monkeypatch.setattr(
+        plan_display_state,
+        "_sqlite_inventory_item_display",
+        unexpected_projection,
+    )
+    state = plan_display_state._sqlite_plan_display_state(
+        {
+            "plan_id": 1,
+            "source_snapshot_id": 2,
+            "score": 0,
+            "payload": {},
+            "assignments": [],
+            "allocation_locked": False,
+        },
+        object(),
+        object(),
+        inventory_by_snapshot={
+            2: {
+                (1, 1): {
+                    "kind": "module",
+                    "uid_slot": 1,
+                    "uid_serial": 1,
+                    "virtual": False,
+                }
+            }
+        },
+        shape_cells={},
+        suit_names={},
+        attribute_ids=set(),
+    )
+
+    assert state[ROLE_TOTAL_SCORE] == 0.0
+
+
+def test_game_loader_reuses_preloaded_saved_states(monkeypatch, tmp_path) -> None:
+    class FakeDao:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeProjectionService:
+        def __init__(self, *_args):
+            pass
+
+        def project_current(self):
+            return SimpleNamespace(supported=False, message="unsupported")
+
+    monkeypatch.setattr(equipment_display_loaders, "UserDataDao", FakeDao)
+    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", FakeDao)
+    monkeypatch.setattr(
+        "src.services.equipment.game_loadout_projection_service.GameLoadoutProjectionService",
+        FakeProjectionService,
+    )
+    monkeypatch.setattr(
+        equipment_display_loaders,
+        "_load_sqlite_equipment_display_states",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("saved plans must come from the cache")
+        ),
+    )
+
+    cached = {"角色": {ROLE_TOTAL_SCORE: 123.0}}
+    result = equipment_display_view._load_game_equipment_display_states(
+        tmp_path / "user.sqlite3",
+        static_database_path=tmp_path / "static.sqlite3",
+        saved_states=cached,
+    )
+
+    assert result["saved_states"] == cached
+
+
+def test_game_comparison_uses_first_calculation_slot_for_character() -> None:
+    first = {
+        "_character_id": 1003,
+        "_loadout_slot_id": 11,
+        "_loadout_slot_name": "方案一",
+        "strategy_mode": "role_priority",
+    }
+    second = {
+        "_character_id": 1003,
+        "_loadout_slot_id": 12,
+        "_loadout_slot_name": "方案二",
+        "strategy_mode": "role_priority",
+    }
+    game_import = {
+        "_character_id": 1003,
+        "_loadout_slot_id": 13,
+        "strategy_mode": "game_inventory",
+    }
+    empty_slot = {
+        "_character_id": 1003,
+        "_loadout_slot_id": 15,
+        "_empty_slot": True,
+    }
+    another_character = {
+        "_character_id": 1004,
+        "_loadout_slot_id": 14,
+        "strategy_mode": "role_priority",
+    }
+
+    slots = equipment_display_loaders._calculation_comparison_slots(
+        {
+            "first": first,
+            "game": game_import,
+            "empty": empty_slot,
+            "second": second,
+            "other": another_character,
+        },
+        1003,
+    )
+
+    assert slots == [first, second]
+    assert slots[0]["_loadout_slot_id"] == 11
+
+
+def test_game_asset_catalog_caches_resolved_paths(tmp_path: Path) -> None:
+    icon = tmp_path / "icon.png"
+    icon.write_bytes(b"png")
+    (tmp_path / "manifest.json").write_text(
+        '{"characters":{"1":"icon.png"}}',
+        encoding="utf-8",
+    )
+    catalog = GameUiAssetCatalog(tmp_path)
+    catalog._resolve.cache_clear()
+
+    assert catalog.character_icon(1) == icon.resolve()
+    assert catalog.character_icon(1) == icon.resolve()
+    assert catalog._resolve.cache_info().hits == 1
+
+
+def test_calculation_result_forwards_the_tape_main_value_to_its_card() -> None:
+    source = Path("src/ui/equipment_result_rendering.py").read_text(encoding="utf-8")
+
+    assert 'main_value=getattr(tape, "main_value", None)' in source

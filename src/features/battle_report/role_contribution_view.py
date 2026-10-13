@@ -253,7 +253,7 @@ def render_counterfactual_roles(
     roles: Sequence[BattleBuildRoleCounterfactual],
     predicted_total: float | None,
 ) -> None:
-    """Render complete/known role projections without promoting heuristics."""
+    """仅展示候选、已量化或原轴回退，并逐行标明；不把启发式估算提升为完整结果。"""
 
     table.setRowCount(len(roles))
     pie_rows = []

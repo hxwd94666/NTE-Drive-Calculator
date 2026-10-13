@@ -241,6 +241,7 @@ def build_timeline_layout(
     *,
     x_for_time: Callable[[int], float],
 ) -> TimelineLayout:
+    # 矩形宽度只用于可操作的展示；原时间、实例和事件 payload 原样保留，不回写动作/逐击事实。
     roles = _role_order(analysis)
     role_indexes = {role: index for index, role in enumerate(roles)}
     cursor = TOP
@@ -283,8 +284,7 @@ def build_timeline_layout(
     public_groups: dict[tuple[str, str], list[BattleTimelineDamageGroup]] = (
         defaultdict(list)
     )
-    # Off-field DOT/reaction owners still need a visible role lane, but not a
-    # fabricated action bar or a separately split public damage lane.
+    # 原轴已出现的后台 DOT/环合所有者仍显示角色泳道，但不凭伤害归属编造动作条或拆分公共行。
     public_damage_roles: set[tuple[int | None, str]] = set()
     for group in analysis.timeline_damage_groups:
         role = (group.character_id, group.character_name)

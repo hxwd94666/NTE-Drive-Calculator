@@ -11,7 +11,7 @@ from src.integrations.native_plugin_bundle import (
     NATIVE_PLUGIN_CAPABILITIES, NATIVE_PLUGIN_DEPLOYMENT_PATHS,
     inspect_native_plugin_bundle, resolve_bundled_native_core,
 )
-from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
+from src.integrations.components.inspection import inspect_deployed_native_plugin
 
 
 def make_bundle(tmp_path):
@@ -120,7 +120,7 @@ def test_deployed_files_are_distinct_from_bundle_and_do_not_touch_registry(tmp_p
     game = game_files(tmp_path, root, payload)
     old = game.parent / "dwmapi.dll"
     old.write_bytes(b"unrelated legacy file")
-    with patch("src.services.equipment_plugin_deployment.mod_workspace_registry_snapshot", side_effect=AssertionError("registry must not be read")):
+    with patch("src.integrations.components.environment.mod_workspace_registry_snapshot", side_effect=AssertionError("registry must not be read")):
         result = inspect_deployed_native_plugin(application_root=root, game_executable_path=game)
     assert result.files_compatible
     assert set(result.files) == set(NATIVE_PLUGIN_DEPLOYMENT_PATHS.values())
@@ -159,6 +159,6 @@ def test_cached_bundle_avoids_rehashing_the_application_package(tmp_path):
     root, payload = make_bundle(tmp_path)
     game = game_files(tmp_path, root, payload)
     bundle = inspect_native_plugin_bundle(root)
-    with patch("src.services.deployed_plugin_inspection.inspect_native_plugin_bundle", side_effect=AssertionError("unexpected duplicate hash")):
+    with patch("src.integrations.components.inspection.inspect_native_plugin_bundle", side_effect=AssertionError("unexpected duplicate hash")):
         result = inspect_deployed_native_plugin(application_root=root, game_executable_path=game, bundle_inspection=bundle)
     assert result.files_compatible

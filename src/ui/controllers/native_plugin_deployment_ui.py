@@ -5,16 +5,16 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QProgre
 from src.app.theme import theme_color
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
-from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError
-from src.services.native_plugin_deployment import PluginDeploymentPendingCleanup
-from src.services.native_plugin_deployment import deploy_native_plugin
-from src.services.mod_plugin_loading_service import ModPluginLoadingError, ModPluginLoadingWaiting
+from src.integrations.components.inspection import inspect_deployed_native_plugin
+from src.integrations.components.environment import EquipmentPluginDeploymentError
+from src.integrations.components.native_files import PluginDeploymentPendingCleanup
+from src.integrations.components.native_files import deploy_native_plugin
+from src.services.components.loader_service import ModPluginLoadingError, ModPluginLoadingWaiting
 from src.utils.logger import logger
 
 
 def _deployment_error_hint(error: Exception) -> str:
-    """Keep implementation errors out of the short user-facing dialog."""
+    """短提示区分权限、超时与未完成；具体定位保留在检测和日志。"""
     logger.warning(f"组件部署未完成 kind={type(error).__name__}")
     if isinstance(error, PermissionError):
         return "组件处理未完成；请核对工作模式、游戏目录权限，并确认游戏已退出。"
@@ -54,7 +54,7 @@ class _DeploymentProgress(QDialog):
 
 
 def _run_deployment_worker(window, target):
-    """Keep disk hashing and replacement off the GUI thread without losing typed errors."""
+    """后台执行文件核对与替换，终态后返回原类型错误；期间不取消已派发部署。"""
 
     dialog = _DeploymentProgress(window)
     dialog.setWindowTitle("正在部署原生组件")

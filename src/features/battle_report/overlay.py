@@ -23,7 +23,7 @@ from src.domain.battle_report import (
     BattleSummary,
     active_abyss_half,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.domain.battle_summary_observation import has_active_battle_observation
 from src.features.battle_report.summary_clock import summary_clock_label
 
@@ -74,8 +74,10 @@ class BattleReportOverlay(QWidget):
         self.raise_()
 
     def update_summary(self, summary: BattleSummary | None) -> None:
+        # 仅显示实际活动观测；空摘要保持等待，不凭计数或进程存活制造战斗数据。
         if summary is not None and not has_active_battle_observation(summary):
             summary = None
+        # 曲线容量固定；计时方式或半场变化清空旧曲线，不跨口径串联 DPS。
         previous = self._summary
         if summary is None or (
             previous is not None

@@ -8,13 +8,13 @@ from collections.abc import Sequence
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QWidget
 
-from src.services.battle_native_evidence_rendering import render_field_evidence, render_native_evidence
+from src.services.battle_report.native.evidence_rendering import render_field_evidence, render_native_evidence
 from src.domain.battle_report import (
     BattleAnalysisHit,
     BattleHitReplayResult,
     BattleInferredBuffInterval,
 )
-from src.services.battle_hit_buff_explanation_service import (
+from src.services.battle_report.buffs.hit_explanation import (
     BattleHitBuffExplanationService,
 )
 from .hit_inspection_dialog import HitInspectionDialog

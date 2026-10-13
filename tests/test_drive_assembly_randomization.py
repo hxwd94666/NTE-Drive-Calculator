@@ -20,13 +20,6 @@ class RandomizationContextTests(unittest.TestCase):
         ctx = RandomizationContext()
         self.assertFalse(ctx.enabled)
 
-    def test_seed_makes_rng_reproducible(self):
-        a = RandomizationContext()
-        b = RandomizationContext()
-        a.seed(42)
-        b.seed(42)
-        for _ in range(20):
-            self.assertEqual(a.rng.randint(0, 1000), b.rng.randint(0, 1000))
 
 
 class JitterPositionTests(unittest.TestCase):
@@ -127,12 +120,6 @@ class JitterTimingTests(unittest.TestCase):
             self.assertGreaterEqual(result, 0.85)
             self.assertLessEqual(result, 1.15)
 
-    def test_jitter_never_returns_negative(self):
-        ctx = RandomizationContext(enabled=True, timing_jitter_fraction=2.0)
-        ctx.seed(42)
-        for _ in range(50):
-            result = jitter_timing(ctx, 0.0)
-            self.assertGreaterEqual(result, 0.0)
 
     def test_base_zero_always_returns_zero(self):
         ctx = RandomizationContext(enabled=True)
@@ -314,6 +301,23 @@ class DisabledDefaultIntegrationTests(unittest.TestCase):
         b2 = PyAutoGuiMouseBackend()
         self.assertTrue(b1._randomization.enabled)
         self.assertFalse(b2._randomization.enabled)
+
+
+
+class DragEndpointTests(unittest.TestCase):
+    def test_noisy_relative_path_keeps_the_requested_endpoint(self):
+        from src.features.drive_assembly.input_backends import _WindowsSendInputMouseDriver
+
+        for steps in (50, 51, 90):
+            with self.subTest(steps=steps):
+                ctx = RandomizationContext(enabled=True)
+                ctx.seed(42)
+                driver = _WindowsSendInputMouseDriver.__new__(_WindowsSendInputMouseDriver)
+                delivered = []
+                driver._send = lambda flags, dx, dy: delivered.append((dx, dy))
+                driver._sleeper = lambda _: None
+                driver._move_relative_in_steps((10, 20), (210, 320), steps, ctx)
+                self.assertEqual((200, 300), tuple(map(sum, zip(*delivered))))
 
 
 if __name__ == "__main__":

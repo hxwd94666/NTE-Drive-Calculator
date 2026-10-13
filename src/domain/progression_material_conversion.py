@@ -18,7 +18,7 @@ _TIER = re.compile(r"^(.+)_lv([123])$")
 
 
 def material_tier(item_id: str) -> tuple[str, int] | None:
-    """Return a formal convertible family/tier, never a name-based guess."""
+    """仅接受正式白名单材料族与相邻等级，不根据名称或品质推测转换。"""
 
     match = _TIER.fullmatch(str(item_id))
     if match is None or match.group(1) not in _CONVERTIBLE_FAMILIES:
@@ -49,10 +49,10 @@ def allocate_owned(
     requirements: Mapping[str, int],
     available: dict[str, int],
 ) -> dict[str, int]:
-    """Consume each owned unit once; fulfill lower-tier demands before crafting upward.
+    """低阶需求优先抵扣，再按三合一向上合成，每份已有材料只消费一次。
 
-    ``available`` is deliberately mutable so an ordered batch can share one stock.
-    The returned quantities are *effective* allocations at the requested tiers.
+    available 是本次有序批量计算共享的可变草稿库存，不回写背包。
+    返回需求等级的有效抵扣量。
     """
 
     allocated: dict[str, int] = {}

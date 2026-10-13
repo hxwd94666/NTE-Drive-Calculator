@@ -28,6 +28,7 @@ class ScanningDependencies:
 
     @classmethod
     def from_app_context(cls, app_context: AppContext, *, operation_guard: OperationGuard | None = None) -> "ScanningDependencies":
+        # 任务路径与账号代次一次冻结；worker 再绑定本次取消 token，提交前复核。
         account = app_context.account
         return cls(
             account_id=account.active_account_id,

@@ -37,6 +37,7 @@ class PerformanceController(QObject):
         self.monitor.set_enabled(self.preferences["overlay"])
 
     def refresh(self):
+        """以账号代次和当前权限配置观测；不启动同步、战报或插件。"""
         if self._closed:
             return
         self.monitor.configure(key=(self.context.account.active_account_id, self.context.generation),
@@ -81,6 +82,7 @@ class PerformanceController(QObject):
         self.changed.emit()
 
     def _save(self, key, value):
+        """先保存本机偏好，失败保留旧有效值与明确错误状态。"""
         updated = {**self.preferences, key: bool(value)}
         try:
             self.store.save(updated)

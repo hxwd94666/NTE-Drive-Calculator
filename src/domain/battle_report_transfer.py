@@ -10,10 +10,10 @@ from typing import Any
 
 
 def portable_battle_evidence(value: Any, *, field: str = "") -> Any:
-    """Copy portable evidence, dropping only external capture-file locations.
+    """复制可移植证据，只去除外部抓包文件位置。
 
-    Native hit fields and unknown future evidence remain intact. Raw JSON strings
-    retain their exact representation unless a private file location is removed.
+    原生逐击字段与未来未知证据完整保留；未去除文件位置时，
+    原始 JSON 字符串保持原表示。
     """
     if isinstance(value, list):
         return [portable_battle_evidence(item) for item in value]
@@ -39,7 +39,7 @@ def portable_battle_evidence(value: Any, *, field: str = "") -> Any:
         try:
             decoded = json.loads(value)
         except json.JSONDecodeError:
-            return value  # DAO validation owns malformed original evidence.
+            return value  # 损坏原始证据的拒绝由 DAO 校验负责，此处不重新解释。
         portable = portable_battle_evidence(decoded)
         if portable != decoded:
             return json.dumps(portable, ensure_ascii=False, separators=(",", ":"),
@@ -50,7 +50,7 @@ def portable_battle_evidence(value: Any, *, field: str = "") -> Any:
 def canonical_battle_equipment_json(
     equipment: Sequence[Mapping[str, Any]],
 ) -> str:
-    """Return the pointer-free canonical payload used by import equipment locks."""
+    """以无外部指针的规范 JSON 建立导入装备锁指纹，保留输入顺序与字段。"""
 
     if isinstance(equipment, (str, bytes)) or not isinstance(equipment, Sequence):
         raise ValueError("equipment must be a sequence")

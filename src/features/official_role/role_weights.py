@@ -1,5 +1,5 @@
-# 构建只读取官方静态库与账号 SQLite 指针的新角色页面。
-"""Rebuilt character page using the old UI skeleton and official data sources."""
+# 展示正式 property_id 对应的基础、直伤与最终只读权重，不读取或写入数据库。
+"""沿用角色编辑器已给出的基础权重与边际投影；不在展示层重算或保存评分。"""
 
 from __future__ import annotations
 
@@ -76,6 +76,7 @@ def _build_weight_group(
             or base_weights
             or {}
         )
+        # 只有正式直伤公式参与项显示直伤权重；其它项保留基础口径，中文词条名只作标签。
         formula_ids = set(editor.get("formula_property_ids") or ())
         property_ids = set(base_weights) | set(final_weights) | formula_ids
         ordered_ids = sorted(

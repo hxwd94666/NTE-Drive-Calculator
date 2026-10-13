@@ -1,0 +1,98 @@
+# 持久化当前账号的角色养成指针并提供明确的重置边界。
+"""Account-scoped official-role profile write service."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+
+from src.storage.sqlite.user_data_dao import UserDataDao
+from src.domain.native_role_sync import NativeRoleSyncResult
+from src.services.official_role.native_profiles import prepare_native_role_patches
+
+
+@dataclass(frozen=True, slots=True)
+class OfficialRoleProfileUpdate:
+    character_id: int
+    character_level: int
+    breakthrough_stage: int
+    awakening_level: int
+    selected_awaken_effect_ids: tuple[str, ...]
+    likeability_level_10_enabled: bool
+    fork_id: str | None
+    fork_level: int | None
+    fork_breakthrough_stage: int | None
+    fork_refinement_level: int | None
+    selected_skill_id: str | None
+    skill_levels: dict[str, int]
+    ordinal: int
+
+
+class OfficialRoleProfileService:
+    """Own role-profile transactions without depending on Qt widgets."""
+
+    def __init__(
+        self,
+        user_database_path: str | Path,
+        *,
+        dao_factory: type[UserDataDao] = UserDataDao,
+        static_database_path: str | Path | None = None,
+        growth_defaults_loader: Callable[[tuple[int, ...]], Mapping[int, Mapping[str, int]]] | None = None,
+    ) -> None:
+        self._user_database_path = Path(user_database_path)
+        self._dao_factory = dao_factory
+        self._growth_defaults_loader = growth_defaults_loader
+        self._static_database_path = Path(static_database_path).resolve() if static_database_path is not None else None
+
+    def save_profiles(
+        self, updates: Sequence[OfficialRoleProfileUpdate]
+    ) -> int:
+        with self._dao_factory(self._user_database_path) as dao:
+            for update in updates:
+                dao.save_character_profile(
+                    character_id=update.character_id,
+                    character_level=update.character_level,
+                    breakthrough_stage=update.breakthrough_stage,
+                    awakening_level=update.awakening_level,
+                    selected_awaken_effect_ids=update.selected_awaken_effect_ids,
+                    awakening_selection_initialized=True,
+                    likeability_level_10_enabled=(
+                        update.likeability_level_10_enabled
+                    ),
+                    fork_id=update.fork_id,
+                    fork_level=update.fork_level,
+                    fork_breakthrough_stage=update.fork_breakthrough_stage,
+                    fork_refinement_level=update.fork_refinement_level,
+                    selected_skill_id=update.selected_skill_id,
+                    skill_levels=dict(update.skill_levels),
+                    ordinal=update.ordinal,
+                )
+        return len(updates)
+
+    def patch_native_profiles(
+        self, profiles: Sequence[Mapping[str, object]], *, check: Callable[[], None],
+    ) -> NativeRoleSyncResult:
+        """Apply observed cultivation with a final in-transaction context guard."""
+        check()
+        if self._growth_defaults_loader is None and self._static_database_path is None:
+            raise ValueError("角色状态同步缺少本次冻结的静态数据库路径")
+        # 稀疏原生字段由既有投影保留缺项与未知值，不用当前配置补造观测。
+        patches, defaults, warnings = prepare_native_role_patches(
+            profiles, static_database_path=self._static_database_path,
+            growth_defaults_loader=self._growth_defaults_loader,
+        )
+        check()
+        with self._dao_factory(self._user_database_path) as dao:
+            # 最后账号/取消检查仍由DAO在同一事务内执行，失败不留下部分档案。
+            result = dao.patch_native_character_profiles(patches, growth_defaults=defaults, check=check)
+        return NativeRoleSyncResult(result.saved_count, warnings + result.warnings)
+
+
+    def reset_profile(self, character_id: int) -> None:
+        with self._dao_factory(self._user_database_path) as dao:
+            dao.reset_character_profile(int(character_id))
+
+    def reset_all_profiles(self) -> int:
+        with self._dao_factory(self._user_database_path) as dao:
+            return int(dao.reset_all_character_profiles())

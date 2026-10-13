@@ -15,16 +15,16 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from tools.battle_report.evaluate_native_analysis import _clone_database, compare_results  # noqa: E402
 from tools.battle_report.evaluate_native_application_parts import numeric_wire  # noqa: E402
-from src.services.battle_report_history_service import BattleReportHistoryService  # noqa: E402
-from src.services.battle_report_persistence_service import BattleReportPersistenceDependencies  # noqa: E402
-from src.services.battle_hit_projection_preparation_service import BattleHitProjectionPreparationService  # noqa: E402
-from src.services.battle_formula_hit_projection_service import project_formula_hit  # noqa: E402
-from src.services.battle_weave_source_service import BattleWeaveSourceIndex  # noqa: E402
-from src.services.battle_hit_buff_projection_cache import BattleHitBuffProjectionCache  # noqa: E402
-from src.services.battle_buff_interval_index import BattleBuffIntervalIndex  # noqa: E402
-from src.services.battle_buff_attribute_projection_service import BattleBuffAttributeProjectionService  # noqa: E402
-from src.services.battle_hit_buff_explanation_service import BattleHitBuffExplanationService  # noqa: E402
-from src.services.battle_hit_replay_explanation_service import BattleHitReplayExplanationService  # noqa: E402
+from src.services.battle_report.history.service import BattleReportHistoryService  # noqa: E402
+from src.services.battle_report.persistence import BattleReportPersistenceDependencies  # noqa: E402
+from src.services.battle_report.replay.preparation import BattleHitProjectionPreparationService  # noqa: E402
+from src.services.battle_report.replay.formula_projection import project_formula_hit  # noqa: E402
+from src.services.battle_report.damage.weave_source import BattleWeaveSourceIndex  # noqa: E402
+from src.services.battle_report.replay.buff_cache import BattleHitBuffProjectionCache  # noqa: E402
+from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex  # noqa: E402
+from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService  # noqa: E402
+from src.services.battle_report.buffs.hit_explanation import BattleHitBuffExplanationService  # noqa: E402
+from src.services.battle_report.replay.explanation import BattleHitReplayExplanationService  # noqa: E402
 from src.integrations.native_battle_page_wire import decode_page  # noqa: E402
 
 

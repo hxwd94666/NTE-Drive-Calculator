@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QApplication, QPushButton, QScrollArea
 from src.domain.battle_report import BattleHitReplayFactor
 from src.features.battle_report.hit_formula_overview import formula_layout, factor_value, target_portrait_identity
 from src.features.battle_report.hit_inspection_dialog import HitInspectionDialog
-from src.services.skill_name_rendering_service import battle_hit_skill_label
-from tests.test_battle_hit_buff_detail import _hit
+from src.services.official_role.skill_names import battle_hit_skill_label
+from tests.battle_report.buffs.test_hit_explanation import _hit
 
 
 def factor(key, value=1.0):

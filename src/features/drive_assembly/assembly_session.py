@@ -37,8 +37,9 @@ from src.features.drive_assembly.role_flow import (
     required_roles_from_payloads,
 )
 from src.features.drive_assembly.tape_plan import tape_install_sequence
-from src.scanner.ocr_engine import OCREngine
-from src.scanner.window_capture import capture_foreground_window, game_content_rect
+from concurrent.futures import CancelledError
+from src.integrations.vision.recognition.task_session import use_ocr_session
+from src.integrations.vision.window_capture import capture_foreground_window, game_content_rect
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao, StaticGameDataError
 from src.utils.logger import logger
 
@@ -333,164 +334,166 @@ def _execute_roles_from_current_game_page(
         logger.warning("驱动装配未启动 | 原因=没有可装配的目标角色")
         return execute_role_traversal_assembly_plan({"plans": []}, assembly_plan, backend=backend)
     recognition_roles = role_recognition_candidates(required_roles, template_root, equipped_state, role_name_aliases)
-    ocr_engine = OCREngine()
-    startup_recognition = recognize_current_role_from_image(
-        first_image,
-        recognition_roles,
-        ocr_engine,
-        screen_size=screen_size,
-        content_rect=image_content_rect,
-        role_aliases=role_name_aliases,
-    )
-    logger.info(
-        "Assembly startup page recognition | "
-        f"role={startup_recognition.role_name or 'unrecognized'} | "
-        f"method={startup_recognition.method} | OCR={startup_recognition.raw_text!r} | "
-        f"record_dir={recorder.directory}"
-    )
-    if not is_role_detail_startup_recognition(startup_recognition):
-        logger.warning(
-            "Current page was not recognized as role detail; continuing automatic assembly as requested | "
-            f"OCR={startup_recognition.raw_text!r} | record_dir={recorder.directory}"
-        )
-    logger.info(
-        "驱动装配角色扫描开始 | "
-        f"目标角色={required_roles} | 识别候选数={len(recognition_roles)} | "
-        f"窗口尺寸={screen_size} | 操作区域={action_rect} | 向上复位次数=5"
-    )
-    logger.info(
-        "角色列表扫描路径 | 普通鼠标 | 右侧下滑×2 | 首个头像 | 信息页签 | 右下角色列表按钮 | "
-        "首屏12格一次识别，随后滚轮逐行并只检查第4行；首次重复即到底"
-    )
     action_backend = backend or PyAutoGuiMouseBackend()
-    randomization_enabled = enable_assembly_randomization(action_backend)
-    logger.info(
-        "驱动装配随机化 | "
-        f"鼠标随机化={'已启用' if randomization_enabled else '后端不支持'} | "
-        "点击/滚轮±3像素、离散输入延迟0~0.1秒、拖拽端点与节奏随机"
-    )
-
-    def open_role_list() -> None:
-        sequence = map_role_list_mouse_entry(screen_size, action_rect)["entry_sequence"]
-        execute_action_sequence(
-            sequence,
-            backend=action_backend,
-            should_stop=checker,
-        )
-        _log_mouse_delivery_diagnostics(action_backend)
-        logger.info("角色列表鼠标入口已执行 | 右侧下滑×1 | 首个头像 | 信息页签 | 右下角色列表按钮")
-        recorder.capture_foreground("role_list_opened")
-
-    row_scan = map_role_list_mouse_row_scan(screen_size, action_rect)
-    captured_role_images: dict[int, np.ndarray] = {}
-
-    def select_role_list_slot(slot_index: int) -> None:
-        action = row_scan["slot_selection_actions"][slot_index]
-        logger.info(
-            "角色列表格点击请求 | "
-            f"slot={slot_index} | position={action['position']}"
-        )
-        execute_action_sequence(
-            [action],
-            backend=action_backend,
-            should_stop=checker,
-        )
-        _log_mouse_delivery_diagnostics(action_backend)
-
-    def scroll_role_list_next_row() -> None:
-        execute_action_sequence(
-            row_scan["row_scroll_sequence"],
-            backend=action_backend,
-            should_stop=checker,
-        )
-
-    def observe_current(_index: int) -> Any:
-        if checker():
-            raise AssemblyExecutionStopped("assembly execution stopped")
-        image, _rect = _capture_foreground_client_image()
-        captured_role_images[_index] = image
-        recognition = recognize_current_role_from_image(
-            image,
-            recognition_roles,
-            ocr_engine,
-            screen_size=screen_size,
-            content_rect=image_content_rect,
-            role_aliases=role_name_aliases,
-        )
-        logger.info(
-            f"驱动装配角色扫描 #{_index + 1}："
-            f"匹配={recognition.role_name or '未识别'}，"
-            f"方式={recognition.method}，"
-            f"置信度={recognition.confidence:.3f}，"
-            f"OCR={recognition.raw_text!r}"
-        )
-        return recognition
-
-    def record_unique_role_observation(index: int) -> None:
-        image = captured_role_images.pop(index, None)
-        if image is not None:
-            recorder.save_image(image, f"role_list_scan_{index + 1:02d}")
-
     try:
-        role_roster = collect_role_roster_from_mouse_rows(
-            required_roles,
-            current_observer=observe_current,
-            select_grid_slot=select_role_list_slot,
-            scroll_next_row=scroll_role_list_next_row,
-            enter_role_list=open_role_list,
-            on_unique_observation=record_unique_role_observation,
-            max_roles=max_pages or max(20, len(recognition_roles) + 6),
-        )
-        captured_role_images.clear()
+        with use_ocr_session(should_stop=checker) as ocr_engine:
+            startup_recognition = recognize_current_role_from_image(
+                first_image,
+                recognition_roles,
+                ocr_engine,
+                screen_size=screen_size,
+                content_rect=image_content_rect,
+                role_aliases=role_name_aliases,
+            )
+            logger.info(
+                "Assembly startup page recognition | "
+                f"role={startup_recognition.role_name or 'unrecognized'} | "
+                f"method={startup_recognition.method} | "
+                f"record_dir={recorder.directory}"
+            )
+            if not is_role_detail_startup_recognition(startup_recognition):
+                logger.warning(
+                    "Current page was not recognized as role detail; continuing automatic assembly as requested | "
+                    f"record_dir={recorder.directory}"
+                )
+            logger.info(
+                "驱动装配角色扫描开始 | "
+                f"目标角色={required_roles} | 识别候选数={len(recognition_roles)} | "
+                f"窗口尺寸={screen_size} | 操作区域={action_rect} | 向上复位次数=5"
+            )
+            logger.info(
+                "角色列表扫描路径 | 普通鼠标 | 右侧下滑×2 | 首个头像 | 信息页签 | 右下角色列表按钮 | "
+                "首屏12格一次识别，随后滚轮逐行并只检查第4行；首次重复即到底"
+            )
+            randomization_enabled = enable_assembly_randomization(action_backend)
+            logger.info(
+                "驱动装配随机化 | "
+                f"鼠标随机化={'已启用' if randomization_enabled else '后端不支持'} | "
+                "点击/滚轮±3像素、离散输入延迟0~0.1秒、拖拽端点与节奏随机"
+            )
 
-    except BaseException:
-        close_assembly_backend(action_backend)
-        raise
-    logger.info(
-        "驱动装配角色扫描完成："
-        f"已识别={role_roster.get('roles', [])}，"
-        f"未识别={role_roster.get('unrecognized', [])}，"
-        f"重复={role_roster.get('duplicates', [])}"
-    )
-    logger.info(
-        "角色列表扫描结果 | "
-        f"停止原因={role_roster.get('stop_reason', '')} | "
-        f"缺少={role_roster.get('missing_expected_roles', [])} | "
-        f"当前列表索引={role_roster.get('current_index', 0)} | 将在选中首个装配角色后关闭列表"
-    )
-    recorder.capture_foreground("role_list_scan_complete")
-    traversal_plan = plan_role_assembly_from_role_list_roster(
-        required_roles,
-        role_roster,
-        screen_size=screen_size,
-        content_rect=action_rect,
-        current_index=role_roster.get("current_index", max(0, len(role_roster.get("roles", []) or []) - 1)),
-    )
-    _log_traversal_plan_diagnostics(traversal_plan)
-    def verifier(role_name: str, role_plan: dict[str, Any]) -> dict[str, Any] | None:
-        if not verification_enabled:
-            return None
-        image, rect = _capture_foreground_client_image()
-        return verify_blueprint_against_screenshot(image, rect, role_plan)
+            def open_role_list() -> None:
+                sequence = map_role_list_mouse_entry(screen_size, action_rect)["entry_sequence"]
+                execute_action_sequence(
+                    sequence,
+                    backend=action_backend,
+                    should_stop=checker,
+                    ocr_session=ocr_engine,
+                )
+                _log_mouse_delivery_diagnostics(action_backend)
+                logger.info("角色列表鼠标入口已执行 | 右侧下滑×1 | 首个头像 | 信息页签 | 右下角色列表按钮")
+                recorder.capture_foreground("role_list_opened")
 
-    try:
-        report = execute_role_traversal_assembly_plan(
-            traversal_plan,
-            assembly_plan,
-            backend=action_backend,
-            should_stop=checker,
-            role_verifier=verifier,
-            on_action_executed=recorder.record_action,
-        )
+            row_scan = map_role_list_mouse_row_scan(screen_size, action_rect)
+            captured_role_images: dict[int, np.ndarray] = {}
+
+            def select_role_list_slot(slot_index: int) -> None:
+                action = row_scan["slot_selection_actions"][slot_index]
+                logger.info(
+                    "角色列表格点击请求 | "
+                    f"slot={slot_index} | position={action['position']}"
+                )
+                execute_action_sequence(
+                    [action],
+                    backend=action_backend,
+                    should_stop=checker,
+                    ocr_session=ocr_engine,
+                )
+                _log_mouse_delivery_diagnostics(action_backend)
+
+            def scroll_role_list_next_row() -> None:
+                execute_action_sequence(
+                    row_scan["row_scroll_sequence"],
+                    backend=action_backend,
+                    should_stop=checker,
+                    ocr_session=ocr_engine,
+                )
+
+            def observe_current(_index: int) -> Any:
+                if checker():
+                    raise AssemblyExecutionStopped("assembly execution stopped")
+                image, _rect = _capture_foreground_client_image()
+                captured_role_images[_index] = image
+                recognition = recognize_current_role_from_image(
+                    image,
+                    recognition_roles,
+                    ocr_engine,
+                    screen_size=screen_size,
+                    content_rect=image_content_rect,
+                    role_aliases=role_name_aliases,
+                )
+                logger.info(
+                    f"驱动装配角色扫描 #{_index + 1}："
+                    f"匹配={recognition.role_name or '未识别'}，"
+                    f"方式={recognition.method}，"
+                    f"置信度={recognition.confidence:.3f}"
+                )
+                return recognition
+
+            def record_unique_role_observation(index: int) -> None:
+                image = captured_role_images.pop(index, None)
+                if image is not None:
+                    recorder.save_image(image, f"role_list_scan_{index + 1:02d}")
+
+            role_roster = collect_role_roster_from_mouse_rows(
+                required_roles,
+                current_observer=observe_current,
+                select_grid_slot=select_role_list_slot,
+                scroll_next_row=scroll_role_list_next_row,
+                enter_role_list=open_role_list,
+                on_unique_observation=record_unique_role_observation,
+                max_roles=max_pages or max(20, len(recognition_roles) + 6),
+            )
+            captured_role_images.clear()
+
+            logger.info(
+                "驱动装配角色扫描完成："
+                f"已识别={role_roster.get('roles', [])}，"
+                f"未识别={role_roster.get('unrecognized', [])}，"
+                f"重复={role_roster.get('duplicates', [])}"
+            )
+            logger.info(
+                "角色列表扫描结果 | "
+                f"停止原因={role_roster.get('stop_reason', '')} | "
+                f"缺少={role_roster.get('missing_expected_roles', [])} | "
+                f"当前列表索引={role_roster.get('current_index', 0)} | 将在选中首个装配角色后关闭列表"
+            )
+            recorder.capture_foreground("role_list_scan_complete")
+            traversal_plan = plan_role_assembly_from_role_list_roster(
+                required_roles,
+                role_roster,
+                screen_size=screen_size,
+                content_rect=action_rect,
+                current_index=role_roster.get("current_index", max(0, len(role_roster.get("roles", []) or []) - 1)),
+            )
+            _log_traversal_plan_diagnostics(traversal_plan)
+            def verifier(role_name: str, role_plan: dict[str, Any]) -> dict[str, Any] | None:
+                if not verification_enabled:
+                    return None
+                image, rect = _capture_foreground_client_image()
+                return verify_blueprint_against_screenshot(image, rect, role_plan)
+
+            report = execute_role_traversal_assembly_plan(
+                traversal_plan,
+                assembly_plan,
+                backend=action_backend,
+                should_stop=checker,
+                ocr_session=ocr_engine,
+                role_verifier=verifier,
+                on_action_executed=recorder.record_action,
+            )
+            logger.info(
+                "驱动装配总结果 | "
+                f"已执行={report.executed_actions} | 导航={report.navigation_actions} | "
+                f"角色={[(item.role_name, item.executed_actions, len(item.skipped_actions)) for item in report.role_reports]} | "
+                f"跳过角色={report.skipped_roles} | 校验失败={report.verification_failures}"
+            )
+            return report
+    except CancelledError as exc:
+        raise AssemblyExecutionStopped('assembly execution stopped') from exc
     finally:
         close_assembly_backend(action_backend)
-    logger.info(
-        "驱动装配总结果 | "
-        f"已执行={report.executed_actions} | 导航={report.navigation_actions} | "
-        f"角色={[(item.role_name, item.executed_actions, len(item.skipped_actions)) for item in report.role_reports]} | "
-        f"跳过角色={report.skipped_roles} | 校验失败={report.verification_failures}"
-    )
-    return report
+
 
 
 def enable_assembly_randomization(backend: MouseBackend) -> bool:

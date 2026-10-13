@@ -80,7 +80,7 @@ def _state(value: dict[str, Any]) -> None:
         minimum = 1 if stage == 0 else (stage + 1) * 10
         if not minimum <= level <= (stage + 2) * 10:
             raise ValueError("养成历史等级和突破阶段不匹配")
-    # Disabled modules retain their editor state; interval feasibility belongs to the solver.
+    # 已禁用模块仍保留编辑状态；目标区间可行性由求解阶段判断。
 
 
 def normalize_configuration(value: object) -> dict[str, Any]:
@@ -290,7 +290,7 @@ class HistoryPayload:
     def create(cls, configuration: object, result: object) -> HistoryPayload:
         from src.domain.cultivation_history_snapshot import normalize_snapshot
 
-        # Check resources before traversing or normalizing caller-provided structures.
+        # 先检查嵌套与大小预算，再规范化调用方结构，失败保留计算结果。
         _encoded(configuration)
         _encoded(result)
         config = normalize_configuration(configuration)
@@ -338,7 +338,7 @@ class HistorySummary:
     first_calculated_at_utc: str
     last_calculated_at_utc: str
     summary_json: str
-    # Page-local read projection; never serialized or used for identity/deletion.
+    # 仅供当前页读取的名称投影，不序列化，也不参与身份或删除判断。
     character_labels: tuple[str, ...] = field(default=(), compare=False)
 
 

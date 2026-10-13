@@ -10,9 +10,9 @@ from pathlib import Path
 
 from src.domain.battle_report import BattleSkillDamageEvidence
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_buff_counterfactual_service import BattleBuffCounterfactualService
-from src.services.battle_topple_hit_replay_service import BattleToppleCharacterConfig
-from src.services.battle_hit_projection_preparation_service import BattleHitProjectionPreparationService
+from src.services.battle_report.buffs.counterfactual import BattleBuffCounterfactualService
+from src.services.battle_report.replay.topple import BattleToppleCharacterConfig
+from src.services.battle_report.replay.preparation import BattleHitProjectionPreparationService
 from tools.battle_report.evaluate_native_analysis import compare_results
 
 

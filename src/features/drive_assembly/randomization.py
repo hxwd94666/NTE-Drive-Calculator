@@ -18,6 +18,7 @@ class RandomizationContext:
     can seed it independently without affecting global state.
     """
 
+    # 默认关闭；每次任务持有独立随机源，测试播种不污染全局随机状态。
     enabled: bool = False
     rng: random.Random = field(default_factory=random.Random)
 

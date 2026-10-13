@@ -36,9 +36,9 @@ from src.domain.role_name_order import role_name_sort_key
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.account_settings_service import AccountSettingsService
-from src.services.sqlite_allocation_inventory import legacy_shape_id
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.accounts.settings import AccountSettingsService
+from src.services.allocation.inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.widgets import NoWheelComboBox

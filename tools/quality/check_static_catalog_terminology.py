@@ -14,7 +14,7 @@ from typing import Iterable, Sequence
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TARGETS = (
     PROJECT_ROOT / "src" / "features" / "static_catalog",
-    PROJECT_ROOT / "src" / "services",
+    PROJECT_ROOT / "src" / "services" / "static_catalog",
 )
 FORBIDDEN_TERMS = {
     "金币": "按 canonical item/context 显示方斯或甲硬币",
@@ -44,9 +44,6 @@ def _source_files(targets: Iterable[Path]) -> tuple[Path, ...]:
     for target in targets:
         if target.is_file() and target.suffix == ".py":
             files.add(target.resolve())
-            continue
-        if target.name == "services":
-            files.update(path.resolve() for path in target.glob("static_catalog_*.py"))
             continue
         files.update(path.resolve() for path in target.rglob("*.py"))
     return tuple(sorted(files))

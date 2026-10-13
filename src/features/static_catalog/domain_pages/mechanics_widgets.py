@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.services.static_catalog_mechanics_service import (
+from src.services.static_catalog.mechanics.service import (
     MechanicsCard,
     PlayerField,
 )

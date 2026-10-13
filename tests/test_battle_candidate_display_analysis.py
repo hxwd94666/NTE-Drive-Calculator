@@ -2,22 +2,17 @@
 from dataclasses import asdict, replace
 import json
 import unittest
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 from src.domain.battle_report import BattleDamageComposition, RoleDamageComposition, DamageCompositionEntry
 from src.domain.battle_counterfactual_quantification import BattleDamageQuantification
 from src.features.battle_report.page import BattleReportPage
-from src.features.battle_report.analysis_controller_mixin import BattleReportAnalysisControllerMixin
 from src.integrations.native_battle_page_wire import decode_page
 from src.integrations.nte_analysis_core import NativeAnalysisError
-from src.services.battle_build_counterfactual_service import BattleBuildCounterfactualService
-from src.services.battle_build_timeline_projection_service import BattleBuildTimelineProjectionService
-from src.services.battle_report_analysis_load_service import (
-    BattleReportAnalysisLoadRequest, BattleReportAnalysisLoadResult, BattleReportAnalysisLoadService,
-)
-from tests.test_battle_marginal_benefit_service import _snapshot
+from src.services.battle_report.build.counterfactual import BattleBuildCounterfactualService
+from src.services.battle_report.build.timeline_projection import BattleBuildTimelineProjectionService
+from tests.battle_report.marginal.test_benefits import _snapshot
 
 
 class CandidateDisplayAnalysisTests(unittest.TestCase):
@@ -32,25 +27,6 @@ class CandidateDisplayAnalysisTests(unittest.TestCase):
         display = BattleBuildTimelineProjectionService.project(analysis, comparison)
         return analysis, display
 
-    def test_worker_projects_once_and_keeps_original_analysis(self):
-        analysis, display = self.fixture()
-        history = Mock(native_page_loader=None)
-        history.load_analysis.return_value = analysis
-        with patch.object(BattleBuildTimelineProjectionService, 'project', return_value=display) as project:
-            result = BattleReportAnalysisLoadService.load_legacy_for_differential(
-                history, BattleReportAnalysisLoadRequest(7, detail_level='hit'),
-            )
-        project.assert_called_once_with(analysis, analysis.build_counterfactual)
-        self.assertIs(result.analysis, analysis)
-        self.assertIs(result.candidate_display_analysis, display)
-
-    def test_baseline_has_no_second_projection(self):
-        history = Mock(native_page_loader=None)
-        history.load_analysis.return_value = _snapshot()
-        with patch.object(BattleBuildTimelineProjectionService, 'project') as project:
-            result = BattleReportAnalysisLoadService.load_legacy_for_differential(history, BattleReportAnalysisLoadRequest(7))
-        project.assert_not_called()
-        self.assertIsNone(result.candidate_display_analysis)
 
     def test_wire_requires_and_preserves_separate_display(self):
         analysis, display = self.fixture()
@@ -114,22 +90,6 @@ class CandidateDisplayAnalysisTests(unittest.TestCase):
                 composition['roles'][0]['entries'][0]['damage'] = True
             with self.subTest(change=change), self.assertRaises(NativeAnalysisError):
                 decode_page(wire)
-
-    def test_controller_forwards_worker_display_unchanged(self):
-        analysis = replace(_snapshot(), timeline_hits=(object(),))
-        display = _snapshot()
-        request = SimpleNamespace(
-            load=BattleReportAnalysisLoadRequest(7, detail_level='marginal'),
-            completion_kind=None, persist_full_range=False,
-        )
-        host = SimpleNamespace(
-            _desired_analysis_load_token=4,
-            _analysis_request_is_current=lambda value: value is request,
-            _page=Mock(), _build_snapshot_controller=Mock(),
-        )
-        result = BattleReportAnalysisLoadResult(analysis, None, candidate_display_analysis=display)
-        BattleReportAnalysisControllerMixin._analysis_load_ready(host, 4, request, result)
-        self.assertIs(display, host._page.set_marginal_analysis.call_args.kwargs['candidate_display_analysis'])
 
     def test_page_renders_supplied_axis_without_calling_projection(self):
         analysis, display = self.fixture()

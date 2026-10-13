@@ -27,7 +27,7 @@ def main() -> int:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
     connection.execute("BEGIN")
-    # The oracle owns no schema initialization or migration for this read-only run.
+    # 只读 oracle 不初始化或迁移结构；本次读事务复用现有 DAO 查询。
     dao = UserDataDao.__new__(UserDataDao)
     dao._connection = connection
     results = []

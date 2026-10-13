@@ -1,15 +1,15 @@
 # 处理设置页中的原生组件加载意图，记录只属于本机工作模式。
-"""UI intent handlers for managed game component loading."""
+"""加载方式只记录本机意图；启动与清理复用正式模式 owner。"""
 from __future__ import annotations
 
 from typing import Any
 
 from PySide6.QtWidgets import QMessageBox
 
-from src.services.equipment_plugin_deployment import (
+from src.integrations.components.environment import (
     EquipmentPluginDeploymentError,
 )
-from src.services.mod_plugin_loading_service import ModPluginLoadingError
+from src.services.components.loader_service import ModPluginLoadingError
 
 
 def selected_plugin_loading_method(window: Any) -> str:
@@ -68,5 +68,5 @@ def start_equipment_mod_loader(window: Any) -> None:
 
 
 def stop_equipment_mod_loader(window: Any) -> None:
-    """All stop/cleanup requests share the mode owner's pending lifecycle."""
+    """停止与清理统一交给模式 owner 的待收尾生命周期。"""
     window.work_mode_controller.cleanup()

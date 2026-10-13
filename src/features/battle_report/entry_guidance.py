@@ -19,6 +19,7 @@ def capture_entry_allowed(controller, *, automatic=False) -> bool:
                     callback("战报采集", "连接已主动暂停，可在检测区继续连接。", target="detection")
             return False
         return True
+    # 自动续场只判断模式，不弹引导；手动导航到设置也不会补执行原先的采集点击。
     if not automatic:
         callback = getattr(controller, "_operation_entry", None)
         if callback is not None:
@@ -36,6 +37,7 @@ def capture_unavailable(controller, detail: str) -> None:
             or getattr(controller, "_manual_stop_requested", False)
             or getattr(controller, "_closing", False)):
         return
+    # 停止/关闭/权限撤销先抑制提示；账号代次仍一致才为本次手动故障提示一次。
     frozen_context = getattr(controller, "_capture_guidance_context", None)
     if frozen_context is not None and frozen_context != (
         controller._app_context.account.active_account_id, controller._app_context.generation,

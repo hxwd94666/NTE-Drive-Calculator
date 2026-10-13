@@ -1,5 +1,5 @@
 # 统一渲染计算结果、保存配装、鉴定卡片、评分和属性汇总。
-"""Public equipment presentation component shared by allocation-facing UIs."""
+"""统一装备卡片、冻结计划与属性汇总的公共展示入口。"""
 
 from __future__ import annotations
 
@@ -16,10 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import GRADE_COLORS, current_theme_name, theme_color, theme_rgba, themed_style
-from src.services.equipment_scoring_service import (
-    score_drive_stats,
-    score_tape_stats,
-)
+from src.services.equipment.equipment_scoring_service import score_drive_stats, score_tape_stats
 from src.features.allocation.results_loadout_compare_view import EquipmentLoadoutComparisonPresentationMixin
 
 
@@ -74,9 +71,6 @@ from src.features.allocation.results_bonus_view import (
     _show_bonus_summary_dialog,
     _bonus_row_widget,
 )
-
-
-
 
 
 __all__ = [
@@ -180,7 +174,7 @@ def _score_tape_dict(
 
 
 def _format_equipment_stat_display(value):
-    """Render captured float32/double values without binary-tail noise."""
+    """展示时去除浮点尾噪；保留百分号文本及不可解析的原标签。"""
     if isinstance(value, str) and "%" in value:
         return value
     try:
@@ -191,7 +185,7 @@ def _format_equipment_stat_display(value):
 
 
 def _stat_chip_surface(color: str) -> tuple[str, str]:
-    """Give neutral chips a readable mid-gray outline in the light theme."""
+    """仅调整白色主题中中性词条的可读轮廓，不改权重与评分。"""
     if current_theme_name() == "light" and color == theme_color("#8b949e"):
         return "#8c959f", "#f6f8fa"
     qc = QColor(color)
@@ -219,9 +213,7 @@ def _equip_card(
     replacement_text=None,
     main_value=None,
 ):
-    # A manual replacement changes an existing slot; it is not a newly acquired
-    # item.  Keep the status mutually exclusive even if an older caller supplies
-    # both flags.
+    # 手动替换是已有位置的变动；NEW 与 CHANGE 互斥，不把替换当新增。
     is_new = bool(is_new) and not bool(is_changed)
     w = QWidget()
     w.setObjectName("equipmentCard")
@@ -397,7 +389,7 @@ def _equip_card(
 
 
 class EquipmentPresentation(EquipmentLoadoutComparisonPresentationMixin):
-    """Own shared equipment rendering and calculation-result presentation state."""
+    """持有可丢弃的展示状态；评分适配仍调用统一装备评分 Service。"""
 
     _section_label = _section_label
     _render_results = _render_results
@@ -547,6 +539,7 @@ class EquipmentPresentation(EquipmentLoadoutComparisonPresentationMixin):
         return int(self._shape_areas.get(shape_id, default))
 
     def clear(self) -> None:
+        """清除当前展示计划与来源指针，不删除背包或已保存配装。"""
         self.final_plan = {}
         self.allocation_plan_diff = {}
         self._pending_allocation_snapshot_id = None

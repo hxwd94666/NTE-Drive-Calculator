@@ -1,5 +1,5 @@
-# 从 MainWindow 抽离的更新控制器方法。
-"""Compatibility-installed MirrorChyan update controller."""
+# 编排更新检查、用户显式下载、取消与安装器启动，不把失败写成最新版。
+"""现有窗口更新入口；日志只记录生命周期，不记录 CDK 或鉴权下载地址。"""
 
 from __future__ import annotations
 
@@ -320,7 +320,7 @@ def _on_mirror_download_ready(self, info):
 
 
 def _start_mirror_installer_download(self, url):
-    """Download and launch the installer without sending the user to a browser."""
+    """显式下载连接取消 token；仅完整文件终态才进入安装器启动。"""
     self._update_status.setText("正在通过 Mirror 酱下载更新安装程序…")
     progress = QProgressDialog("正在下载更新安装程序…", "取消", 0, 0, self)
     progress.setWindowTitle("Mirror 下载")
@@ -467,7 +467,7 @@ def _show_mirror_cdk_required_dialog(self):
 
 
 def _mirror_project_link_text(action: str) -> str:
-    """Return the visible, clickable Mirror project link used by download dialogs."""
+    """复用公共项目页链接，只提供浏览器入口，不自动执行安装。"""
     return (
         f"可前往 Mirror 项目页面{action}："
         f'<a href="{MIRROR_PROJECT_URL}">{MIRROR_PROJECT_URL}</a>'
@@ -475,7 +475,7 @@ def _mirror_project_link_text(action: str) -> str:
 
 
 def _mirror_download_version_is_available(latest: str, current: str) -> bool:
-    """Whether the remote release is current or newer; older ones need confirmation."""
+    """旧于当前版本的下载必须单独确认，不当作普通更新。"""
     return bool(latest) and not is_newer_version(current, latest)
 
 
@@ -501,7 +501,7 @@ def _confirm_mirror_older_version_download(self: Any, current: str, latest: str)
 
 
 def _show_mirror_project_download_dialog(self: Any, summary: str) -> None:
-    """Show a download failure with a direct, browser-openable Mirror link."""
+    """下载失败保留可重试状态，并提供显式项目页入口。"""
     dialog = QDialog(self)
     dialog.setWindowTitle("Mirror 下载")
     dialog.setMinimumWidth(460)

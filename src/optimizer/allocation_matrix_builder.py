@@ -7,11 +7,10 @@ from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMa
 
 
 class PreparedProfitMatrix:
-    """Reuse immutable score rows within one fixed candidate pool and preference set.
+    """仅在一次固定候选池/偏好内复用评分行，每个预留分支新建实例。
 
-    A reservation branch gets a fresh instance, so excluded UIDs and changed
-    column order cannot leak across branches. Only state-independent ranking
-    is cached; critical-rate threshold selection still uses its greedy path.
+    列顺序和排除 UID 不跨分支复用；只缓存不随已选装备改变的排名，
+    依赖当前暴击率的选择仍走原贪心路径，profit 与隐藏排名分保持分离。
     """
 
     def __init__(self, strategy, drives_pool, crit_priority_modes):
@@ -53,7 +52,7 @@ class PreparedProfitMatrix:
                 slot["type"], slot.get("bp"), include_extra_shape_bonus,
             )
             profit, ranking = self._row(slot["role"], slot["shape"], uses_bonus)
-            # Each matrix owns its data; solver-side mutation cannot poison a row.
+            # 拷入独立矩阵，后续求解修改不能污染缓存行。
             profit_matrix[index] = profit
             ranking_matrix[index] = ranking
         return slots, profit_matrix, ranking_matrix

@@ -1,5 +1,5 @@
 # 定义深色和浅色主题样式与调色板。
-"""Shared visual theme constants."""
+"""共享三主题、评分颜色和对话框默认设置，不改业务状态。"""
 
 from __future__ import annotations
 
@@ -12,9 +12,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMessageB
 
 from src.app.window_geometry import fit_dialog_to_available_screen
 
-# S/SS and SSS/ACE deliberately use the opposite emphasis tiers.  All scoring
-# surfaces import these shared values so that the grade meaning stays visual
-# consistent between allocation, calculation, identification and replacement.
+# 所有评分界面复用同一等级颜色；这里只统一展示，不重算评分。
 GRADE_COLORS = {"ACE": "#f0883e", "SSS": "#f0883e", "SS": "#ffa726", "S": "#ffa726", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
 GRADE_BGS = {"ACE": "#f0883e30", "SSS": "#f0883e20", "SS": "#ffa72618", "S": "#ffa72618", "A": "#7ec8e318", "B": "#5b9bd515", "C": "#4a7fb512", "D": "#3d5a8010"}
 
@@ -278,7 +276,7 @@ def theme_rgba(dark_color: str, alpha: float, app: QApplication | None = None) -
 
 
 def refresh_inline_theme_styles(root, app: QApplication | None = None) -> None:
-    """Re-map existing inline widget styles after the app theme changes."""
+    """复用控件首次记录的样式底稿，切主题时不累积重复颜色转换。"""
     theme = current_theme_name(app)
     widgets = [root, *root.findChildren(QObject)] if root is not None else []
     for widget in widgets:
@@ -394,7 +392,7 @@ def apply_title_bar_theme(widget, theme: str | None = None) -> None:
         hwnd = int(widget.winId())
         value = ctypes.c_int(0 if theme_name(theme or current_theme_name()) == "light" else 1)
         dwm = ctypes.windll.dwmapi
-        # Windows 11 uses 20; older Windows 10 builds use 19.
+        # 先尝试 Windows 11 属性，再兼容旧 Windows 10；失败只跳过标题栏着色。
         for attribute in (20, 19):
             if dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
                 break
@@ -433,6 +431,7 @@ class _DialogPolishFilter(QObject):
 
 
 def install_dialog_defaults(app: QApplication) -> None:
+    """每个 QApplication 只安装一次默认中文按钮、主题和屏幕限位。"""
     if getattr(app, "_nte_dialog_defaults_installed", False):
         return
     app._nte_dialog_defaults_installed = True

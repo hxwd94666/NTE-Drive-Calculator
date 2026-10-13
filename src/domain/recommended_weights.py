@@ -106,7 +106,7 @@ def parse_workshop_recommendations(
     records: Iterable[Mapping[str, Any]],
     character_ids: Iterable[int],
 ) -> dict[int, dict[str, Any]]:
-    """Map API rows to official IDs and fill every missing character with defaults."""
+    """将已获取的工坊行映射到正式属性 ID；缺角色沿发行默认，不触发网络读取。"""
 
     known_ids = {int(character_id) for character_id in character_ids}
     result = {

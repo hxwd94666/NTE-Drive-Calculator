@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.services.static_catalog_character_models import (
+from src.services.static_catalog.characters.models import (
     CatalogSource,
     CharacterDetail,
     CombatLinkPage,

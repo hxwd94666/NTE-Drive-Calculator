@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
@@ -44,6 +44,7 @@ class UserDataDaoCore:
         except sqlite3.Error as exc:
             raise UserDataError(f"无法打开用户数据库：{self.database_path}") from exc
         self._connection.row_factory = sqlite3.Row
+        self._transaction_serial = 0
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA busy_timeout = 10000")
         try:
@@ -84,8 +85,36 @@ class UserDataDaoCore:
         return self._connection
 
     @contextmanager
+    def write_transaction(self) -> Iterator[sqlite3.Connection]:
+        """在唯一连接上原子提交一项业务；嵌套 DAO 操作只释放保存点，不提前提交外层。"""
+        connection = self._db()
+        owns_transaction = not connection.in_transaction
+        if owns_transaction:
+            connection.execute("BEGIN IMMEDIATE")
+            savepoint = None
+        else:
+            self._transaction_serial += 1
+            savepoint = f"nte_write_{self._transaction_serial}"
+            connection.execute(f"SAVEPOINT {savepoint}")
+        try:
+            yield connection
+            if owns_transaction:
+                connection.commit()
+            else:
+                connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        except BaseException:
+            # 验证异常、取消异常和提交失败都保持原事实；内层失败可被外层明确处理。
+            if connection.in_transaction:
+                if owns_transaction:
+                    connection.rollback()
+                else:
+                    connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+            raise
+
+    @contextmanager
     def read_consistent_state(self):
-        """Read related account pointers and immutable facts in one SQLite snapshot."""
+        """同一 SQLite 读快照读取关联事实；本方法不提交调用方已有事务。"""
         connection = self._db()
         owns_transaction = not connection.in_transaction
         if owns_transaction:
@@ -137,6 +166,10 @@ class UserDataDaoCore:
                 "SELECT MAX(version) AS version FROM schema_migration"
             ).fetchone()
         except sqlite3.Error as exc:
+            # 锁冲突只表示暂未读到结构，不证明文件类型无效；保留原异常供上层分类。
+            code = getattr(exc, "sqlite_errorcode", 0)
+            if isinstance(code, int) and (code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise UserDataError("用户数据库正忙，读取结构受阻；请稍后重试") from exc
             raise UserDataError("文件不是 NTE 用户数据库") from exc
         version = int(row["version"] or 0) if row is not None else 0
         if version > SCHEMA_VERSION:
@@ -158,7 +191,7 @@ class UserDataDaoCore:
                     connection.execute("PRAGMA foreign_keys = OFF")
                 try:
                     connection.execute("BEGIN IMMEDIATE")
-                    # Another account owner may have completed the same migration while we waited.
+                    # 等待锁期间另一 owner 可能已完成本次迁移，事务内再次核对后再执行。
                     actual_version = connection.execute(
                         "SELECT MAX(version) FROM schema_migration"
                     ).fetchone()[0]
@@ -227,6 +260,10 @@ class UserDataDaoCore:
                 "SELECT MAX(version) AS version FROM schema_migration"
             ).fetchone()
         except sqlite3.Error as exc:
+            # 锁冲突只表示暂未读到结构，不证明文件类型无效；保留原异常供上层分类。
+            code = getattr(exc, "sqlite_errorcode", 0)
+            if isinstance(code, int) and (code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise UserDataError("用户数据库正忙，读取结构受阻；请稍后重试") from exc
             raise UserDataError("文件不是 NTE 用户数据库") from exc
         version = row["version"] if row is not None else None
         if version != SCHEMA_VERSION:

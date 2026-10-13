@@ -26,20 +26,20 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.features.static_catalog.domain_pages.character_card import CharacterGalleryCard
 from src.features.static_catalog.domain_pages.character_profile import CharacterDetailView
-from src.services.static_catalog_character_release_metadata import (
+from src.services.static_catalog.characters.release_metadata import (
     CharacterReleaseMetadata,
     CharacterReleaseMetadataService,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.static_catalog_character_models import (
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.static_catalog.characters.models import (
     CharacterDetail,
     CharacterPage,
     CharacterSummary,
     CombatLinkPage,
     GrowthPage,
 )
-from src.services.static_catalog_character_service import StaticCatalogCharacterService
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.characters.service import StaticCatalogCharacterService
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 

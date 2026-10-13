@@ -1,14 +1,14 @@
 # 在组合根注入唯一模式策略、原生会话和后台观察所有者。
 from src.integrations.nte_core import NteCoreClient
 from src.integrations.native_plugin_bundle import resolve_bundled_native_core
-from src.services.native_game_session import NativeGameSession
-from src.services.work_mode_service import WorkModeService
-from src.services.work_mode_runtime import WorkModeRuntime
+from src.services.native_session.session import NativeGameSession
+from src.services.work_modes.service import WorkModeService
+from src.services.work_modes.runtime import WorkModeRuntime
 from src.ui.controllers.work_mode_controller import WorkModeController
 from src.ui.controllers.auto_sync_controller import AutoSyncController
-from src.services.equipment_plugin_deployment import game_process_running
+from src.integrations.components.environment import game_process_running
 from src.integrations.plugin_settings_store import PluginSettingsStore
-from src.services.plugin_service import PluginService
+from src.services.plugins.hud import PluginService
 
 
 def initialize_mode_policy(window):
@@ -33,7 +33,7 @@ def initialize_mode_runtime(window):
     from src.app.context import CallbackAccountLifecycle
     from src.features.settings.performance_controller import PerformanceController
     from src.features.settings.native_plugin_update_controller import NativePluginUpdateController
-    from src.services.native_plugin_maintenance import NativePluginMaintenance, active_feature_update_hint
+    from src.services.components.maintenance import NativePluginMaintenance, active_feature_update_hint
     from src.integrations.presentmon_metrics import PresentMon
     from src.integrations.native_capture_process import native_capture_game_pid
 
@@ -103,7 +103,7 @@ def initialize_mode_runtime(window):
     )
     window.app_context.register_account_lifecycle(CallbackAccountLifecycle(
         is_running=lambda: window.native_plugin_update_controller.running,
-        stop=window.native_plugin_update_controller.stop,
+        stop=window.native_plugin_update_controller.stop_for_account,
         rebuild=lambda _account: None, start=lambda: None,
     ))
     window.operation_entry = window.work_mode_controller.operation_entry

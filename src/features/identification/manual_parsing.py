@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from src.features.identification.lifecycle import (
+from src.features.identification.dependencies import (
     task_identification_dependencies,
 )
 from src.optimizer.scoring import ScoringEngine

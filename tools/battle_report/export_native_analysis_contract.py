@@ -11,14 +11,14 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.services.battle_counterfactual_analysis_service import BattleCounterfactualAnalysisService  # noqa: E402
-from src.services.battle_buff_inference_service import BUFF_INFERENCE_MODEL_VERSION  # noqa: E402
-from src.services.battle_buff_attribute_projection_service import BUFF_ATTRIBUTE_PROJECTION_VERSION  # noqa: E402
-from src.services.battle_linko_coattack_buff_service import LINKO_COATTACK_BUFF_MODEL_VERSION  # noqa: E402
-from src.services.battle_outer_realm_buff_service import OUTER_REALM_BUFF_MODEL_VERSION  # noqa: E402
-from src.services.battle_hit_replay_service import HIT_REPLAY_MODEL_VERSION  # noqa: E402
-from src.services.battle_buff_counterfactual_service import BUFF_COUNTERFACTUAL_MODEL_VERSION  # noqa: E402
-from src.services.battle_passive_counterfactual_service import PASSIVE_COUNTERFACTUAL_MODEL_VERSION  # noqa: E402
+from src.services.battle_report.build.offline_analysis import BattleCounterfactualAnalysisService  # noqa: E402
+from src.services.battle_report.buffs.inference import BUFF_INFERENCE_MODEL_VERSION  # noqa: E402
+from src.services.battle_report.buffs.attribute_projection import BUFF_ATTRIBUTE_PROJECTION_VERSION  # noqa: E402
+from src.services.battle_report.characters.linko_buffs import LINKO_COATTACK_BUFF_MODEL_VERSION  # noqa: E402
+from src.services.battle_report.environment.outer_realm_buffs import OUTER_REALM_BUFF_MODEL_VERSION  # noqa: E402
+from src.services.battle_report.replay.service import HIT_REPLAY_MODEL_VERSION  # noqa: E402
+from src.services.battle_report.buffs.counterfactual import BUFF_COUNTERFACTUAL_MODEL_VERSION  # noqa: E402
+from src.services.battle_report.damage.passive_counterfactual import PASSIVE_COUNTERFACTUAL_MODEL_VERSION  # noqa: E402
 from src.storage.sqlite.static_game_data_metadata import MINIMUM_SUPPORTED_SCHEMA_VERSION, SCHEMA_VERSION  # noqa: E402
 
 

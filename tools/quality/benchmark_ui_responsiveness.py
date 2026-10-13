@@ -52,7 +52,7 @@ def main() -> int:
     from src.features.official_role import role_shell
     from src.utils.logger import logger
 
-    # Keep log transport identical between revisions without console sink latency.
+    # 两版使用相同日志传输设置，避免控制台耗时污染同条件比较。
     logger.remove()
     app = QApplication.instance() or QApplication([])
     assets = json.loads(marker.read_text(encoding="utf-8")).get("asset_root")
@@ -153,7 +153,7 @@ def main() -> int:
     tabs = window.official_role_tabs
     current_id = int(tabs.tabBar().tabData(tabs.currentIndex()))
     detail = window._official_role_editors[current_id]["detail"]
-    # Hash only stable calculation content; output no account identifiers or equipment payload.
+    # 只输出稳定计算字段的指纹，不附账号身份或装备正文。
     stable = {key: detail.get(key) for key in (
         "profile", "base_stats", "property_weights", "main_property_weights", "catalog_scope",
     )}

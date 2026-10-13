@@ -92,6 +92,7 @@ def render_marginal_benefits(
     *,
     character_id: int | None,
 ) -> None:
+    # 所选角色没有结果时清空旧表，不把另一角色的已算结果当作本次结果。
     if benefits is None or benefits.character_id != character_id:
         core_table.setRowCount(0)
         fork_table.setRowCount(0)
@@ -203,6 +204,7 @@ def _damage(value: float | None) -> str:
 
 
 def _gain(status: QuantificationStatus, value: float | None) -> str:
+    # 未量化/缺值用横线；明确不适用的零收益与资料未知分开，部分结果的缺口留在状态提示。
     if status == "unavailable" or value is None:
         return "—"
     if status == "not_applicable":

@@ -14,8 +14,8 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.services.battle_report_history_service import BattleReportHistoryService  # noqa: E402
-from src.services.battle_report_persistence_service import BattleReportPersistenceDependencies  # noqa: E402
+from src.services.battle_report.history.service import BattleReportHistoryService  # noqa: E402
+from src.services.battle_report.persistence import BattleReportPersistenceDependencies  # noqa: E402
 from tools.battle_report.evaluate_native_analysis import _clone_database, compare_results  # noqa: E402
 from tools.battle_report.evaluate_native_application_parts import wire, numeric_wire  # noqa: E402
 

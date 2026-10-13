@@ -5,8 +5,8 @@ import hashlib
 
 import pytest
 
-from src.services import native_plugin_deployment as deployment
-from src.services import managed_plugin_cleanup
+from src.integrations.components import native_files as deployment
+from src.integrations.components import legacy_cleanup as managed_plugin_cleanup
 from tests.test_native_plugin_bundle import game_files, make_bundle, write_manifest
 from tests.test_native_plugin_runtime import setup_runtime
 

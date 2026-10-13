@@ -4,10 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
-from src.services.mod_plugin_loading_service import (
+from src.integrations.components.environment import probe_mod_plugin_msvc_runtime
+from src.services.components.loader_service import (
     ModPluginLoadingError,
     ModPluginLoadingService,
-    probe_mod_plugin_msvc_runtime,
 )
 
 
@@ -17,7 +17,7 @@ def test_missing_atomic_wait_runtime_blocks_preflight_then_allows_retry():
     def available(path):
         return path.name not in missing
 
-    with patch("src.services.mod_plugin_loading_service.os.name", "nt"), patch.object(
+    with patch("src.integrations.components.environment.os.name", "nt"), patch.object(
         Path, "is_file", available
     ):
         status = probe_mod_plugin_msvc_runtime()

@@ -16,7 +16,7 @@ from src.features.static_catalog.domain_pages.mechanics_widgets import (
     FieldCard,
 )
 from src.features.static_catalog.contracts import CatalogLink
-from src.services.static_catalog_mechanics_service import MechanicsDetail
+from src.services.static_catalog.mechanics.service import MechanicsDetail
 
 
 class MechanicsEffectPanel(QWidget):

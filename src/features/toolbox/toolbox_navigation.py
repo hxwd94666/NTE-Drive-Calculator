@@ -9,11 +9,12 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QMessageBox, QStackedWidget, QWidget
 
-from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-from src.services.cultivation_planner_service import CultivationPlannerService
-from src.services.cultivation_history_service import CultivationHistoryService
-from src.services.cultivation_owned_material_import import ImportedOwnedMaterials
-from src.services.rewind_shape_recommendation_service import (
+from src.app.page_tasks import delete_when_page_tasks_finish
+from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+from src.services.progression.planner_service import CultivationPlannerService
+from src.services.progression.history_service import CultivationHistoryService
+from src.services.progression.owned_material_import import ImportedOwnedMaterials
+from src.services.rewind.recommendation import (
     RewindShapeRecommendationService,
 )
 
@@ -118,7 +119,7 @@ class CultivationToolboxNavigation:
         page.shutdown()
         self.show_home()
         self.stack.removeWidget(page)
-        page.deleteLater()
+        delete_when_page_tasks_finish(page)
         self.page = None
 
     def _identity(self) -> object | None:

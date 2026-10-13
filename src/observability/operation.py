@@ -60,7 +60,10 @@ def operation_scope(
     message: str,
     **fields: object,
 ) -> Iterator[OperationSpan]:
-    """Log one operation's start, success or failure with a shared ID."""
+    """用同一操作 ID 记录作用域终态；原异常继续上抛，不把失败变成成功。
+
+    正常退出仅表示此作用域完成；外部指令 owner 仍须以后验状态确认业务成功。
+    """
 
     validate_event_name(started_event)
     validate_event_name(succeeded_event)

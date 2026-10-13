@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.app.theme import apply_app_theme
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
-from tests.test_battle_hit_buff_detail import _hit
+from tests.battle_report.buffs.test_hit_explanation import _hit
 
 
 class BattleLogPaginationThemeTests(unittest.TestCase):

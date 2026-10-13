@@ -6,18 +6,26 @@ from copy import deepcopy
 import time
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from src.app.constants import SUPPORT_US_URL
 from src.app.theme import current_style_sheet, theme_color
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.features.allocation.save_progress import AllocationSaveProgress
-from src.services.legacy_allocation_comparison_service import selected_legacy_comparison_diffs
-from src.features.inventory.equipment_display_controller import invalidate_saved_equipment_cache
-from src.services.allocation_lock_service import AllocationLockSnapshot
-from src.services.allocation_main_value_service import legacy_plan_tape_main_values
-from src.services.allocation_plan_save import save_allocation_plans
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.services.allocation.slot_comparisons import selected_legacy_comparison_diffs
+from src.features.inventory.equipment.display_controller import invalidate_saved_equipment_cache
+from src.services.allocation.locks import AllocationLockSnapshot
+from src.services.allocation.plan_save import legacy_plan_tape_main_values, save_allocation_plans
+from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.services.allocation.plan_save import require_allocation_release
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -118,12 +126,15 @@ def save_allocation(owner, *, show_message=True):
         database_path, _, _, _, static_path = _allocation_paths(owner)
         snapshot_id = owner._pending_allocation_snapshot_id
         identity = owner._pending_allocation_static_identity
+        release = require_allocation_release(getattr(owner, "_pending_allocation_static_release", None), static_path)
         lock_snapshot = owner._allocation_lock_snapshot
         if snapshot_id is None or not isinstance(identity, tuple) or len(identity) != 3:
             raise RuntimeError("本次计算缺少冻结背包或静态数据集，请重新执行计算。")
         if not isinstance(lock_snapshot, AllocationLockSnapshot) or lock_snapshot.inventory_snapshot_id != snapshot_id:
             raise RuntimeError("本次计算缺少一致的配装锁定快照，请重新执行计算。")
-        with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_path) as static_dao:
+        with UserDataDao(database_path) as user_dao, StaticCatalogReleaseReader().read_unit(
+                static_path, expected_release=release) as unit:
+            static_dao = unit.dao
             targets = _select_allocation_save_slots(owner, user_dao, static_dao, snapshot_id)
             if targets is None:
                 return False
@@ -162,13 +173,15 @@ def save_allocation(owner, *, show_message=True):
             checkpoint()
             count = save_allocation_plans(
                 database_path=database_path, static_database_path=static_path,
-                static_identity=identity, lock_snapshot=lock_snapshot, rows=rows,
+                static_identity=identity, static_release=release, lock_snapshot=lock_snapshot, rows=rows,
                 checkpoint=checkpoint, progress=progress,
             )
             return count, plans, diffs, len(rows)
 
         dialog = AllocationSaveProgress(owner.dialog_parent)
         saved_count, plans, diffs, row_count = dialog.run(prepare_and_save, owner)
+        if getattr(owner, "_closing", False):
+            return bool(saved_count)  # 已接受提交保留事实；退出不渲染或弹出成功模态。
         if _allocation_context_identity(owner) != context_identity:
             return False
         owner.allocation_plan_diff = diffs
@@ -187,6 +200,9 @@ def save_allocation(owner, *, show_message=True):
     except CancelledError:
         return False
     except Exception as error:
+        if getattr(owner, "_closing", False):
+            logger.warning("allocation.save_closed | saved_count={} error_type={}", saved_count, type(error).__name__)
+            return bool(saved_count)
         if dialog is not None:
             dialog.close()
         if saved_count:

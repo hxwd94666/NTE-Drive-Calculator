@@ -29,6 +29,7 @@ FLOAT_FIELDS = {
 
 
 def _compare(expected: Any, actual: Any, path: str = "$") -> list[str]:
+    """字段和列表形状严格相等；仅登记的数值字段使用固定误差预算。"""
     failures: list[str] = []
     if isinstance(expected, dict):
         if not isinstance(actual, dict):

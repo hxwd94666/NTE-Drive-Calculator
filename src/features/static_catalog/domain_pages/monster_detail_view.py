@@ -30,7 +30,7 @@ from src.features.static_catalog.domain_pages.monster_widgets import (
     set_art,
     source_color,
 )
-from src.services.static_catalog_monster_service import CatalogDetail, CatalogSection
+from src.services.static_catalog.monsters.service import CatalogDetail, CatalogSection
 from src.ui.widgets import NoWheelComboBox
 
 

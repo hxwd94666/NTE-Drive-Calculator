@@ -2,7 +2,6 @@
 import unittest
 
 from src.features.allocation.plan_diff_pairing import (
-    drive_item_area,
     drive_shape_family,
     pair_drive_diff_items,
     pair_diff_items_by_key,
@@ -14,9 +13,6 @@ class PlanDiffPairingTests(unittest.TestCase):
         self.assertEqual("I_3", drive_shape_family("H_3"))
         self.assertEqual("L_3", drive_shape_family("L_3_TR"))
 
-    def test_drive_item_area_prefers_explicit_area(self):
-        item = {"shape_id": "V_3", "area": 3}
-        self.assertEqual(3, drive_item_area(item, {"L_3_TR": 3}))
 
     def test_pair_diff_items_by_key_pairs_within_same_bucket(self):
         old_items = [{"uid": "a", "shape_id": "H_3"}, {"uid": "b", "shape_id": "H_3"}]

@@ -7,10 +7,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_marginal_calculation_service import BattleMarginalCalculationService
+from src.services.battle_report.marginal.calculation import BattleMarginalCalculationService
 from tests import test_native_battle_replay_application as replay_contract
 from tests.test_native_battle_replay_application import wire
-from tests.test_battle_marginal_calculation_service import _baseline, _hit, _critical_replay
+from tests.battle_report.marginal.test_calculation import _baseline, _hit, _critical_replay
 
 
 @unittest.skipUnless(os.environ.get("NTE_ANALYSIS_CORE_TEST_EXE"), "explicit isolated executable required")
@@ -35,13 +35,13 @@ class NativeBattleMarginalApplicationTests(unittest.TestCase):
             return expected
 
         suites = unittest.defaultTestLoader.loadTestsFromNames([
-            "tests.test_battle_marginal_calculation_service",
-            "tests.test_battle_marginal_continuous_direct",
-            "tests.test_battle_marginal_regressions",
-            "tests.test_battle_marginal_topple_units",
-            "tests.test_battle_marginal_character_panel",
+            "tests.battle_report.marginal.test_calculation",
+            "tests.battle_report.marginal.test_continuous_direct",
+            "tests.battle_report.marginal.test_regressions",
+            "tests.battle_report.marginal.test_topple_units",
+            "tests.battle_report.marginal.test_character_panel",
             "tests.test_battle_linko_marginal_regressions",
-            "tests.test_battle_stain_marginal_boundary",
+            "tests.battle_report.damage.test_stain_boundary",
         ])
         result = unittest.TestResult()
         with patch.object(BattleMarginalCalculationService, "calculate", side_effect=compare):

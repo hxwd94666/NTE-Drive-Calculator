@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from src.domain.progression_stamina import FarmingStage, MaterialYield
-from src.services.character_progression_requirements import MaterialSummaryStatus
-from src.services.cultivation_planner_service import (
+from src.services.progression.character_requirements import MaterialSummaryStatus
+from src.services.progression.planner_service import (
     CultivationForkTarget,
     CultivationMaterial,
     CultivationPlan,
@@ -24,11 +24,11 @@ from src.services.cultivation_planner_service import (
     _deduplicate_roles,
     _validate_state,
 )
-from src.services.fork_progression_requirements import (
+from src.services.progression.fork_requirements import (
     project_fork_level_requirements,
 )
-from src.services.static_catalog_fork_service import ForkCost
-from src.services.static_catalog_character_models import (
+from src.services.static_catalog.forks.service import ForkCost
+from src.services.static_catalog.characters.models import (
     CatalogSource,
     CharacterBreakthroughRequirement,
     CharacterMaterialCost,
@@ -85,19 +85,6 @@ def test_breakthrough_state_rejects_invalid_level_stage_pair() -> None:
     else:
         raise AssertionError("invalid stage must be rejected")
 
-
-def test_request_keeps_skill_costs_as_independent_explicit_targets() -> None:
-    request = CultivationRequest(
-        character_id=1001,
-        current_level=20,
-        current_breakthrough_stage=1,
-        target_level=40,
-        target_breakthrough_stage=2,
-        skills=(),
-    )
-
-    assert request.target_breakthrough_stage == 2
-    assert request.skills == ()
 
 
 def test_fork_gold_cost_keeps_distinct_currency_identity() -> None:

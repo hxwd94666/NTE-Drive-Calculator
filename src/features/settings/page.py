@@ -1,9 +1,5 @@
 # 构建设置页的日志、热键、更新和文件管理区域。
-"""Settings page builder.
-
-The settings page shows hotkeys, updates, screenshot management, and quick-access
-folders. MainWindow still owns all callbacks.
-"""
+"""构造设置控件并接入窗口及注入 Controller 的显式动作；业务由对应 owner 执行。"""
 
 from __future__ import annotations
 
@@ -28,6 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.features.settings.work_mode_card import build_work_mode_card
+from src.features.settings.language_card import LanguageCard
+from src.services.preferences.language_settings_service import LanguageSettingsService
 from src.features.settings.performance_card import PerformanceCard
 from src.app.constants import NETDISK_DOWNLOAD_LINKS
 from src.app.context import AppContext
@@ -44,7 +42,7 @@ def _normalize_netdisk_links(netdisk_links=None):
 
 
 def refresh_account_scoped_settings(window) -> None:
-    """Refresh already-built settings controls after an account switch."""
+    """账号切换后只刷新既有控件，屏蔽回填信号以免触发再次保存。"""
 
     preferences = getattr(window, "_ui_preferences", {}) or {}
     for editor_name, value_name in (
@@ -307,6 +305,8 @@ def build_settings_page(
     app_context: AppContext,
     iter_image_files,
     netdisk_links=None,
+    *,
+    language_settings: LanguageSettingsService | None = None,
 ):
     page = QWidget()
     page.setObjectName("settingsPage")
@@ -362,8 +362,7 @@ def build_settings_page(
         if not isinstance(preferences, dict):
             return
         preferences["protagonist_game_name"] = window._protagonist_game_name_edit.text().strip()
-        # A deliberate edit is an explicit answer, so later automatic
-        # assembly should use it without asking again.
+        # 用户显式填写后，后续界面装配复用该回答；不从角色展示名猜游戏名。
         preferences["skip_protagonist_name_prompt"] = bool(
             preferences["protagonist_game_name"]
         )
@@ -402,6 +401,8 @@ def build_settings_page(
     theme_row.addStretch()
     log_card.layout().addLayout(theme_row)
     layout.addWidget(log_card)
+    if language_settings is not None:
+        layout.addWidget(LanguageCard(language_settings, page))
 
     sync_card = _build_capture_diagnostics_card(window)
     plugin_card = _build_environment_card(window)
@@ -452,8 +453,7 @@ def build_settings_page(
     form.addRow(rerecord_row)
 
     def save_hotkeys_when_complete(_sequence) -> None:
-        # QKeySequenceEdit temporarily clears its value before it accepts a
-        # replacement shortcut.  Do not persist that transient blank state.
+        # 编辑快捷键时会暂时清空；仅全部字段有效才保存，不覆盖为中间空值。
         editors = (
             window._hk_capture_edit,
             window._hk_finish_edit,
@@ -463,8 +463,7 @@ def build_settings_page(
         if all(editor.keySequence().toString().strip() for editor in editors):
             window._save_hotkeys()
 
-    # Every completed edit is persisted immediately, removing a separate save
-    # step without treating the editor's intermediate blank state as a value.
+    # 完整编辑即时保存；中间空值仍由上方统一入口拦截。
     for editor in (
         window._hk_capture_edit,
         window._hk_finish_edit,

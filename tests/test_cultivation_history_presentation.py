@@ -36,7 +36,7 @@ def _multiple_payload():
 
 
 def test_existing_summary_gets_fork_names_without_rewriting_row(tmp_path):
-    from src.features.toolbox.cultivation_history_display import summary_text
+    from src.features.toolbox.cultivation.history_display import summary_text
     from src.storage.sqlite.user_data_dao import UserDataDao
 
     database = tmp_path / "user.sqlite3"
@@ -56,7 +56,7 @@ def test_existing_summary_gets_fork_names_without_rewriting_row(tmp_path):
 
 
 def test_display_time_includes_date_and_seconds_and_is_bounded():
-    from src.features.toolbox.cultivation_history_display import local_history_time
+    from src.features.toolbox.cultivation.history_display import local_history_time
 
     raw = "2026-10-02T06:32:18.999+00:00"
     assert local_history_time(raw) == datetime.fromisoformat(raw).astimezone().strftime("%Y-%m-%d %H:%M:%S")
@@ -103,7 +103,7 @@ def test_material_images_use_formal_ids_and_missing_image_keeps_frozen_values(tm
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QPixmap
     from PySide6.QtWidgets import QApplication
-    from src.features.toolbox.cultivation_history_materials import HistoryMaterialGrid
+    from src.features.toolbox.cultivation.history_materials import HistoryMaterialGrid
 
     application = QApplication.instance() or QApplication([])
     icon_path = tmp_path / "material.png"
@@ -136,7 +136,7 @@ def test_material_grid_narrow_window_keeps_last_material_keyboard_reachable():
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
-    from src.features.toolbox.cultivation_history_materials import HistoryMaterialGrid
+    from src.features.toolbox.cultivation.history_materials import HistoryMaterialGrid
 
     application = QApplication.instance() or QApplication([])
     grid = HistoryMaterialGrid()
@@ -283,7 +283,7 @@ def test_complete_zero_is_not_rendered_as_unknown(tmp_path):
 
 def test_history_preview_has_only_requested_sections_without_changing_saved_payload(tmp_path):
     from PySide6.QtWidgets import QLabel, QToolButton
-    from src.features.toolbox.cultivation_history_controller import HistoryOperationResult
+    from src.features.toolbox.cultivation.history_controller import HistoryOperationResult
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history_page import _page
 

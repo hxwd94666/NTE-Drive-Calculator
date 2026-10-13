@@ -2,15 +2,15 @@
 from copy import deepcopy
 from unittest.mock import patch
 
-from src.services.native_battle_preparation import NativeBattlePreparation
-from src.services.native_battle_scopes import validate_first_hit
-from tests.test_native_battle_scopes import attempt
+from src.services.battle_report.inputs.preparation import NativeBattlePreparation
+from src.services.battle_report.inputs.scopes import validate_first_hit
+from tests.battle_report.inputs.helpers import attempt
 from tests.test_battle_capture_build_freeze import native_snapshot
 
 
 def test_pinned_warmup_requires_live_domains_but_preserves_existing_first_hit():
     from types import SimpleNamespace
-    from src.services.native_battle_preparation import observe_pinned_scopes
+    from src.services.battle_report.inputs.preparation import observe_pinned_scopes
     frozen = {"attempt_id": "1", "snapshot": {"state": "observed", "retention": "dll_pinned"}}
     calls = []
     lease = SimpleNamespace(_scope_snapshots={"combat": deepcopy(frozen)},
@@ -56,9 +56,8 @@ def test_missing_context_does_not_poll_but_active_scope_keeps_baseline_current()
     def forbidden():
         raise AssertionError("unexpected read")
     prepared.prepare({"native_capture": {}}, {}, forbidden)
-    with patch("src.services.native_battle_preparation.monotonic", return_value=0):
+    with patch("src.services.battle_report.inputs.preparation.monotonic", return_value=0):
         prepared.prepare(waiting(), {"combat": attempt()}, native_snapshot)
-        assert prepared.snapshot is not None
         prepared.prepare(waiting(), {"combat": attempt()}, forbidden)
 
 
@@ -69,7 +68,7 @@ def test_entry_refresh_retains_only_previous_character_evidence_across_pending_r
     prepared.prepare(waiting("2"), {}, lambda: {"state": "source_changed"})
     new = native_snapshot()
     new["domains"]["character"]["revision"] = "2"
-    with patch("src.services.native_battle_preparation.monotonic", return_value=10**10):
+    with patch("src.services.battle_report.inputs.preparation.monotonic", return_value=10**10):
         result = prepared.prepare(waiting("2"), {}, lambda: new)
     assert result["prior_character_observation"] == old["domains"]["character"]
     old["domains"]["character"]["revision"] = "changed"
@@ -79,7 +78,7 @@ def test_entry_refresh_retains_only_previous_character_evidence_across_pending_r
 def test_backpack_refresh_does_not_reprepare_a_frozen_role_panel():
     prepared = NativeBattlePreparation()
     record = waiting()
-    with patch("src.services.native_battle_preparation.monotonic", return_value=0):
+    with patch("src.services.battle_report.inputs.preparation.monotonic", return_value=0):
         prepared.prepare(record, {}, native_snapshot)
         changed = deepcopy(record)
         changed["native_capture"]["contextEvents"][0]["snapshotChanges"]["inventory"]["revision"] = "999"
@@ -99,7 +98,7 @@ def test_direct_hit_reference_beats_stale_context_but_requires_same_provider():
 
 
 def test_lease_uses_prepared_snapshot_even_if_first_hit_is_only_seen_at_stop():
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
     session = NativeGameSession(FakeNativeCore, lambda _cap: None)
     lease = session.battle_client()
@@ -121,7 +120,7 @@ def test_lease_uses_prepared_snapshot_even_if_first_hit_is_only_seen_at_stop():
 
 def test_snapshot_rpc_rejection_keeps_safe_diagnostic_and_capture_alive():
     from src.integrations.nte_core_protocol import NteCoreRpcError
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
     for code, expected in [("NATIVE_SNAPSHOT_NOT_FOUND", "NATIVE_SNAPSHOT_NOT_FOUND"),
                            ("private-provider-text", "unrecognized_rpc_error")]:
@@ -147,7 +146,7 @@ def test_snapshot_rpc_rejection_keeps_safe_diagnostic_and_capture_alive():
 
 
 def test_first_hit_waits_for_pending_baseline_and_freezes_only_once():
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
     session = NativeGameSession(FakeNativeCore, lambda _cap: None)
     lease = session.battle_client()
@@ -155,13 +154,13 @@ def test_first_hit_waits_for_pending_baseline_and_freezes_only_once():
     record["native_capture"]["scopeAttempts"] = {"combat": attempt()}
     try:
         lease.start_capture(profile="combat")
-        with patch("src.services.native_battle_preparation.monotonic", return_value=0), patch(
+        with patch("src.services.battle_report.inputs.preparation.monotonic", return_value=0), patch(
                 "src.integrations.native_battle_snapshot.freeze_native_battle_snapshot",
                 return_value={"state": "source_changed", "domains": {}, "missing": ["capture_start_snapshot_not_stable"]}) as read:
             assert lease.observe_battle_scopes(record) is None
             assert lease.observe_battle_scopes(record) is None
             assert read.call_count == 1
-        with patch("src.services.native_battle_preparation.monotonic", return_value=3), patch(
+        with patch("src.services.battle_report.inputs.preparation.monotonic", return_value=3), patch(
                 "src.integrations.native_battle_snapshot.freeze_native_battle_snapshot", return_value=native_snapshot()) as read:
             result = lease.observe_battle_scopes(record)
             assert result["scopes"]["combat"]["snapshot"]["state"] == "observed"

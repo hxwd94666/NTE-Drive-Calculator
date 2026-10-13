@@ -435,7 +435,7 @@ class NteCoreClient(NteCoreBattleQueryMixin):
                 self._pending.pop(request_id, None)
 
         if isinstance(response, BaseException):
-            # Reader failures may be shared by concurrent requests; do not mutate them.
+            # 读取线程异常可能被多个并发请求共享，不在此改写共享异常对象。
             raise response
         if "error" in response:
             error = response["error"]

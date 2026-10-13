@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.skill_name_rendering_service import battle_hit_skill_label
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.services.official_role.skill_names import battle_hit_skill_label
 
 
 def factor_name(factor) -> str:
@@ -19,7 +19,7 @@ def factor_name(factor) -> str:
 
 
 def formula_layout(replay):
-    """Describe relationships only; diagnostic inputs are not multiplied again."""
+    """只描述核心给出的因子关系；展开的诊断输入不再次相乘求伤害。"""
     factors = tuple(replay.factors)
     ids = {f.factor_id for f in factors}
     contributions = tuple(f for f in factors if f.factor_id.startswith("topple_character:"))
@@ -47,7 +47,7 @@ def factor_value(factor, critical_state: str) -> str:
 
 
 def target_portrait_identity(hit, raw, resolutions):
-    """Use existing per-target identity; do not infer from display names."""
+    """优先逐击怪物标识，再按半场和采集实例匹配已解析画像；不由显示名猜身份。"""
     monster = str(raw.get("targetMonsterId") or "")
     if monster:
         return monster, "DLL 逐击怪物标识"
@@ -250,7 +250,7 @@ class HitFormulaOverview(QWidget):
         self.calculated.setText("—" if selected is None else f"{selected:,.0f}")
         self.observed.setText(f"{observed:,.0f}")
         self.observed.setToolTip("本击公式可比观测；原始记录与扣血口径见取值证据。")
-        # A display difference only; all formula results are supplied by the core.
+        # 只计算展示差值；伤害、暴击判定及误差依据均由核心结果给出，未知仍显示横线。
         self.delta.setText("—" if selected is None else f"{selected - observed:+,.2f}")
         error = None if replay is None else getattr(replay, "signed_error_percent", None)
         if selected is not None and error is not None:

@@ -11,6 +11,7 @@ import tempfile
 import time
 import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -27,7 +28,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.context import AccountContext
-from src.services.account_naming_service import AccountNamingService
+from src.integrations.accounts.index_file import (
+    locked_account_index, read_account_index_bytes, write_account_index_bytes,
+)
+from src.services.accounts.naming import AccountNamingService
 from src.storage.config_migration import replace_core_config_dir
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
@@ -39,6 +43,13 @@ USER_DATABASE_FILENAME = "user_data.sqlite3"
 
 
 AccountState = AccountContext
+
+
+@dataclass(frozen=True)
+class AccountDeletionTarget:
+    account_id: str
+    account: dict
+    directory_identity: tuple[int, int] | None
 
 
 class AccountManager:
@@ -68,20 +79,19 @@ class AccountManager:
         return cleaned[:40] or f"account_{int(time.time())}"
 
     def read_index(self) -> dict:
-        if self.accounts_index_file.exists():
-            try:
-                with open(self.accounts_index_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict) and data.get("accounts"):
-                    return data
-            except Exception as exc:
-                logger.warning(f"账号索引读取失败，使用默认账号配置: {exc}")
-        return {"active_account_id": "default", "accounts": [{"id": "default", "name": "默认账号"}]}
+        with locked_account_index():
+            if self.accounts_index_file.exists():
+                try:
+                    data = json.loads(read_account_index_bytes(self.accounts_index_file).decode("utf-8"))
+                    if isinstance(data, dict) and data.get("accounts"):
+                        return data
+                except Exception as exc:
+                    logger.warning(f"账号索引读取失败，使用默认账号配置: {exc}")
+            return {"active_account_id": "default", "accounts": [{"id": "default", "name": "默认账号"}]}
 
     def write_index(self, data: dict) -> None:
-        self.accounts_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.accounts_index_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        raw = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        write_account_index_bytes(self.accounts_index_file, raw)
 
     def account_meta(self, account_id: str | None = None) -> dict:
         data = self.read_index()
@@ -105,98 +115,107 @@ class AccountManager:
         if src_templates.exists() and src_templates.resolve() != self.template_dir.resolve():
             shutil.copytree(str(src_templates), str(self.template_dir), dirs_exist_ok=True)
 
-    def seed_account_data(self, account_id: str, migrate_legacy: bool = False) -> None:
+    def _seed_account_profile(self, account_id: str) -> Path:
+        """调用方已持索引锁；正式 ID 重检后才取得账号 DAO 写锁。"""
+        account = next((row for row in self.read_index().get("accounts", [])
+                        if row.get("id") == account_id), None)
+        if account is None:
+            raise ValueError("account_not_found")
         account_root = self.account_dir(account_id)
-        account_config = account_root / "config"
-        for subdir in (account_config, account_root / "scanned_images", account_root / "logs"):
+        for subdir in (account_root / "config", account_root / "scanned_images", account_root / "logs"):
             subdir.mkdir(parents=True, exist_ok=True)
-
-        # 用户数据库属于账号运行数据：首次创建账号时生成，不随安装包覆盖。
-        account = self.account_meta(account_id)
         account_name = str(account.get("name") or account_id)
-        with UserDataDao(
-            account_root / USER_DATABASE_FILENAME,
-            account_id=account_id,
-            account_name=account_name,
-        ) as user_database:
+        # 用户数据库只属账号运行数据；已有 profile 校正参与同一索引锁。
+        with UserDataDao(account_root / USER_DATABASE_FILENAME,
+                         account_id=account_id, account_name=account_name) as user_database:
             if user_database.profile()["account_name"] != account_name:
                 user_database.rename_account(account_name)
+        return account_root
 
-        legacy_config = self.data_root / "config"
+    def _seed_legacy_account_files(self, account_root: Path, migrate_legacy: bool) -> None:
+        # 模板与图片准备不持索引锁，不在临界区等待任务或触发账号切换。
+        if not migrate_legacy:
+            return
+        account_config = account_root / "config"
         for fname in self.account_user_files:
             dst = account_config / fname
-            if dst.exists():
-                continue
-            src = legacy_config / fname if migrate_legacy else None
-            if src and src.exists() and src.resolve() != dst.resolve():
+            src = self.data_root / "config" / fname
+            if not dst.exists() and src.exists() and src.resolve() != dst.resolve():
                 shutil.copy2(str(src), str(dst))
-
         legacy_screenshots = self.data_root / "scanned_images"
         account_screenshots = account_root / "scanned_images"
-        if migrate_legacy and legacy_screenshots.exists() and not any(account_screenshots.iterdir()):
+        if legacy_screenshots.exists() and not any(account_screenshots.iterdir()):
             for file in self.iter_image_files(legacy_screenshots):
                 try:
                     shutil.copy2(str(file), str(account_screenshots / file.name))
                 except Exception as exc:
                     logger.warning(f"迁移旧截图失败，已跳过该文件: {file} | {exc}")
 
+    def seed_account_data(self, account_id: str, migrate_legacy: bool = False) -> None:
+        with locked_account_index():
+            account_root = self._seed_account_profile(account_id)
+        self._seed_legacy_account_files(account_root, migrate_legacy)
+
     def activate(self, account_id: str) -> AccountState:
-        data = self.read_index()
-        account = next((a for a in data.get("accounts", []) if a.get("id") == account_id), None)
-        if not account:
-            account = {"id": "default", "name": "默认账号"}
-        active_id = account["id"]
-        active_name = account.get("name") or active_id
-        account_root = self.account_dir(active_id)
-        self.seed_account_data(active_id)
-        return AccountState(
-            active_account_id=active_id,
-            active_account_name=active_name,
-            account_data_root=account_root,
-            user_database_path=account_root / USER_DATABASE_FILENAME,
-            user_config_dir=account_root / "config",
-            screenshot_dir=account_root / "scanned_images",
-            log_dir=account_root / "logs",
-        )
+        with locked_account_index():
+            data = self.read_index()
+            account = next((a for a in data.get("accounts", []) if a.get("id") == account_id), None)
+            if not account:
+                account = {"id": "default", "name": "默认账号"}
+            active_id = account["id"]
+            account_root = self._seed_account_profile(active_id)
+            return AccountState(
+                active_account_id=active_id,
+                active_account_name=account.get("name") or active_id,
+                account_data_root=account_root,
+                user_database_path=account_root / USER_DATABASE_FILENAME,
+                user_config_dir=account_root / "config",
+                screenshot_dir=account_root / "scanned_images",
+                log_dir=account_root / "logs",
+            )
 
     def initialize(self) -> AccountState:
         self.seed_user_config()
-        data = self.read_index()
-        ids = []
-        normalized = []
-        for account in data.get("accounts", []):
-            account_id = self.safe_account_id(account.get("id") or account.get("name") or "default")
-            if account_id in ids:
-                continue
-            ids.append(account_id)
-            normalized.append({"id": account_id, "name": account.get("name") or account_id})
-        if not normalized:
-            normalized = [{"id": "default", "name": "默认账号"}]
-        active_id = data.get("active_account_id") if data.get("active_account_id") in ids else normalized[0]["id"]
-        self.write_index({"active_account_id": active_id, "accounts": normalized})
-        self.seed_account_data(active_id, migrate_legacy=(active_id == "default"))
+        with locked_account_index():
+            data = self.read_index()
+            ids = []
+            normalized = []
+            for account in data.get("accounts", []):
+                account_id = self.safe_account_id(account.get("id") or account.get("name") or "default")
+                if account_id in ids:
+                    continue
+                ids.append(account_id)
+                normalized.append({"id": account_id, "name": account.get("name") or account_id})
+            if not normalized:
+                normalized = [{"id": "default", "name": "默认账号"}]
+            active_id = data.get("active_account_id") if data.get("active_account_id") in ids else normalized[0]["id"]
+            self.write_index({"active_account_id": active_id, "accounts": normalized})
+            account_root = self._seed_account_profile(active_id)
+        self._seed_legacy_account_files(account_root, active_id == "default")
         return self.activate(active_id)
 
     def set_active_account_id(self, account_id: str) -> None:
-        data = self.read_index()
-        if not any(a.get("id") == account_id for a in data.get("accounts", [])):
-            return
-        data["active_account_id"] = account_id
-        self.write_index(data)
+        with locked_account_index():
+            data = self.read_index()
+            if not any(a.get("id") == account_id for a in data.get("accounts", [])):
+                return
+            data["active_account_id"] = account_id
+            self.write_index(data)
 
     def create_account(self, name: str) -> str:
-        data = self.read_index()
-        existing = {a.get("id") for a in data.get("accounts", [])}
-        base = self.safe_account_id(name)
-        account_id = base
-        suffix = 2
-        while account_id in existing:
-            account_id = f"{base}_{suffix}"
-            suffix += 1
-        data.setdefault("accounts", []).append({"id": account_id, "name": name.strip()})
-        self.write_index(data)
-        self.seed_account_data(account_id)
-        return account_id
+        with locked_account_index():
+            data = self.read_index()
+            existing = {a.get("id") for a in data.get("accounts", [])}
+            base = self.safe_account_id(name)
+            account_id = base
+            suffix = 2
+            while account_id in existing:
+                account_id = f"{base}_{suffix}"
+                suffix += 1
+            data.setdefault("accounts", []).append({"id": account_id, "name": name.strip()})
+            self.write_index(data)
+            self._seed_account_profile(account_id)
+            return account_id
 
     def rename_account(self, account_id: str, name: str) -> None:
         database_path = self.account_dir(account_id) / USER_DATABASE_FILENAME
@@ -209,20 +228,37 @@ class AccountManager:
             context_is_current=lambda: True,
         ).rename(name)
 
-    def delete_account(self, account_id: str) -> str | None:
-        data = self.read_index()
-        accounts = data.get("accounts", [])
-        if len(accounts) <= 1:
-            raise ValueError("at_least_one_account_required")
-        was_active = data.get("active_account_id") == account_id
-        data["accounts"] = [a for a in accounts if a.get("id") != account_id]
-        new_active_id = None
-        if was_active:
-            new_active_id = data["accounts"][0]["id"]
-            data["active_account_id"] = new_active_id
-        self.write_index(data)
-        shutil.rmtree(self.account_dir(account_id), ignore_errors=True)
-        return new_active_id
+    def prepare_account_deletion(self, account_id: str) -> AccountDeletionTarget:
+        with locked_account_index():
+            accounts = self.read_index().get("accounts", [])
+            account = next((row for row in accounts if row.get("id") == account_id), None)
+            if account is None:
+                raise ValueError("account_not_found")
+            if not any(row.get("id") != account_id for row in accounts):
+                raise ValueError("at_least_one_account_required")
+            target = self.account_dir(account_id).resolve()
+            if target.parent != self.accounts_dir.resolve():
+                raise ValueError("invalid_account_directory")
+            return AccountDeletionTarget(account_id, dict(account), _account_directory_identity(target))
+
+    def delete_account(self, account_id: str, *, expected: AccountDeletionTarget | None = None) -> str | None:
+        with locked_account_index():
+            current = self.prepare_account_deletion(account_id)
+            if expected is not None and current != expected:
+                raise ValueError("account_delete_target_changed")
+            data = self.read_index()
+            accounts = data.get("accounts", [])
+            target = self.account_dir(account_id).resolve()
+            was_active = data.get("active_account_id") == account_id
+            data["accounts"] = [a for a in accounts if a.get("id") != account_id]
+            new_active_id = None
+            if was_active:
+                new_active_id = data["accounts"][0]["id"]
+                data["active_account_id"] = new_active_id
+            self.write_index(data)
+            if target.exists():
+                shutil.rmtree(target)
+            return new_active_id
 
 
 def _safe_zip_member_path(root: Path, member: str) -> Path:
@@ -307,6 +343,30 @@ def export_account_data(manager: AccountManager, account_id: str, target_zip: Pa
     return target_zip
 
 
+def _account_directory_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        status = path.stat()
+    except FileNotFoundError:
+        return None
+    return status.st_dev, status.st_ino
+
+
+def _restore_import_index(manager: AccountManager, original: dict, published: dict, target_id: str) -> None:
+    """只补偿本次目标与仍属本次的 active 字段，保留其他已成功更新。"""
+    current = manager.read_index()
+    current_rows = current.get("accounts", [])
+    current_target = next((row for row in current_rows if row.get("id") == target_id), None)
+    published_target = next(row for row in published["accounts"] if row.get("id") == target_id)
+    if current_target != published_target:
+        raise RuntimeError("账号导入补偿冲突：保留当前索引，请重新核对。")
+    original_target = next((row for row in original.get("accounts", []) if row.get("id") == target_id), None)
+    current["accounts"] = [dict(original_target) if row.get("id") == target_id else dict(row)
+                           for row in current_rows if row.get("id") != target_id or original_target is not None]
+    if current.get("active_account_id") == target_id:
+        current["active_account_id"] = original.get("active_account_id")
+    manager.write_index(current)
+
+
 def import_account_data(
     manager: AccountManager,
     source_zip: Path,
@@ -330,21 +390,22 @@ def import_account_data(
         account_name = str(account.get("name") or account.get("id") or "Imported").strip() or "Imported"
         original_id = str(account.get("id") or account_name)
 
-        index = manager.read_index()
-        accounts = [dict(item) for item in index.get("accounts", []) if isinstance(item, dict)]
-        existing = next((item for item in accounts if item.get("name") == account_name), None)
-        if existing:
-            target_id = existing.get("id") or manager.safe_account_id(account_name)
-            existing["name"] = account_name
-        else:
-            existing_ids = {item.get("id") for item in accounts}
-            base_id = manager.safe_account_id(original_id or account_name)
-            target_id = base_id
-            suffix = 2
-            while target_id in existing_ids:
-                target_id = f"{base_id}_{suffix}"
-                suffix += 1
-            accounts.append({"id": target_id, "name": account_name})
+        with locked_account_index():
+            index = manager.read_index()
+            accounts = [dict(item) for item in index.get("accounts", []) if isinstance(item, dict)]
+            existing = next((item for item in accounts if item.get("name") == account_name), None)
+            if existing:
+                target_id = existing.get("id") or manager.safe_account_id(account_name)
+            else:
+                existing_ids = {item.get("id") for item in accounts}
+                base_id = manager.safe_account_id(original_id or account_name)
+                target_id = base_id
+                suffix = 2
+                while target_id in existing_ids:
+                    target_id = f"{base_id}_{suffix}"
+                    suffix += 1
+            target_root = manager.account_dir(target_id)
+            target_identity = _account_directory_identity(target_root)
 
         staged_members = []
         member_names: set[str] = set()
@@ -381,26 +442,42 @@ def import_account_data(
                 with zf.open(member) as src, open(target, "wb") as dst:
                     shutil.copyfileobj(src, dst)
 
-            target_root = manager.account_dir(target_id)
             backup_root = temporary_root / "previous-account"
-            replacement_index = dict(index)
-            replacement_index["accounts"] = accounts
-            replacement_index["active_account_id"] = target_id
-            target_existed = target_root.exists()
-            if target_existed:
-                if before_replace is not None:
-                    before_replace(target_id)
-                target_root.replace(backup_root)
-            try:
-                staged_root.replace(target_root)
-                manager.write_index(replacement_index)
-                manager.seed_account_data(target_id)
-            except Exception:
-                shutil.rmtree(target_root, ignore_errors=True)
-                if target_existed and backup_root.exists():
-                    backup_root.replace(target_root)
-                manager.write_index(index)
-                raise
+            # stop/join 或切换回调在锁外；回调可创建临时账号，随后必须重新读索引。
+            if target_identity is not None and before_replace is not None:
+                before_replace(target_id)
+            with locked_account_index():
+                current_index = manager.read_index()
+                current_rows = current_index.get("accounts", [])
+                current_target = next((row for row in current_rows if row.get("id") == target_id), None)
+                if current_target != existing or _account_directory_identity(target_root) != target_identity:
+                    raise ValueError("account_import_target_changed")
+                replacement_index = dict(current_index)
+                replacement_index["accounts"] = [dict(row) for row in current_rows]
+                if current_target is None:
+                    replacement_index["accounts"].append({"id": target_id, "name": account_name})
+                else:
+                    next(row for row in replacement_index["accounts"]
+                         if row.get("id") == target_id)["name"] = account_name
+                replacement_index["active_account_id"] = target_id
+                published = False
+                installed = False
+                if target_identity is not None:
+                    target_root.replace(backup_root)
+                try:
+                    staged_root.replace(target_root)
+                    installed = True
+                    manager.write_index(replacement_index)
+                    published = True
+                    manager._seed_account_profile(target_id)
+                except Exception:
+                    if installed:
+                        shutil.rmtree(target_root, ignore_errors=True)
+                    if backup_root.exists():
+                        backup_root.replace(target_root)
+                    if published:
+                        _restore_import_index(manager, current_index, replacement_index, target_id)
+                    raise
 
     return target_id
 
@@ -490,25 +567,41 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
 
     def delete_account():
         account_id = current_id()
-        data = manager.read_index()
-        if len(data.get("accounts", [])) <= 1:
-            QMessageBox.information(dialog, "删除账号", "至少需要保留一个账号。")
+        try:
+            target = manager.prepare_account_deletion(account_id)
+        except ValueError:
+            QMessageBox.information(dialog, "删除账号", "账号状态已变化或只剩一个账号，请刷新后重试。")
             return
-        account = manager.account_meta(account_id)
         ret = QMessageBox.question(
             dialog,
             "删除账号",
-            f"确定删除账号「{account.get('name', account_id)}」及其库存、配装、截图等数据吗？\n此操作不可恢复。",
+            f"确定删除账号「{target.account.get('name', account_id)}」及其库存、配装、截图等数据吗？\n此操作不可恢复。",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if ret != QMessageBox.Yes:
             return
-        new_active_id = manager.delete_account(account_id)
-        if new_active_id:
-            runtime["active_id"] = new_active_id
-            switch_account_callback(new_active_id)
-        refresh(new_active_id or runtime["active_id"])
+        # 实际运行 owner 而非索引 active 决定是否先切换；回调和弹窗始终在锁外。
+        if account_id == runtime["active_id"]:
+            replacement_id = next((row.get("id") for row in manager.read_index().get("accounts", [])
+                                   if row.get("id") != account_id), None)
+            try:
+                switched = replacement_id is not None and switch_account_callback(replacement_id) is True
+            except Exception:
+                switched = False
+            if not switched:
+                QMessageBox.warning(dialog, "删除账号", "账号切换尚未完成，删除未开始。原账号已保留，请重试切换。")
+                return
+            runtime["active_id"] = replacement_id
+        try:
+            manager.delete_account(account_id, expected=target)
+            manager.set_active_account_id(runtime["active_id"])
+        except Exception as exc:
+            refresh(runtime["active_id"])
+            refresh_account_combo_callback()
+            QMessageBox.warning(dialog, "删除账号", f"账号删除尚未完成：{exc}\n当前运行账号已保留，请刷新后重试。")
+            return
+        refresh(runtime["active_id"])
         refresh_account_combo_callback()
 
     def export_account():
@@ -541,7 +634,7 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
             if target_id != runtime["active_id"]:
                 return
             temporary_account_id = manager.create_account("导入临时账号")
-            if not switch_account_callback(temporary_account_id):
+            if switch_account_callback(temporary_account_id) is not True:
                 manager.delete_account(temporary_account_id)
                 temporary_account_id = None
                 raise RuntimeError("无法停止当前账号任务，导入未开始")
@@ -552,17 +645,36 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
                 manager, Path(path), before_replace=release_replaced_account,
             )
         except Exception as exc:
+            switch_pending = False
             if temporary_account_id is not None:
-                switch_account_callback(original_active_id)
-                if manager.account_dir(temporary_account_id).exists():
-                    shutil.rmtree(manager.account_dir(temporary_account_id), ignore_errors=True)
-                runtime["active_id"] = original_active_id
-            QMessageBox.critical(dialog, "导入账号数据", f"导入失败：{exc}")
+                try:
+                    switched = switch_account_callback(original_active_id) is True
+                except Exception:
+                    switched = False
+                # 切换成功才释放临时 owner；False/抛错保留当前运行上下文与目录。
+                if switched:
+                    runtime["active_id"] = original_active_id
+                    manager.delete_account(temporary_account_id)
+                else:
+                    switch_pending = True
+                    refresh(runtime["active_id"])
+                    refresh_account_combo_callback()
+            detail = "\n账号回切尚未完成，临时账号已保留，请重试切换。" if switch_pending else ""
+            QMessageBox.critical(dialog, "导入账号数据", f"导入失败：{exc}{detail}")
+            return
+        try:
+            switched = switch_account_callback(imported_id) is True
+        except Exception:
+            switched = False
+        if not switched:
+            # 数据导入与运行时切换是两项结果，保留实际 owner，不把索引 active 当成切换。
+            refresh(runtime["active_id"])
+            refresh_account_combo_callback()
+            QMessageBox.warning(dialog, "导入账号数据", "账号数据已导入，但账号切换尚未完成。当前账号已保留，请重试切换。")
             return
         runtime["active_id"] = imported_id
-        switch_account_callback(imported_id)
-        if temporary_account_id is not None and manager.account_dir(temporary_account_id).exists():
-            shutil.rmtree(manager.account_dir(temporary_account_id), ignore_errors=True)
+        if temporary_account_id is not None:
+            manager.delete_account(temporary_account_id)
         refresh(imported_id)
         refresh_account_combo_callback()
         QMessageBox.information(dialog, "导入账号数据", "账号数据已导入。")

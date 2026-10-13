@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping, Sequence
@@ -432,3 +433,61 @@ class SharedDataDao:
             connection.rollback()
             raise SharedDataError("旧版公共覆盖差异迁移失败") from exc
         return inserted
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest().upper()
+
+
+def read_legacy_shape_bonus_catalog(database_path: str | Path) -> dict[str, Any]:
+    """只读取旧库中历史允许用户修改的两个逻辑形状表。"""
+
+    path = Path(database_path).expanduser().resolve()
+    uri = f"{path.as_uri()}?mode=ro"
+    try:
+        connection = sqlite3.connect(uri, uri=True)
+        connection.row_factory = sqlite3.Row
+        dataset = connection.execute(
+            "SELECT dataset_id FROM dataset"
+        ).fetchone()
+        schema = connection.execute(
+            "SELECT MAX(version) AS version FROM schema_migration"
+        ).fetchone()
+        rows = connection.execute(
+            """SELECT logical_character_key, representative_character_id,
+                      shape_label, shape_grid_count
+               FROM logical_character_shape_bonus
+               ORDER BY logical_character_key"""
+        ).fetchall()
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            record = dict(row)
+            record["properties"] = [
+                dict(property_row)
+                for property_row in connection.execute(
+                    """SELECT property_id, display_value, ordinal
+                       FROM logical_character_shape_bonus_property
+                       WHERE logical_character_key = ?
+                       ORDER BY ordinal""",
+                    (record["logical_character_key"],),
+                )
+            ]
+            records.append(record)
+    except sqlite3.Error as exc:
+        raise RuntimeError(f"旧版静态数据库无法读取：{path}") from exc
+    finally:
+        if "connection" in locals():
+            connection.close()
+    if dataset is None or schema is None:
+        raise RuntimeError(f"旧版静态数据库缺少数据集信息：{path}")
+    return {
+        "database_path": str(path),
+        "database_sha256": _sha256(path),
+        "dataset_id": str(dataset["dataset_id"]),
+        "schema_version": int(schema["version"]),
+        "records": records,
+    }

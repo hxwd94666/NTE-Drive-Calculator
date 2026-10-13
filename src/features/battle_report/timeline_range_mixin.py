@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import is_dataclass, replace
 from typing import Any
 
-from src.services.battle_timeline_time_service import (
+from src.services.battle_report.timeline.clock import (
     projected_range_duration_us,
     unproject_timeline_time_us,
 )

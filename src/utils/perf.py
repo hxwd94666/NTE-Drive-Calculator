@@ -20,6 +20,7 @@ def _format_value(value: Any) -> str:
 
 
 def format_perf_line(event: str, *, elapsed_ms: float, **fields: Any) -> str:
+    """只格式化性能字段；调用方负责字段准入，None 不写成零。"""
     parts = [f"PERF {event}", f"elapsed_ms={elapsed_ms:.2f}"]
     for key, value in fields.items():
         if value is None:

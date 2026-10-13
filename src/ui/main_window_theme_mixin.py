@@ -9,6 +9,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from src.app.page_tasks import PageCommitLane
 from src.app.theme import (
     apply_app_theme,
     current_style_sheet,
@@ -53,7 +54,12 @@ class MainWindowThemeMixin:
         normalized = theme_preference(theme)
         if getattr(self, "_theme_preference", "black") == normalized:
             return True
+        if not self._restart_ready():
+            return False
         if not self._prompt_restart_for_theme_change():
+            return False
+        # 确认弹窗会运行嵌套事件循环，保存前须重新核对是否出现提交。
+        if not self._restart_ready():
             return False
         previous = getattr(self, "_theme_preference", "black")
         self._theme_preference = normalized
@@ -74,8 +80,17 @@ class MainWindowThemeMixin:
         box.exec()
         return box.clickedButton() is ok_button
 
+    def _restart_ready(self):
+        # 先确认所有页面的原子提交已到物理终态，不用关闭读通道来做状态探测。
+        if any(lane.is_running() for lane in self.findChildren(PageCommitLane)):
+            QMessageBox.information(self, "请稍候", "设置正在保存或安装，请完成后再重启。")
+            return False
+        return True
+
     def _restart_application_as_admin(self):
         QApplication.processEvents()
+        if not self._restart_ready():
+            return False
         program = sys.executable
         args = sys.argv[:]
         parameters = ""

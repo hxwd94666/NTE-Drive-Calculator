@@ -1,5 +1,5 @@
 # 提供可复用的空幕与角色属性汇总面板。
-"""Reusable two-mode attribute summary panel for allocation result pages."""
+"""展示调用方已计算的空幕/角色属性行，不在控件内构造面板公式。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class AttributeSummaryLoadout:
 
 
 def attribute_summary_weight_color(weight: float) -> str:
-    """Return the established attribute-name color for one normalized weight."""
+    """将展示权重限位到既有颜色区间，不修改原权重。"""
 
     value = max(0.0, min(1.0, float(weight)))
     if value < 0.3:
@@ -82,7 +82,7 @@ def build_attribute_summary_mode_switch(
         ("character", "角色属性汇总"),
     ),
 ) -> QWidget:
-    """Build the shared compact mode switch used by allocation summaries."""
+    """模式按钮只切换已提供的属性投影。"""
 
     container = QWidget()
     layout = QHBoxLayout(container)
@@ -116,7 +116,7 @@ def build_attribute_summary_mode_switch(
 
 
 class AttributeSummaryPanel(QFrame):
-    """Render mode switching, compact rows, and a full-details dialog."""
+    """持有本次属性展示副本，切模式重建可丢弃控件并按需展开详情。"""
 
     @classmethod
     def from_loadout(
@@ -133,7 +133,7 @@ class AttributeSummaryPanel(QFrame):
         ],
         **kwargs: Any,
     ) -> "AttributeSummaryPanel":
-        """Build a summary by explicitly passing one core and the drive list."""
+        """正式角色 ID 必须为正；显式区分已装备、仅选类型和未装备卡带。"""
 
         normalized_character_id = int(character_id)
         if normalized_character_id <= 0:

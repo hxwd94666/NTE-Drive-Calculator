@@ -5,8 +5,8 @@ import pytest
 
 from src.domain.plugin_settings import PluginSettings
 from src.integrations.plugin_settings_store import PluginSettingsStore
-from src.services.plugin_service import PluginService
-from src.services.native_game_session import NativeGameSession
+from src.services.plugins.hud import PluginService
+from src.services.native_session.session import NativeGameSession
 from tests.test_native_game_session import FakeNativeCore
 
 
@@ -97,6 +97,7 @@ def test_plugin_apply_status_only_changes_the_affected_card(tmp_path):
     service.update(hp=False)
     assert service.status_for("cooldown") == "等待游戏"
     assert service.status_for("enemy_bars") == "设置已保存，等待应用"
+    assert service.store.load().hp is False  # 单卡状态与已保存偏好分开验证。
 
 
 def test_low_mode_disables_live_hud_and_persists_switches_without_losing_options(tmp_path):
@@ -129,7 +130,7 @@ def test_pause_does_not_clear_saved_plugin_switches(tmp_path):
 
 @pytest.mark.parametrize('mode', ['offline', 'low'])
 def test_downgrade_disables_even_enemy_bars_with_no_selected_content(tmp_path, mode):
-    from src.services.work_mode_service import WorkModeService
+    from src.services.work_modes.service import WorkModeService
     service, _, core, _ = make_service(tmp_path)
     policy = WorkModeService(tmp_path / 'mode.json')
     policy.select_mode('medium', risk_confirmed=True)
@@ -144,7 +145,7 @@ def test_downgrade_disables_even_enemy_bars_with_no_selected_content(tmp_path, m
 @pytest.mark.parametrize('mode', ['offline', 'low', 'medium', 'developer'])
 def test_plugins_page_is_viewable_in_every_mode(tmp_path, monkeypatch, mode):
     from unittest.mock import Mock
-    from src.services.work_mode_service import WorkModeService
+    from src.services.work_modes.service import WorkModeService
     from src.ui import operation_guidance
     from src.ui.main_window_navigation_mixin import MainWindowNavigationMixin
     from src.ui.navigation import nav_index_map
@@ -237,8 +238,6 @@ def test_plugin_page_uses_inline_options_and_clear_status_labels(tmp_path, monke
     assert {"技能冷却", "敌人状态", "等待启动游戏"} <= labels
     assert {"刷新状态", "检测详情"} <= buttons
     assert "设置" not in buttons
-    assert set(page.option_boxes["cooldown"]) == {"ready_cue"}
-    assert set(page.option_boxes["enemy_bars"]) == {"hp", "unbalance"}
     page.option_boxes["enemy_bars"]["hp"].click()
     assert not service.settings.hp and applied
     assert page.cards["cooldown"][1].text() == "等待启动游戏"

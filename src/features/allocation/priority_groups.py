@@ -25,6 +25,7 @@ def normalize_priority_links(selected: list[str], links: Iterable[str] | None) -
 def links_to_priority_groups(selected: list[str], links: Iterable[str] | None) -> list[list[str]]:
     """Convert UI links into persisted role batches."""
 
+    # 只有相邻 = 合并同级组；> 与 >> 都结束当前组，展示边界不新增分配策略。
     clean_links = normalize_priority_links(selected, links)
     groups: list[list[str]] = []
     current: list[str] = []
@@ -68,6 +69,7 @@ def priority_groups_to_links(selected: list[str], groups: Iterable[Iterable[str]
 def load_priority_selection(data: dict, all_roles: dict) -> tuple[list[str], list[str]]:
     """Load new priority_groups first, then fall back to old priority_list."""
 
+    # 新分组优先；无有效已知角色才回退旧顺序，缺失/非法连接按严格优先补齐。
     selected: list[str] = []
     raw_groups = data.get("priority_groups")
     if isinstance(raw_groups, list):
@@ -84,11 +86,10 @@ def load_priority_selection(data: dict, all_roles: dict) -> tuple[list[str], lis
                 return selected, normalize_priority_links(selected, raw_links)
             return selected, priority_groups_to_links(selected, raw_groups)
 
-    selected = [
-        role
-        for role in data.get("priority_list", [])
-        if role in all_roles and role not in selected
-    ]
+    # 旧存档也按首次出现顺序去重；列表推导期间 selected 尚未更新，不能用它判重。
+    for role in data.get("priority_list", []):
+        if role in all_roles and role not in selected:
+            selected.append(role)
     return selected, normalize_priority_links(selected, None)
 
 
@@ -183,6 +184,7 @@ def _forward_drop_link(links: list[str], target_index: int) -> str:
     selection ends that reachability.
     """
 
+    # 向后放置只沿连续 = 查找边界；遇严格连接或队尾就停止，不吞并后续批次。
     cursor = target_index
     while cursor < len(links) and links[cursor] == EQUAL_LINK:
         cursor += 1

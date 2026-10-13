@@ -4,7 +4,6 @@ import unittest
 from src.features.allocation.bonus_summary import (
     BonusSummaryContext,
     aligned_bonus_comparison_rows,
-    bonus_rows_for_mode,
     equipment_bonus_rows,
     has_bonus_delta,
     merge_bonus_row_lists,
@@ -43,21 +42,6 @@ class BonusSummaryTests(unittest.TestCase):
         self.assertEqual(6.5, aligned[0]["delta"])
         self.assertTrue(has_bonus_delta(aligned[0]))
 
-    def test_bonus_rows_for_mode_character_includes_role_and_equipment(self):
-        ctx = BonusSummaryContext(
-            roles_db={"A": {"sub_stats": {"生命值%": 10}}},
-            shape_areas={},
-            stats_config={},
-            stat_alias_mapping={},
-        )
-        rows = bonus_rows_for_mode(
-            ctx,
-            "A",
-            None,
-            [{"sub_stats": {"暴击率%": 5.0}, "shape_id": "H_3"}],
-            mode="character",
-        )
-        self.assertTrue(any(stat == "暴击率%" for stat, _value in rows))
 
     def test_merge_bonus_row_lists_sums_same_stat(self):
         ctx = BonusSummaryContext({}, {}, {}, {})

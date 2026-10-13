@@ -129,7 +129,7 @@ def render_report(report: dict[str, Any]) -> str:
 
 
 def backup_existing_release_database(output: Path, backup: Path) -> None:
-    """Atomically preserve the release database before a rebuild replaces it."""
+    """以 SQLite 一致性备份保存既有库，完整性通过后原子替换备份。"""
 
     output = output.expanduser().resolve()
     backup = backup.expanduser().resolve()

@@ -108,8 +108,7 @@ def _resolve_role_name_from_ocr(
     best_score, best_role = scored[0]
     second_score = scored[1][0] if len(scored) > 1 else 0.0
 
-    # A two-character Chinese name with one OCR error scores about 0.5.
-    # Keep a margin so similar candidates cannot be silently confused.
+    # 双字名错一字约为 0.5；还须领先次名 0.15，歧义保持未知而非强配角色。
     if best_score < 0.5 or best_score - second_score < 0.15:
         return None
     return best_role, "ocr_fuzzy", round(best_score, 4)

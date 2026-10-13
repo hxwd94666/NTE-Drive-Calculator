@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from tools.game_data.build_role_skill_assets import add_role_skill_assets
 from tools.game_data.promote_role_catalog import promote_role_skill_assets
 

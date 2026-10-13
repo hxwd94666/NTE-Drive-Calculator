@@ -56,7 +56,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 完整且稳定的数据保存后才会成为当前背包。游戏退出、读取等待或收到部分数据时，原来保存的背包仍可查看，但它不因此成为最新游戏状态。
 
-证据：[同步契约与引导](reference/work-modes.md)、[首页按钮](../src/features/home/page.py)、[重启弹窗](../src/features/home/sync_retry_dialog.py)、[自动同步控制器](../src/ui/controllers/auto_sync_controller.py)、[同步服务](../src/services/inventory_sync_service.py)、[同步执行](../src/services/inventory_sync_runtime.py)、[共享原生会话](../src/services/native_game_session.py)、[背包读取](../src/services/native_inventory_lease.py)。
+证据：[同步契约与引导](reference/work-modes.md)、[首页按钮](../src/features/home/page.py)、[重启弹窗](../src/features/home/sync_retry_dialog.py)、[自动同步控制器](../src/ui/controllers/auto_sync_controller.py)、[同步服务](../src/services/inventory/sync/service.py)、[同步执行](../src/services/inventory/sync/runtime.py)、[共享原生会话](../src/services/native_game_session.py)、[背包读取](../src/services/native_inventory_lease.py)。
 
 ### 重启同步引导 <!-- page: sync-restart; type: 弹窗 -->
 
@@ -99,6 +99,9 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 - 角色与弧盘临界等级需要区分突破前后。觉醒等级表示解锁数量，具体勾选表示启用效果；允许解锁后留空，勾选数量不能超过等级。
 - 常驻属性进入静态面板；带触发、持续时间或层数条件的效果不因此始终生效。
 - 页面修改不会改变游戏角色的真实等级、技能或觉醒。
+- 详情与替换候选使用同一份已核对静态包；资料更新或包不完整时停止本次替换，重新打开角色详情后重试。旧结果不会自动改用最新资料。
+
+读取与保存边界见[系统架构](architecture.md#21-角色配置领域入口与测试发现)。
 
 证据：[养成规则](features.md)、[角色页面](../src/features/official_role/role_shell.py)、[保存与重置](../src/features/official_role/controller.py)。
 
@@ -213,7 +216,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 保存方案只是保存在 Calc 中。是否已经穿到游戏角色身上，要看实际装配结果；原生装配与普通界面装配的条件分别判断。
 
-证据：[配装功能契约](features.md)、[配装页按钮](../src/features/inventory/equipment_display_view.py)、[清空与方案管理](../src/features/inventory/equipment_display_controller.py)、[外部写操作](integrations.md)。
+证据：[配装功能契约](features.md)、[配装页按钮](../src/features/inventory/equipment/display_view.py)、[清空与方案管理](../src/features/inventory/equipment/display_controller.py)、[外部写操作](integrations.md)。
 
 ### 配装槽位管理 <!-- page: equipment-slots; type: 管理入口 -->
 
@@ -221,7 +224,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 每个角色最多三个可见槽位，至少保留一个。槽位名称用于展示，改名不改变方案身份。同角色多个备选方案可引用同件装备；跨角色当前方案引用同件装备才需处理冲突。锁定槽位不能覆盖、归档或单件替换。归档或清空当前方案不等于删除方案历史，也不卸下游戏装备。
 
-证据：[槽位契约](features.md)、[配装主从页面](../src/features/inventory/equipment_master_detail_view.py)。
+证据：[槽位契约](features.md)、[配装主从页面](../src/features/inventory/equipment/master_detail_view.py)。
 
 ### 游戏配装与一键导入 <!-- page: equipment-game; type: 页内切换 -->
 
@@ -229,7 +232,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 游戏配装来自原生稳定快照的只读观察。显式导入才保存为本地方案，并冻结来源与评分；视觉库存不能使用该入口。导入需要核对目标槽位及锁定条件。观测数据缺卡带等缺项应保留不完整标识，不能把“导入了记录”当作完整可执行装配。
 
-证据：[配装页入口](../src/features/inventory/equipment_display_view.py)、[游戏导入规则](features.md)。
+证据：[配装页入口](../src/features/inventory/equipment/display_view.py)、[游戏导入规则](features.md)。
 
 ### 属性汇总与对比槽位 <!-- page: equipment-stats; type: 详情区 -->
 
@@ -253,7 +256,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 每个角色只选择一个本次要执行的槽位，再核对跨角色装备冲突。极速装配需要原生正式身份；界面自动装配需要可操作的游戏界面与输入条件。确认派发后，取消只能停止后续动作；成功依赖实际状态核对，不以进度条或指令接受替代。
 
-证据：[选择装配槽位](../src/features/inventory/equipment_slot_selection_dialog.py)、[装配规则](features.md)。
+证据：[选择装配槽位](../src/features/inventory/equipment/slot_selection_dialog.py)、[装配规则](features.md)。
 
 ## 仓库：筛选、锁定与弃置
 
@@ -266,7 +269,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 仓库读取已保存的完整库存。新观察只有部分装备时，不能据此替换正式背包或推断其余装备已经消失。
 
-证据：[仓库规则](features.md)、[仓库状态操作](../src/features/inventory/warehouse_controller.py)、[来源与权限](reference/work-modes.md)。
+证据：[仓库规则](features.md)、[仓库状态操作](../src/features/inventory/warehouse/controller.py)、[来源与权限](reference/work-modes.md)。
 
 ### 仓库筛选抽屉 <!-- page: warehouse-filter; type: 抽屉 -->
 
@@ -274,7 +277,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 “重置”清除筛选草稿，“确认”应用草稿；筛选只控制显示范围。同组条件是或、不同组是且。视觉库存没有可靠原生锁／弃置状态，不应按未知值假设未锁定。筛选无结果不能直接说明账号没有装备。
 
-证据：[筛选抽屉](../src/features/inventory/warehouse_filter_drawer.py)、[筛选规则](features.md)。
+证据：[筛选抽屉](../src/features/inventory/warehouse/filter_drawer.py)、[筛选规则](features.md)。
 
 ### 状态保存与批量管理 <!-- page: warehouse-state; type: 操作流程 -->
 
@@ -282,7 +285,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 评估角色范围只影响本次仓库处理评分，不等于更改计算角色或倒带偏好。进度中的“已提交”不等于游戏已确认，部分成功不能当成全批成功。超时或未知结果停止后续派发；随后以新完整背包核对。弃置只设标记，不删除或分解。
 
-证据：[仓库状态入口](../src/features/inventory/warehouse_controller.py)、[批量处理边界](features.md)。
+证据：[仓库状态入口](../src/features/inventory/warehouse/controller.py)、[批量处理边界](features.md)。
 
 ## 鉴定：图片、截图与手工输入
 
@@ -484,7 +487,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 人物、弧盘、技能的参与开关各自决定是否计入本次材料需求；关闭后保留输入。当前角色页配置可预填，但计算结果不写回养成档案。更换角色或弧盘是选择计算对象，不执行游戏更换。
 
-证据：[养成页面](../src/features/toolbox/cultivation_page.py)、[养成规则](features/tools-and-catalog.md)。
+证据：[养成页面](../src/features/toolbox/cultivation/page.py)、[养成规则](features/tools-and-catalog.md)。
 
 ### 单角色与多角色目标 <!-- page: cultivation-targets; type: 页内切换; parent: cultivation -->
 
@@ -492,7 +495,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 单角色计算当前对象，多角色汇总所选目标。“选择角色”添加目标，“删除”移除该计算目标，不删除账号角色。分别设置当前与目标等级、突破及技能；选中多个目标不代表它们已经同步到游戏。计算后再读取本次材料和体力结果。
 
-证据：[单角色输入](../src/features/toolbox/cultivation_single_editor.py)、[多角色输入](../src/features/toolbox/cultivation_batch_page.py)、[养成规则](features/tools-and-catalog.md)。
+证据：[单角色输入](../src/features/toolbox/cultivation/single_editor.py)、[多角色输入](../src/features/toolbox/cultivation/batch_page.py)、[养成规则](features/tools-and-catalog.md)。
 
 ### 已有材料与材料范围 <!-- page: cultivation-materials; type: 配置区; parent: cultivation -->
 
@@ -504,7 +507,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 - “同步材料”读取当前账号已经保存的材料观测，不立即向游戏发起抓取。原生模式读取原生物品归档；低风险模式读取背包同步期间稳定保存的抓包物品观测，停止监听后仍可导入，不用旧原生归档兜底。抓包观测不是完整背包；未观测材料不当成零，已有手填覆盖优先。导入后仍需重新计算。
 - “清空”清除本次草稿的已有数量，不修改账号物品归档；材料草稿与结果也不反向写入游戏背包。
 
-证据：[已有材料控件](../src/features/toolbox/cultivation_owned_materials.py)、[材料范围与体力](reference/progression-stamina-calculator.md)、[计算器契约](features/tools-and-catalog.md)。
+证据：[已有材料控件](../src/features/toolbox/cultivation/owned_materials.py)、[材料范围与体力](reference/progression-stamina-calculator.md)、[计算器契约](features/tools-and-catalog.md)。
 
 ### 倒带推荐 <!-- page: rewind; type: 弹窗 -->
 
@@ -512,7 +515,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 选择角色、目标评分与候选，点击“生成方案／重新生成”才计算推荐。“保存方案”保存本地结果；“进行倒带”进入执行配置，是另一项操作。目标评分只说明搜索目标，不保证当前库存、候选与操作条件一定有解。
 
-源码已接入每角色一个槽位及独立切换入口；只有实际所选槽位未装满才阻断本次推荐。所选方案被覆盖时关闭并重新打开倒带推荐后确认，输入变化使旧推荐失效。详细目标行为与待运行验收见 [槽位选择方案](roadmap/rewind-slot-selection.md)。
+源码已接入每角色一个槽位及独立切换入口；只有实际所选槽位未装满才阻断本次推荐。所选方案被覆盖时关闭并重新打开倒带推荐后确认，输入变化使旧推荐失效。当前槽位行为见[倒带规则](features.md#7-倒带推荐与执行)，剩余专项与 Windows 验收见[倒带待验收事项](roadmap.md#43-倒带推荐的槽位输入)。
 
 证据：[倒带入口](../src/features/toolbox/page.py)、[倒带规则](features.md#7-倒带推荐与执行)。
 

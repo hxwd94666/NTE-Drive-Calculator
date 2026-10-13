@@ -1,5 +1,5 @@
 # 渲染计算配装结果中的角色、图纸与装备卡片。
-"""Result-only portion of the shared equipment presentation component."""
+"""公共装备展示的结果视图；消费计划事实，不保存或重新求解。"""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ from src.optimizer.contracts import (
     PLAN_VALID,
     plan_drives,
 )
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
-from src.services.allocation_failure_text import allocation_failure_text
-from src.services.warehouse_visual_catalog import representative_module_item_id
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.domain.allocation.failures import allocation_failure_text
+from src.services.inventory.warehouse_visual_catalog import representative_module_item_id
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.features.allocation.results_diff_view import _diff_value
 
@@ -35,7 +35,7 @@ def _game_ui_equipment_icon(
     kind: str,
     item_id: str,
 ) -> str | None:
-    """Resolve a packaged official equipment image once per item ID."""
+    """按素材根、种类与正式 item_id 解析图片；路径缓存最多 256 项。"""
     if not item_id:
         return None
     icon_path = GameUiAssetCatalog(Path(asset_root)).inventory_item_icon(kind, item_id)
@@ -47,7 +47,7 @@ def _equipment_item_icon_path(
     kind: str,
     asset_root: str | Path,
 ) -> str | None:
-    """Read a projected official item ID without requiring a legacy model change."""
+    """从传入投影读取正式 item_id，缺项不伪造官方装备关联。"""
     item_id = str(_diff_value(item, "item_id", "") or "")
     if not item_id:
         official = _diff_value(item, "official", {})
@@ -85,6 +85,7 @@ def _representative_drive_pixmap(
 
 
 def _render_results(self, plan):
+    """逐角色展示有效方案；失败原因和缺卡带状态保持显式，不补方案。"""
     locked_roles = tuple(sorted(getattr(self, "_locked_role_names", ()) or ()))
     if not plan and not locked_roles:
         return

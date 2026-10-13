@@ -1,9 +1,8 @@
 # 定义角色发行注释的稳定领域记录。
-"""Reviewed character release annotations used as v30 build inputs.
+"""已审阅角色发行注解，仅补充正式导出缺项。
 
-Official ``character.mainland_show_time`` remains authoritative for release dates.
-These records only fill fields absent from the official export and retain their
-reviewed-fallback provenance instead of presenting community evidence as official.
+正式 character.mainland_show_time 始终优先；社区补充保留审阅回退来源，
+不标作正式发行事实。
 """
 
 from __future__ import annotations

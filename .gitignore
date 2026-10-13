@@ -21,7 +21,8 @@ Thumbs.db
 .env.*
 
 # Build outputs
-build/
+# 仅忽略根目录构建产物；领域内 build 目录属于项目源码。
+/build/
 dist/
 .coverage
 htmlcov/

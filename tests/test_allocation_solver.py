@@ -7,16 +7,13 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from src.services.allocation.context_builder import read_allocation_scoring_rules
 from unittest.mock import patch
 
-from src.services.allocation_context import (
-    AllocationCandidate, AllocationContext, AllocationRolePreference, BlueprintCell,
-    InventorySnapshotReference, OfficialAttribute, OfficialShape, OfficialShapeCell,
-    OfficialStat, PropertyLimit, RoleEquipmentConstraints, StaticDatasetReference,
-    SuitConstraint, build_allocation_context,
-)
+from src.domain.allocation.inputs import AllocationCandidate, AllocationContext, AllocationRolePreference, BlueprintCell, InventorySnapshotReference, OfficialAttribute, OfficialShape, OfficialShapeCell, OfficialStat, PropertyLimit, RoleEquipmentConstraints, StaticDatasetReference, SuitConstraint
+from src.services.allocation.context_builder import build_allocation_context
 from src.services.allocation_solver import solve_allocation_context
-from src.services.allocation_legacy_adapter import legacy_items, legacy_shapes, run_legacy_allocation
+from src.services.allocation.legacy_adapter import legacy_items, legacy_shapes, run_legacy_allocation
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -70,6 +67,7 @@ def fixture_context(roles: tuple[AllocationRolePreference, ...], candidates: tup
         attributes=(OfficialAttribute("Main", "Main"), OfficialAttribute("Score", "Score"),
                     OfficialAttribute("A", "A"), OfficialAttribute("B", "B"),
                     OfficialAttribute("Limit", "Limit"), OfficialAttribute("CritRate", "暴击率%")),
+        scoring_rules=TEST_SCORING_RULES,
     )
 
 
@@ -83,6 +81,9 @@ def complete_role_candidates(role_id: int, weight_id: str, *, shape_a_score: flo
         values.append(candidate((role_id, index), kind="module", item_id=f"Actual{role_id}{shape}", geometry=shape,
                                 suit_id="Preferred", stats={weight_id: shape_a_score if shape == "ShapeA" else other_scores}))
     return tuple(values)
+
+
+TEST_SCORING_RULES = read_allocation_scoring_rules(Path(__file__).resolve().parents[1] / "config/stats.json")
 
 
 class AllocationSolverTests(unittest.TestCase):
@@ -105,25 +106,23 @@ class AllocationSolverTests(unittest.TestCase):
         self.assertEqual(10.0, items[0].sub_stats["暴击率%"])
         self.assertEqual("Type-3", legacy_shapes(context)["ShapeA"].label)
 
-    def test_top_one_matches_existing_dispatcher_for_supported_strategies(self) -> None:
+    def test_role_priority_top_one_matches_existing_dispatcher(self) -> None:
         role = fixture_role(1, weight_id="Score")
         frozen_candidates = complete_role_candidates(1, "Score", shape_a_score=3.0)
-        for strategy in ("role_priority", "role_priority"):
-            with self.subTest(strategy=strategy):
-                context = fixture_context((role,), frozen_candidates, strategy=strategy)
-                old_run = run_legacy_allocation(context)
-                old_plan = old_run.plans[old_run.role_key(1)]
-                old_uids = {
-                    old_run.candidates_by_legacy_uid[item.uid].uid
-                    for item in (
-                        [old_plan.get("assigned_tape")]
-                        + list(old_plan.get("assigned_set_drives", ()) or ())
-                        + list(old_plan.get("assigned_extra_drives", ()) or ())
-                    )
-                    if item is not None
-                }
-                result = solve_allocation_context(context, top_k=1)
-                self.assertEqual(old_uids, result.unified.selected[0].used_uids)
+        context = fixture_context((role,), frozen_candidates, strategy="role_priority")
+        old_run = run_legacy_allocation(context)
+        old_plan = old_run.plans[old_run.role_key(1)]
+        old_uids = {
+            old_run.candidates_by_legacy_uid[item.uid].uid
+            for item in (
+                [old_plan.get("assigned_tape")]
+                + list(old_plan.get("assigned_set_drives", ()) or ())
+                + list(old_plan.get("assigned_extra_drives", ()) or ())
+            )
+            if item is not None
+        }
+        result = solve_allocation_context(context, top_k=1)
+        self.assertEqual(old_uids, result.unified.selected[0].used_uids)
 
     def test_generates_legal_dynamic_layout_not_official_recommendation(self) -> None:
         role = fixture_role(1, weight_id="Score")
@@ -303,7 +302,7 @@ class AllocationSolverTests(unittest.TestCase):
                             "core_main_property_id": "DamageUpCosmosBase", "property_weights": {"AtkAdd": 1.0},
                         }],
                     )
-                    frozen = build_allocation_context(user_dao, static_dao, snapshot_id=snapshot_id, profile_id=profile["profile_id"], profile_version=1)
+                    frozen = build_allocation_context(user_dao, static_dao, snapshot_id=snapshot_id, profile_id=profile["profile_id"], profile_version=1, scoring_rules=TEST_SCORING_RULES)
                 finally:
                     static_dao.close()
                     user_dao.close()
@@ -372,6 +371,7 @@ class AllocationSolverTests(unittest.TestCase):
                     context = build_allocation_context(
                         user_dao, static_dao, snapshot_id=snapshot_id,
                         profile_id=profile["profile_id"], profile_version=1,
+                        scoring_rules=TEST_SCORING_RULES,
                     )
                 finally:
                     static_dao.close()

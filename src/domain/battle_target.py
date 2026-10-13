@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class BattleSelectedTargetProfile:
-    """Immutable target candidate/slot frozen when an environment is saved."""
+    """保存环境时冻结的正式目标候选与槽位，不读取后续静态或界面状态。"""
 
     static_target_id: str
     selection_target_id: str
@@ -32,7 +32,7 @@ class BattleSelectedTargetProfile:
 
 @dataclass(frozen=True, slots=True)
 class BattleTargetInstanceResolution:
-    """Derived mapping from one captured target instance to a frozen profile."""
+    """采集实例到冻结档案的派生映射，候选歧义及未知初始生命独立保留。"""
 
     scope_half: str
     captured_target_id: str

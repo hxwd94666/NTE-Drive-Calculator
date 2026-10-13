@@ -15,9 +15,9 @@ from src.domain.progression_stamina import (
     ProgressionStaminaResult,
     StaminaPlanStatus,
 )
-from src.services.progression_stamina_service import ProgressionStaminaService
-from src.services.static_catalog_fork_release_metadata import ForkProgressionRequest
-from src.services.static_catalog_terminology_service import (
+from src.services.progression.stamina_service import ProgressionStaminaService
+from src.services.static_catalog.forks.release_metadata import ForkProgressionRequest
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 

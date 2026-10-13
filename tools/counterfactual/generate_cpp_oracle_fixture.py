@@ -25,20 +25,20 @@ from src.domain.battle_report import (
 from src.domain.battle_counterfactual_quantification import (
     BattleCounterfactualRatio,
 )
-from src.services.battle_buff_attribute_projection_service import (
+from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )
-from src.services.battle_buff_counterfactual_batch_executor import (
+from src.services.battle_report.buffs.counterfactual_executor import (
     _resolve_projection_gap,
 )
-from src.services.battle_buff_counterfactual_projection_support import (
+from src.services.battle_report.buffs.counterfactual_projection import (
     HitProjection,
     aggregate_quantification,
 )
-from src.services.battle_hit_counterfactual_ratio_service import (
+from src.services.battle_report.damage.counterfactual import (
     BattleHitCounterfactualRatioService,
 )
-from src.services.battle_buff_interval_index import (
+from src.services.battle_report.buffs.interval_index import (
     buff_interval_applies_to_hit,
 )
 

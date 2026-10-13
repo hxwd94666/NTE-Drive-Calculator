@@ -17,6 +17,7 @@ from src.domain.crit_threshold import (
 )
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult
+from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 
 
 class _DriveState(TypedDict):
@@ -66,21 +67,9 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
     REPAIR_ROLE_PLAN_LIMIT = 12
 
     def _repair_blueprints(self, role: str) -> list[dict]:
-        """Return every semantically distinct blueprint for one role."""
+        """复用图纸正式签名，保留首个代表及顺序，不合并不同套装资格。"""
 
-        unique: list[dict] = []
-        seen: set[tuple[Any, ...]] = set()
-        for blueprint in self.blueprints_db.get(role, []) or ():
-            signature = (
-                str(blueprint.get("set_effect_mode") or ""),
-                tuple(sorted(Counter(str(v) for v in blueprint.get("set_pieces", ()) or ()).items())),
-                tuple(sorted(Counter(str(v) for v in blueprint.get("extra_pieces", ()) or ()).items())),
-            )
-            if signature in seen:
-                continue
-            seen.add(signature)
-            unique.append(blueprint)
-        return unique
+        return dedupe_blueprints_by_piece_signature(self.blueprints_db.get(role, []) or ())
 
     def _repair_quality_allowed(self, role: str, item: Drive | Tape, config: dict | None) -> bool:
         if not self._item_allowed_for_role(item, config):
@@ -484,6 +473,7 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
 
         specs.sort(key=lambda spec: spec[0], reverse=True)
         plans: list[dict] = []
+        # 恢复沿用有界搜索预算；未找到只说明本次搜索失败，不证明全库存绝对无解。
         remaining_budget = self.REPAIR_MAX_EXPANSIONS
         for _, blueprint, tape, slots, candidates_by_slot in specs:
             if remaining_budget <= 0:

@@ -39,7 +39,7 @@ class AllocationSaveProgress(QDialog):
         self.label.setText(text)
         self.progress.setRange(0, total)
         self.progress.setValue(completed)
-        # Refresh these children before the GUI starts the next rendering phase.
+        # 下一轮页面渲染前刷新本窗口进度；进度信号不是事务提交或任务物理退场证据。
         self.label.repaint()
         self.progress.repaint()
 
@@ -57,7 +57,7 @@ class AllocationSaveProgress(QDialog):
         self._wait_loop.quit()
 
     def reject(self):
-        # A committed local write must finish before closing its owner.
+        # 已进入保存的本地写入必须先结束；窗口关闭不替代任务取消/写入终态。
         if self._finished:
             super().reject()
 
@@ -77,8 +77,7 @@ class AllocationSaveProgress(QDialog):
         worker.finished.connect(self._complete)
         QTimer.singleShot(0, worker.start)
         try:
-            # Keep this same window visible across persistence and UI refresh.
-            # QDialog.accept()/show() would remap an unpainted native window.
+            # 持久化与展示刷新期间保持同一窗口；事件循环让 UI 响应，wait 再确认线程物理退场。
             self.show()
             self._wait_loop.exec()
             worker.wait()

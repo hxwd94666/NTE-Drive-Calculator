@@ -14,7 +14,7 @@ load_tests = module_load_tests(__name__, __file__)
 
 def _materials():
     from PySide6.QtWidgets import QApplication
-    from src.features.toolbox.cultivation_owned_materials import CultivationOwnedMaterials
+    from src.features.toolbox.cultivation.owned_materials import CultivationOwnedMaterials
 
     application = QApplication.instance() or QApplication([])
     owned = CultivationOwnedMaterials(icon_lookup=lambda _item_id: None, parent=None)
@@ -24,7 +24,7 @@ def _materials():
 def test_visible_default_zero_is_not_saved_until_manually_typed():
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QSpinBox
-    from src.services.cultivation_planner_models import CultivationMaterial
+    from src.services.progression.models import CultivationMaterial
 
     _application, owned = _materials()
     owned.set_materials((CultivationMaterial("a", "材料", 1),))
@@ -42,7 +42,7 @@ def test_visible_default_zero_is_not_saved_until_manually_typed():
 
 
 def test_restore_hidden_quantities_and_manual_zero_atomic():
-    from src.services.cultivation_planner_models import CultivationMaterial
+    from src.services.progression.models import CultivationMaterial
 
     _application, owned = _materials()
     entries = [

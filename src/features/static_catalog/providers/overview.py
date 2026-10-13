@@ -15,7 +15,7 @@ from src.features.static_catalog.contracts import (
     CatalogValueSource,
     StaticCatalogRelease,
 )
-from src.storage.sqlite.static_catalog_overview_queries import (
+from src.storage.sqlite.catalog.static_catalog_overview_queries import (
     STATIC_TABLE_CATALOG,
     StaticCatalogOverviewQueries,
     StaticTableOverview,

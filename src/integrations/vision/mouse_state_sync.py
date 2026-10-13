@@ -20,7 +20,7 @@ from src.integrations.vision.equipment_state_detection import (
     TRASH_BUTTON_CENTER,
     lock_to_discard_confirmation_visible,
 )
-from src.scanner.window_capture import game_content_rect
+from src.integrations.vision.window_capture import game_content_rect
 from src.utils.image_io import imread_unicode
 from src.utils.logger import logger
 

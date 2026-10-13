@@ -10,10 +10,10 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from src.app.theme import themed_style
-from src.services.static_catalog_character_release_metadata import (
+from src.services.static_catalog.characters.release_metadata import (
     CharacterReleaseMetadata,
 )
-from src.services.static_catalog_character_models import CharacterSummary
+from src.services.static_catalog.characters.models import CharacterSummary
 
 
 class CharacterGalleryCard(QFrame):

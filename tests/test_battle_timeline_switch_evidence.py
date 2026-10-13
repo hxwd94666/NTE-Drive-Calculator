@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QApplication
 from src.domain.battle_report import BattleInferredInput
 from src.features.battle_report.analysis_view import BattleLongAnalysisView
 from src.features.battle_report.timeline_layout import build_timeline_layout
-from tests.test_battle_marginal_benefit_service import _snapshot
+from tests.battle_report.marginal.test_benefits import _snapshot
 from tests.test_battle_timeline_layout import _action
 from tests.test_battle_report_scope_ui import _hit
 

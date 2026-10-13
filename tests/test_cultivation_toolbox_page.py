@@ -136,7 +136,7 @@ def test_cultivation_page_uses_one_vertical_scroll_surface() -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication, QScrollArea
 
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
 
     class Service(PlanningFixture):
         def list_roles(self):
@@ -170,9 +170,9 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
         QSpinBox,
     )
 
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-    from src.services.character_progression_requirements import MaterialSummaryStatus
-    from src.services.cultivation_planner_service import (
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+    from src.services.progression.character_requirements import MaterialSummaryStatus
+    from src.services.progression.planner_service import (
         CultivationMaterial,
         CultivationPlan,
         CultivationRole,
@@ -341,8 +341,8 @@ def test_owned_material_result_reuses_editor_on_first_and_changed_materials() ->
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QPushButton, QSpinBox, QWidget
 
-    from src.features.toolbox.cultivation_owned_materials import CultivationOwnedMaterials
-    from src.services.cultivation_planner_service import CultivationMaterial
+    from src.features.toolbox.cultivation.owned_materials import CultivationOwnedMaterials
+    from src.services.progression.planner_service import CultivationMaterial
 
     QApplication.instance() or QApplication([])
     host = QWidget()
@@ -387,9 +387,9 @@ def test_owned_material_result_reuses_editor_on_first_and_changed_materials() ->
 def test_native_material_import_updates_both_drafts_without_overwriting_manual_values() -> None:
     from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-    from src.services.cultivation_owned_material_import import ImportedOwnedMaterials
-    from src.services.cultivation_planner_service import CultivationMaterial
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+    from src.services.progression.owned_material_import import ImportedOwnedMaterials
+    from src.services.progression.planner_service import CultivationMaterial
 
     class Service(PlanningFixture):
         def list_roles(self):
@@ -434,8 +434,8 @@ def test_native_material_import_updates_both_drafts_without_overwriting_manual_v
 def test_cultivation_page_removes_saved_state_note_and_switches_mode_drafts() -> None:
     from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-    from src.services.cultivation_planner_service import CultivationRole, CultivationSeed
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+    from src.services.progression.planner_service import CultivationRole, CultivationSeed
 
     class Service(PlanningFixture):
         def list_roles(self):
@@ -482,9 +482,9 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
     from shiboken6 import isValid
 
     from src.domain.progression_stamina import FarmingStage, MaterialYield
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-    from src.services.character_progression_requirements import MaterialSummaryStatus
-    from src.services.cultivation_planner_service import (
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+    from src.services.progression.character_requirements import MaterialSummaryStatus
+    from src.services.progression.planner_service import (
         CultivationMaterial,
         CultivationPlan,
         CultivationRole,
@@ -631,8 +631,8 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
 def test_multi_character_page_selects_all_available_roles_without_count_cap() -> None:
     from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSpinBox, QToolButton
 
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-    from src.services.cultivation_planner_service import (
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+    from src.services.progression.planner_service import (
         CultivationMaterial,
         CultivationRole,
         CultivationSeed,
@@ -692,7 +692,7 @@ def test_multi_character_selector_preselects_and_supports_all_clear() -> None:
     from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QWidget
     from unittest.mock import patch
 
-    from src.features.toolbox.cultivation_selectors import (
+    from src.features.toolbox.cultivation.selectors import (
         CultivationImageSelector,
         select_cultivation_items,
     )
@@ -737,8 +737,8 @@ def test_multi_character_inline_editor_keeps_draft_and_updates_fork_image(tmp_pa
     from PySide6.QtGui import QColor, QImage
     from PySide6.QtWidgets import QApplication, QPushButton
 
-    from src.features.toolbox.cultivation_page import CultivationCalculatorPage
-    from src.services.cultivation_planner_service import (
+    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
+    from src.services.progression.planner_service import (
         CultivationForkSeed,
         CultivationRole,
         CultivationSeed,

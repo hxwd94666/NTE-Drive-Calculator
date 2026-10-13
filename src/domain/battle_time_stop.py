@@ -7,7 +7,7 @@ from typing import Literal
 
 @dataclass(frozen=True, slots=True)
 class BattleObservedTimeStopInterval:
-    """One nte-core pause span with an optional authoritative type mask."""
+    """一次采集时停区间；缺类型掩码保留旧版或压缩后的未知状态。"""
 
     start_us: int | None
     end_us: int | None

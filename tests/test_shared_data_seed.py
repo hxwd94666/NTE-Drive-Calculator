@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from src.app.shared_data_seed import seed_shared_database
-from src.services.custom_character_service import create_custom_character, save_custom_character_board
+from src.services.characters.custom_character_service import create_custom_character
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -53,9 +53,8 @@ class SharedDataSeedTests(unittest.TestCase):
                     cell["is_enabled"] = False
                 elif (cell["row"], cell["column"]) == (5, 1):
                     cell["is_enabled"] = True
-            save_custom_character_board(
-                account_database, int(custom["character_id"]), edited
-            )
+            with UserDataDao(account_database) as _custom_dao:
+                _custom_dao.save_custom_character_board_cells(int(custom['character_id']), edited)
 
             seed_shared_database(bundled, root / "app-data")
 

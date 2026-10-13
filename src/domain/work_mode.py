@@ -38,14 +38,15 @@ class WorkModeSettings:
     auto_sync_enabled: bool = False
     sync_guidance_version: int = 1
     component_auto_ready: bool = False
-    pending_cleanup: bool = True  # Reconciliation request, not proof of leftover files or a failed cleanup.
+    pending_cleanup: bool = True  # 仅表示需要核对，不证明有残留文件或清理失败。
     game_executable: str = ""
-    # JSON text keeps the frozen settings genuinely immutable across callers.
+    # 用 JSON 文本冻结部署设置，避免跨调用方共享可变字典。
     deployment_json: str = "{}"
     revision: int = 0
 
 
 def allowed_capabilities(settings: WorkModeSettings) -> frozenset[Capability]:
+    """只给模式可授予集合；暂停、组件就绪和本次输入仍由派发门禁复核。"""
     result = {Capability.LOCAL, Capability.DIAGNOSTICS}
     if settings.mode == WorkMode.OFFLINE or not settings.risk_confirmed:
         return frozenset(result)
@@ -129,8 +130,7 @@ class FeatureCheck:
 class WorkModeReport:
     mode: WorkMode
     features: tuple[FeatureCheck, ...]
-    # Only the shared startup preflight supplies this evidence; normal game
-    # waiting does not require all business snapshots to be available.
+    # 只消费共享启动预检给出的证据；等待游戏不要求所有业务快照已经就绪。
     sync_enable_ready: bool = False
 
     @property

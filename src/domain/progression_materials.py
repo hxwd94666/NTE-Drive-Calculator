@@ -24,7 +24,7 @@ def least_waste_experience_materials(
     materials: tuple[ExperienceMaterial, ...],
     required_experience: int,
 ) -> tuple[tuple[MaterialQuantity, ...], int]:
-    """Minimize overflow first, item count second, with stable tie breaking."""
+    """先最小化经验溢出，再最小化材料件数，同分按稳定材料顺序选择。"""
 
     if required_experience <= 0:
         return (), 0

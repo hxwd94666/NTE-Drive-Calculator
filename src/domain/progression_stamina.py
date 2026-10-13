@@ -134,7 +134,7 @@ def calculate_progression_stamina(
     policy: HunterLevelPolicy = HunterLevelPolicy(),
     maximum_search_states: int = 300_000,
 ) -> ProgressionStaminaResult:
-    """Return an exact minimum for deterministic accessible drop bundles."""
+    """只规划已证实且已开放的确定产出；无产出或超出搜索预算保留未知总体力。"""
 
     if maximum_search_states <= 0:
         raise ValueError("体力规划搜索上限必须为正整数")
@@ -269,7 +269,7 @@ def _minimum_stamina_runs_milp(
     deficits: tuple[MaterialDeficit, ...],
     stages: tuple[FarmingStage, ...],
 ) -> tuple[tuple[FarmingRun, ...], int] | None | object:
-    """Solve large deterministic bundles exactly without expanding each unit."""
+    """整数规划先最小体力再最少次数；仅 SciPy 缺失才走有界搜索，失败不伪装完整。"""
 
     try:
         import numpy as np

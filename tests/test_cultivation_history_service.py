@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from src.domain.cultivation_history import HistoryContextExpired
-from src.services.cultivation_history_service import CultivationHistoryService
+from src.services.progression.history_service import CultivationHistoryService
 from tests.test_cultivation_history import history_payload
 
 from tests.cultivation_history_test_support import module_load_tests

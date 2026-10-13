@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
-from src.services.work_mode_service import WorkModeService
+from src.services.work_modes.service import WorkModeService
 from src.ui.controllers.mod_loader_controller import (
     deactivate_equipment_plugin_loading_method, equipment_plugin_loading_method_changed,
     start_equipment_mod_loader, stop_equipment_mod_loader,

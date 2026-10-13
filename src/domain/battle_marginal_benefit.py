@@ -10,7 +10,7 @@ from src.domain.battle_counterfactual_quantification import QuantificationStatus
 
 @dataclass(frozen=True, slots=True)
 class BattleMarginalDelta:
-    """One team/role projection with explicit status and evidence coverage."""
+    """队伍与角色各保留量化状态、覆盖和缺口，None 不作为零收益。"""
 
     team_status: QuantificationStatus
     role_status: QuantificationStatus
@@ -35,7 +35,7 @@ class BattleCoreMainStatMarginal:
     label: str
     value: float
     is_percent: bool
-    is_current: bool  # Same property as the current core, regardless of quality.
+    is_current: bool  # 仅比较当前空幕的属性身份，与品质无关。
     contribution: BattleMarginalDelta
     replacement: BattleMarginalDelta
 

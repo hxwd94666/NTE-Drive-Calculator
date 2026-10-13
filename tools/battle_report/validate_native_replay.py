@@ -15,14 +15,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.battle_build_edit_projection_service import apply_battle_build_edit
-from src.services.battle_build_profile_normalization_service import normalize_inferred_battle_build
-from src.services.battle_build_stat_reconstruction_service import BattleBuildStatReconstructionService
-from src.services.battle_inferred_character_fact_service import BattleInferredCharacterFactService
-from src.services.battle_hit_replay_service import BattleHitReplayService
-from src.services.battle_report_history_service import BattleReportHistoryService
-from src.services.battle_report_persistence_service import BattleReportPersistenceDependencies
-from src.services.battle_skill_damage_evidence_service import BattleSkillDamageEvidenceService
+from src.services.battle_report.build.edit_projection import apply_battle_build_edit
+from src.services.battle_report.build.profile_normalization import normalize_inferred_battle_build
+from src.services.battle_report.build.stat_reconstruction import BattleBuildStatReconstructionService
+from src.services.battle_report.characters.inferred_facts import BattleInferredCharacterFactService
+from src.services.battle_report.replay.service import BattleHitReplayService
+from src.services.battle_report.history.service import BattleReportHistoryService
+from src.services.battle_report.persistence import BattleReportPersistenceDependencies
+from src.services.battle_report.damage.skill_evidence import BattleSkillDamageEvidenceService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tools.battle_report.evaluate_native_analysis import compare_results

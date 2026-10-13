@@ -166,7 +166,15 @@ def _source_path(content_root: Path, relative_path: str) -> Path:
     prefix = "combat_blueprint/"
     if normalized.startswith(prefix):
         normalized = normalized[len(prefix) :]
-    return content_root.joinpath(*PurePosixPath(normalized).parts)
+    # 哈希匹配不赋予读取目录外文件的资格；先约束逻辑路径，再复核真实路径。
+    relative = PurePosixPath(normalized)
+    if not normalized or "\\" in normalized or ":" in normalized or relative.is_absolute() or any(part in {"", ".", ".."} for part in normalized.split("/")):
+        raise StaticReleasePromotionError("来源文件路径越过 Content 根目录")
+    root = content_root.resolve()
+    source = root.joinpath(*relative.parts).resolve()
+    if root not in source.parents:
+        raise StaticReleasePromotionError("来源文件真实路径越过 Content 根目录")
+    return source
 
 
 def validate_source_files(
@@ -345,7 +353,7 @@ def validate_final_report(
     report_path: Path,
     summary: dict[str, Any],
 ) -> dict[str, Any]:
-    """Validate existing final evidence without rewriting candidate files."""
+    """只读核对既有最终报告，不重写候选证据以掩盖不一致。"""
 
     report = _read_json_object(report_path, "候选最终报告")
     with closing(_readonly_connection(database_path)) as connection:
@@ -546,7 +554,7 @@ def verify_candidate(
     *,
     allow_size_warning: bool = False,
 ) -> dict[str, Any]:
-    """Fully verify an already finalized candidate without filesystem writes."""
+    """只读预检已最终化候选；特殊来源仅在临时目录复算，不改写候选或正式目录。"""
 
     candidate = _validate_candidate_database(
         candidate_dir,

@@ -21,7 +21,7 @@ from src.features.static_catalog.domain_pages.monster_detail_view import (
     MonsterContext,
     MonsterDetailView,
 )
-from src.services.static_catalog_monster_models import (
+from src.services.static_catalog.monsters.models import (
     CatalogDetail,
     CatalogEntry,
     FeastSetup,

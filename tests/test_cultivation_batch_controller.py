@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def _request(dataset: str):
-    from src.services.cultivation_batch_planner_service import CultivationBatchRequest
+    from src.services.progression.batch_planner import CultivationBatchRequest
 
     return CultivationBatchRequest("account", 1, dataset, 60, 7, ())
 
@@ -26,7 +26,9 @@ def _dispose_owner(owner) -> None:
     from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication
 
-    owner.deleteLater()
+    from src.app.page_tasks import delete_when_page_tasks_finish
+
+    delete_when_page_tasks_finish(owner)
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     QApplication.processEvents()
 
@@ -35,7 +37,7 @@ def test_batch_controller_serializes_and_only_publishes_latest_request() -> None
     from PySide6.QtCore import QObject
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_batch_controller import (
+    from src.features.toolbox.cultivation.batch_controller import (
         CultivationBatchController,
     )
 
@@ -73,7 +75,7 @@ def test_batch_controller_discards_result_after_context_change() -> None:
     from PySide6.QtCore import QObject
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_batch_controller import (
+    from src.features.toolbox.cultivation.batch_controller import (
         CultivationBatchController,
     )
 
@@ -94,40 +96,45 @@ def test_batch_controller_discards_result_after_context_change() -> None:
     controller.result_ready.connect(results.append)
     controller.submit(_request("dataset-a"), identity["value"])
     identity["value"] = ("account", 2, "dataset-b")
-    _wait_until(lambda: controller._worker is None)
+    _wait_until(lambda: not controller.is_running())
 
     assert results == []
     controller.close()
     _dispose_owner(owner)
 
 
-def test_batch_controller_close_waits_for_active_worker_before_owner_disposal() -> None:
-    from PySide6.QtCore import QObject
+def test_batch_controller_close_keeps_worker_without_blocking_gui() -> None:
+    from threading import Event
+    from PySide6.QtCore import QObject, QTimer
     from PySide6.QtWidgets import QApplication
+    from src.features.toolbox.cultivation.batch_controller import CultivationBatchController
 
-    from src.features.toolbox.cultivation_batch_controller import (
-        CultivationBatchController,
-    )
-
+    entered, release = Event(), Event()
     class Service:
         def calculate(self, request):
-            time.sleep(0.05)
+            entered.set()
+            assert release.wait(3)
             return request.dataset_identity
 
     QApplication.instance() or QApplication([])
     owner = QObject()
-    controller = CultivationBatchController(
-        Service(), context_identity=None, parent=owner,
-    )
-    results = []
+    controller = CultivationBatchController(Service(), context_identity=None, parent=owner)
+    results, ticks = [], []
     controller.result_ready.connect(results.append)
     controller.submit(_request("dataset"), None)
-    worker = controller._worker
-    controller.close()
-
-    assert worker is not None and not worker.isRunning()
-    assert results == []
-    _dispose_owner(owner)
+    assert entered.wait(3)
+    QTimer.singleShot(0, lambda: (ticks.append(True), release.set()))
+    try:
+        started = time.monotonic()
+        controller.close()
+        assert time.monotonic() - started < 0.25
+        assert controller.is_running()  # 失效不是销毁，旧 owner 保留物理线程。
+        _wait_until(lambda: not controller.is_running())
+        assert not controller.is_running() and ticks == [True] and results == []
+    finally:
+        release.set()
+        _wait_until(lambda: not controller.is_running())
+        _dispose_owner(owner)
 
 
 def test_batch_controller_keeps_result_when_only_database_access_time_changes(
@@ -136,7 +143,7 @@ def test_batch_controller_keeps_result_when_only_database_access_time_changes(
     from PySide6.QtCore import QObject
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_batch_controller import (
+    from src.features.toolbox.cultivation.batch_controller import (
         CultivationBatchController,
     )
     from src.features.toolbox.toolbox_navigation import (
@@ -166,7 +173,7 @@ def test_batch_controller_keeps_result_when_only_database_access_time_changes(
     results = []
     controller.result_ready.connect(results.append)
     controller.submit(_request("dataset"), identity())
-    _wait_until(lambda: controller._worker is None)
+    _wait_until(lambda: not controller.is_running())
 
     assert results == ["dataset"]
     controller.close()
@@ -177,7 +184,7 @@ def test_batch_controller_invalidates_running_result_on_draft_edit() -> None:
     from PySide6.QtCore import QObject
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_batch_controller import (
+    from src.features.toolbox.cultivation.batch_controller import (
         CultivationBatchController,
     )
 
@@ -197,7 +204,7 @@ def test_batch_controller_invalidates_running_result_on_draft_edit() -> None:
     controller.result_ready.connect(results.append)
     controller.submit(_request("dataset"), ("account", 1, "dataset"))
     controller.invalidate()
-    _wait_until(lambda: controller._worker is None)
+    _wait_until(lambda: not controller.is_running())
 
     assert results == []
     controller.close()
@@ -208,7 +215,7 @@ def test_batch_controller_delivers_worker_result_on_gui_thread() -> None:
     from PySide6.QtCore import QObject, QThread
     from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox.cultivation_batch_controller import (
+    from src.features.toolbox.cultivation.batch_controller import (
         CultivationBatchController,
     )
 
@@ -228,7 +235,7 @@ def test_batch_controller_delivers_worker_result_on_gui_thread() -> None:
     )
 
     controller.submit(_request("dataset"), None)
-    _wait_until(lambda: controller._worker is None)
+    _wait_until(lambda: not controller.is_running())
 
     assert result_threads == [True]
     controller.close()

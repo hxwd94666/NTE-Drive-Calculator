@@ -25,22 +25,11 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.services.advancement_stage_service import (
-    character_growth_choices,
-    fork_breakthrough_choices,
-    fork_active_panel_stats,
-    fork_permanent_stats,
-    select_character_growth,
-    select_fork_breakthrough,
-)
+from src.domain.official_role.advancement import character_growth_choices, fork_breakthrough_choices, fork_active_panel_stats, fork_permanent_stats, select_character_growth, select_fork_breakthrough
 from src.services.damage_calculation_service import skill_tier_for_effective_level
-from src.services.official_role_awakening_service import (
-    awaken_skill_level_delta,
-)
-from src.services.world_bonus_settings_service import world_bonus_property_stats
-from src.services.official_role_page_service import (
-    calculate_official_role_margins,
-)
+from src.services.official_role.awakening import awaken_skill_level_delta
+from src.domain.official_role.models import world_bonus_property_stats
+from src.services.official_role.marginal_scoring import calculate_official_role_margins
 from src.ui.widgets import (
     NoWheelComboBox,
     NoWheelDoubleSpinBox,

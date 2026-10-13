@@ -1,7 +1,7 @@
 # 验证原生会话单一所有者、收尾租约、故障重连及账号授权边界。
 import pytest
 
-from src.services.native_game_session import NativeGameSession, SNAPSHOT_DOMAINS
+from src.services.native_session.session import NativeGameSession, SNAPSHOT_DOMAINS
 from src.integrations.nte_core_protocol import NteCoreRpcError
 
 
@@ -102,7 +102,7 @@ def test_raw_snapshot_setting_configures_existing_core_before_business_requests(
 
 def test_raw_snapshot_unavailable_warns_once_and_keeps_business_available(monkeypatch):
     warnings = []
-    monkeypatch.setattr('src.services.native_game_session.archive_unavailable', lambda: warnings.append(True))
+    monkeypatch.setattr('src.services.native_session.session.archive_unavailable', lambda: warnings.append(True))
     core = FakeNativeCore()
     enabled = [False]
     session = NativeGameSession(lambda: core, lambda _cap: None, diagnostics_enabled=lambda: enabled[0])
@@ -152,7 +152,7 @@ def test_raw_snapshot_write_failure_keeps_business_connection_available(monkeypa
     core = FakeNativeCore()
     core.hello_result['capabilities'].append('native_snapshot_archive_v1')
     warnings = []
-    monkeypatch.setattr('src.services.native_game_session.archive_failed', lambda *_: warnings.append(True))
+    monkeypatch.setattr('src.services.native_session.session.archive_failed', lambda *_: warnings.append(True))
     def fail_configure(method, _params):
         if method == 'native.diagnostics.configure':
             raise NteCoreRpcError({'code': -32000, 'data': {'domain_code': 'NATIVE_SNAPSHOT_ARCHIVE_WRITE_FAILED'}})
@@ -326,7 +326,7 @@ def test_released_lease_cannot_start_capture():
 
 def test_stop_timeout_aborts_shared_core_and_releases_on_lease_close():
     from threading import Event
-    from src.services.battle_capture_lifecycle import stop_capture_with_timeout
+    from src.services.battle_report.capture.lifecycle import stop_capture_with_timeout
 
     stop_wait = Event()
 

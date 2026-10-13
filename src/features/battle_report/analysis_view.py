@@ -60,7 +60,7 @@ from src.features.battle_report.timeline_layout import (
     format_time_stop_evidence,
 )
 from src.features.battle_report.target_vital_view import BattleTargetVitalPanel
-from src.services.battle_timeline_time_service import (
+from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
     BattleTimelineTimeMode,
@@ -68,10 +68,10 @@ from src.services.battle_timeline_time_service import (
     projected_range_duration_us,
     unproject_timeline_time_us,
 )
-from src.services.battle_environment_condition_service import (
+from src.services.battle_report.environment.conditions import (
     display_battle_environment_name,
 )
-from src.services.skill_name_rendering_service import (
+from src.services.official_role.skill_names import (
     preferred_battle_damage_name,
     render_battle_classification,
 )

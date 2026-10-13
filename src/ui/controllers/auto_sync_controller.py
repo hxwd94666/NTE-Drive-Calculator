@@ -60,7 +60,7 @@ class AutoSyncController(QObject):
 
     @property
     def packet_game_running(self):
-        """None means the watcher is not the active process observer."""
+        """None 表示本 watcher 不是当前活动进程观察者，不代表游戏未运行。"""
         if self._closed or self._watch_token is None:
             return None
         return self._process is not None
@@ -126,7 +126,7 @@ class AutoSyncController(QObject):
             try:
                 self.process_changed.emit(event)
             except RuntimeError:
-                pass  # Parent Qt object may already have been destroyed during shutdown.
+                pass  # 退出时父 Qt 对象可能已销毁，迟到通知直接丢弃。
 
     def _process_event(self, message):
         token, frozen, event = message
@@ -158,7 +158,7 @@ class AutoSyncController(QObject):
         if self._closed:
             return
         if enabled and (not self.policy.settings.auto_sync_enabled or self.policy.settings.paused) and self._request_enable_preflight:
-            self.render()  # Keep the persisted off state visible until confirmation.
+            self.render()  # 用户确认前仍显示已保存的关闭状态。
             self._request_enable_preflight(self._confirm_enable)
             return
         if enabled and not (self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")):
@@ -265,12 +265,12 @@ class AutoSyncController(QObject):
                 try:
                     self.stop_finished.emit((service, error))
                 except RuntimeError:
-                    pass  # The UI can be destroyed after cancellation but before join finishes.
+                    pass  # 取消后可能先销毁 Qt 界面；物理收尾仍由旧 owner 完成。
 
         self._submit_stop(finish)
 
     def suspend_for_plugin_update(self):
-        """GUI-thread entry; preserve saved preference and stop the current owner."""
+        """GUI 入口只暂停当前 owner；维护结束按已保存开关决定恢复。"""
         self._maintenance = True
         self._stop_inventory()
         self.render()

@@ -33,11 +33,10 @@ def prepare_installer_asset_stage(
     stage_internal: Path,
     workspace_root: Path,
 ) -> list[InstallerAssetCopy]:
-    """Copy a validated app bundle, omitting only byte-identical catalog images.
+    """仅在固定安装暂存目录去重字节完全相同的图鉴图片。
 
-    Inno references the retained catalog image a second time at the omitted
-    destination. Its installer owns both installed paths, so upgrades and
-    uninstall continue to use the normal [Files] lifecycle.
+    安装器用同一来源另写被省略的原路径；两个安装路径仍归正式 Files 生命周期，
+    升级和卸载不依赖运行时别名。
     """
     workspace = workspace_root.resolve(strict=True)
     source = source_internal.resolve(strict=True)
@@ -87,7 +86,7 @@ def validate_installer_asset_stage(
     stage_internal: Path,
     copies: list[InstallerAssetCopy],
 ) -> None:
-    """Prove every source file remains installable at its original path."""
+    """逐文件核对原路径仍可安装：保留项字节不变，复用项来源与目标身份完整。"""
     source = source_internal.resolve(strict=True)
     stage = stage_internal.resolve(strict=True)
     mapped = {copy.destination_relative: copy for copy in copies}

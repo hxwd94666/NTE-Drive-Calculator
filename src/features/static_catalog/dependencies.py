@@ -34,15 +34,15 @@ from src.features.static_catalog.providers.formula_provider import (
 from src.features.static_catalog.providers.misc_provider import StaticCatalogMiscProvider
 from src.features.static_catalog.providers.monster_provider import StaticCatalogMonsterProvider
 from src.features.static_catalog.providers.overview import StaticCatalogOverviewProvider
-from src.services.static_catalog_character_service import StaticCatalogCharacterService
-from src.services.static_catalog_character_release_metadata import (
+from src.services.static_catalog.characters.service import StaticCatalogCharacterService
+from src.services.static_catalog.characters.release_metadata import (
     CharacterReleaseMetadataService,
 )
-from src.services.static_catalog_monster_service import StaticCatalogMonsterService
-from src.services.static_catalog_terminology_service import (
+from src.services.static_catalog.monsters.service import StaticCatalogMonsterService
+from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
-from src.storage.sqlite.static_catalog_character_queries import (
+from src.storage.sqlite.catalog.static_catalog_character_queries import (
     StaticCatalogCharacterQueries,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao

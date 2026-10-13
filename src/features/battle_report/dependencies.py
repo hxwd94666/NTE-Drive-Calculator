@@ -15,14 +15,14 @@ from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.integrations.nte_core import NteCoreClient
 from src.integrations.analysis_core_release import create_bundled_analysis_client
 from src.observability import OperationContext
-from src.services.battle_report_history_service import BattleReportHistoryService
-from src.services.battle_native_page_service import BattleNativePageService
-from src.services.battle_marginal_calculation_support import drive_substat_marginal_units
-from src.services.battle_report_transfer_service import (
+from src.services.battle_report.history.service import BattleReportHistoryService
+from src.services.battle_report.analysis.native_page import BattleNativePageService
+from src.services.battle_report.marginal.calculation_support import drive_substat_marginal_units
+from src.services.battle_report.history.transfer import (
     BattleReportTransferDependencies,
     BattleReportTransferService,
 )
-from src.services.battle_report_persistence_service import (
+from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies,
     BattleReportPersistenceService,
 )

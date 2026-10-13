@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 
 def role_skill_asset_requests(database: Path) -> list[tuple[str, str | None]]:
-    """List the same formal active skills consumed by the share service."""
+    """按分享服务使用的正式主动 SkillID 读取同版图标来源。"""
     database = database.resolve()
     with closing(sqlite3.connect(database.as_uri()+'?mode=ro', uri=True)) as connection:
         return connection.execute('''
@@ -31,7 +31,7 @@ def role_skill_asset_requests(database: Path) -> list[tuple[str, str | None]]:
 
 
 def add_role_skill_assets(source: Path, database: Path, output: Path) -> dict:
-    """Augment a candidate UI manifest; never import Bot mappings or change the DB."""
+    """只增补候选公共图片清单，不读取 Bot 映射或修改数据库。"""
     source, database, output = source.resolve(), database.resolve(), output.resolve()
     path = output/'manifest.json'
     manifest = json.loads(path.read_text(encoding='utf-8'))
@@ -54,7 +54,7 @@ def add_role_skill_assets(source: Path, database: Path, output: Path) -> dict:
             raise ValueError('技能图片输出越界')
         if relative in requests and requests[relative][0] != original:
             raise ValueError('不同来源技能图片输出名称冲突')
-        # Validate every source before writing any new file or replacing the manifest.
+        # 全部来源先完成验证，再写图片和替换清单；缺图或冲突在候选阶段处理。
         with Image.open(original) as image:
             if image.format != 'PNG' or image.width*image.height > 24_000_000:
                 raise ValueError('技能来源图片类型或大小无效')

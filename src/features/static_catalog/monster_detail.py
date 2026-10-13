@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.services.static_catalog_monster_service import (
+from src.services.static_catalog.monsters.service import (
     CatalogDetail,
     CatalogFilter,
     CatalogSection,

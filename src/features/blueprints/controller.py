@@ -1,11 +1,11 @@
 # 在冻结账号代次下生成角色图纸并丢弃跨账号失效结果。
-"""Controller boundary for static blueprint generation."""
+"""冻结依赖下的图纸生成边界，消费既有Service并由DAO上下文释放读取资源。"""
 
 from __future__ import annotations
 
 from src.features.blueprints.dependencies import BlueprintDependencies
 from src.observability import OperationContext, log_event, operation_scope
-from src.services.blueprint_service import solve_blueprints_from_static
+from src.services.equipment.blueprints import solve_blueprints_from_static
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -20,6 +20,7 @@ class BlueprintController:
         )
 
     def generate(self) -> dict[str, dict]:
+        """只读取本次固定路径的静态/自建角色输入；失败保留原异常，不保存配装。"""
         with operation_scope(
             self.operation_context,
             started_event="blueprint.generate_started",
@@ -46,6 +47,7 @@ class BlueprintController:
             return results
 
     def accepts(self, current: BlueprintDependencies) -> bool:
+        """投递前逐字段复核账号、代次及三条依赖路径；过期结果只记录丢弃。"""
         accepted = current == self.dependencies
         if not accepted:
             log_event(

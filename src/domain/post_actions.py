@@ -1,5 +1,5 @@
-# 管理装备扫描后的弃置和锁定状态纯业务规则。
-"""Post-scan equipment state rules used by full inventory scans."""
+# 定义扫描后装备状态计划及遗留评分上下文，不在此派发游戏写操作。
+"""按完整扫描输入生成状态计划；权限、派发和后验确认由外部操作 owner 负责。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ DEFAULT_PRESERVE_RULE: dict[str, Any] = {
     "main_stats": [],
     "sub_stats": [],
     "required_sub_stats": [],
-    # Match any 1-4 selected sub stats.  Required stats are checked separately.
+    # 从词条池选取 1–4 个命中数；必含词条另行核对，不能扩大匹配池。
     "sub_match": 4,
     "quality_scope": "gold_purple",
     "shape_ids": None,
@@ -35,9 +35,7 @@ DEFAULT_PRESERVE_RULE: dict[str, Any] = {
 
 DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
     "server_region": "default",
-    # This scope belongs only to discard/lock evaluation.  It is deliberately
-    # independent from the allocation page's role selection and priority
-    # groups.
+    # 只属于弃置/锁定评估的角色范围，与配装计算的选择及优先组独立。
     "selected_character_ids": [],
     "discard": {
         "enabled": False,
@@ -390,9 +388,7 @@ def preserve_rule_matches_item(item: BaseEquipment, rule: dict) -> bool:
         return False
     selected_sub_stats = set(rule.get("sub_stats") or [])
     required_sub_stats = set(rule.get("required_sub_stats") or [])
-    # The UI only permits required stats from the selected match pool.  Keep
-    # this guard here as well so malformed or hand-edited configs cannot
-    # accidentally broaden a preservation rule.
+    # 必含词条须属于已选匹配池；手工或损坏配置也不得扩大预留规则。
     if not required_sub_stats.issubset(selected_sub_stats):
         return False
     item_sub_stats = set((getattr(item, "sub_stats", {}) or {}).keys())
@@ -640,6 +636,7 @@ def evaluate_target_state_for_item(
     selected_roles: list[str] | None = None,
     score_context: PostActionScoreContext | None = None,
 ) -> tuple[str, dict[str, Any]]:
+    """先预留锁与评分锁/解锁，再预留保留，最后弃置；仅给期望状态和原因。"""
     current_state = current_state if current_state in EQUIPMENT_STATES else "normal"
     config = merge_post_action_config(config)
     preserve_detail = _preserve_rule_detail(item, config["preserve_rules"])

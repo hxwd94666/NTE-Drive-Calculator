@@ -1,5 +1,5 @@
 # 绘制装备锁定与弃置状态图标。
-"""Shared equipment-state icons used by warehouse and loadout views."""
+"""仓库与配装共用锁图标；只绘制已传入状态，不设置游戏标记。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def paint_warehouse_lock_button(
     active: bool,
     available: bool = True,
 ) -> None:
-    """Paint the warehouse lock action, including its rounded background."""
+    """按已传入的锁状态与可用性绘制仓库按钮。"""
 
     light_locked = active and current_theme_name() == "light"
     background = "#f2cc60" if light_locked else "#3a2f13" if active else "#21262d"
@@ -62,7 +62,7 @@ def paint_warehouse_lock_button(
 
 
 def warehouse_lock_icon(active: bool, *, size: int = 20) -> QIcon:
-    """Return the exact lock action artwork used on warehouse cards."""
+    """复用仓库卡片绘制入口生成图标。"""
 
     canvas = QPixmap(size, size)
     canvas.fill(Qt.transparent)
@@ -78,7 +78,7 @@ def warehouse_lock_icon(active: bool, *, size: int = 20) -> QIcon:
 
 
 def allocation_lock_icon(active: bool) -> QIcon:
-    """Draw a larger background-free loadout lock, without changing warehouse artwork."""
+    """配装锁使用无底色大图标，不改仓库按钮样式或游戏锁状态。"""
     canvas = QPixmap(48, 48)
     canvas.fill(Qt.transparent)
     painter = QPainter(canvas)
@@ -96,7 +96,7 @@ def allocation_lock_icon(active: bool) -> QIcon:
     painter.setPen(Qt.NoPen)
     painter.setBrush(color)
     painter.drawRoundedRect(QRectF(8, 21, 32, 23), 4, 4)
-    # A transparent keyhole blends with the card, not a baked-in square background.
+    # 钥匙孔保持透明，复用所在卡片背景。
     painter.setCompositionMode(QPainter.CompositionMode_Clear)
     painter.drawEllipse(QRectF(21, 27, 6, 6))
     painter.drawRoundedRect(QRectF(22.5, 31, 3, 7), 1, 1)

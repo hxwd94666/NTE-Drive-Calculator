@@ -46,6 +46,7 @@ def map_blocks_to_page(
 ) -> list[dict[str, Any]]:
     """Return copies of assembly blocks with centroid and pixel coordinates."""
 
+    # 坐标落在本次捕获的游戏内容区；窗口偏移与缩放同源，不当作屏幕装饰像素。
     page = calibration.scaled(screen_size, content_rect)
     return [_map_block_to_page(block, page) for block in blocks]
 

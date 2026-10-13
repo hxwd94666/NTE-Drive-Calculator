@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import math
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -18,19 +17,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QHeaderView
 
-from src.services.advancement_stage_service import (
-    select_character_growth,
-    select_fork_breakthrough,
-)
-from src.services.official_role_graduation_service import (
-    graduation_rate,
-    graduation_tooltip as _graduation_tooltip,
-)
-from src.services.official_role_page_service import (
-    calculate_official_role_final_weights,
-    calculate_official_role_damage_breakdown,
-    calculate_official_role_margins,
-)
+from src.domain.official_role.advancement import select_character_growth, select_fork_breakthrough
+from src.services.official_role.graduation import graduation_rate, graduation_tooltip as _graduation_tooltip
+from src.services.official_role.marginal_scoring import calculate_official_role_final_weights, calculate_official_role_margins
+from src.services.official_role.panel_explanation import calculate_official_role_damage_breakdown
 
 __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
 
@@ -165,34 +155,6 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
     }
 
 
-def normalized_marginal_weights(
-    base_weights: dict[str, float],
-    margins: dict | None,
-) -> tuple[dict[str, float], frozenset[str]]:
-    """Return read-only role weights derived from the current direct-damage panel.
-
-    Formula-participating properties always use their measured marginal gain:
-    the largest positive one is 1.0 and an actual zero stays 0.  Only
-    properties absent from the direct-damage formula retain their public
-    official recommendation weight.
-    """
-
-    weights = {str(key): float(value) for key, value in (base_weights or {}).items()}
-    rows = list((margins or {}).get("rows") or ())
-    formula_ids = frozenset(str(row.get("property_id") or "") for row in rows) - {""}
-    positive_gains = [
-        float(row.get("gain_percent") or 0.0)
-        for row in rows
-        if math.isfinite(float(row.get("gain_percent") or 0.0)) and float(row.get("gain_percent") or 0.0) > 0.0
-    ]
-    maximum_gain = max(positive_gains, default=0.0)
-    for row in rows:
-        property_id = str(row.get("property_id") or "")
-        if not property_id:
-            continue
-        gain = float(row.get("gain_percent") or 0.0)
-        weights[property_id] = max(0.0, gain) / maximum_gain if maximum_gain > 0.0 and math.isfinite(gain) else 0.0
-    return weights, formula_ids
 
 
 def _register_calculation_refresh(editor: dict, callback) -> None:

@@ -1,5 +1,5 @@
 # 将标准日志文本转发到主窗口的 Qt 信号。
-"""Small file-like adapter used by the in-window log view."""
+"""只将非空日志行交给 Qt 信号；日志生成与落盘仍归日志 owner。"""
 
 
 class QtLogSink:

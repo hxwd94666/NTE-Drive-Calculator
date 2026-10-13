@@ -47,7 +47,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
             self.assertEqual(["duplicate_status_filters_block_12_A"], captured_labels)
 
     def test_assembly_report_lists_unrecognized_role_details(self):
-        from src.features.inventory.page import _assembly_report_dialog
+        from src.features.inventory.equipment.assembly_controller import _assembly_report_dialog
 
         report = SimpleNamespace(
             role_reports=[object()],
@@ -72,7 +72,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertIn("未读取到文字", message)
 
     def test_assembly_report_lists_missing_drive_block_ids(self):
-        from src.features.inventory.page import _assembly_report_dialog
+        from src.features.inventory.equipment.assembly_controller import _assembly_report_dialog
 
         report = SimpleNamespace(
             role_reports=[object()],
@@ -92,7 +92,7 @@ class DriveAssemblyUiBridgeTests(unittest.TestCase):
         self.assertIn("#5", message)
 
     def test_assembly_report_explains_duplicate_drive_verification_failure(self):
-        from src.features.inventory.page import _assembly_report_dialog
+        from src.features.inventory.equipment.assembly_controller import _assembly_report_dialog
 
         report = SimpleNamespace(
             role_reports=[object()],

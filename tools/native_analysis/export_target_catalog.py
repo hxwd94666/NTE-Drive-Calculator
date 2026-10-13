@@ -13,8 +13,8 @@ sys.path.insert(0, str(ROOT))
 
 
 def export_catalog(database: Path) -> dict:
-    from src.services.battle_encounter_catalog_service import BattleEncounterCatalogService
-    from src.services.battle_target_catalog_service import BattleTargetCatalogService
+    from src.services.battle_report.targets.encounter.catalog import BattleEncounterCatalogService
+    from src.services.battle_report.targets.catalog import BattleTargetCatalogService
     from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
     with StaticGameDataDao(database) as dao:
@@ -52,7 +52,7 @@ def export_catalog(database: Path) -> dict:
 
 
 def export_axis_catalog(database: Path) -> dict:
-    from src.services.battle_animation_window_service import BattleAnimationWindowService
+    from src.services.battle_report.actions.animation_window import BattleAnimationWindowService
     from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
     class SingleBinding:

@@ -1,3 +1,4 @@
+# 验证公共素材清单缓存替换、受限路径与缺项行为。
 # 验证图片目录缓存跨实例复用、清单更换失效及路径边界。
 """Immutable bundle cache behavior, without image decoding or UI state."""
 
@@ -9,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.services.game_ui_asset_catalog import GameUiAssetCatalog
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
 
 
 class GameUiAssetCatalogCacheTests(unittest.TestCase):

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.domain.battle_report import BattleTargetCondition
-from src.services.battle_target_profile_snapshot_service import (
+from src.services.battle_report.targets.profile_snapshot import (
     battle_target_profile_snapshots,
 )
 from src.ui.widgets import NoWheelComboBox

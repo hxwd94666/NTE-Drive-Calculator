@@ -8,11 +8,11 @@ from unittest.mock import patch
 import pytest
 
 from src.observability import OperationContext
-from src.services.battle_report_persistence_service import BattleReportPersistenceDependencies, BattleReportPersistenceService
+from src.services.battle_report.persistence import BattleReportPersistenceDependencies, BattleReportPersistenceService
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.storage.sqlite.user_data_support import UserDataError
 from tests.test_battle_axis_dao import _equipped_item, _profile, _snapshot
-from tests.test_battle_report_persistence_service import _summary
+from tests.battle_report.persistence.test_service import _summary
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def capture(tmp_path, request):
     service = BattleReportPersistenceService(dependencies=dependencies, context_is_current=lambda _: True,
                                             operation_context=OperationContext.create("battle_report"))
     profiles = {1072: _profile(1072, "fork_Test")}
-    with patch("src.services.battle_report_persistence_service.StaticGameDataDao") as static, \
+    with patch("src.services.battle_report.persistence.StaticGameDataDao") as static, \
             patch.object(service, "_load_effective_profiles", return_value=profiles), \
             patch.object(service, "_resolve_character_stat_snapshots", side_effect=lambda **kw: {cid: [{"source_group": "resolved", "property_id": "CritDamageBase", "display_name": "暴击伤害", "value": 0.5, "is_percent": True, "ordinal": 0}] for cid in kw["character_ids"]}):
         static.return_value.__enter__.return_value.summary.return_value = {"dataset": {"dataset_id": "fixture-v1"}, "schema_version": 32}
@@ -74,7 +74,7 @@ def test_packet_end_uses_observed_roles_and_settlement_database_then_freezes_ret
     profiles[1072]["breakthrough_stage"] = 4
     with UserDataDao(deps.user_database_path) as dao:
         snapshot_id = dao.import_inventory_snapshot(_snapshot(2, [_equipped_item(999, 99, 1072)]))
-    with patch("src.services.battle_report_persistence_service.StaticGameDataDao") as static, \
+    with patch("src.services.battle_report.persistence.StaticGameDataDao") as static, \
             patch.object(service, "_load_effective_profiles", return_value=profiles), \
             patch.object(service, "_resolve_character_stat_snapshots", return_value={}) as stats:
         static.return_value.__enter__.return_value.summary.return_value = {"dataset": {"dataset_id": "fixture-v1"}, "schema_version": 32}

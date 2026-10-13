@@ -1,5 +1,5 @@
 # 在整数副本规划中加入三合一材料流，同时保留无 SciPy 时的有界精确搜索。
-"""Exact stamina planning with acyclic, zero-stamina 3:1 crafting actions."""
+"""仅正式同族相邻等级三合一进入有向材料流；合成零体力，副本结果须再核对抵扣。"""
 
 from __future__ import annotations
 

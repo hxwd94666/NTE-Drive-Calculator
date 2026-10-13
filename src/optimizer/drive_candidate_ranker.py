@@ -2,7 +2,6 @@
 import re
 import numpy as np
 from concurrent.futures import CancelledError
-from scipy.optimize import linear_sum_assignment
 from typing import List, Dict
 
 from src.domain.crit_threshold import (
@@ -372,6 +371,7 @@ class BaseDispatchStrategy:
         include_extra_shape_bonus: bool = True,
         current_crit: float | None = None,
     ) -> tuple:
+        # 隐藏加成和词条优先只影响挑选顺序，不回写 ScoringEngine 产出的基础实分。
         rank_score = self._drive_ranking_score(
             role,
             drive,
@@ -653,15 +653,16 @@ class BaseDispatchStrategy:
                 ):
                     score = max(0.0, tape.role_scores.get(role, 0.0))
                     rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))
-                    # A Context core-main filter can intentionally retain a
-                    # legal core whose workshop main-weight is zero.  The
-                    # historic score remains zero; this epsilon merely lets
-                    # the Hungarian assignment choose the allowed core over
-                    # its dummy column.
+                    # 冻结主词条筛选可保留基础权重为零的合法卡带；微量偏置只使
+                    # 匹配优先于虚拟列，历史/基础实分仍为零。
                     profit_matrix[r_idx, t_idx] = rank_score if rank_score > 0 else 0.000001
                 else:
                     profit_matrix[r_idx, t_idx] = -10000.0
 
+        # 求解依赖只随后台匹配加载；冷加载期间取消也不得继续分配。
+        self._check_cancelled()
+        from scipy.optimize import linear_sum_assignment
+        self._check_cancelled()
         row_ind, col_ind = linear_sum_assignment(-profit_matrix)
         for raw_row_index, raw_column_index in zip(row_ind.tolist(), col_ind.tolist()):
             r_idx = int(raw_row_index)

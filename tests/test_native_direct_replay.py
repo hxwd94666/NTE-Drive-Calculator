@@ -13,11 +13,11 @@ from src.domain.battle_report import (
     BattleSkillDamageEvidence,
     BattleTargetCondition,
 )
-from src.services.battle_hit_replay_service import BattleHitReplayService
+from src.services.battle_report.replay.service import BattleHitReplayService
 from src.domain.native_analysis import DirectFormulaBackend
 
 
-from src.services.battle_direct_hit_replay_numeric import calculate_python_direct_formula
+from src.services.battle_report.replay.direct_numeric import calculate_python_direct_formula
 
 
 def frozen_fixture():
@@ -100,7 +100,7 @@ class NativeDirectReplayTests(unittest.TestCase):
         expected = BattleHitReplayService.replay(analysis, evidence, apply_observed_refinements=False)
         backend = RecordingBackend()
         with patch(
-            "src.services.battle_direct_hit_replay_renderer.calculate_python_direct_formula",
+            "src.services.battle_report.replay.direct_rendering.calculate_python_direct_formula",
             side_effect=AssertionError("unexpected Python fallback"),
         ):
             actual = BattleHitReplayService.replay(
@@ -208,7 +208,7 @@ class NativeDirectReplayTests(unittest.TestCase):
         self.assertEqual(120.0, actual[0].non_critical_damage)
 
     def test_buff_baseline_replay_receives_cancellation_callback(self):
-        from src.services.battle_buff_counterfactual_service import BattleBuffCounterfactualService
+        from src.services.battle_report.buffs.counterfactual import BattleBuffCounterfactualService
 
         analysis, evidence = frozen_fixture()
         analysis.buff_intervals = (SimpleNamespace(start_us=0, end_us=0),)

@@ -29,6 +29,7 @@ SKIP_DIRS = {
 
 
 def iter_python_sources(paths: Iterable[str | Path]) -> list[Path]:
+    """只枚举调用方指定入口；忽略构建、运行目录，不代替当前审查范围选择。"""
     sources: list[Path] = []
     for raw_path in paths:
         path = Path(raw_path)

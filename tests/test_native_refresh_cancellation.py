@@ -6,9 +6,9 @@ from threading import Event, Thread
 import pytest
 
 from src.integrations.nte_core_response_wait import wait_core_response
-from src.services.inventory_capture_wait import InventorySyncCancelled
-from src.services.native_game_session import NativeGameSession
-from tests.test_native_inventory_sync_integration import ProjectionCore
+from src.services.inventory.sync.capture_wait import InventorySyncCancelled
+from src.services.native_session.session import NativeGameSession
+from tests.inventory.sync.test_native_integration import ProjectionCore
 from tests.test_nte_core_integration import fake_client
 
 

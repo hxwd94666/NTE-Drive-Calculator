@@ -3,7 +3,7 @@
 
 from types import SimpleNamespace
 
-from src.services.equipment_apply_service import EquipmentApplyService
+from src.services.equipment.apply import EquipmentApplyService
 
 
 def test_follow_up_apply_uses_current_sqlite_snapshot_when_sync_state_lags() -> None:
@@ -42,7 +42,7 @@ def test_pending_refresh_pins_latest_saved_complete_snapshot():
 
 def test_pending_refresh_without_saved_snapshot_cannot_apply():
     import pytest
-    from src.services.equipment_apply_service import EquipmentApplyError
+    from src.services.equipment.apply import EquipmentApplyError
     sync = SimpleNamespace(is_running=True, state=SimpleNamespace(phase="waiting", last_snapshot_id=None))
     dao = SimpleNamespace(current_inventory_snapshot_id=lambda: None)
     with pytest.raises(EquipmentApplyError, match="还没有"):

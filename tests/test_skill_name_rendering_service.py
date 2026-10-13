@@ -1,7 +1,8 @@
+# 验证正式 GA/GE 技能名、已审覆盖规则与未知证据传播。
 # 验证稳定 GA/GE 标识只在展示层解析为官方中文技能名。
 import unittest
 
-from src.services.skill_name_rendering_service import (
+from src.services.official_role.skill_names import (
     SkillNameRenderingService,
     preferred_battle_damage_name,
     project_immediate_nightmare_source_names,

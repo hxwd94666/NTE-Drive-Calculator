@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -35,6 +36,10 @@ if TYPE_CHECKING:
             raise NotImplementedError
 
         def _db(self) -> sqlite3.Connection:
+            raise NotImplementedError
+
+        def write_transaction(self) -> AbstractContextManager[sqlite3.Connection]:
+            """由 DAO core 管理唯一连接上的可组合写事务。"""
             raise NotImplementedError
 
         def list_character_profiles(self, *, include_inactive: bool = False) -> list[dict[str, Any]]:

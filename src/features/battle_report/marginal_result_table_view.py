@@ -61,6 +61,7 @@ def _gain_value(
     partial: float | None,
     estimated: float | None = None,
 ) -> str:
+    # 预估只决定显示数值；量化状态、分母与缺口仍保留在本行提示中。
     if estimated is not None:
         return _percent(estimated)
     if status == "complete":
@@ -100,7 +101,7 @@ def display_projection(
     heuristic: float | None,
     known: float | None,
 ) -> float | None:
-    """Prefer the full candidate while retaining conservative fallbacks."""
+    """优先候选，再用明确预估/已知投影；这是显示取值，不提升量化完整性。"""
 
     if candidate is not None:
         return candidate
@@ -232,6 +233,7 @@ def render_buff_benefit_results(
     source_character_id: int | None,
     passive_results: Sequence[BattleBuffCounterfactualResult] = (),
 ) -> None:
+    # 正式来源角色 ID 筛选 Buff/被动；逐受益者、未归因与未覆盖行分开，不把未知凑为零。
     filtered = tuple(
         result
         for result in (*results, *passive_results)

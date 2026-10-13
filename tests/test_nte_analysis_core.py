@@ -14,7 +14,7 @@ from unittest.mock import patch
 from src.integrations.nte_analysis_core import (
     ENGINE_VERSION, NativeAnalysisCancelled, NativeAnalysisError, NteAnalysisCoreClient,
 )
-from src.services.battle_direct_hit_replay_numeric import calculate_python_direct_formula
+from src.services.battle_report.replay.direct_numeric import calculate_python_direct_formula
 from src.integrations.analysis_core_release import create_bundled_analysis_client
 
 

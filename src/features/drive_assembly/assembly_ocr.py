@@ -3,51 +3,60 @@
 
 from __future__ import annotations
 
-import difflib
-import re
 from typing import Any, Callable
+from concurrent.futures import CancelledError
 
-MAX_OCR_INPUT_WIDTH = 1200
-MAX_OCR_INPUT_HEIGHT = 900
-
-_OCR_ENGINE_INSTANCE: Any | None = None
-_OCR_ENGINE_FACTORY: Callable[[], Any] | None = None
+from src.integrations.vision.recognition.interaction_ocr import (
+    prepare_ocr_image, best_ocr_line_match, crop_image_region,
+)
+from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.task_session import OcrTaskSession, OcrTaskStateError
 
 
 from src.features.drive_assembly.input_backends import MouseBackend
 
 
-def _click_ocr_target(action: dict[str, Any], backend: MouseBackend) -> bool:
-    position = _find_ocr_target_position(action, backend)
+def _click_ocr_target(action: dict[str, Any], backend: MouseBackend,
+                      session: OcrTaskSession,
+                      should_stop: Callable[[], bool] | None = None) -> bool:
+    position = _find_ocr_target_position(action, backend, session)
     if position is None and action.get("fallback_position"):
         position = _point(action["fallback_position"])
     if position is None:
         return False
+    session.check_current(should_stop=should_stop)
     backend.click(position)
     return True
 
 
-def _find_ocr_target_position(action: dict[str, Any], backend: MouseBackend) -> tuple[int, int] | None:
+def _find_ocr_target_position(action: dict[str, Any], backend: MouseBackend,
+                              session: OcrTaskSession) -> tuple[int, int] | None:
     capture = getattr(backend, "screenshot", None)
     if capture is None:
         return None
     try:
         image = capture()
+    except (CancelledError, OcrModelResourceError, OcrTaskStateError):
+        session.invalidate()
+        raise
     except Exception:
         return None
     region = action.get("ocr_search_region")
     if not region:
         return None
-    cropped = _crop_image_region(image, _region(region))
+    cropped = crop_image_region(image, _region(region))
     if cropped is None:
         return None
     try:
-        ocr_image, scale_x, scale_y = _prepare_ocr_image(cropped)
-        lines = _get_ocr_engine().extract_lines(ocr_image)
+        ocr_image, scale_x, scale_y = prepare_ocr_image(cropped)
+        lines = session.extract_lines(ocr_image)
+    except (CancelledError, OcrModelResourceError, OcrTaskStateError):
+        session.invalidate()
+        raise
     except Exception:
         return None
     target_text = str(action.get("ocr_target_text") or "")
-    match = _best_ocr_line_match(lines, target_text)
+    match = best_ocr_line_match(lines, target_text)
     if not match:
         return None
     x1, y1, x2, y2 = _region(region)
@@ -55,100 +64,6 @@ def _find_ocr_target_position(action: dict[str, Any], backend: MouseBackend) -> 
     crop_x = int((bx1 + bx2) / 2 / max(scale_x, 0.0001))
     crop_y = int((by1 + by2) / 2 / max(scale_y, 0.0001))
     return (x1 + crop_x, y1 + crop_y)
-
-
-def _prepare_ocr_image(image: Any) -> tuple[Any, float, float]:
-    import numpy as np
-
-    array = np.asarray(image)
-    if array.ndim < 2 or array.size == 0:
-        return array, 1.0, 1.0
-    if array.ndim == 3:
-        array = array[..., :3]
-    if array.dtype != np.uint8:
-        array = np.clip(array, 0, 255).astype(np.uint8)
-    height, width = array.shape[:2]
-    if width <= 0 or height <= 0:
-        return array, 1.0, 1.0
-    scale = min(1.0, MAX_OCR_INPUT_WIDTH / width, MAX_OCR_INPUT_HEIGHT / height)
-    if scale >= 1.0:
-        return array, 1.0, 1.0
-    new_width = max(1, int(width * scale))
-    new_height = max(1, int(height * scale))
-    try:
-        import cv2
-
-        resized = cv2.resize(array, (new_width, new_height), interpolation=cv2.INTER_AREA)
-    except Exception:
-        from PIL import Image
-
-        resized = np.asarray(Image.fromarray(array).resize((new_width, new_height)))
-    return resized, new_width / width, new_height / height
-
-
-def _get_ocr_engine() -> Any:
-    global _OCR_ENGINE_INSTANCE
-    if _OCR_ENGINE_INSTANCE is None:
-        if _OCR_ENGINE_FACTORY is not None:
-            _OCR_ENGINE_INSTANCE = _OCR_ENGINE_FACTORY()
-        else:
-            from src.scanner.ocr_engine import OCREngine
-
-            _OCR_ENGINE_INSTANCE = OCREngine()
-    return _OCR_ENGINE_INSTANCE
-
-
-def _best_ocr_line_match(lines: list[dict[str, Any]], target_text: str) -> dict[str, Any] | None:
-    normalized_target = _normalize_ocr_match_text(target_text)
-    if not normalized_target:
-        return None
-    best_line: dict[str, Any] | None = None
-    best_score = 0.0
-    for line in lines:
-        text = _normalize_ocr_match_text(line.get("text"))
-        if not text:
-            continue
-        if normalized_target in text or text in normalized_target:
-            score = 1.0
-        else:
-            score = difflib.SequenceMatcher(None, normalized_target, text).ratio()
-        if score > best_score:
-            best_score = score
-            best_line = line
-    return best_line if best_score >= 0.55 else None
-
-
-def _normalize_ocr_match_text(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    text = text.replace("%", "百分比")
-    return re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
-
-
-def _crop_image_region(image: Any, region: tuple[int, int, int, int]) -> Any | None:
-    x1, y1, x2, y2 = region
-    if x1 >= x2 or y1 >= y2:
-        return None
-    try:
-        if hasattr(image, "crop"):
-            return image.crop((x1, y1, x2, y2))
-    except Exception:
-        return None
-    try:
-        import numpy as np
-
-        array = np.asarray(image)
-        if array.ndim < 2 or array.size == 0:
-            return None
-        height, width = array.shape[:2]
-        x1 = max(0, min(width, x1))
-        x2 = max(0, min(width, x2))
-        y1 = max(0, min(height, y1))
-        y2 = max(0, min(height, y2))
-        if x1 >= x2 or y1 >= y2:
-            return None
-        return array[y1:y2, x1:x2]
-    except Exception:
-        return None
 
 
 def _maybe_click_optional_confirm(action: dict[str, Any], backend: MouseBackend) -> bool:

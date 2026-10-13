@@ -26,7 +26,7 @@ from src.domain.battle_report import (
 from src.features.battle_report.marginal_result_table_view import (
     render_attribute_results,
 )
-from src.services.battle_marginal_panel_service import (
+from src.domain.battle_page_models import (
     BattleMarginalPanelResult,
     CHARACTER_PANEL_DYNAMIC_PROPERTIES as _DYNAMIC_PROPERTIES,
 )

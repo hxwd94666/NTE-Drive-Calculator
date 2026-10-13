@@ -19,7 +19,7 @@ from src.features.static_catalog.providers._adapter_common import (
     validate_release_identity,
     validate_release_path,
 )
-from src.services.static_catalog_formula_service import (
+from src.services.static_catalog.formulas.service import (
     CounterfactualSupportEntry,
     FormulaEntry,
     StaticCatalogFormulaDomain,

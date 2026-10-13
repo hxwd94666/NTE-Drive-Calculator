@@ -3,18 +3,18 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 
-from src.services import work_mode_runtime as module
-from src.services.work_mode_service import WorkModeService
-from src.services.work_mode_checks import build_work_mode_report
+from src.services.work_modes import runtime as module
+from src.services.work_modes.service import WorkModeService
+from src.services.work_modes.inspection import build_work_mode_report
 from tests.test_native_plugin_bundle import make_bundle, game_files
 
 
 def setup_runtime(tmp_path, monkeypatch, *, deployed=True):
     # Component fixtures must never discover or delete this machine's registry.
-    from src.services import equipment_plugin_deployment as deployment
+    from src.integrations.components import environment as deployment
     monkeypatch.setattr(deployment, 'mod_workspace_registry_snapshot', lambda: (False, None))
     monkeypatch.setattr(deployment, 'cleanup_mod_workspace', lambda **_kwargs: None)
-    from src.services import managed_plugin_cleanup as cleanup
+    from src.integrations.components import legacy_cleanup as cleanup
     monkeypatch.setattr(cleanup, 'mod_workspace_registry_snapshot', lambda: (False, None))
     monkeypatch.setattr(cleanup, 'cleanup_mod_workspace', lambda **_kwargs: None)
     root, payload = make_bundle(tmp_path)
@@ -176,7 +176,7 @@ def test_invalid_native_bundle_is_not_usable_even_with_previously_matching_files
 
 
 def test_partial_upgrade_keeps_previously_owned_unwritten_host_for_cleanup(tmp_path, monkeypatch):
-    from src.services.native_plugin_deployment import NativePluginDeployment
+    from src.integrations.components.native_files import NativePluginDeployment
     runtime, policy, game, _old_deploy = setup_runtime(tmp_path, monkeypatch)
     old_files = {"d3d12.dll": "a" * 64}
     policy.update_deployment({"loading_method": "native-capture", "game_executable": str(game), "managed_files": old_files})
@@ -231,7 +231,7 @@ def test_offline_cleans_upgraded_native_files_despite_old_deployment_hash(tmp_pa
 
 
 def test_d3d_autodeploy_does_not_require_optional_loader_binary(tmp_path, monkeypatch):
-    from src.services.mod_plugin_loading_service import ModPluginLoadingService
+    from src.services.components.loader_service import ModPluginLoadingService
     runtime, policy, game, _old_deploy = setup_runtime(tmp_path, monkeypatch, deployed=False)
     monkeypatch.delenv('NTE_MOD_LOADER_EXE', raising=False)
     runtime.loader = ModPluginLoadingService(application_root=runtime.root,

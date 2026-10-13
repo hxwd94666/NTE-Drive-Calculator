@@ -13,7 +13,7 @@ from src.domain.battle_counterfactual_quantification import (
 
 @dataclass(frozen=True, slots=True)
 class BattleDamageCoverage:
-    """Original fixed-axis damage confirmed or unresolved under one effect."""
+    """在原始固定轴伤害内分别记录已覆盖与待确认部分，零分母保留未知。"""
 
     basis_damage: float = 0.0
     covered_damage: float = 0.0
@@ -42,7 +42,7 @@ class BattleDamageCoverage:
 
 @dataclass(frozen=True, slots=True)
 class BattleBuffBeneficiaryResult:
-    """One recipient's complete or partial share of a Buff's fixed-axis gain."""
+    """受益角色的已量化部分与完整收益分开；部分或未知状态不暴露完整收益。"""
 
     character_id: int
     character_name: str
@@ -111,7 +111,7 @@ class BattleBuffBeneficiaryResult:
 
 @dataclass(frozen=True, slots=True)
 class BattleBuffCounterfactualResult:
-    """Selected-range damage with one inferred Buff source removed."""
+    """只移除所选范围内的一项推断来源，收益与证据缺口按量化状态保存。"""
 
     buff_key: str
     source_character_id: int
