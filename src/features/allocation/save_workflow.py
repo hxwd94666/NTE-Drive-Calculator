@@ -166,6 +166,12 @@ def save_allocation(owner, *, show_message=True):
                         "changed_uids": sorted(_plan_changed_uids(plan, diff)),
                         "assignment_scores": _plan_assignment_scores(role, plan),
                         "tape_main_values": legacy_plan_tape_main_values(plan),
+                        # 回退事实取本次冻结结果，不从保存时的新偏好重新解释。
+                        **({"core_main_filter_resolution": {
+                            "requested": list(plan.get("requested_core_main_filters") or ()),
+                            "fallback": bool(plan.get("main_filter_fallback")),
+                            "rejected": bool(plan.get("main_filter_fallback_rejected")),
+                        }} if "requested_core_main_filters" in plan else {}),
                     },
                 ))
             if not rows:

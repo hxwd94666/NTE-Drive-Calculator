@@ -437,6 +437,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
     if is_game_mode:
         import_btn = QPushButton("已导入" if rd.get("_game_imported") else "导入")
         import_btn.setObjectName("btnPrimary")
+        import_btn.setProperty("gameImportRole", source_role_name)
         import_btn.setFixedHeight(header_height)
         import_enabled = bool(rd.get("_game_importable")) and not bool(
             rd.get("_game_imported") or rd.get("_game_existing_plan_locked")

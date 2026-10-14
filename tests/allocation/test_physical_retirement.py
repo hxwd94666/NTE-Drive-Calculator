@@ -148,7 +148,8 @@ def test_accepted_save_close_keeps_real_worker_and_event_loop_alive(desktop, mon
     observed, deliveries, notices, receipts = {}, [], [], []
     with StaticCatalogReleaseReader().read_unit(window.app_context.paths.equipment_allocation_database_path) as unit:
         static_release = unit.release
-    owner.final_plan = {"role": {"valid": True, "score": 7.0}}
+    owner.final_plan = {"role": {"valid": True, "score": 7.0,
+        "requested_core_main_filters": ["攻击力%"], "main_filter_fallback": True}}
     owner._pending_allocation_snapshot_id = 1
     owner._pending_allocation_static_release = static_release
     owner._pending_allocation_static_identity = (static_release.database_path, static_release.dataset_id, (0, 0))
@@ -161,6 +162,9 @@ def test_accepted_save_close_keeps_real_worker_and_event_loop_alive(desktop, mon
     def accepted_write(**kwargs):
         # 仅替代 writer 耗时/回执，不替代正式 owner.save、模态 QThread 或其交付尾段。
         assert kwargs["rows"][0]["score"] == 7.0
+        assert kwargs["rows"][0]["payload"]["core_main_filter_resolution"] == {
+            "requested": ["攻击力%"], "fallback": True, "rejected": False,
+        }
         entered.set()
         assert release.wait(12), "已接受保存未收到显式释放"
         if save_outcome == "failed":

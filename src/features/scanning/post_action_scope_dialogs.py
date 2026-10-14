@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.app.theme import themed_style
+from src.app.theme import theme_color, themed_style
 from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
 from src.ui.role_portrait import custom_role_portrait
 from src.ui.widgets import match_pinyin
@@ -34,6 +34,16 @@ def _button_style(checked: bool) -> str:
     return themed_style("QPushButton{border:1px solid #30363d;background:#161b22;color:#c9d1d9;border-radius:6px;padding:4px}")
 
 
+def type_range_summary(type_scope: str, shape_count: int, shape_total: int, set_count: int, set_total: int) -> str:
+    """选择保留在草稿中，只有处理类别内的范围计入本次生效数量。"""
+    parts = []
+    for kind, label, count, total in (("drive", "驱动", shape_count, shape_total),
+                                     ("tape", "卡带", set_count, set_total)):
+        parts.append(f"{label} {count}/{total}" if type_scope in {"all", kind}
+                     else f'<span style="color:{theme_color("#f85149")}">{label} 0/0</span>')
+    return "，".join(parts)
+
+
 class TypeRangeDialog(QDialog):
     def __init__(
         self,
@@ -42,24 +52,41 @@ class TypeRangeDialog(QDialog):
         set_options: list[str],
         selected_shape_ids: list[str],
         selected_set_names: list[str],
+        *,
+        type_scope: str = "all",
     ):
         super().__init__(parent)
         self.setWindowTitle("选择类型范围")
         self.setMinimumSize(760, 560)
         self.shape_options = shape_options
         self.set_options = set_options
+        self.type_scope = type_scope
         self.shape_buttons: list[tuple[QPushButton, str]] = []
         self.set_checks: list[tuple[QCheckBox, str]] = []
 
         root = QVBoxLayout(self)
         root.setSpacing(12)
+        self.range_summary = QLabel()
+        self.range_summary.setWordWrap(False)
+        root.addWidget(self.range_summary)
         root.addWidget(self._build_shape_section(set(selected_shape_ids)))
         root.addWidget(self._build_set_section(set(selected_set_names)), 1)
+        for button, _shape_id in self.shape_buttons:
+            button.toggled.connect(self._update_summary)
+        for checkbox, _set_name in self.set_checks:
+            checkbox.toggled.connect(self._update_summary)
+        self._update_summary()
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+    def _update_summary(self, _checked: bool = False) -> None:
+        shapes, sets = self.selected_values()
+        self.range_summary.setText(type_range_summary(
+            self.type_scope, len(shapes), len(self.shape_options), len(sets), len(self.set_options),
+        ))
 
     def _build_shape_section(self, selected: set[str]) -> QWidget:
         section = QWidget()

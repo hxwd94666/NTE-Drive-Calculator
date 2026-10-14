@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from concurrent.futures import CancelledError
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from collections.abc import Callable
 import re
 from typing import Mapping, Sequence
@@ -102,6 +102,60 @@ def _checkpoint(request):
         raise CancelledError("配装内核已取消")
 
 
+def relax_missing_core_filters(request: AllocationKernelRequest, plans: Mapping,
+                               blocked_roles: frozenset[str] = frozenset()) -> AllocationKernelRequest:
+    """仅放宽最早缺卡优先组的主词条；原请求和其他合法性约束不变。"""
+    _checkpoint(request)
+    missing = []
+    for role in request.role_order:
+        _checkpoint(request)
+        preference = request.stat_priority_configs.get(role) or {}
+        plan = plans.get(role) or {}
+        if (role not in blocked_roles and preference.get("soft_main_filter") and request.core_main_filters.get(role)
+                and plan.get("valid") is True and plan.get("assigned_tape") is None):
+            missing.append(role)
+    if not missing:
+        return request
+    earliest = missing[0]
+    group = next((set(group) for group in request.priority_groups if earliest in group), {earliest})
+    filters = dict(request.core_main_filters)
+    for role in missing:
+        if role in group:
+            filters.pop(role, None)
+    # 每轮至少移除一份硬过滤，最多原有角色数轮；不拼接跨轮方案以免UID冲突。
+    return replace(request, core_main_filters=filters)
+
+
+def execute_with_soft_main_fallback(request: AllocationKernelRequest, execute_once: Callable) -> dict:
+    """共用有界整轮回退；卡带偏好放宽不摧毁已经合法的驱动方案。"""
+    original = request
+    _checkpoint(request)
+    plans = execute_once(request)
+    blocked = frozenset()
+    while True:
+        relaxed = relax_missing_core_filters(request, plans, blocked)
+        if relaxed is request:
+            break
+        candidate = execute_once(relaxed)
+        _checkpoint(request)
+        changed = frozenset(set(request.core_main_filters) - set(relaxed.core_main_filters))
+        if any((plans.get(role) or {}).get("valid") is True
+               and (candidate.get(role) or {}).get("valid") is not True for role in request.role_order):
+            # 超暴击上限等回退候选可让原生搜索整轮无解；拒绝整轮而非拼接部分UID。
+            blocked |= changed
+            continue
+        request, plans = relaxed, candidate
+    _checkpoint(request)
+    for role in original.role_order:
+        if original.core_main_filters.get(role) and not request.core_main_filters.get(role):
+            plans[role]["main_filter_fallback"] = True
+            plans[role]["requested_core_main_filters"] = list(original.core_main_filters[role])
+        if role in blocked:
+            plans[role]["main_filter_fallback_rejected"] = True
+            plans[role]["requested_core_main_filters"] = list(original.core_main_filters[role])
+    return plans
+
+
 class AllocationKernel:
     """Invoke the existing scorer and dispatcher with an explicit contract."""
 
@@ -109,6 +163,9 @@ class AllocationKernel:
         self.scoring_engine = scoring_engine
 
     def execute(self, request: AllocationKernelRequest) -> dict:
+        return execute_with_soft_main_fallback(request, self._execute_pinned)
+
+    def _execute_pinned(self, request: AllocationKernelRequest) -> dict:
         """Return the historic AllocationResult while enforcing complete plans.
 
         Property limits are deliberately applied by rerunning the same kernel

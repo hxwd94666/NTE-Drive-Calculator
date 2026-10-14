@@ -11,6 +11,8 @@ from tests.test_native_plugin_bundle import make_bundle, game_files
 
 def setup_runtime(tmp_path, monkeypatch, *, deployed=True):
     # Component fixtures must never discover or delete this machine's registry.
+    # runtime 已按名称导入注册表读取函数，消费点也须隔离，避免探测宿主登记。
+    monkeypatch.setattr(module, 'mod_workspace_registry_snapshot', lambda: (False, None))
     from src.integrations.components import environment as deployment
     monkeypatch.setattr(deployment, 'mod_workspace_registry_snapshot', lambda: (False, None))
     monkeypatch.setattr(deployment, 'cleanup_mod_workspace', lambda **_kwargs: None)

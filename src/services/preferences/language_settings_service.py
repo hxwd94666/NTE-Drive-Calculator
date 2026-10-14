@@ -68,10 +68,6 @@ class LanguageSettingsService:
             self._preferred = catalog.locale
             return catalog
 
-    def restore_default(self) -> TextCatalog:
-        with self._lock:
-            return self.select(BASE_LOCALE)
-
     def install(self, source: str | Path) -> TextCatalog:
         # 安装与选择是两个明确动作；安装失败不动偏好或当前目录。
         with self._lock:

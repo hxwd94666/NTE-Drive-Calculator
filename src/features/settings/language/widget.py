@@ -2,51 +2,58 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFileDialog, QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from src.features.settings.language.controller import LanguageActionResult, LanguageController
 from src.services.preferences.language_settings_service import LanguageSettingsService
 from src.ui.widgets import NoWheelComboBox
 
 
-class LanguageCard(QGroupBox):
+class LanguageSettingsWidget(QWidget):
     def __init__(self, service: LanguageSettingsService, parent=None):
         super().__init__(parent)
         self._controller = LanguageController(service, self)
         selection = self._controller.selection
         self._catalog = selection.catalog
-        self.setTitle(self._catalog.render("settings.language.title"))
+        self.setObjectName("languageSettings")
         self._closing = False
         self._controller.started.connect(self._started)
         self._controller.completed.connect(self._completed)
         self._controller.settled.connect(self._settled)
         layout = QVBoxLayout(self)
-        self.description = self._label("settings.language.scope")
-        layout.addWidget(self.description)
-        layout.addWidget(self._label("settings.language.label"))
+        # 复用“工具设置”边框；语言标签和操作保持同一行，长标签只在自身宽度内换行。
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        # 保存结果出现后向外层滚动页申请所需高度，不以压扁控件换取空间。
+        layout.setSizeConstraint(QLayout.SetMinimumSize)
+        self.title_label = self._label("settings.language.title")
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(self.title_label)
         self.combo = NoWheelComboBox()
         self.combo.setAccessibleName(self._catalog.render("settings.language.label"))
+        self.combo.setToolTip(self._catalog.render("settings.language.label"))
+        self.combo.setMinimumWidth(140)
+        self.combo.setMaximumWidth(240)
         for catalog in self._controller.choices():
             self.combo.addItem(catalog.display_name, catalog.locale)
         self.combo.setCurrentIndex(max(0, self.combo.findData(self._controller.preferred_locale())))
-        layout.addWidget(self.combo)
-        layout.addWidget(self._label("settings.language.restart"))
-        row = QHBoxLayout()
-        self.save_button = QPushButton(self._catalog.render("settings.language.save"))
-        self.restore_button = QPushButton(self._catalog.render("settings.language.restore"))
+        row.addWidget(self.combo)
+        self.confirm_button = QPushButton(self._catalog.render("settings.language.save"))
         self.install_button = QPushButton(self._catalog.render("settings.language.install"))
-        self.save_button.setObjectName("btnPrimary")
-        self.save_button.clicked.connect(self._save)
-        self.restore_button.clicked.connect(self._restore)
+        self.confirm_button.clicked.connect(self._confirm)
         self.install_button.clicked.connect(self._choose_file)
         for button in self._buttons():
+            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             row.addWidget(button)
+        row.addStretch()
         layout.addLayout(row)
         self.status = QLabel()
         self.status.setTextFormat(Qt.PlainText)
         self.status.setWordWrap(True)
         if selection.warning_code:
             self.status.setText(self._catalog.render("settings.language.fallback", reason=self._reason(selection.warning_code, preference=True)))
+        self.status.setVisible(bool(self.status.text()))
         layout.addWidget(self.status)
 
     def _label(self, key):
@@ -65,12 +72,13 @@ class LanguageCard(QGroupBox):
         return self._catalog.render(f"settings.language.error.{kind}")
 
     def _buttons(self):
-        return self.save_button, self.restore_button, self.install_button
+        return self.confirm_button, self.install_button
 
     def is_running(self):
         return self._controller.is_running()
 
     def _started(self):
+        self.status.show()
         self.combo.setEnabled(False)
         for button in self._buttons():
             button.setEnabled(False)
@@ -105,11 +113,8 @@ class LanguageCard(QGroupBox):
         for button in self._buttons():
             button.setEnabled(True)
 
-    def _save(self):
+    def _confirm(self):
         self._controller.select(self.combo.currentData())
-
-    def _restore(self):
-        self._controller.restore_default()
 
     def _choose_file(self):
         path, _filter = QFileDialog.getOpenFileName(self, self._catalog.render("settings.language.file_title"),

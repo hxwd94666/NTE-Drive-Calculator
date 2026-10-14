@@ -41,6 +41,91 @@ class NativeAllocationTests(unittest.TestCase):
     def executor(self, **options):
         return create_allocation_executor(static_database_path=ROOT / "data/game_static.sqlite3", **options)
 
+    def test_soft_main_fallback_after_prior_consumption_preserves_frozen_request(self):
+        from src.models.equipment import Tape
+        request, scorer = inputs()
+        cards = (Tape(quality="Gold", area=15, uid="preferred", set_name="Set", main_stats="攻击力%", sub_stats={"攻击力%": 6.0}),
+                 Tape(quality="Gold", area=15, uid="fallback", set_name="Set", main_stats="生命值%", sub_stats={"攻击力%": 3.0}),
+                 Tape(quality="Gold", area=15, uid="wrong-suit", set_name="Other", main_stats="攻击力%", sub_stats={"攻击力%": 30.0}))
+        request = replace(request, inventory=(*request.inventory, *cards), priority_groups=(("A",), ("B",)),
+                          core_main_filters={"A": ("攻击力%",), "B": ("攻击力%",)})
+        hard = self.executor()(request, scorer)
+        self.assertEqual("preferred", hard["A"]["assigned_tape"].uid)
+        self.assertIsNone(hard["B"]["assigned_tape"])
+        soft = replace(request, stat_priority_configs={"B": {"soft_main_filter": True}})
+        before = freeze(soft, scorer)
+        plans = self.executor()(soft, scorer)
+        self.assertEqual("preferred", plans["A"]["assigned_tape"].uid)
+        self.assertEqual("fallback", plans["B"]["assigned_tape"].uid)
+        self.assertTrue(plans["B"]["main_filter_fallback"])
+        self.assertEqual(freeze(soft, scorer), before)
+        python = AllocationKernel(scorer).execute(copy.deepcopy(soft))
+        self.assertEqual("fallback", python["B"]["assigned_tape"].uid)
+
+    def test_soft_main_fallback_reallocates_whole_peer_group_and_respects_cap(self):
+        from src.models.equipment import Tape
+        request, scorer = inputs()
+        cards = (Tape(quality="Gold", area=15, uid="preferred", set_name="Set", main_stats="攻击力%", sub_stats={"攻击力%": 6.0}),
+                 Tape(quality="Gold", area=15, uid="fallback", set_name="Set", main_stats="生命值%", sub_stats={"攻击力%": 3.0}))
+        request = replace(request, inventory=(*request.inventory, *cards),
+                          core_main_filters={name: ("攻击力%",) for name in request.role_order},
+                          stat_priority_configs={name: {"soft_main_filter": True} for name in request.role_order})
+        plans = self.executor()(request, scorer)
+        self.assertEqual({"preferred", "fallback"}, {p["assigned_tape"].uid for p in plans.values()})
+        crit = replace(request, inventory=(*request.inventory[:-2],
+            Tape(quality="Gold", area=15, uid="capped", set_name="Set", main_stats="暴击率%", sub_stats={"攻击力%": 6.0})),
+            role_order=("A",), priority_groups=(("A",),), crit_rate_caps={"A": 5.0})
+        capped = self.executor()(crit, scorer)
+        self.assertTrue(capped["A"]["valid"])
+        self.assertIsNone(capped["A"].get("assigned_tape"))
+        self.assertTrue(capped["A"]["main_filter_fallback_rejected"])
+
+    def test_soft_fallback_rounds_are_bounded_atomic_and_cancelable(self):
+        from src.optimizer.allocation_kernel import execute_with_soft_main_fallback
+        request, _ = inputs()
+        request = replace(request, priority_groups=(("A",), ("B",)),
+                          core_main_filters={"A": ("甲",), "B": ("乙",)},
+                          stat_priority_configs={name: {"soft_main_filter": True} for name in request.role_order})
+        calls = []
+        def result_for(frozen):
+            calls.append(dict(frozen.core_main_filters))
+            self.assertEqual(request.inventory, frozen.inventory)
+            self.assertEqual(request.priority_groups, frozen.priority_groups)
+            self.assertEqual(request.crit_rate_caps, frozen.crit_rate_caps)
+            # 先放宽A抢占B原卡，再单独放宽B；全部结果由完整一轮产生。
+            return {"A": {"valid": True, "assigned_tape": None if "A" in frozen.core_main_filters else "a"},
+                    "B": {"valid": True, "assigned_tape": "b" if "A" in frozen.core_main_filters
+                           or "B" not in frozen.core_main_filters else None}}
+        result = execute_with_soft_main_fallback(request, result_for)
+        self.assertEqual([{"A": ("甲",), "B": ("乙",)}, {"B": ("乙",)}, {}], calls)
+        self.assertTrue(all(plan["main_filter_fallback"] for plan in result.values()))
+        self.assertEqual({"A": ("甲",), "B": ("乙",)}, request.core_main_filters)
+        cancelled = False
+        def cancel_on_retry(frozen):
+            nonlocal cancelled
+            cancelled = True
+            return {name: {"valid": True, "assigned_tape": None} for name in frozen.role_order}
+        with self.assertRaises(CancelledError):
+            execute_with_soft_main_fallback(replace(request, cancel_check=lambda: cancelled), cancel_on_retry)
+        def failed_retry(frozen):
+            if len(frozen.core_main_filters) < 2:
+                raise NativeAnalysisError("fixture retry error")
+            return {name: {"valid": True, "assigned_tape": None} for name in frozen.role_order}
+        with self.assertRaisesRegex(NativeAnalysisError, "fixture retry"):
+            execute_with_soft_main_fallback(request, failed_retry)
+        # 拒绝导致已合法角色失效的整轮后，其余组仍从原已接受请求继续。
+        attempts = []
+        def invalidating(frozen):
+            attempts.append(dict(frozen.core_main_filters))
+            return {"A": {"valid": "A" in frozen.core_main_filters, "assigned_tape": None},
+                    "B": {"valid": True, "assigned_tape": None if "B" in frozen.core_main_filters else "b"}}
+        accepted = execute_with_soft_main_fallback(request, invalidating)
+        self.assertEqual(3, len(attempts))
+        self.assertTrue(accepted["A"]["valid"])
+        self.assertTrue(accepted["A"]["main_filter_fallback_rejected"])
+        self.assertEqual("b", accepted["B"]["assigned_tape"])
+        self.assertEqual({"A": ("甲",)}, attempts[-1])
+
     def test_deployed_component_matches_python_score_and_preserves_inputs(self):
         request, scorer = inputs()
         before = freeze(request, scorer)

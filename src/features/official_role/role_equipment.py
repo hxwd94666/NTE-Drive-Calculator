@@ -17,10 +17,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.allocation_rating import allocation_grade, loadout_total_grade
+from src.domain.allocation_rating import allocation_grade
 from src.features.inventory.warehouse.cards import warehouse_item_view
 from src.features.inventory.warehouse.result_card import WarehouseResultCard
-from src.services.official_role.base_equipment_scoring import score_official_role_equipment
+from src.services.official_role.marginal_scoring import calculate_official_role_hidden_equipment_score
 from src.services.official_role.attributes import calculate_official_role_equipment_gain
 from src.services.official_role.replacement import calculate_official_role_item_gain
 from src.domain.equipment.official_stats import calculate_official_equipment_stats
@@ -74,7 +74,7 @@ def _equipment_item_card(
     if icon_path:
         view["item_icon_path"] = icon_path
     resolved_score = (
-        _equipment_weight_score(window, detail, item, core=core)
+        _equipment_weight_score(detail, item)
         if score is None
         else float(score)
     )
@@ -89,7 +89,7 @@ def _equipment_item_card(
             ),
             0,
         )
-    return WarehouseResultCard(
+    card = WarehouseResultCard(
         view,
         score=resolved_score,
         grade=allocation_grade(resolved_score, area),
@@ -98,20 +98,21 @@ def _equipment_item_card(
         replacement_callback=replacement_callback,
         parent=window if isinstance(window, QWidget) else None,
     )
+    card.setToolTip("分数 / 评级：按当前边际权重计算；直伤收益单独展示。\n" + card.toolTip())
+    return card
 
 
 def _equipment_weight_score(
-    window,
     detail: dict,
     item: dict,
-    *,
-    core: bool,
 ) -> float:
-    return score_official_role_equipment(
-        getattr(window, "scoring_engine", None),
-        detail=detail,
-        item=item,
-        shape_areas=getattr(window, "_shape_areas", {}),
+    # detail 是本轮草稿投影，权重与边际表一致；不依赖计算页延迟加载的引擎。
+    # 此分数只用于展示，不写回基础权重或方案的冻结 assignment_scores。
+    return calculate_official_role_hidden_equipment_score(
+        detail,
+        item,
+        property_weights=detail.get("property_weights") or {},
+        main_property_weights=detail.get("main_property_weights") or {},
     )
 
 
@@ -399,10 +400,6 @@ def _build_drive_summary_group(
     )
     top.addWidget(context_combo)
     context_combo.setVisible(show_context_selector)
-    score_label = QLabel("配装评分: --")
-    score_label.setObjectName("officialRoleLoadoutScore")
-    score_label.setStyleSheet("color:#58a6ff;font-weight:bold;font-size:13px;")
-    top.addWidget(score_label)
     margin_label = QLabel("直伤收益: --")
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
     top.addWidget(margin_label)
@@ -418,27 +415,6 @@ def _build_drive_summary_group(
         modules = _equipment_items(detail, context_key, core=False) if context_key != "theory" else list((detail.get("equipment_plan") or {}).get("module_item_ids") or ())
         cores = _equipment_items(detail, context_key, core=True) if context_key != "theory" else ([1] if detail["equipment_contexts"]["theory"].get("core_item_id") else [])
         count_label.setText(f"已装配驱动: {len(modules)}    空幕: {'已装配' if cores else '未装配'}")
-        score_context = calculation_detail["equipment_contexts"][context_key]
-        score_items = list(
-            score_context.get("calculation_items")
-            or score_context.get("items")
-            or ()
-        )
-        if getattr(window, "scoring_engine", None) is None or not score_items:
-            score_label.setText("配装评分: --")
-        else:
-            total_score = sum(
-                _equipment_weight_score(
-                    window,
-                    calculation_detail,
-                    item,
-                    core=str(item.get("kind") or "") == "core",
-                )
-                for item in score_items
-            )
-            score_label.setText(
-                f"配装评分: {total_score:.1f} · {loadout_total_grade(total_score)}"
-            )
         gain = calculate_official_role_equipment_gain(calculation_detail, context_key)
         if gain:
             margin_label.setText(f"直伤收益: {gain['gain_percent']:+.2f}%")

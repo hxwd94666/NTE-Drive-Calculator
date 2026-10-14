@@ -566,38 +566,40 @@ class AutomaticAssemblyRecommendationTests(unittest.TestCase):
             window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=mode)))
             with self.subTest(mode=mode), patch.object(module, "confirm_operation_recommendation", return_value=False) as warning:
                 accepted = module._confirm_automatic_assembly_recommendation(window)
-                self.assertEqual(accepted, mode != WorkMode.MEDIUM)
+                self.assertTrue(accepted)
                 if mode == WorkMode.MEDIUM:
-                    self.assertEqual(warning.call_args.kwargs["action_text"], "继续")
-                    self.assertEqual(warning.call_args.kwargs["message"],
-                                     "当前已是中风险工作模式，强烈建议使用极速装配！是否继续？")
+                    self.assertEqual(warning.call_args.kwargs["action_text"], "前往仓库")
+                    self.assertIn("建议使用极速装配", warning.call_args.kwargs["message"])
                 else:
                     warning.assert_not_called()
 
-    def test_medium_cancellation_stops_single_and_batch_before_any_operation(self):
+    def test_medium_warehouse_choice_only_navigates_before_single_and_batch_operations(self):
         from unittest.mock import patch
         from src.domain.work_mode import WorkMode
         from src.features.inventory.equipment import automatic_assembly_controller as module
 
-        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
-        with patch.object(module, "confirm_operation_recommendation", return_value=False) as warning, \
+        navigation = []
+        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)),
+                                 _go=navigation.append)
+        with patch.object(module, "confirm_operation_recommendation", return_value=True) as warning, \
                 patch.object(module, "request_input_entry") as gate, \
                 patch.object(module, "UserDataDao") as dao, \
                 patch.object(module, "_start_automatic_equipment_assembly") as start:
             module._preview_automatic_assemble_role(window, "角色", confirmed=True)
             module._preview_automatic_assemble_all_roles(window)
         self.assertEqual(warning.call_count, 2)
+        self.assertEqual(navigation, ["warehouse", "warehouse"])
         gate.assert_not_called()
         dao.assert_not_called()
         start.assert_not_called()
 
-    def test_medium_continue_preserves_selected_slot_and_existing_execution_guards(self):
+    def test_medium_recommendation_cancel_preserves_selected_slot_and_existing_execution_guards(self):
         from unittest.mock import patch
         from src.domain.work_mode import WorkMode
         from src.features.inventory.equipment import automatic_assembly_controller as module
 
         window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
-        with patch.object(module, "confirm_operation_recommendation", return_value=True) as warning, \
+        with patch.object(module, "confirm_operation_recommendation", return_value=False) as warning, \
                 patch.object(module, "request_input_entry", return_value=True) as gate, \
                 patch.object(module, "_confirm_automatic_assembly_duplicate_warning", return_value=True), \
                 patch.object(module, "_start_automatic_equipment_assembly") as start:
@@ -605,6 +607,52 @@ class AutomaticAssemblyRecommendationTests(unittest.TestCase):
         warning.assert_called_once()
         gate.assert_called_once_with(window, "interface_input", "自动装配")
         start.assert_called_once_with(window, [], slot_ids=[21])
+
+    def test_recommendation_cancel_does_not_override_real_permissions_or_confirmation(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        from src.domain.work_mode import WorkMode
+        from src.features.inventory.equipment import automatic_assembly_controller as module
+
+        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
+        # 建议拒绝不是授权；模式/暂停/未知输入门闩和真正执行确认仍各自决定是否派发。
+        for permitted, answer, duplicate_accepted in (
+            (False, QMessageBox.Yes, True), (True, QMessageBox.No, True), (True, QMessageBox.Yes, False),
+        ):
+            with self.subTest(permitted=permitted, answer=answer, duplicate_accepted=duplicate_accepted), \
+                    patch.object(module, "confirm_operation_recommendation", return_value=False), \
+                    patch.object(module, "request_input_entry", return_value=permitted), \
+                    patch.object(module.QMessageBox, "question", return_value=answer), \
+                    patch.object(module, "_confirm_automatic_assembly_duplicate_warning", return_value=duplicate_accepted), \
+                    patch.object(module, "_start_automatic_equipment_assembly") as start:
+                module._preview_automatic_assemble_role(window, "角色", slot_id=21)
+                start.assert_not_called()
+
+    def test_batch_recommendation_cancel_preserves_slot_selection_and_real_cancellation(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        from src.domain.work_mode import WorkMode
+        from src.features.inventory.equipment import automatic_assembly_controller as module
+
+        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
+        for slots, answer in ((None, QMessageBox.Yes), ([21], QMessageBox.No), ([21], QMessageBox.Yes)):
+            with self.subTest(slots=slots, answer=answer), \
+                    patch.object(module, "confirm_operation_recommendation", return_value=False), \
+                    patch.object(module, "request_input_entry", return_value=True), \
+                    patch.object(module, "_account_database_path", return_value=Path("unused")), \
+                    patch.object(module, "UserDataDao"), \
+                    patch.object(module, "LoadoutSlotSelectionService") as service, \
+                    patch.object(module, "select_assembly_slot_ids", return_value=slots), \
+                    patch.object(module.QMessageBox, "question", return_value=answer), \
+                    patch.object(module, "_confirm_automatic_assembly_duplicate_warning", return_value=True), \
+                    patch.object(module, "_start_automatic_equipment_assembly") as start:
+                service.return_value.list_current.return_value = (SimpleNamespace(role_name="角色"),)
+                service.return_value.resolve.return_value = (object(),)
+                module._preview_automatic_assemble_all_roles(window)
+                if slots is not None and answer == QMessageBox.Yes:
+                    start.assert_called_once_with(window, [], slot_ids=[21])
+                else:
+                    start.assert_not_called()
 
 
 if __name__ == "__main__":

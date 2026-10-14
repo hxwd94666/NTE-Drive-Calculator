@@ -155,7 +155,36 @@ class FeatureGuideDialog(QDialog):
         close.clicked.connect(self.reject)
         actions.addWidget(close)
         layout.addLayout(actions)
-        fit_dialog_to_available_screen(self, QSize(650, 480 if guide.title == "弃置锁定" else 360))
+        if guide.title in {"弃置锁定", "空幕鉴定", "倒带推荐", "边际计算"}:
+            self._fit_compact_content(layout, heading, entry, scroll, content_layout, actions)
+        else:
+            fit_dialog_to_available_screen(self, QSize(650, 360))
+
+    def _fit_compact_content(self, layout, heading, entry, scroll, content_layout, actions):
+        """先约束宽度，再按实际换行测高度；长说明仍由原正文视口滚动。"""
+        self.ensurePolished()
+        layout.activate()
+        margins = layout.contentsMargins()
+        labels = [heading, entry, *scroll.widget().findChildren(QLabel)]
+        natural_width = max(label.fontMetrics().horizontalAdvance(label.text()) for label in labels)
+        preferred_width = max(440, min(650, natural_width + margins.left() + margins.right() + 8))
+        fitted = fit_dialog_to_available_screen(self, QSize(preferred_width, 360))
+        # 按实际内容宽度测量，标题与入口不受正文滚动条影响。
+        body_width = max(1, self.contentsRect().width() - margins.left() - margins.right())
+        # QScrollArea 不向外传播正文的 heightForWidth，不能拿它的固定 sizeHint 猜空白。
+        # 预留主题滚动条宽度，避免初次布局按旧 sizeHint 先加滚动条、再挤窄正文的循环。
+        text_width = max(1, body_width - 2 * scroll.frameWidth() - scroll.verticalScrollBar().sizeHint().width())
+        content_height = content_layout.heightForWidth(text_width)
+        if content_height < 0:
+            content_height = content_layout.sizeHint().height()
+        entry_height = entry.heightForWidth(body_width)
+        if entry_height < 0:
+            entry_height = entry.sizeHint().height()
+        height = (margins.top() + margins.bottom() + 3 * layout.spacing()
+                  + heading.sizeHint().height() + entry_height + actions.sizeHint().height()
+                  + content_height + 2 * scroll.frameWidth()
+                  + self.height() - self.contentsRect().height())
+        fit_dialog_to_available_screen(self, QSize(fitted.width(), height))
 
     def _navigate(self, navigate: Callable[[str], None], key: str) -> None:
         self.accept()

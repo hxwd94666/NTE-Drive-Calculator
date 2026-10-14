@@ -39,7 +39,7 @@ class PostActionEvaluator:
         static_database_path: str | Path | None = None,
     ):
         self.raw_config = post_actions_config
-        self.selected_roles = selected_roles
+        # 外层仍会传递计算角色；状态管理只消费配置中各模块自己的正式角色身份。
         self.config_dir = Path(config_dir) if config_dir is not None else bundled_config_dir()
         # 仓库管理和鉴定都必须按当前账号的自定义权重评分；未自定义
         # 的角色仍由 ScoringEngine 自动回退到公共 SQLite 推荐权重。
@@ -62,13 +62,15 @@ class PostActionEvaluator:
             return PostActionEvaluation(config=effective_config, enabled=True)
 
         scoring.evaluate_global_inventory(inventory)
-        selected_roles = self.selected_roles
-        if not selected_roles:
-            selected_roles = _selected_role_names(
+        # 两模块的角色身份独立冻结；只有正在评估的指定范围才需要解析。
+        selected_roles = {}
+        for module_name in ("discard", "lock"):
+            module = effective_config[module_name]
+            selected_roles[module_name] = _selected_role_names(
                 scoring.roles_db,
-                effective_config.get("selected_character_ids", []),
+                module["selected_character_ids"],
                 self.static_database_path,
-            )
+            ) if module["enabled"] and module["role_scope"] == "selected" else []
         context_kwargs = {"user_database_path": self.user_database_path}
         if self.static_database_path is not None:
             context_kwargs["static_database_path"] = self.static_database_path
@@ -99,7 +101,7 @@ class PostActionEvaluator:
             f"品质范围 {filter_summary.get('post_action_quality_filtered_count', 0)} 件，"
             f"处理类别 {filter_summary.get('post_action_type_filtered_count', 0)} 件，"
             f"类型范围 {filter_summary.get('post_action_type_range_filtered_count', 0)} 件，"
-            f"预留规则命中 {filter_summary.get('preserve_rule_matched_count', 0)} 件"
+            f"处理规则命中 {filter_summary.get('preserve_rule_matched_count', 0)} 件"
         )
         return PostActionEvaluation(
             config=effective_config,

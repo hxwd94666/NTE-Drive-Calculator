@@ -696,9 +696,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.equipment_persistence_controller.rebuild()
         try:
             target_account = self._account_manager.activate(account_id)
-            self.app_context.switch_account(
-                target_account, publish=lambda: self._account_manager.set_active_account_id(account_id),
-            )
+            with self.auto_sync_controller.account_switch():
+                self.app_context.switch_account(
+                    target_account, publish=lambda: self._account_manager.set_active_account_id(account_id),
+                )
         except Exception as exc:
             if isinstance(exc, AccountSwitchError) and exc.recovery_failed:
                 # 回滚 owner/页面仍有故障时停止自动监听并冻结交互，不在混合投影上继续操作。

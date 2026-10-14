@@ -64,6 +64,40 @@ class ModPluginLoadingServiceTests(unittest.TestCase):
             (self.launcher.resolve(), secondary.resolve()),
         )
 
+    def test_tw_launcher_resolution_accepts_root_and_tw_subdirectory(self) -> None:
+        for folder_name in ('Neverness To Everness', '异环', '異環'):
+            for launcher_directory in ('', 'NTETW'):
+                with self.subTest(folder=folder_name, directory=launcher_directory):
+                    install = self.root / folder_name / (launcher_directory or 'root')
+                    game = install / 'Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe'
+                    game.parent.mkdir(parents=True)
+                    game.write_bytes(b'game')
+                    launcher = install / launcher_directory / 'NTETWLauncher.exe'
+                    launcher.parent.mkdir(parents=True, exist_ok=True)
+                    launcher.write_bytes(b'launcher')
+                    self.assertEqual(game_launcher_candidates(game), (launcher.resolve(),))
+                    self.assertEqual(game_launcher_executable(game), launcher.resolve())
+
+    def test_tw_launcher_candidates_include_both_entries_for_process_checks(self) -> None:
+        self.launcher.unlink()
+        primary = self.root / 'NTETWLauncher.exe'
+        secondary = self.root / 'NTETW/NTETWLauncher.exe'
+        primary.write_bytes(b'launcher')
+        secondary.parent.mkdir()
+        secondary.write_bytes(b'launcher')
+        self.assertEqual(
+            game_launcher_candidates(self.game),
+            (primary.resolve(), secondary.resolve()),
+        )
+
+    def test_tw_launcher_resolution_does_not_search_another_installation(self) -> None:
+        self.launcher.unlink()
+        unrelated = self.root / 'other/NTETWLauncher.exe'
+        unrelated.parent.mkdir()
+        unrelated.write_bytes(b'launcher')
+        with self.assertRaisesRegex(ModLoaderRuntimeError, '未找到官方启动器'):
+            game_launcher_executable(self.game)
+
     def test_launcher_resolution_rejects_a_nonstandard_game_layout(self) -> None:
         unrelated_game = self.root / "other" / "HTGame.exe"
         unrelated_game.parent.mkdir()

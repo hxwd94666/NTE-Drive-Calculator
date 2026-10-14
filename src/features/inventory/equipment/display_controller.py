@@ -239,12 +239,71 @@ def _freeze_game_import(self, role_name, state):
         assignment_scores=assignment_scores))
 
 
+def _game_import_needs_read(self, snapshot, request):
+    """只有静止且影响范围已闭合的游戏页可窄投影，供体或未知范围复用正式读取。"""
+    if getattr(self, "_equipment_mode", "game") != "game":
+        return True
+    lane = getattr(self, "_equip_read_lane", None)
+    if lane is not None and lane.is_running():
+        return True
+    if any(widget is not None and not widget.isEnabled() for widget in (
+        getattr(self, "equip_role_strip", None), getattr(self, "equip_content", None),
+    )):
+        return True
+    other_slots = tuple(slot for slot in getattr(snapshot, "slots", ())
+                        if slot.plan_id is not None and slot.character_id != request.projection.character_id)
+    if not other_slots:
+        return False
+    if not getattr(self, "_saved_equipment_cache_valid", False):
+        return True
+    states = {state.get("_sqlite_plan_id"): state
+              for state in (getattr(self, "_saved_equipment_states", {}) or {}).values() if isinstance(state, dict)}
+    claimed = {(int(item["uid_slot"]), int(item["uid_serial"])) for item in request.projection.assignments}
+    for slot in other_slots:
+        state = states.get(slot.plan_id)
+        if (state is None or state.get("_sqlite_source_snapshot_id") != slot.source_snapshot_id
+                or "_official_items" not in state):
+            return True
+        # 已验证投影与冻结当前方案身份一致时才检查 UID；缓存不齐不猜“没有供体”。
+        if any((int(item.get("uid_slot") or 0), int(item.get("uid_serial") or 0)) in claimed
+               for item in state["_official_items"] if not item.get("virtual")):
+            return True
+    return False
+
+
 def _commit_game_import(self, operation, snapshot, requests, *, role_name=None, locked_count=0):
     title = "导入游戏内方案" if role_name is not None else "一键导入"
+    imported_state = (getattr(self, "_game_loadout_states", {}) or {}).get(role_name)
 
     def committed(plan_ids):
+        # 先判断读取/模式及供体范围，再撤销旧读；否则在途读取消后会把旧详情留在禁用态。
+        needs_read = role_name is None or _game_import_needs_read(self, snapshot, requests[0])
         self.invalidate_saved_equipment_cache()
-        self._refresh_equip(restore_role_name=role_name)
+        if role_name is not None:
+            current = (getattr(self, "_game_loadout_states", {}) or {}).get(role_name)
+            projection = current.get("_game_projection") if isinstance(current, dict) else None
+            frozen = requests[0].projection
+            # 回执只标记同一冻结游戏投影；新同步替换的角色状态不得被旧导入标为已保存。
+            if (current is imported_state and projection is not None
+                    and projection.snapshot_id == frozen.snapshot_id
+                    and projection.equipment_fingerprint == frozen.equipment_fingerprint):
+                changes = {"_game_imported": True, "_game_existing_plan_id": int(plan_ids[0]),
+                           "_game_existing_plan_locked": False}
+                current.update(changes)
+                if not needs_read:
+                    update_equipment_role_status(self, role_name, **changes)
+        if needs_read:
+            # 保留当前选择/滚动，不因导入另一角色而跳转；新读取覆盖供体方案及全部对比状态。
+            self._refresh_equip()
+        else:
+            # 计算缓存仍失效；确认无跨角色影响的静止游戏详情保留原控件与滚动位置。
+            button = getattr(self, "equip_import_all_btn", None)
+            if button is not None:
+                ready_count = sum(isinstance(state, dict) and bool(state.get("_game_importable"))
+                                  and not state.get("_game_imported") and not state.get("_game_existing_plan_locked")
+                                  for state in (getattr(self, "_game_loadout_states", {}) or {}).values())
+                button.setEnabled(ready_count > 0)
+                button.setToolTip(f"导入全部 {ready_count} 套完整且未锁定的游戏内方案")
         message = (f"[{role_name}] 已导入为计算器配装方案。" if role_name is not None
                    else f"已导入 {len(plan_ids)} 名角色的游戏内方案。")
         if locked_count:

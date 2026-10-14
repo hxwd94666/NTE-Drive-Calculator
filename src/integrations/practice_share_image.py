@@ -63,6 +63,30 @@ def _value(draw, xy, value: PracticeValue, color=WHITE, size=42) -> None:
         _text(draw, (xy[0]+length/2+8, xy[1]-15), '＊', 17, MUTED, anchor='mm')
 
 
+def _score_number(canvas: Image.Image, entry: PracticeEntry, xy: tuple[int, int]) -> None:
+    """ACE 数字只替换字形填色；位置、精度及其他评级仍沿用同一评分展示。"""
+    text = f'{entry.score:.1f}'
+    if entry.grade != 'ACE':
+        _text(ImageDraw.Draw(canvas), xy, text, 50, GRADE_COLORS.get(entry.grade, MUTED),
+              width=150, shrink=True, anchor='rm')
+        return
+    mask = Image.new('L', (150, 80))
+    _text(ImageDraw.Draw(mask), (150, 40), text, 50, 255, width=150, shrink=True, anchor='rm')
+    left, top, right, bottom = mask.getbbox()
+    width, height = right-left, bottom-top
+    colors = ((255, 132, 153), (255, 208, 96), (103, 224, 182), (105, 201, 255), (202, 154, 255))
+    gradient = Image.new('RGBA', (width, 1))
+    for x in range(width):
+        position = x / max(1, width-1) * (len(colors)-1)
+        index = min(int(position), len(colors)-2)
+        fraction = position-index
+        color = tuple(round(a+(b-a)*fraction) for a, b in zip(colors[index], colors[index+1]))
+        gradient.putpixel((x, 0), (*color, 255))
+    tint = gradient.resize((width, height))
+    tint.putalpha(mask.crop((left, top, right, bottom)))
+    canvas.alpha_composite(tint, (xy[0]-150+left, xy[1]-40+top))
+
+
 def _banner_info(canvas: Image.Image) -> None:
     """Three equal-width centered frames, tinted to the cool blue banner artwork."""
     info = Image.new('RGBA', (480, 180))
@@ -136,8 +160,7 @@ def _row(canvas: Image.Image, y: int, rank: int, entry: PracticeEntry) -> None:
         _text(draw, (1745, mid-10), '—', 44, MUTED, anchor='rm')
     else:
         _grade(canvas, entry.grade, (1530, mid-27), 54)
-        _text(draw, (1745, mid-10), f'{entry.score:.1f}', 50, GRADE_COLORS.get(entry.grade, MUTED),
-              width=150, shrink=True, anchor='rm')
+        _score_number(canvas, entry, (1745, mid-10))
     set_text = f'· {entry.active_set_count}件' if entry.active_set_count is not None else '· —'
     _text(draw, (1745, mid+32), set_text, 24, MUTED, anchor='rm')
 

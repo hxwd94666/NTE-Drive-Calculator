@@ -1,4 +1,4 @@
-# 计算官方角色的边际收益、最终权重和隐藏装备评分。
+# 计算官方角色的边际收益、最终权重及详情与替换共用的装备评分。
 """Official SQLite-only data boundary for the rebuilt character page."""
 
 from __future__ import annotations
@@ -191,8 +191,8 @@ def calculate_official_role_hidden_equipment_score(
     """Score one candidate with the role page's final weights, not direct damage.
 
     This is intentionally the same category/quality/shape scoring model used
-    by result cards.  It is a hidden ordering metric for replacement choices;
-    direct-damage gain remains a separate display-only metric.
+    by result cards.  Role details display this score and its grade; replacement
+    choices also use it for ordering. Direct-damage gain is a separate metric.
     """
 
     configured_dir = config_dir or detail.get("config_dir")

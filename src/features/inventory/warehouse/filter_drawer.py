@@ -303,14 +303,10 @@ class WarehouseFilterDrawer(QFrame):
             WarehouseFilterOption(str(value), str(value), 0) for value in range(5)
         )
         self._add_section(
-            "至少符合的副属性词条数量",
+            "符合副词条的数量（多选）",
             count_options,
-            "min_sub_stat_matches",
-            (
-                frozenset((str(self._draft.min_sub_stat_matches),))
-                if self._draft.min_sub_stat_matches is not None
-                else frozenset()
-            ),
+            "sub_stat_match_counts",
+            frozenset(str(value) for value in self._draft.sub_stat_match_counts),
         )
         self.content_layout.addStretch()
         self.summary.setText(f"{self._draft.active_group_count} 项条件")
@@ -324,7 +320,7 @@ class WarehouseFilterDrawer(QFrame):
         *,
         visual: bool = False,
     ) -> None:
-        if not options and group != "min_sub_stat_matches":
+        if not options and group != "sub_stat_match_counts":
             return
         box = QFrame()
         box.setObjectName("warehouseFilterSection")
@@ -401,15 +397,14 @@ class WarehouseFilterDrawer(QFrame):
     def _toggle(self, group: str, value: str, checked: bool) -> None:
         if self._draft.kind == "all":
             self._draft = replace(self._draft, kind=self._page_kind)
-        if group == "min_sub_stat_matches":
-            self._draft = replace(self._draft, min_sub_stat_matches=int(value))
-            for button in self.findChildren(QPushButton, "warehouseFilterChip"):
-                if button.property("filterGroup") == "min_sub_stat_matches":
-                    button.setChecked(
-                        self._draft.min_sub_stat_matches is not None
-                        and button.property("filterValue")
-                        == str(self._draft.min_sub_stat_matches)
-                    )
+        if group == "sub_stat_match_counts":
+            counts = set(self._draft.sub_stat_match_counts)
+            if checked:
+                counts.add(int(value))
+            else:
+                counts.discard(int(value))
+            self._draft = replace(self._draft, sub_stat_match_counts=frozenset(counts))
+            self.summary.setText(f"{self._draft.active_group_count} 项条件")
             return
         current = set(getattr(self._draft, group))
         if checked:
@@ -426,16 +421,16 @@ class WarehouseFilterDrawer(QFrame):
         elif group == "main_property_ids":
             self._draft = replace(self._draft, main_property_ids=selected)
         elif group == "sub_property_ids":
-            minimum = self._draft.min_sub_stat_matches
-            if selected and minimum is None:
-                minimum = 1
-            elif not selected:
-                minimum = None
             self._draft = replace(
                 self._draft,
                 sub_property_ids=selected,
-                min_sub_stat_matches=minimum,
+                sub_stat_match_counts=(self._draft.sub_stat_match_counts if selected else frozenset()),
             )
+            if not selected:
+                # 最后一个副属性取消时数量草稿与可见按钮一起清空，不残留假选中。
+                for button in self.findChildren(QPushButton, "warehouseFilterChip"):
+                    if button.property("filterGroup") == "sub_stat_match_counts":
+                        button.setChecked(False)
         self.summary.setText(f"{self._draft.active_group_count} 项条件")
 
     def _reset_draft(self) -> None:

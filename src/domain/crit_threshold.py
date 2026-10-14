@@ -114,6 +114,7 @@ def normalize_preference_config(config: dict | None) -> dict:
         "blacklist_zero_weight": bool(config.get("blacklist_zero_weight", False)),
         "equal_priority": bool(config.get("equal_priority", False)),
         "ignore_grade_limit": bool(config.get("ignore_grade_limit", False)),
+        "soft_main_filter": bool(config.get("soft_main_filter", False)),
         "min_grade_limit": min_grade,
         "crit_threshold": crit_threshold,
     }
@@ -229,6 +230,7 @@ def _stat_priority_should_persist(normalized: dict, *, crit_floor_configured: bo
         or crit_floor_configured
         or normalized.get("equal_priority")
         or normalized.get("ignore_grade_limit")
+        or normalized.get("soft_main_filter")
     )
 
 
@@ -255,6 +257,7 @@ def persistable_stat_priority_config(
         "blacklist_zero_weight": bool(cfg.get("blacklist_zero_weight", False)),
         "equal_priority": bool(cfg.get("equal_priority", False)),
         "ignore_grade_limit": bool(cfg.get("ignore_grade_limit", False)),
+        "soft_main_filter": bool(cfg.get("soft_main_filter", False)),
         "min_grade_limit": cfg.get("min_grade_limit", "A"),
     }
     crit_floor_configured = "crit_threshold" in cfg or "crit_min_threshold" in cfg
@@ -271,6 +274,8 @@ def persistable_stat_priority_config(
         "ignore_grade_limit": normalized["ignore_grade_limit"],
         "min_grade_limit": normalized["min_grade_limit"],
     }
+    if normalized["soft_main_filter"]:
+        result["soft_main_filter"] = True
     if normalized["blacklist"]:
         result["blacklist"] = normalized["blacklist"]
     if normalized["blacklist_zero_weight"]:

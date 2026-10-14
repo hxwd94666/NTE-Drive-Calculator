@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import datetime
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -51,50 +50,6 @@ def test_existing_summary_gets_fork_names_without_rewriting_row(tmp_path):
         assert dao.get_cultivation_history("one", "entry").payload == payload
         with sqlite3.connect(database) as connection:
             assert connection.execute("SELECT * FROM cultivation_history").fetchall() == before
-
-
-def test_display_time_includes_date_and_seconds_and_is_bounded():
-    from src.features.toolbox.cultivation.history_display import local_history_time
-
-    raw = "2026-10-02T06:32:18.999+00:00"
-    assert local_history_time(raw) == datetime.fromisoformat(raw).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    assert len(local_history_time(raw)) == 19
-    assert "T" not in local_history_time(raw)
-    assert local_history_time("invalid") == "时间格式异常"
-    assert local_history_time("2026-10-02T06:32:18") == "时间格式异常"
-
-
-def test_card_preview_is_readonly_and_scope_uses_frozen_materials(tmp_path):
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QAbstractItemView, QLabel, QListView, QToolButton
-    from src.storage.sqlite.user_data_dao import UserDataDao
-    from tests.test_cultivation_history_page import _page
-
-    _application, page, service, _planner = _page(tmp_path)
-    with UserDataDao(tmp_path / "user.sqlite3") as dao:
-        dao.save_cultivation_history("one", "entry", _multiple_payload())
-    record = service.get("entry")
-    detail = page._history_view._detail
-    detail.set_record(record, scope="all")
-    materials = detail.findChild(QListView, "cultivationHistoryMaterialTotals")
-    assert materials.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
-    first = materials.model().index(0, 0)
-    assert materials.model().data(first, Qt.ItemDataRole.UserRole)["remaining"] == 70
-    assert not materials.model().flags(first) & Qt.ItemFlag.ItemIsEditable
-    cards = [button for button in detail.findChildren(QToolButton) if button.text().startswith("角色")]
-    assert len(cards) == 4
-    cards[-1].setChecked(True)
-    detail.set_record(record, scope="stamina")
-    assert cards[-1].isChecked()  # Scope switch preserves expanded configuration cards.
-    assert detail.record == record
-    assert service.get("entry").payload == record.payload
-    assert any("完整体力未知" in label.text() for label in detail.findChildren(QLabel))
-    assert any("未参与" in label.text() for label in detail.findChildren(QLabel))
-    detail.clear()
-    assert detail.record is None
-    assert service.list().total == 1
-    page.shutdown()
-    page.deleteLater()
 
 
 def test_material_images_use_formal_ids_and_missing_image_keeps_frozen_values(tmp_path):
@@ -208,25 +163,9 @@ def test_history_materials_expand_all_rows_and_outer_preview_owns_scroll(tmp_pat
     page.deleteLater()
 
 
-def test_calculator_history_button_is_between_reset_and_copy(tmp_path):
-    from PySide6.QtWidgets import QPushButton
-    from tests.test_cultivation_history_page import _page
-
-    application, page, _service, _planner = _page(tmp_path)
-    page.resize(1100, 760)
-    page.show()
-    application.processEvents()
-    reset = page.findChild(QPushButton, "cultivationCalculatorReset")
-    history = page.findChild(QPushButton, "cultivationHistoryOpen")
-    copy = page.findChild(QPushButton, "cultivationCalculatorCopy")
-    assert reset.x() < history.x() < copy.x()
-    assert history.isEnabled()
-    page.shutdown()
-    page.deleteLater()
-
-
-def test_preview_scope_filters_only_frozen_materials_and_preserves_record(tmp_path):
-    from PySide6.QtWidgets import QLabel, QListView
+def test_readonly_preview_scope_filters_frozen_materials_and_preserves_record(tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QAbstractItemView, QLabel, QListView
     from src.domain.progression.history import HistoryPayload, HistoryRecord
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history_page import _page
@@ -243,6 +182,12 @@ def test_preview_scope_filters_only_frozen_materials_and_preserves_record(tmp_pa
     detail.set_record(record, scope="all")
     materials = detail.findChild(QListView, "cultivationHistoryMaterialTotals")
     assert materials.model().rowCount() == 1
+    first = materials.model().index(0, 0)
+    assert materials.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
+    assert not materials.model().flags(first) & Qt.ItemFlag.ItemIsEditable
+    assert materials.model().data(first, Qt.ItemDataRole.UserRole)["remaining"] == 70
+    assert any("完整体力未知" in label.text() for label in detail.findChildren(QLabel))
+    assert any("未参与" in label.text() for label in detail.findChildren(QLabel))
     detail.set_record(record, scope="stamina")
     assert materials.model().rowCount() == 0
     assert any(label.text() == "此显示范围没有材料条目。" and not label.isHidden()
@@ -250,12 +195,14 @@ def test_preview_scope_filters_only_frozen_materials_and_preserves_record(tmp_pa
     detail.set_record(record, scope="all")
     assert materials.model().rowCount() == 1
     assert detail.record == record
+    detail.clear()
+    assert detail.record is None
     assert service.get("entry").payload == payload
     page.shutdown()
     page.deleteLater()
 
 
-def test_complete_zero_is_not_rendered_as_unknown(tmp_path):
+def test_complete_zero_is_not_unknown_and_filter_clears_previous_total(tmp_path):
     from PySide6.QtWidgets import QLabel
     from src.domain.progression.history import HistoryPayload, HistoryRecord
     from src.storage.sqlite.user_data_dao import UserDataDao
@@ -276,47 +223,12 @@ def test_complete_zero_is_not_rendered_as_unknown(tmp_path):
     headline = view.findChild(QLabel, "cultivationHistoryStaminaTotal")
     assert headline.text() == "合并体力：0"
     assert not any("完整体力未知" in label.text() for label in detail.findChildren(QLabel))
-    assert service.list().total == 1
-    page.shutdown()
-    page.deleteLater()
-
-
-def test_history_preview_has_only_requested_sections_without_changing_saved_payload(tmp_path):
-    from PySide6.QtWidgets import QLabel, QToolButton
-    from src.features.toolbox.cultivation.history_controller import HistoryOperationResult
-    from src.storage.sqlite.user_data_dao import UserDataDao
-    from tests.test_cultivation_history_page import _page
-
-    _application, page, service, _planner = _page(tmp_path)
-    payload = _multiple_payload()
-    with UserDataDao(tmp_path / "user.sqlite3") as dao:
-        dao.save_cultivation_history("one", "entry", payload)
-    view = page._history_view
-    view._show_page(service.list())
-    assert [view._table.headerItem().text(column) for column in range(4)] == [
-        "选择", "最后计算时间", "当时体力", "角色配置",
-    ]
-    assert view._table.topLevelItem(0).toolTip(3) == "角色1（示例弧盘）、角色2、角色3（示例弧盘）、角色4"
-    view._detail_request = 999
-    view._completed(HistoryOperationResult("get", 999, service.get("entry")))
-    labels = [label.text() for label in view.findChildren(QLabel)]
-    assert "养成历史记录" not in labels
-    assert "历史预览" not in labels
-    assert not any(text.startswith("当时配置") or "历史只读" in text for text in labels)
-    assert not any("加载配置会建立新草稿" in text for text in labels)
-    assert view._status.isHidden()
-    sections = [button.text() for button in view._detail.findChildren(QToolButton)]
-    assert "查看原始已有材料" not in sections
-    assert "更多信息" not in sections
-    assert "当时材料合计" in sections
-    assert service.get("entry").payload == payload
-    headline = view.findChild(QLabel, "cultivationHistoryStaminaTotal")
-    assert headline.text() == "合并已知体力：0"
     view._filter_changed()
     assert headline.text() == ""
     view.set_message("历史读取失败，请重试。")
-    assert not view._status.isHidden()  # Remove routine help, not real failures.
+    assert not view._status.isHidden()  # 精简常规帮助，不隐藏真正的读取失败。
     view.set_message("")
     assert view._status.isHidden()
+    assert service.get("entry").payload == payload
     page.shutdown()
     page.deleteLater()

@@ -42,7 +42,7 @@ def test_partial_catalog_falls_back_and_named_values_are_literal(service, tmp_pa
     patch = write_patch(tmp_path, payload(**{"settings.language.saved": "Saved {language}"}))
     catalog = service.install(patch)
     assert catalog.render("settings.language.saved", language="{plain}") == "Saved {plain}"
-    assert catalog.render("settings.language.save") == "保存语言"
+    assert catalog.render("settings.language.save") == "确认语言"
     with pytest.raises(CatalogError, match="parameter_mismatch"):
         catalog.render("settings.language.saved", count=1)
     assert not service.preferences.path.exists()  # 安装不隐式改变选择。
@@ -95,7 +95,7 @@ def test_theme_locale_and_other_fields_survive_migration_and_interleaved_saves(s
     assert theme.load(legacy_theme="light") == "light"
     with ThreadPoolExecutor(max_workers=2) as pool:
         theme_job = pool.submit(theme.save, "dark")
-        locale_job = pool.submit(service.restore_default)
+        locale_job = pool.submit(service.select, "zh-CN")
         assert theme_job.result() == "dark"
         assert locale_job.result().locale == "zh-CN"
     assert service.preferences.read() == {"theme": "dark", "locale": "zh-CN", "extra": {"keep": True}}
@@ -107,7 +107,7 @@ def test_theme_locale_and_other_fields_survive_migration_and_interleaved_saves(s
 def test_replace_failure_preserves_original_preferences_and_patch(service, tmp_path, monkeypatch):
     patch = write_patch(tmp_path, payload(**{"settings.language.saved": "Saved {language}"}))
     service.install(patch)
-    service.restore_default()
+    service.select("zh-CN")
     original_preferences = service.preferences.path.read_bytes()
     original_patch = (service.files.patch_dir / "en-US.json").read_bytes()
     def fail(*_args):
@@ -123,7 +123,7 @@ def test_replace_failure_preserves_original_preferences_and_patch(service, tmp_p
     assert not list(service.preferences.path.parent.glob(".*.tmp"))
 
 
-def test_save_restore_account_switch_and_restart_keep_distinct_language_states(service, tmp_path):
+def test_confirm_chinese_account_switch_and_restart_keep_distinct_language_states(service, tmp_path):
     current = service.startup().catalog
     service.install(write_patch(tmp_path, payload(**{"settings.language.saved": "Saved {language}"})))
     service.select("en-US")
@@ -140,7 +140,7 @@ def test_save_restore_account_switch_and_restart_keep_distinct_language_states(s
     assert service.startup().catalog is current
     restarted = LanguageSettingsService(service.preferences, service.files)
     assert restarted.startup().catalog.locale == "en-US"
-    service.restore_default()
+    service.select("zh-CN")
     assert service.startup().catalog is current
     assert (service.files.patch_dir / "en-US.json").is_file()
     assert LanguageSettingsService(service.preferences, service.files).startup().catalog.locale == "zh-CN"

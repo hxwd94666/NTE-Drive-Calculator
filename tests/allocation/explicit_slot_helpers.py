@@ -124,9 +124,22 @@ class SlotScenario:
         account = AccountContext(account_id, '合成账号', root, self.database,
             root / 'config', root / 'screenshots', root / 'logs')
         self.context = AppContext(paths, account)
-        self.owner = WeightedSaveOwner(lambda: WeightedOwnerIdentity(
-            self.context.account.active_account_id, self.context.generation,
-            self.context.account.user_database_path.resolve()))
+        identity_path = None
+
+        def current_identity():
+            nonlocal identity_path
+            current_account = self.context.account
+            database = current_account.user_database_path
+            cached = identity_path
+            # 消费者只使用自有临时库，不重定向符号链接；仅缓存当前上下文及Path的规范路径。
+            # 账号对象或路径变化即替换唯一缓存，账号ID与代次每次读取，ABA切换不会复活旧任务。
+            if cached is None or cached[0] is not current_account or cached[1] is not database:
+                cached = (current_account, database, database.resolve())
+                identity_path = cached
+            return WeightedOwnerIdentity(
+                current_account.active_account_id, self.context.generation, cached[2])
+
+        self.owner = WeightedSaveOwner(current_identity)
         self.context.register_account_lifecycle(CallbackAccountLifecycle(
             is_running=self.owner.is_running, stop=self.owner.stop,
             rebuild=lambda _account: self.owner.rebuild(), start=lambda: None))

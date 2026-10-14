@@ -8,9 +8,10 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from auto_sync_ui_fixture import application, dispose
 from src.app.context import AppContext, AccountSwitchError, CallbackAccountLifecycle
-from src.domain.work_mode import WorkMode
+from src.domain.work_mode import NativeFeatureProbe, WorkMode, WorkModeProbe
 from src.features.accounts.manager import AccountManager
 from src.ui.app import MainWindow
+from src.ui.controllers.auto_sync_controller import AutoSyncController
 from src.ui.work_mode_composition import initialize_mode_policy
 
 
@@ -63,12 +64,19 @@ def test_switch_result_keeps_account_settings_index_and_automatic_owner_together
         request_stop=lambda: True, is_running=lambda: False, rebuild=lambda: None,
     )
     host._inventory_sync_service = None
-    host._maybe_auto_start_inventory_sync = lambda: trace.append(("automatic", context.account.active_account_id))
-    host.auto_sync_controller = SimpleNamespace(close=lambda: trace.append(("automatic-close",)))
     initialize_mode_policy(host)
     policy = host.work_mode_service
     policy.select_mode(WorkMode.MEDIUM, risk_confirmed=True)
+    policy.enable_auto_sync_after_preflight()
+    policy.set_cleanup_pending(False)
     host.work_mode_service = policy
+    host.work_mode_controller = SimpleNamespace(is_transitioning=False)
+    host._start_inventory_sync = lambda **_kw: trace.append(("automatic", context.account.active_account_id))
+    host.auto_sync_controller = AutoSyncController(window=host, policy=policy, request_check=lambda: None)
+    host._maybe_auto_start_inventory_sync = host.auto_sync_controller.refresh
+    host.auto_sync_controller.start()
+    close_sync = host.auto_sync_controller.close
+    host.auto_sync_controller.close = lambda: (trace.append(("automatic-close",)), close_sync())
     host.page_identity = (old.active_account_id, old.user_database_path)
 
     def stop():
@@ -85,6 +93,10 @@ def test_switch_result_keeps_account_settings_index_and_automatic_owner_together
     def notify(event):
         host.page_identity = (event.current.active_account_id, context.account_settings.database_path)
         trace.append(("projection", event.current.active_account_id, event.generation))
+        # 模拟检测回调和 lifecycle.start 的重入刷新：发布完成前不得沿用旧账号的开关。
+        host.auto_sync_controller.observe_probe(WorkModeProbe(
+            game_running=True, core_available=True, native_inventory=NativeFeatureProbe(handshake=True),
+        ))
         if failure == "notify" and event.current == target:
             raise RuntimeError("SYNTHETIC_PROJECTION_FAILURE")
 
@@ -92,6 +104,7 @@ def test_switch_result_keeps_account_settings_index_and_automatic_owner_together
         trace.append(("resume", context.account.active_account_id))
         # 自动 owner 启动时索引必须已经发布，回滚时只能恢复旧账号。
         assert manager.read_index()["active_account_id"] == context.account.active_account_id
+        host.auto_sync_controller.refresh()
         if failure == "resume":
             raise RuntimeError("SYNTHETIC_RESUME_FAILURE")
 
@@ -147,10 +160,18 @@ def test_switch_result_keeps_account_settings_index_and_automatic_owner_together
             assert host.page_identity == (expected.active_account_id, expected.user_database_path)
             with context.create_user_dao() as dao:
                 assert dao.profile()["account_id"] == expected.active_account_id
-        assert ("automatic", target_id) in trace if failure == "success" else ("automatic", target_id) not in trace
+        assert ("automatic", target_id) not in trace
+        assert policy.settings.auto_sync_enabled is not committed
+        assert policy.allowed("native_sync") and policy.allowed("native_battle")
+        if committed:
+            assert not policy.allowed("native_sync", automatic=True)
+            assert not policy.settings.paused
+        elif failure in {"rebuild", "notify", "publish"}:
+            assert ("automatic", old.active_account_id) in trace
         for item in (old, target):
             assert item.user_database_path.read_bytes() == original[item.active_account_id]
         print({"phase": failure, "committed": committed, "generation": context.generation,
                "owner": context.account.active_account_id, "trace": trace, "messages": messages})
     finally:
+        host.auto_sync_controller.close()
         dispose(host)

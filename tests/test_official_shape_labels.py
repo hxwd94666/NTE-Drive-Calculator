@@ -6,9 +6,6 @@ from pathlib import Path
 import subprocess
 import sys
 
-from src.domain.equipment.shapes import OFFICIAL_SHAPE_LABELS
-
-
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _SHAPES_OWNER = _PROJECT_ROOT / "src" / "domain" / "equipment" / "shapes.py"
 _EXPECTED_LABELS = {
@@ -27,11 +24,7 @@ _EXPECTED_LABELS = {
 }
 
 
-def test_formal_shape_ids_keep_existing_canonical_aliases():
-    assert OFFICIAL_SHAPE_LABELS == _EXPECTED_LABELS
-
-
-def test_label_only_entry_does_not_load_solver_or_database():
+def test_formal_shape_aliases_import_without_solver_or_database():
     # 子进程只绑定本测试所属的真实 src；不借用当前 pytest 的导入缓存或 F 盘临时路径。
     code = (
         "import json, pathlib, sys; "

@@ -12,9 +12,9 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QPushButton, QScrollArea, QWidget
 from shiboken6 import isValid
 
 from src.app.context import AccountContext, AppContext
@@ -30,14 +30,120 @@ from src.optimizer.scoring import ScoringEngine
 from src.services.official_role.page import load_official_role_detail
 from src.services.official_role.replacement import save_official_role_replacement
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.ui.equipment_replacement_dialog import EquipmentReplacementCard, show_equipment_replacement_dialog
 from tests.official_role.static_build_fixture import CHARACTER_ID, build_fixture
 
 NTE_TEST_TIER = "core"
 
 
+@pytest.mark.parametrize("count", [0, 29, 65])
+def test_all_candidates_expands_the_frozen_order_once_and_last_item_remains_comparable(monkeypatch, count):
+    app = QApplication.instance() or QApplication([])
+    owner = QWidget()
+    choices = [EquipmentReplacementCard(str(index), {"display_name": f"候选{index}", "uid": str(index)},
+                                       float(count-index), "A", None, {"index": index}) for index in range(count)]
+    current = EquipmentReplacementCard("current", {"display_name": "当前占位", "virtual": True}, None, None, None, None)
+    confirmed, observed = [], []
+
+    def inspect(dialog):
+        dialog.show()
+        app.processEvents()
+        group = dialog.findChild(QWidget, "equipmentReplacementCandidateGroup")
+        cards = lambda: group.findChildren(WarehouseResultCard)
+        assert len(cards()) == min(30, count)
+        all_button = next(button for button in group.findChildren(QPushButton) if button.text() == "全部候选")
+        assert all_button.isEnabled() == (count > 30)
+        all_button.click()
+        all_button.click()
+        pump(lambda: len(cards()) == count)
+        # QObject 构造完成与滚动内容布局请求分开交付；先让最后一批取得实际位置再滚动。
+        QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+        app.processEvents()
+        assert [card.item_view["uid"] for card in cards()] == [str(index) for index in range(count)]
+        assert [card.score for card in cards()] == [float(count-index) for index in range(count)]
+        if count:
+            last = cards()[-1]
+            scroll = group.findChild(QScrollArea)
+            scroll.ensureWidgetVisible(last)
+            app.processEvents()
+            assert last.isVisible() and scroll.viewport().rect().intersects(last.rect().translated(last.mapTo(scroll.viewport(), last.rect().topLeft())))
+            QTest.mouseClick(last, Qt.LeftButton)
+            preview = dialog.findChild(WarehouseResultCard, "equipmentReplacementSelectedPreview")
+            assert preview.item_view["uid"] == str(count-1)
+            next(button for button in dialog.findChildren(QPushButton) if button.text() == "确定替换").click()
+        else:
+            dialog.reject()
+        observed.append(True)
+        return dialog.result()
+
+    monkeypatch.setattr(QDialog, "exec", inspect)
+    try:
+        accepted = show_equipment_replacement_dialog(owner, title="替换", role_name="角色", summary="冻结候选",
+            current=current, candidates=choices, on_confirm=confirmed.append)
+        assert observed and accepted == bool(count)
+        assert [choice.payload["index"] for choice in confirmed] == ([count-1] if count else [])
+    finally:
+        owner.close()
+        owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+@pytest.mark.parametrize("boundary", ["cancel", "generation", "submitting"])
+def test_expansion_converts_only_visible_batches_and_stops_at_cancel_or_submission(monkeypatch, boundary):
+    app = QApplication.instance() or QApplication([])
+    owner = QWidget()
+    converted, cancelled, pending = [], [], []
+    valid = [True]
+    current = EquipmentReplacementCard("current", {"display_name": "当前"}, 1, "D", None, None)
+    def adapt(index):
+        converted.append(index)
+        return EquipmentReplacementCard(str(index), {"display_name": str(index)}, 1, "D", None, index)
+    def submit(choice, committed, failed, application_failed):
+        pending.append((choice, failed))
+        return True
+    def inspect(dialog):
+        dialog.show()
+        app.processEvents()
+        group = dialog.findChild(QWidget, "equipmentReplacementCandidateGroup")
+        assert converted == list(range(30))
+        group.findChild(QPushButton, "equipmentReplacementAllCandidates").click()
+        # “全部”只排下一轮；按钮本身不能同步转换/构造剩余 470 个候选。
+        assert converted == list(range(30))
+        if boundary == "cancel":
+            dialog.reject()
+        elif boundary == "generation":
+            valid[0] = False
+        else:
+            QTest.mouseClick(group.findChildren(WarehouseResultCard)[0], Qt.LeftButton)
+            next(button for button in dialog.findChildren(QPushButton) if button.text() == "确定替换").click()
+            assert pending and not group.findChild(QPushButton, "equipmentReplacementAllCandidates").isEnabled()
+        QTest.qWait(50)
+        assert converted == list(range(30))
+        if boundary == "submitting":
+            pending[0][1]("synthetic submission failure")
+            dialog.reject()
+        QTest.qWait(25)
+        assert converted == list(range(30))
+        return dialog.result()
+    monkeypatch.setattr(QDialog, "exec", inspect)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
+    try:
+        assert not show_equipment_replacement_dialog(owner, title="替换", role_name="角色", summary="冻结池",
+            current=current, candidates=list(range(500)), candidate_adapter=adapt, submit_confirm=submit,
+            is_current=lambda: valid[0], cancel_pending=lambda: cancelled.append(True))
+        assert cancelled
+    finally:
+        owner.close()
+        owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
 def pump(predicate, timeout=5):
     deadline = time.monotonic() + timeout
     while not predicate() and time.monotonic() < deadline:
+        # 假 exec 的手动事件循环也显式让出 GIL；真 Python worker 提交后仍须物理发回末态。
+        time.sleep(.001)
+        QApplication.processEvents()
         QTest.qWait(5)
     assert predicate(), "替换owner未在固定预算内物理退场"
 
@@ -181,6 +287,101 @@ def test_actual_click_prepares_once_then_confirms_once_on_workers(fixture, monke
         assert plan_count(fixture["account"]) == 4  # 原target/donor与事务新target/补位donor各一份。
         assert "static_release" not in json.dumps(saved["payload"])
     assert not any("替换失败" in message for message in fixture["messages"])
+
+
+def test_official_all_candidates_keeps_locked_uid_filters_and_saves_the_31st_frozen_choice(fixture, monkeypatch):
+    from src.services.official_role.base_equipment_scoring import score_official_role_equipment
+    from src.services.official_role.replacement import prepare_official_role_replacement
+
+    def item(serial):
+        return {"uid": {"serial": serial, "slot": 17}, "kind": "core", "item_id": "fixture-core",
+                "suit_id": "fixture-suit", "quality": "orange", "level": 80, "max_level": 80,
+                "locked": False, "equipped": False,
+                "main_stats": [{"property_id": "AtkUp", "value": 0.375, "percent": True}],
+                "sub_stats": [{"property_id": "CritBase", "value": serial / 1000, "percent": True}]}
+
+    pool = [item(serial) for serial in range(1, 47)]
+    pool[43].update(kind="module", geometry="111", grid_count=3)
+    pool[44]["suit_id"] = "different-suit"
+    with UserDataDao(fixture["account"]) as user:
+        snapshot = user.import_inventory_snapshot(
+            {"complete": True, "item_count": len(pool), "items": pool}, source="nte_core")
+        user.save_plan_to_slot(fixture["slot"], name="larger frozen pool", assignments=[{
+            "uid_serial": 1, "uid_slot": 17, "kind": "core"}], source_snapshot_id=snapshot,
+            score=10, payload={"assignment_scores": {"nte-core-17-1": 10}})
+        donor_plan = user.save_plan_to_slot(fixture["donor"], name="locked donor", assignments=[{
+            "uid_serial": 2, "uid_slot": 17, "kind": "core"}], source_snapshot_id=snapshot, score=10,
+            payload={"schema": "allocation-official-snapshot-v1", "source_role_name": "donor",
+                     "assignment_scores": {"nte-core-17-2": 10}})
+        assert user.set_allocation_lock(donor_plan, True)
+    detail = load_official_role_detail(fixture["account"], CHARACTER_ID,
+        static_database_path=fixture["path"], asset_root=fixture["context"].paths.role_catalog.asset_root)
+    target = detail["equipment_contexts"]["saved"]["items"][0]
+    detail, ranked = prepare_official_role_replacement(fixture["account"],
+        fixture["context"].paths.role_catalog.asset_root, detail, "saved", target,
+        static_database_path=detail["static_database_path"], static_schema_version=detail["static_schema_version"],
+        static_release=detail["static_release"])
+    assert len(ranked) == 42
+    frozen_serials = [row["item"]["uid_serial"] for row in ranked]
+    assert not set(frozen_serials) & {1, 2, 44, 45}  # 当前 UID、锁定供体、异类、异套装都不能展开回来。
+    selected_serial = frozen_serials[30]
+    expected_score = score_official_role_equipment(fixture["window"].scoring_engine,
+        detail=detail, item=ranked[30]["item"], shape_areas={})
+    with UserDataDao(fixture["account"]) as user:
+        latest = user.import_inventory_snapshot(
+            {"complete": True, "item_count": 1, "items": [item(7777)]}, source="nte_core")
+    observed_sha, actual_sha = [], WindowsStaticFilePin.sha256
+    def sha(pin):
+        observed_sha.append(True)
+        return actual_sha(pin)
+    monkeypatch.setattr(WindowsStaticFilePin, "sha256", sha)
+    def inspect(dialog):
+        dialog.show()
+        fixture["app"].processEvents()
+        group = dialog.findChild(QWidget, "equipmentReplacementCandidateGroup")
+        cards = lambda: group.findChildren(WarehouseResultCard)
+        assert len(cards()) == 30
+        button = group.findChild(QPushButton, "equipmentReplacementAllCandidates")
+        button.click()
+        button.click()
+        pump(lambda: len(cards()) == 42)
+        assert not observed_sha  # 展开只消费原来的纯值，不重新查询静态库或库存快照。
+        assert "42" in group.findChild(QLabel, "equipmentReplacementCandidateCount").text()
+        assert [int(card.item_view["uid"].rsplit("-", 1)[1]) for card in cards()] == frozen_serials
+        QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+        fixture["app"].processEvents()
+        scroll = group.findChild(QScrollArea)
+        for choice in (cards()[-1], cards()[30]):
+            scroll.ensureWidgetVisible(choice)
+            fixture["app"].processEvents()
+            QTest.mouseClick(choice, Qt.LeftButton)
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            preview = dialog.findChild(WarehouseResultCard, "equipmentReplacementSelectedPreview")
+            assert preview.item_view["uid"] == choice.item_view["uid"]
+        # 主页面后续改权重，已展开的评分和选中保存仍消费弹窗打开时的深拷贝。
+        detail["property_weights"].clear()
+        next(button for button in dialog.findChildren(QPushButton) if button.text() == "确定替换").click()
+        try:
+            pump(lambda: not dialog.isVisible() or bool(fixture["messages"]))
+        except AssertionError:
+            import sys
+            frames = {thread: frame.f_code.co_name for thread, frame in sys._current_frames().items()}
+            print({"messages": fixture["messages"], "replacement_owners_running": [
+                owner.is_running() for owner in fixture["window"].findChildren(ReplacementTaskOwner)],
+                "plan_count": plan_count(fixture["account"]), "python_worker_frame_functions": frames})
+            raise
+        assert not dialog.isVisible(), fixture["messages"]
+        return dialog.result()
+    monkeypatch.setattr(QDialog, "exec", inspect)
+    assert show_official_role_replacement(fixture["window"], detail, target, prepared_candidates=ranked,
+        static_database_path=detail["static_database_path"], static_schema_version=detail["static_schema_version"],
+        static_release=detail["static_release"])
+    with UserDataDao(fixture["account"]) as user:
+        saved = user.get_loadout_slot(fixture["slot"])["current_plan"]
+        assert saved["assignments"][0]["uid_serial"] == selected_serial
+        assert saved["source_snapshot_id"] == snapshot and user.current_inventory_snapshot_id() == latest
+        assert saved["score"] == pytest.approx(expected_score)
+        assert user.get_loadout_slot(fixture["donor"])["current_plan"]["plan_id"] == donor_plan
 
 
 @pytest.mark.parametrize("boundary", ["role", "hidden", "account"])

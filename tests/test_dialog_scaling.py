@@ -29,6 +29,42 @@ from src.ui.equipment_replacement_dialog import (
 )
 
 
+@pytest.mark.parametrize("title", ("弃置锁定", "空幕鉴定", "倒带推荐", "边际计算"))
+def test_feature_guide_keeps_text_and_navigation_reachable(monkeypatch, title):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QLabel, QScrollArea
+    from src.features.home.feature_guide import FEATURE_GUIDES, FeatureGuideDialog
+
+    app = QApplication.instance() or QApplication([])
+    owner = QWidget()
+    calls = []
+    guide = next(value for value in FEATURE_GUIDES if value.title == title)
+    available = QRect(0, 0, 620, 360)
+    monkeypatch.setattr("src.app.window_geometry._available_geometry", lambda _dialog: available)
+    dialog = FeatureGuideDialog(owner, guide, calls.append)
+    try:
+        dialog.show()
+        app.processEvents()
+        assert not calls  # 打开说明不导航，更不代替用户启动业务。
+        assert dialog.width() <= available.width() - 48
+        assert dialog.height() <= available.height() - 48
+        for button in dialog.findChildren(QPushButton):
+            assert dialog.rect().contains(button.mapTo(dialog, QPoint()) + button.rect().bottomRight())
+        scroll = dialog.findChild(QScrollArea)
+        last = scroll.widget().findChildren(QLabel)[-1]
+        scroll.ensureWidgetVisible(last)
+        app.processEvents()
+        assert scroll.viewport().rect().contains(last.mapTo(scroll.viewport(), last.rect().center()))
+        next(button for button in dialog.findChildren(QPushButton) if button.text() == guide.destinations[0][0]).click()
+        assert calls == [guide.destinations[0][1]] and not dialog.isVisible()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        owner.close()
+        owner.deleteLater()
+        app.sendPostedEvents()
+
+
 def test_fixed_dialog_is_relaxed_and_fitted_to_scaled_work_area() -> None:
     QApplication.instance() or QApplication([])
     dialog = QDialog()

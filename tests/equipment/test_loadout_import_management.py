@@ -9,7 +9,8 @@ import sqlite3
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
 from src.domain.equipment.loadout_management import LoadoutAccount
 from src.features.inventory.equipment import display_controller as display
@@ -174,6 +175,9 @@ def test_real_import_actions_freeze_before_async_and_projection_failure_does_not
     warnings = []
     host.invalidate_saved_equipment_cache = lambda: None
     host._refresh_equip = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("projection failed"))
+    if not many:
+        monkeypatch.setattr(display, "update_equipment_role_status",
+                            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("projection failed")))
     monkeypatch.setattr(QMessageBox, "warning", lambda *_args: warnings.append(_args[1:]))
     monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
     monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.Yes)
@@ -192,6 +196,77 @@ def test_real_import_actions_freeze_before_async_and_projection_failure_does_not
         assert all(plan["score"] == 20.0 for plan in plans)
     host.equipment_persistence_controller.close()
     host.deleteLater()
+
+
+@pytest.mark.parametrize("selected_role", ["1003", "1004"])
+def test_single_game_import_updates_only_its_status_and_keeps_navigation_and_detail(game, app, monkeypatch, selected_role):
+    account, _native, requests = game
+    host = QWidget()
+    host.equipment_persistence_controller = EquipmentPersistenceController(lambda: account, LoadoutManagementService(), host)
+    host.equipment_presentation = SimpleNamespace(score_drive=lambda _sub, _shape, weights, _quality: weights["value"], shape_area=lambda *_args: 3)
+    host.roles_db = {request.projection.role_name: {"weights": {"value": 20.0}} for request in requests}
+    host._game_loadout_states = {request.projection.role_name: {
+        "_game_projection": replace(request.projection,
+                                    items=tuple(dict(item) for item in request.projection.items),
+                                    assignments=tuple(dict(item) for item in request.projection.assignments)),
+        "_game_mode": True,
+        "_game_importable": True, "_game_imported": False,
+        ROLE_EQUIPPED_DRIVES: [{EQUIP_SHAPE_ID: "ZhiJiao1", EQUIP_SUB_STATS: {}, EQUIP_UID: next(iter(request.assignment_scores))}],
+    } for request in requests}
+    host._equipment_mode = "game"
+    host._equip_role_states = dict(host._game_loadout_states)
+    host._equip_selected_role_by_mode = {"game": selected_role, "saved": "retained"}
+    host._saved_equipment_cache_valid = True
+    host.invalidate_saved_equipment_cache = lambda: display.invalidate_saved_equipment_cache(host)
+    host._refresh_equip = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("single-role import must not rebuild the page"))
+    layout = QVBoxLayout(host)
+    host.equip_role_strip = QWidget()
+    host._equip_role_buttons = {name: QToolButton(host.equip_role_strip) for name in host._game_loadout_states}
+    layout.addWidget(host.equip_role_strip)
+    host.equip_scroll = QScrollArea()
+    host.equip_content = QWidget()
+    content_layout = QVBoxLayout(host.equip_content)
+    import_button = QPushButton("导入")
+    import_button.setProperty("gameImportRole", selected_role)
+    content_layout.addWidget(import_button)
+    detail = QLabel("已冻结的角色装备详情")
+    detail.setFixedHeight(1200)
+    content_layout.addWidget(detail)
+    host.equip_scroll.setWidget(host.equip_content)
+    layout.addWidget(host.equip_scroll)
+    host.equip_import_all_btn = QPushButton("一键导入")
+    layout.addWidget(host.equip_import_all_btn)
+    host.resize(600, 400)
+    host.show()
+    app.processEvents()
+    host.equip_scroll.verticalScrollBar().setValue(210)
+    other_state = deepcopy(host._game_loadout_states["1004"])
+    navigator_buttons = dict(host._equip_role_buttons)
+    messages, warnings = [], []
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: messages.append(_args[2]))
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: warnings.append(_args[2]))
+    try:
+        display._import_game_loadout(host, "1003")
+        spin(app, lambda: bool(messages or warnings) and not host.equipment_persistence_controller.is_running())
+        assert not warnings
+        assert host._game_loadout_states["1003"]["_game_imported"]
+        assert host._game_loadout_states["1004"] == other_state
+        assert host._equip_selected_role_by_mode == {"game": selected_role, "saved": "retained"}
+        assert host._equip_role_buttons == navigator_buttons
+        assert detail.parentWidget() is host.equip_content
+        assert host.equip_scroll.verticalScrollBar().value() == 210
+        assert (import_button.text(), import_button.isEnabled()) == (
+            ("已导入", False) if selected_role == "1003" else ("导入", True))
+        assert host.equip_import_all_btn.isEnabled() and "1 套" in host.equip_import_all_btn.toolTip()
+        assert not host._saved_equipment_cache_valid
+        with UserDataDao(account.database_path) as dao:
+            assert len(dao.list_loadout_plans()) == 1
+    finally:
+        host.equipment_persistence_controller.close()
+        spin(app, lambda: not host.equipment_persistence_controller.is_running())
+        host.close()
+        host.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 @pytest.mark.parametrize("many", [False, True])
@@ -221,3 +296,101 @@ def test_import_releases_unlocked_current_donor_and_preserves_historical_source_
             claimed.extend((item["uid_slot"], item["uid_serial"]) for item in row["plan"]["assignments"] if item["uid_slot"] > 0)
         assert len(claimed) == len(set(claimed)) == len(result)
         assert all(dao.get_loadout_plan(plan_id)["is_active"] for plan_id in result)
+
+
+def test_single_import_receipt_does_not_mark_a_new_game_projection_as_imported(game, monkeypatch):
+    _account, _native, requests = game
+    projection = requests[0].projection
+    old_state = {"_game_projection": projection, "_game_imported": False}
+    callbacks, invalidations, projections = [], [], []
+    host = SimpleNamespace(_game_loadout_states={"1003": old_state}, _equipment_mode="game",
+                           invalidate_saved_equipment_cache=lambda: invalidations.append(True),
+                           equipment_persistence_controller=SimpleNamespace(
+                               commit=lambda _operation, _mutation, committed, *_args: callbacks.append(committed)))
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+    monkeypatch.setattr(display, "update_equipment_role_status", lambda *_args, **_kwargs: projections.append(True))
+    display._commit_game_import(host, object(), object(), requests[:1], role_name="1003")
+    newer = {"_game_projection": replace(projection, snapshot_id=projection.snapshot_id+1), "_game_imported": False}
+    host._game_loadout_states["1003"] = newer
+    callbacks[0]((31,))
+    assert invalidations == [True] and not projections
+    assert not newer["_game_imported"] and not old_state["_game_imported"]
+
+
+@pytest.mark.parametrize("cache", ["borrowed", "disjoint", "missing", "stale"])
+def test_single_import_rereads_cross_role_donors_or_unknown_scope_but_keeps_closed_disjoint_scope(game, monkeypatch, cache):
+    account, _native, requests = game
+    donor = requests[1 if cache == "disjoint" else 0]
+    with UserDataDao(account.database_path) as dao:
+        donor_id = dao.save_loadout_plan(name="donor", character_id=1004,
+            assignments=donor.projection.assignments, source_snapshot_id=donor.projection.snapshot_id,
+            status="ready", is_active=True, score=20.0,
+            payload={"schema": "allocation-official-snapshot-v1", "source_role_name": "1004"})
+    service, operation, mutation = prepare(game)
+    mutation = replace(mutation, requests=requests[:1])
+    saved = {"_sqlite_plan_id": donor_id, "_sqlite_source_snapshot_id": donor.projection.snapshot_id,
+             "_official_items": donor.projection.items}
+    receipts, rereads, narrow = [], [], []
+    host = SimpleNamespace(_equipment_mode="game", _saved_equipment_cache_valid=cache != "stale",
+        _saved_equipment_states={} if cache == "missing" else {"slot:donor": saved},
+        _game_loadout_states={"1003": {"_game_projection": requests[0].projection, "_game_imported": False}},
+        _refresh_equip=lambda: rereads.append(True), invalidate_saved_equipment_cache=lambda: None,
+        equipment_persistence_controller=SimpleNamespace(
+            commit=lambda _operation, _mutation, committed, *_args: receipts.append(committed)))
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+    monkeypatch.setattr(display, "update_equipment_role_status", lambda *_args, **_kwargs: narrow.append(True))
+    display._commit_game_import(host, operation, mutation.snapshot, mutation.requests, role_name="1003")
+    receipts[0](service.mutate(operation, mutation))
+    assert bool(rereads) == (cache != "disjoint")
+    assert bool(narrow) == (cache == "disjoint")
+    with UserDataDao(account.database_path) as dao:
+        current = next(row["plan"] for row in dao.list_current_loadout_slot_plans()
+                       if row["slot"]["character_id"] == 1004)
+        assert (current["plan_id"] != donor_id) == (cache != "disjoint")
+
+
+def test_single_import_requeues_inflight_retained_view_read_without_changing_selection(game, app, tmp_path, monkeypatch):
+    from tests.equipment.test_display_read_lifecycle import make_host
+
+    class RecordingLane:
+        def __init__(self):
+            self.requests, self.latest = [], None
+        def submit(self, request):
+            self.requests.append(request)
+            self.latest = request
+        def is_running(self):
+            return bool(self.requests)
+        def cancel(self):
+            self.latest = None
+
+    host = make_host(tmp_path, monkeypatch)
+    host._equipment_mode = host._equip_rendered_mode = "game"
+    host._saved_equipment_cache_valid = True
+    host._equip_selected_role_by_mode = {"game": "other"}
+    lane = host._equip_read_lane = RecordingLane()
+    host.equip_scroll.verticalScrollBar().setRange(0, 1000)
+    host.equip_scroll.verticalScrollBar().setValue(210)
+    callbacks = []
+    host.equipment_persistence_controller = SimpleNamespace(
+        commit=lambda _operation, _mutation, committed, *_args: callbacks.append(committed))
+    _account, _native, requests = game
+    host._game_loadout_states = {"1003": {"_game_projection": requests[0].projection}}
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+    try:
+        display._commit_game_import(host, object(), object(), requests[:1], role_name="1003")
+        host._refresh_equip()
+        old_request = lane.latest
+        assert not host.equip_role_strip.isEnabled() and not host.equip_content.isEnabled()
+        callbacks[0]((31,))
+        assert len(lane.requests) == 2 and lane.latest is not None and lane.latest is not old_request
+        assert host._equip_selected_role_by_mode["game"] == "other"
+        assert host._equip_pending_role_name == "other"
+        assert host._equip_navigation_state_by_mode["game"]["detail_scroll_value"] == 210
+        # 被取消的旧投影仍被 token 拒绝；新请求负责恢复，不重发本地写入。
+        old_request.apply({"projection": SimpleNamespace(supported=True, roles=(), message=""), "states": {}})
+        assert not host.applied
+    finally:
+        lane.cancel()
+        host.close()
+        host.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

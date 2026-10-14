@@ -85,7 +85,7 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
         return False
 
     scoring_engine = getattr(window, "scoring_engine", None)
-    shape_areas = getattr(window, "_shape_areas", {})
+    shape_areas = dict(getattr(window, "_shape_areas", {}))
 
     current_item = dict(candidates[0]["current_item"])
     current_assignment_scores = {
@@ -133,23 +133,13 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
         hidden_score=float(candidates[0].get("current_score") or 0.0),
         payload=None,
     )
-    choices = [
-        card_data(
+    def candidate_card(row):
+        return card_data(
             dict(row["item"]),
             direct_damage_score=row.get("direct_damage_score"),
             hidden_score=float(row.get("score") or 0.0),
-            payload={
-                **row,
-                "base_score": score_official_role_equipment(
-                    scoring_engine,
-                    detail=detail,
-                    item=dict(row["item"]),
-                    shape_areas=shape_areas,
-                ),
-            },
+            payload=row,
         )
-        for row in candidates[:30]
-    ]
 
     role_controller = OfficialRoleController(
         owner.dependencies, parent=owner
@@ -160,6 +150,10 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
     def submit_choice(choice, committed, failed, application_failed):
         # 控件选择、来源和所有数值只在GUI冻结一次，worker不再查最新权重补齐。
         row = deepcopy(choice.payload)
+        # 基础保存分只为显式选中的候选计算，仍消费打开时的 detail/形状投影，不读最新配置。
+        row["base_score"] = score_official_role_equipment(
+            scoring_engine, detail=detail, item=dict(row["item"]), shape_areas=shape_areas,
+        )
         frozen_detail, frozen_target = deepcopy(detail), deepcopy(target)
         frozen_scores = dict(current_assignment_scores)
         def accept_committed(receipt):
@@ -178,7 +172,7 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
         role_name=str((detail.get("character") or {}).get("name_zh") or ""),
         summary=OFFICIAL_ROLE_REPLACEMENT_SUMMARY,
         current=current,
-        candidates=choices,
+        candidates=candidates, candidate_adapter=candidate_card,
         submit_confirm=submit_choice, is_current=owner.current, cancel_pending=owner.cancel,
     )
     role_controller.close()

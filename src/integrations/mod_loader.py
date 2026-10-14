@@ -29,7 +29,7 @@ _WAIT_TIMEOUT = 0x00000102
 _WAIT_FAILED = 0xFFFFFFFF
 _ERROR_CANCELLED = 1223
 MOD_LOADER_STOP_TIMEOUT_MS = 15_000
-_LAUNCHER_NAMES = ("NTELauncher.exe", "NTEGlobalLauncher.exe")
+_LAUNCHER_NAMES = ("NTELauncher.exe", "NTEGlobalLauncher.exe", "NTETWLauncher.exe")
 _GAME_EXECUTABLE_RELATIVE_PARTS = (
     "Client",
     "WindowsNoEditor",
@@ -185,6 +185,7 @@ def game_launcher_candidates(game_executable_path: str | Path) -> tuple[Path, ..
         install_root / "NTELauncher" / name
         for name in _LAUNCHER_NAMES
     )
+    candidates.append(install_root / "NTETW" / "NTETWLauncher.exe")
     found = tuple(candidate.resolve() for candidate in candidates if candidate.is_file())
     if found:
         return found

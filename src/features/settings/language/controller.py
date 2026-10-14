@@ -55,9 +55,6 @@ class LanguageController(QObject):
     def select(self, locale: str) -> None:
         self._submit(partial(self._service.select, locale))
 
-    def restore_default(self) -> None:
-        self._submit(self._service.restore_default)
-
     def install(self, path: str) -> None:
         self._submit(partial(self._service.install, path), installed=True)
 

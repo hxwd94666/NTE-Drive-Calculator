@@ -68,7 +68,7 @@ def test_stat_filter_has_identical_results_for_packet_and_visual_snapshots() -> 
         qualities=frozenset(("gold",)),
         main_property_ids=frozenset(("CritBase",)),
         sub_property_ids=frozenset(("AtkUp", "CritDamageBase")),
-        min_sub_stat_matches=2,
+        sub_stat_match_counts=frozenset((2,)),
     )
     for source in ("nte_core", "gamepad"):
         result = filter_projected_warehouse_items(_projected_items(source), spec)
@@ -290,7 +290,7 @@ def test_filter_handles_two_thousand_visual_rows_without_source_specific_fields(
         WarehouseFilterSpec(
             kind="module",
             sub_property_ids=frozenset(("AtkUp",)),
-            min_sub_stat_matches=1,
+            sub_stat_match_counts=frozenset((1,)),
         ),
     )
     assert len(result) == 2000
@@ -307,3 +307,69 @@ def test_catalog_keeps_counts_for_two_thousand_rows() -> None:
     assert catalog.item_types[0].count == 2000
     assert catalog.main_properties[0].count == 2000
     assert {option.value: option.count for option in catalog.statuses}["other"] == 2000
+
+
+def test_substat_match_counts_are_exact_multiselect_and_zero_is_active() -> None:
+    from src.domain.inventory.warehouse_filter import (
+        WarehouseFilterSpec, filter_projected_warehouse_items,
+        build_warehouse_filter_catalog, normalize_warehouse_filter_spec,
+    )
+    from dataclasses import replace
+
+    selected = frozenset(("AtkUp", "CritBase", "CritDamageBase", "HPMaxUp"))
+    rows = [
+        {"uid": str(count), "kind": "module", "sub_stats": [
+            {"property_id": stat} for stat in sorted(selected)[:count]
+        ]} for count in range(5)
+    ]
+    # 重复同一property_id不是额外一条；0是零命中，空集合才是不筛数量。
+    rows[2]["sub_stats"].append(dict(rows[2]["sub_stats"][0]))
+    spec = WarehouseFilterSpec(sub_property_ids=selected)
+    for counts, expected in ((frozenset(), ["0", "1", "2", "3", "4"]),
+                             (frozenset((0,)), ["0"]),
+                             (frozenset((3,)), ["3"]),
+                             (frozenset((0, 2, 4)), ["0", "2", "4"])):
+        query = replace(spec, sub_stat_match_counts=counts)
+        assert [r["uid"] for r in filter_projected_warehouse_items(rows, query)] == expected
+    zero = replace(spec, sub_stat_match_counts=frozenset((0,)))
+    assert zero.active_group_count == 1
+    assert normalize_warehouse_filter_spec(zero, build_warehouse_filter_catalog(rows)).sub_stat_match_counts == frozenset((0,))
+    assert normalize_warehouse_filter_spec(zero, build_warehouse_filter_catalog(())).sub_stat_match_counts == frozenset()
+
+
+def test_drawer_count_chips_toggle_independently_and_apply_exact_query() -> None:
+    from PySide6.QtWidgets import QApplication, QWidget, QPushButton
+    from src.domain.inventory.warehouse_filter import WarehouseFilterSpec
+    from src.features.inventory.warehouse.filter_drawer import WarehouseFilterDrawer
+
+    app = QApplication.instance() or QApplication([])
+    host = QWidget()
+    try:
+        drawer = WarehouseFilterDrawer(host)
+        spec = WarehouseFilterSpec(kind="module", sub_property_ids=frozenset(("AtkUp",)))
+        drawer.set_items(_projected_items("nte_core"), spec)
+        drawer.open_for(spec)
+        chips = {int(b.property("filterValue")): b for b in drawer.findChildren(QPushButton)
+                 if b.property("filterGroup") == "sub_stat_match_counts"}
+        assert set(chips) == set(range(5))
+        chips[0].click(); chips[3].click()
+        assert drawer.draft.sub_stat_match_counts == frozenset((0, 3))
+        chips[0].click()
+        assert drawer.draft.sub_stat_match_counts == frozenset((3,))
+        received = []
+        drawer.applied.connect(received.append)
+        drawer._apply_draft()
+        assert received[-1].sub_stat_match_counts == frozenset((3,))
+        chips[3].click()
+        assert drawer.draft.sub_stat_match_counts == frozenset()
+        chips[0].click(); chips[3].click()
+        stat = next(b for b in drawer.findChildren(QPushButton)
+                    if b.property("filterGroup") == "sub_property_ids" and b.property("filterValue") == "AtkUp")
+        stat.click()
+        assert drawer.draft.sub_stat_match_counts == frozenset()
+        assert not any(b.isChecked() for b in chips.values())
+        stat.click()
+        drawer._apply_draft()
+        assert received[-1].sub_stat_match_counts == frozenset()
+    finally:
+        host.close(); host.deleteLater(); app.sendPostedEvents()

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.features.settings.work_mode_card import build_work_mode_card
-from src.features.settings.language.card import LanguageCard
+from src.features.settings.language.widget import LanguageSettingsWidget
 from src.services.preferences.language_settings_service import LanguageSettingsService
 from src.features.settings.performance.card import PerformanceCard
 from src.app.constants import NETDISK_DOWNLOAD_LINKS
@@ -299,35 +299,8 @@ def _build_environment_card(window):
     return card
 
 
-def build_settings_page(
-    window,
-    app_version,
-    app_context: AppContext,
-    iter_image_files,
-    netdisk_links=None,
-    *,
-    language_settings: LanguageSettingsService | None = None,
-):
-    page = QWidget()
-    page.setObjectName("settingsPage")
-    scroll = QScrollArea()
-    scroll.setObjectName("settingsScroll")
-    scroll.setWidgetResizable(True)
-    scroll.setWidget(page)
-    window._settings_scroll = scroll
-    scroll.setStyleSheet(
-        themed_style(
-            "QScrollArea#settingsScroll{background:#0d1117;border:none}"
-            "QWidget#settingsPage{background:#0d1117}"
-        )
-    )
-    layout = QVBoxLayout(page)
-    layout.setContentsMargins(20, 16, 20, 16)
-    layout.setSpacing(16)
-
-    mode_card = build_work_mode_card(window)
-    layout.addWidget(mode_card)
-
+def build_tool_settings_card(window, language_settings: LanguageSettingsService | None = None):
+    """共用工具选项容器，语言控件与日志、主题处于同一设置卡片。"""
     log_card = window._card("工具设置")
     log_row = QHBoxLayout()
     log_row.addWidget(QLabel("实时日志输出:"))
@@ -400,9 +373,41 @@ def build_settings_page(
     theme_row.addWidget(light_radio)
     theme_row.addStretch()
     log_card.layout().addLayout(theme_row)
-    layout.addWidget(log_card)
     if language_settings is not None:
-        layout.addWidget(LanguageCard(language_settings, page))
+        log_card.layout().addWidget(LanguageSettingsWidget(language_settings, log_card))
+    return log_card
+
+
+def build_settings_page(
+    window,
+    app_version,
+    app_context: AppContext,
+    iter_image_files,
+    netdisk_links=None,
+    *,
+    language_settings: LanguageSettingsService | None = None,
+):
+    page = QWidget()
+    page.setObjectName("settingsPage")
+    scroll = QScrollArea()
+    scroll.setObjectName("settingsScroll")
+    scroll.setWidgetResizable(True)
+    scroll.setWidget(page)
+    window._settings_scroll = scroll
+    scroll.setStyleSheet(
+        themed_style(
+            "QScrollArea#settingsScroll{background:#0d1117;border:none}"
+            "QWidget#settingsPage{background:#0d1117}"
+        )
+    )
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(20, 16, 20, 16)
+    layout.setSpacing(16)
+
+    mode_card = build_work_mode_card(window)
+    layout.addWidget(mode_card)
+
+    layout.addWidget(build_tool_settings_card(window, language_settings))
 
     sync_card = _build_capture_diagnostics_card(window)
     plugin_card = _build_environment_card(window)

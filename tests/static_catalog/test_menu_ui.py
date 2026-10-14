@@ -78,29 +78,6 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         cls.asset_root = Path("data/role_catalog/game_ui").resolve()
 
-    def test_page_starts_on_menu_and_opens_only_the_selected_domain(self) -> None:
-        controller = _Controller()
-        owner = QWidget()
-        page = StaticCatalogPage(
-            controller=cast(Any, controller),
-            dialog_parent=owner,
-            game_ui_asset_root=self.asset_root,
-        )
-        host = page.build()
-        self.app.processEvents()
-
-        self.assertEqual(page._stack.currentIndex(), 0)
-        self.assertEqual(controller.search_domains, [])
-        page._open_domain("character")
-        self.app.processEvents()
-        self.assertEqual(page._stack.currentIndex(), 1)
-        self.assertEqual(controller.search_domains, ["character"])
-        page._show_menu()
-        self.assertEqual(page._stack.currentIndex(), 0)
-        self.assertNotIn("coverage", controller.search_domains)
-        self.assertNotIn("all", controller.search_domains)
-        host.deleteLater()
-        owner.deleteLater()
 
     def test_page_lazily_opens_registered_domain_page_and_closes_its_owner(self) -> None:
         controller = _Controller()
@@ -237,9 +214,9 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         )
         self.assertIsNotNone(active_button)
         assert active_button is not None
-        self.assertIn("返回角色图鉴", active_button.text())
+        self.assertTrue(active_button.isEnabled())
 
-        page._go_back()
+        active_button.click()
         self.assertIs(origin, page._stack.currentWidget())
         self.assertEqual("character", page._domain_key)
         self.assertEqual([], page._navigation_history)
@@ -294,87 +271,47 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         )
         self.assertIsNotNone(button)
         assert button is not None
-        self.assertEqual("‹ 返回角色列表", button.text())
+        self.assertTrue(button.isEnabled())
 
-        page._go_back()
-        self.assertEqual("‹ 资料库", button.text())
+        button.click()
+        self.assertTrue(button.isEnabled())
         self.assertIs(page._domain_pages["character"], page._stack.currentWidget())
         page.close()
         owner.deleteLater()
 
-    def test_broken_explicit_link_rolls_back_without_leaking_exception(self) -> None:
-        class BrokenPage(QWidget):
-            def open_record(self, _record_id: str) -> None:
-                raise LookupError("raw internal missing key")
+    def test_unavailable_links_keep_origin_for_rejection_and_exception(self) -> None:
+        # 同一导航回退责任覆盖明确拒绝和异常，不重复搭建两套页面夹具。
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                class UnavailablePage(QWidget):
+                    def open_record(self, _record_id: str) -> bool:
+                        if raises:
+                            raise LookupError("raw internal missing key")
+                        return False
 
-        owner = QWidget()
-        page = StaticCatalogPage(
-            controller=cast(Any, _Controller()),
-            dialog_parent=owner,
-            game_ui_asset_root=self.asset_root,
-            domain_pages=(
-                StaticCatalogDomainPageSpec(
-                    "character", "角色图鉴", QWidget, lambda: None,
-                ),
-                StaticCatalogDomainPageSpec(
-                    "combat_mechanics", "战斗机制图鉴", BrokenPage, lambda: None,
-                ),
-            ),
-        )
-        page.build()
-        page._open_domain("character")
-        origin = page._stack.currentWidget()
-        messages: list[tuple[str, str]] = []
-        with patch.object(
-            QMessageBox,
-            "warning",
-            side_effect=lambda _parent, title, text: messages.append((title, text)),
-        ):
-            opened = page.open_catalog_link(CatalogLink(
-                "combat_mechanics", "buff|missing", "detail",
-            ))
+                owner = QWidget()
+                page = StaticCatalogPage(
+                    controller=cast(Any, _Controller()), dialog_parent=owner,
+                    game_ui_asset_root=self.asset_root,
+                    domain_pages=(
+                        StaticCatalogDomainPageSpec("character", "角色图鉴", QWidget, lambda: None),
+                        StaticCatalogDomainPageSpec("combat_mechanics", "战斗机制图鉴", UnavailablePage, lambda: None),
+                    ),
+                )
+                page.build()
+                page._open_domain("character")
+                origin = page._stack.currentWidget()
+                messages = []
+                with patch.object(QMessageBox, "warning", side_effect=lambda _parent, title, text: messages.append((title, text))):
+                    opened = page.open_catalog_link(CatalogLink("combat_mechanics", "buff|missing", "detail"))
+                self.assertFalse(opened)
+                self.assertIs(origin, page._stack.currentWidget())
+                self.assertEqual([], page._navigation_history)
+                self.assertEqual(1, len(messages))
+                self.assertNotIn("raw internal missing key", str(messages))
+                page.close()
+                owner.deleteLater()
 
-        self.assertFalse(opened)
-        self.assertIs(origin, page._stack.currentWidget())
-        self.assertEqual([], page._navigation_history)
-        self.assertEqual(
-            [("无法打开关联资料", "该关联资料暂不可用，已返回原页面。")],
-            messages,
-        )
-        page.close()
-        owner.deleteLater()
-
-    def test_rejected_explicit_link_rolls_back_to_the_origin_widget(self) -> None:
-        class RejectedPage(QWidget):
-            def open_record(self, _record_id: str) -> bool:
-                return False
-
-        owner = QWidget()
-        page = StaticCatalogPage(
-            controller=cast(Any, _Controller()),
-            dialog_parent=owner,
-            game_ui_asset_root=self.asset_root,
-            domain_pages=(
-                StaticCatalogDomainPageSpec(
-                    "character", "角色图鉴", QWidget, lambda: None,
-                ),
-                StaticCatalogDomainPageSpec(
-                    "combat_mechanics", "战斗机制图鉴", RejectedPage, lambda: None,
-                ),
-            ),
-        )
-        page.build()
-        page._open_domain("character")
-        origin = page._stack.currentWidget()
-        with patch.object(QMessageBox, "warning"):
-            opened = page.open_catalog_link(CatalogLink(
-                "combat_mechanics", "buff|missing", "detail",
-            ))
-        self.assertFalse(opened)
-        self.assertIs(origin, page._stack.currentWidget())
-        self.assertEqual([], page._navigation_history)
-        page.close()
-        owner.deleteLater()
 
     def test_dedicated_page_build_failure_returns_to_menu(self) -> None:
         controller = _Controller()

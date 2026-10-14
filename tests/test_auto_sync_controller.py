@@ -340,6 +340,85 @@ def test_late_watcher_callback_after_account_change_is_ignored(owner):
     assert len(starts) == 1
 
 
+@pytest.mark.parametrize('account_id', ['test', 'target'])
+def test_preflight_confirmation_is_bound_to_account_generation(owner, account_id):
+    c, window, policy, _starts, _jobs, _watchers, _app = owner
+    c.set_enabled(False)
+    pending = []
+    c._request_enable_preflight = pending.append
+    c.set_enabled(True)
+    # 即使补偿恢复同一账号，代次推进后旧确认也不重新获得开启许可。
+    window.app_context.account.active_account_id = account_id
+    window.app_context.generation += 2
+    assert pending[0]() is False
+    assert not policy.settings.auto_sync_enabled
+
+
+def test_same_account_refresh_keeps_saved_opt_in_and_blocks_mid_switch_enable(owner):
+    c, _window, policy, _starts, _jobs, _watchers, _app = owner
+    revision = policy.settings.revision
+    with c.account_switch():
+        c.set_enabled(False)
+        assert policy.settings.auto_sync_enabled
+    assert policy.settings.auto_sync_enabled and policy.settings.revision == revision
+
+
+@pytest.mark.parametrize('save_fails', [False, True])
+def test_account_switch_disables_saved_opt_in_until_new_explicit_enable(owner, monkeypatch, save_fails):
+    from PySide6.QtWidgets import QCheckBox, QLabel, QMessageBox, QPushButton
+
+    c, window, policy, starts, jobs, watchers, _app = owner
+    window.home_auto_sync_toggle = QCheckBox(window)
+    window.home_restart_sync_button = QPushButton(window)
+    for name in ('home_sync_source_label', 'home_sync_action_hint', 'home_sync_detail', 'home_sync_badge'):
+        setattr(window, name, QLabel(window))
+    found(watchers[-1])
+    old_watcher, old_service = watchers[-1], window._inventory_sync_service
+    errors = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *_args: errors.append(True))
+    save = policy._store.save
+    if save_fails:
+        monkeypatch.setattr(policy._store, 'save', lambda _s: (_ for _ in ()).throw(OSError('SYNTHETIC_DISK_FULL')))
+    revision = policy.operation_revision
+    manual = Inventory()
+    with c.account_switch():
+        # 对应 AppContext：旧 owner 物理退场后才更换身份并推进代次。
+        old_service.stop()
+        window._inventory_sync_service = None
+        window.app_context.account.active_account_id = 'target'
+        window.app_context.generation += 1
+        c.refresh()  # 页面/生命周期重入不得先启动新账号同步。
+        found(old_watcher)
+        assert len(starts) == 1
+        window._inventory_sync_service = manual
+    assert not policy.settings.auto_sync_enabled and not window.home_auto_sync_toggle.isChecked()
+    assert window.home_restart_sync_button.text() == '开启自动同步'
+    assert '自动同步已关闭' in window.home_sync_detail.text()
+    assert policy.allowed('packet_capture') and policy.settings.component_auto_ready
+    assert policy.operation_revision == revision and not policy.settings.paused
+    assert errors == ([True] if save_fails else [])
+    if not save_fails:
+        assert not WorkModeService(policy._store.path).settings.auto_sync_enabled
+    for _ in range(3):
+        c.refresh()
+        c.restart()
+        found(old_watcher)
+    assert len(starts) == 1 and not jobs
+    # 新账号手动会话和战报授权保持独立；关闭状态刷新不回收手动会话。
+    window.battle_report_controller.is_running = lambda: True
+    c.refresh()
+    assert not manual.requested and not jobs
+    window._inventory_sync_service = None
+    window.battle_report_controller.is_running = lambda: False
+    pending = []
+    c._request_enable_preflight = pending.append
+    monkeypatch.setattr(policy._store, 'save', save)
+    c.open_restart()
+    assert len(pending) == 1 and pending[0]() is True
+    found(watchers[-1])
+    assert len(starts) == 2 and policy.settings.auto_sync_enabled
+
+
 def test_medium_waits_for_native_readiness_and_battle_end(owner):
     c, window, policy, starts, _jobs, _watchers, _app = owner
     policy.select_mode("medium", risk_confirmed=True)

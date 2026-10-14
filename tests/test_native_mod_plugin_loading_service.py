@@ -7,7 +7,9 @@ import pytest
 from src.integrations.mod_loader import ModLoaderRuntimeError, ModLoaderRuntimeSnapshot, packaged_mod_loader
 from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_DEPLOYMENT_PATHS
 from src.integrations.components import native_files as files
-from src.services.components.loader_service import ModPluginLoadingError, ModPluginLoadingService
+from src.services.components.loader_service import (
+    ModPluginLoadingError, ModPluginLoadingService, ModPluginLoadingWaiting,
+)
 from tests.test_native_plugin_bundle import make_bundle
 
 
@@ -66,6 +68,39 @@ def test_native_snapshot_uses_missing_stage_without_legacy_payload_lookup(loadin
     assert service.snapshot().phase == 'missing_payload'
     assert not service.native_workspace_files_compatible
     assert runtime.calls == []
+
+
+@pytest.mark.parametrize('launcher_directory', ['', 'NTETW'])
+def test_tw_launcher_is_forwarded_to_managed_runtime(loading, monkeypatch, launcher_directory):
+    service, runtime, _state, args, _root, _payload = loading
+    install = args['game_executable_path'].parents[5]
+    (install / 'NTELauncher.exe').unlink()
+    launcher = install / launcher_directory / 'NTETWLauncher.exe'
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    launcher.write_bytes(b'synthetic launcher')
+    monkeypatch.setattr('src.services.components.loader_service.selected_launcher_running',
+                        lambda _path: False)
+    service.start_loader(**args)
+    assert runtime.calls[0]['launcher_path'] == launcher.resolve()
+    assert runtime.calls[0]['payload_load_mode'] == 'loadlibrary'
+
+
+def test_running_tw_secondary_launcher_blocks_preparation(loading, monkeypatch):
+    service, runtime, _state, args, _root, _payload = loading
+    install = args['game_executable_path'].parents[5]
+    (install / 'NTELauncher.exe').unlink()
+    primary = install / 'NTETWLauncher.exe'
+    secondary = install / 'NTETW/NTETWLauncher.exe'
+    primary.write_bytes(b'synthetic launcher')
+    secondary.parent.mkdir()
+    secondary.write_bytes(b'synthetic launcher')
+    monkeypatch.setattr('src.services.components.loader_service.selected_launcher_running',
+                        lambda path: path == secondary.resolve())
+    assert service.launcher_running(args['game_executable_path']) is True
+    with pytest.raises(ModPluginLoadingWaiting, match='启动器'):
+        service.start_loader(**args)
+    assert runtime.calls == []
+    assert not service.native_workspace_path.exists()
 
 
 def test_native_first_start_prepares_only_capture_dll_and_uses_standard_mode(loading):

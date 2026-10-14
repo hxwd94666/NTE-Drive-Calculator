@@ -215,7 +215,11 @@ def test_public_solve_cancels_at_real_stage_without_partial_success(stage):
         elif stage == "blueprint": match = any(name == "solve_blueprints" for _, name, _ in frames)
         elif stage == "inventory": match = any(file == "scoring.py" and name == "checked" for file, name, _ in frames)
         elif stage == "top_k": match = any(name == "_top_k" and values.get("options") and "uid" in values for _, name, values in frames)
-        elif stage == "kernel_rerun": match = any(file == "allocation_kernel.py" and name == "execute" and values.get("seen") for file, name, values in frames)
+        elif stage == "kernel_rerun":
+            # 统一回退wrapper之后，真实属性约束重求仍由_pinned持有seen；必须已进入重求内核。
+            match = (any(file == "allocation_kernel.py" and name == "_execute_pinned" and values.get("seen")
+                         for file, name, values in frames)
+                     and any(file == "allocation_kernel.py" and name == "_execute_once" for file, name, _ in frames))
         else: match = any(file == "drive_candidate_ranker.py" and name == "_check_cancelled" for file, name, _ in frames)
         if match: reached.append((stage, checks))
         return bool(match)

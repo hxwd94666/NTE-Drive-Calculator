@@ -35,12 +35,11 @@ DEFAULT_PRESERVE_RULE: dict[str, Any] = {
 
 DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
     "server_region": "default",
-    # 只属于弃置/锁定评估的角色范围，与配装计算的选择及优先组独立。
-    "selected_character_ids": [],
     "discard": {
         "enabled": False,
         "grade": "S",
         "role_scope": "all",
+        "selected_character_ids": [],
         "quality_scope": "gold_purple",
         "type_scope": "all",
         "shape_ids": None,
@@ -52,6 +51,7 @@ DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
         "enabled": False,
         "grade": "SSS",
         "role_scope": "all",
+        "selected_character_ids": [],
         "quality_scope": "gold_purple",
         "type_scope": "all",
         "shape_ids": None,
@@ -73,12 +73,13 @@ def merge_post_action_config(raw: dict | None) -> dict[str, Any]:
         return config
     if raw.get("server_region") in {"default", "hmt"}:
         config["server_region"] = raw["server_region"]
-    if isinstance(raw.get("selected_character_ids"), list):
-        config["selected_character_ids"] = list(raw["selected_character_ids"])
     for module_name in ("discard", "lock"):
         module = raw.get(module_name)
         if isinstance(module, dict):
             config[module_name].update({key: value for key, value in module.items() if key in config[module_name]})
+        # 旧共享范围仅在模块字段缺失时复制；显式空列表也属于本模块的选择。
+        if not isinstance(module, dict) or "selected_character_ids" not in module:
+            config[module_name]["selected_character_ids"] = copy.deepcopy(raw.get("selected_character_ids", []))
     if isinstance(raw.get("preserve_rules"), list):
         config["preserve_rules"] = [copy.deepcopy(rule) for rule in raw["preserve_rules"] if isinstance(rule, dict)]
     config["preserve_rules"].extend(_legacy_custom_keep_rules(raw.get("custom_keep")))
@@ -89,18 +90,20 @@ def normalize_post_action_config(config: dict[str, Any]) -> dict[str, Any]:
     config = merge_post_action_config(config) if not {"discard", "lock"}.issubset(set(config.keys())) else copy.deepcopy(config)
     if config.get("server_region") not in {"default", "hmt"}:
         config["server_region"] = "default"
-    selected_character_ids: list[int] = []
-    for raw_character_id in config.get("selected_character_ids", []) or []:
-        try:
-            character_id = int(raw_character_id)
-        except (TypeError, ValueError):
-            continue
-        if character_id > 0 and character_id not in selected_character_ids:
-            selected_character_ids.append(character_id)
-    config["selected_character_ids"] = selected_character_ids
+    legacy_ids = config.pop("selected_character_ids", [])
     for module_name in ("discard", "lock"):
         default_module = DEFAULT_POST_ACTION_CONFIG[module_name]
         module = config.setdefault(module_name, copy.deepcopy(default_module))
+        selected_ids: list[int] = []
+        raw_ids = module.get("selected_character_ids", legacy_ids)
+        for value in raw_ids if isinstance(raw_ids, list) else []:
+            try:
+                character_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if character_id > 0 and character_id not in selected_ids:
+                selected_ids.append(character_id)
+        module["selected_character_ids"] = selected_ids
         module["enabled"] = bool(module.get("enabled", False))
         if module.get("grade") not in GRADE_ORDER:
             module["grade"] = default_module["grade"]
@@ -148,7 +151,7 @@ def _normalize_preserve_rule(raw_rule: Any) -> dict[str, Any] | None:
     rule["name"] = str(rule.get("name") or "").strip()
     if rule.get("item_type") not in {"drive", "tape"}:
         rule["item_type"] = "tape"
-    if rule.get("action") not in {"keep", "lock"}:
+    if rule.get("action") not in {"keep", "lock", "discard"}:
         rule["action"] = "keep"
     if rule.get("quality_scope") not in {"all", "gold", "gold_purple"}:
         rule["quality_scope"] = "gold_purple"
@@ -223,7 +226,6 @@ def _legacy_custom_keep_rules(raw_custom_keep: Any) -> list[dict[str, Any]]:
 def validate_post_action_config(config: dict[str, Any] | None, selected_roles: list[str] | None = None) -> str | None:
     config = merge_post_action_config(config)
     selected_roles = selected_roles or []
-    selected_character_ids = config.get("selected_character_ids", []) or []
     discard = config["discard"]
     lock = config["lock"]
     if discard["enabled"] and lock["enabled"]:
@@ -233,14 +235,14 @@ def validate_post_action_config(config: dict[str, Any] | None, selected_roles: l
         if (
             module["enabled"]
             and module.get("role_scope") == "selected"
-            and not selected_character_ids
+            and not module["selected_character_ids"]
             and not selected_roles
         ):
             return f"{title} 已选择“指定角色”，请在管理界面选择至少一个评估角色。"
     for index, rule in enumerate(config["preserve_rules"], start=1):
         if not rule.get("enabled"):
             continue
-        title = rule.get("name") or f"预留规则 {index}"
+        title = rule.get("name") or f"处理规则 {index}"
         if rule["item_type"] == "drive" and not rule["sub_stats"]:
             return f"{title}：驱动规则至少选择一个副词条。"
         if rule["item_type"] == "tape" and not (rule["main_stats"] or rule["sub_stats"]):
@@ -388,7 +390,7 @@ def preserve_rule_matches_item(item: BaseEquipment, rule: dict) -> bool:
         return False
     selected_sub_stats = set(rule.get("sub_stats") or [])
     required_sub_stats = set(rule.get("required_sub_stats") or [])
-    # 必含词条须属于已选匹配池；手工或损坏配置也不得扩大预留规则。
+    # 必含词条须属于已选匹配池；手工或损坏配置也不得扩大处理规则。
     if not required_sub_stats.issubset(selected_sub_stats):
         return False
     item_sub_stats = set((getattr(item, "sub_stats", {}) or {}).keys())
@@ -407,7 +409,8 @@ def _preserve_rule_detail(item: BaseEquipment, rules: list[dict]) -> dict[str, A
     return {
         "enabled": bool(rules),
         "matched": [rule.get("name") or "未命名规则" for rule in matched],
-        "action": "lock" if "lock" in actions else "keep" if "keep" in actions else None,
+        # 列表顺序只用于展示；动作优先级唯一在此定义，不采用 first-hit。
+        "action": next((action for action in ("lock", "discard", "keep") if action in actions), None),
     }
 
 
@@ -615,7 +618,7 @@ def target_state_for_item(
     current_state: str,
     config: dict[str, Any],
     scoring: ScoringEngine,
-    selected_roles: list[str] | None = None,
+    selected_roles: list[str] | dict[str, list[str]] | None = None,
     score_context: PostActionScoreContext | None = None,
 ) -> str:
     return evaluate_target_state_for_item(
@@ -633,24 +636,32 @@ def evaluate_target_state_for_item(
     current_state: str,
     config: dict[str, Any],
     scoring: ScoringEngine,
-    selected_roles: list[str] | None = None,
+    selected_roles: list[str] | dict[str, list[str]] | None = None,
     score_context: PostActionScoreContext | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """先预留锁与评分锁/解锁，再预留保留，最后弃置；仅给期望状态和原因。"""
+    """先规则锁与评分锁，再规则弃置；评分解锁、规则保留与评分弃置维持既有次序。"""
     current_state = current_state if current_state in EQUIPMENT_STATES else "normal"
     config = merge_post_action_config(config)
     preserve_detail = _preserve_rule_detail(item, config["preserve_rules"])
     if preserve_detail["action"] == "lock":
         return "locked", {"preserve": preserve_detail}
-    lock_result, lock_detail = _lock_module_result(item, current_state, config["lock"], scoring, selected_roles, score_context)
+    lock_roles = selected_roles.get("lock", []) if isinstance(selected_roles, dict) else selected_roles
+    discard_roles = selected_roles.get("discard", []) if isinstance(selected_roles, dict) else selected_roles
+    lock_result, lock_detail = _lock_module_result(item, current_state, config["lock"], scoring, lock_roles, score_context)
     details = {"preserve": preserve_detail, "lock": lock_detail}
     if lock_result == "locked":
         return "locked", details
+    if preserve_detail["action"] == "discard":
+        # 直接弃置不依赖评分阈值，但仍遵守用户的既有游戏状态跳过策略。
+        # 显式准许处理锁定时直接给最终目标，不要求先解锁、再运行第二轮。
+        allowed = _state_action_allowed(current_state, config["discard"])
+        preserve_detail["reason"] = "rule_discard" if allowed else "state_policy_skip"
+        return "discarded" if allowed else (lock_result or current_state), details
     if current_state == "locked" and lock_result == "normal":
         return "normal", details
     if preserve_detail["action"] == "keep":
         return "normal" if current_state == "discarded" else current_state, details
-    discard_result, discard_detail = _discard_module_result(item, current_state, config["discard"], scoring, selected_roles, score_context)
+    discard_result, discard_detail = _discard_module_result(item, current_state, config["discard"], scoring, discard_roles, score_context)
     details["discard"] = discard_detail
     if discard_result == "discarded":
         return "discarded", details
@@ -663,7 +674,7 @@ def build_state_changes(
     parsed_items: list[tuple[int, BaseEquipment, str]],
     config: dict[str, Any],
     scoring: ScoringEngine,
-    selected_roles: list[str] | None = None,
+    selected_roles: list[str] | dict[str, list[str]] | None = None,
     score_context: PostActionScoreContext | None = None,
 ) -> list[dict[str, Any]]:
     changes = []

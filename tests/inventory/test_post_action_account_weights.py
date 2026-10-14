@@ -8,6 +8,40 @@ from unittest.mock import patch
 
 
 class PostActionAccountWeightTests(unittest.TestCase):
+    def test_each_scoring_module_resolves_and_uses_its_own_character_ids(self):
+        from src.domain.post_actions import PostActionScoreContext, default_post_action_config
+        from src.models.equipment import Drive
+        from src.services.inventory.post_action_evaluation import PostActionEvaluator
+
+        class Scoring:
+            roles_db = {"低分角色": {"character_id": 1003}, "高分角色": {"character_id": 1004}}
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def evaluate_global_inventory(self, _items):
+                pass
+
+            def get_grade_tag(self, score, _area):
+                return "SSS" if score >= 2.0 else "D"
+
+        config = default_post_action_config()
+        config["discard"].update(enabled=True, role_scope="selected", selected_character_ids=[1003])
+        config["lock"].update(enabled=True, role_scope="selected", selected_character_ids=[1004])
+        item = Drive(uid="module-role-scope", quality="Gold", area=3, shape_id="H_3",
+                     main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={}, role_scores={"低分角色": 0.0, "高分角色": 2.0})
+        module = "src.services.inventory.post_action_evaluation"
+        resolve = lambda _roles, ids, _path: ["低分角色" if value == 1003 else "高分角色" for value in ids]
+        with patch(f"{module}.ScoringEngine", Scoring), \
+                patch(f"{module}._selected_role_names", side_effect=resolve), \
+                patch(f"{module}.PostActionScoreContext.from_config_dir", return_value=PostActionScoreContext()):
+            evaluator = PostActionEvaluator(post_actions_config=config)
+            self.assertEqual("locked", evaluator.evaluate([(1, item, "normal")], [item]).state_changes[0]["target_state"])
+            config["lock"]["selected_character_ids"] = [1003]
+            self.assertEqual("discarded", evaluator.evaluate([(1, item, "normal")], [item]).state_changes[0]["target_state"])
+            config["discard"]["selected_character_ids"] = [1004]
+            self.assertEqual([], evaluator.evaluate([(1, item, "normal")], [item]).state_changes)
+
     def test_management_character_ids_resolve_avatar_variants_to_scoring_role(self):
         from src.services.inventory.post_action_evaluation import _selected_role_names
 

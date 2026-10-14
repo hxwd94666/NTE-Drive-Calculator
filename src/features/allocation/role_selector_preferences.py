@@ -7,20 +7,26 @@ import json
 from pathlib import Path
 
 from src.storage.json_store import write_json
+from src.app.window_geometry import fit_dialog_to_available_screen
 
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QLineEdit,
+    QWidget,
 )
 
 from src.ui.widgets import SearchableComboBox, match_pinyin
@@ -101,11 +107,18 @@ class RoleSelectorPreferencesMixin:
     def _manage_role_preferences(self, name):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{name} · 管理")
-        dlg.setMinimumSize(560, 320)
-        if self._style_sheet:
-            dlg.setStyleSheet(self._style_sheet)
-        layout = QVBoxLayout(dlg)
+        dlg.setObjectName("rolePreferenceDialog")
+        dlg.setMinimumSize(500, 320)
+        # 只收紧本弹窗的组内留白；主题色和全局页面尺寸不变。
+        dlg.setStyleSheet((self._style_sheet or "") +
+            "\nQDialog#rolePreferenceDialog QGroupBox{padding:12px;padding-top:26px}")
+        root = QVBoxLayout(dlg)
+        root.setSpacing(8)
+        content = QWidget(dlg)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         role_data = self.all_roles.get(name, {})
         current_set = self.custom_sets.get(name) or role_data.get("default_set", self.all_sets[0] if self.all_sets else "")
@@ -191,16 +204,19 @@ class RoleSelectorPreferencesMixin:
 
         stat_option_row = QHBoxLayout()
         stat_option_row.setContentsMargins(0, 4, 0, 0)
-        stat_option_row.setSpacing(16)
+        stat_option_row.setSpacing(10)
+        soft_main_filter = QCheckBox("取消主词条硬过滤")
+        soft_main_filter.setChecked(bool(current_stat_cfg.get("soft_main_filter", False)))
+        soft_main_filter.setToolTip("优先使用所选主词条；没有合法匹配卡带时回退，其他约束保持生效。")
         stat_equal = QCheckBox("副词条优先级一致")
         stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
         blacklist_zero_weight = QCheckBox("黑名单为零权重")
         blacklist_zero_weight.setChecked(
             bool(current_stat_cfg.get("blacklist_zero_weight", False))
         )
-        ignore_grade_limit = QCheckBox("不限制评分等级")
+        ignore_grade_limit = QCheckBox("选取不设置等级门槛")
         ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
-        grade_label = QLabel("最低生效等级")
+        grade_label = QLabel("最低等级门槛")
         grade_combo = QComboBox()
         grade_combo.setFixedWidth(84)
         for grade in GRADE_LADDER:
@@ -209,14 +225,20 @@ class RoleSelectorPreferencesMixin:
         grade_index = grade_combo.findData(current_min_grade)
         grade_combo.setCurrentIndex(grade_index if grade_index >= 0 else grade_combo.findData("A"))
         grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+        stat_option_row.addWidget(soft_main_filter)
         stat_option_row.addWidget(stat_equal)
-        stat_option_row.addWidget(ignore_grade_limit)
         stat_option_row.addWidget(blacklist_zero_weight)
-        stat_option_row.addWidget(grade_label)
-        stat_option_row.addWidget(grade_combo)
-        stat_option_row.addWidget(help_btn)
         stat_option_row.addStretch(1)
         stat_layout.addLayout(stat_option_row)
+        stat_option_second_row = QHBoxLayout()
+        stat_option_second_row.setSpacing(10)
+        stat_option_second_row.addWidget(ignore_grade_limit)
+        # 用当前字体的两字留白分隔等级配置，行尾伸展仍保持整行靠左。
+        stat_option_second_row.addSpacing(ignore_grade_limit.fontMetrics().horizontalAdvance("\u3000\u3000"))
+        for option in (grade_label, grade_combo, help_btn):
+            stat_option_second_row.addWidget(option)
+        stat_option_second_row.addStretch(1)
+        stat_layout.addLayout(stat_option_second_row)
 
         crit_threshold_label = QLabel("暴击率最小值")
         crit_threshold_help = QPushButton("?")
@@ -226,6 +248,7 @@ class RoleSelectorPreferencesMixin:
             lambda: self._show_help("暴击率最小值", CRIT_THRESHOLD_HELP)
         )
         crit_threshold_edit = QLineEdit()
+        crit_threshold_edit.setMinimumWidth(70)
         crit_threshold_edit.setValidator(QIntValidator(0, 100, crit_threshold_edit))
         raw_threshold = current_stat_cfg.get("crit_threshold", current_stat_cfg.get("crit_min_threshold"))
         if raw_threshold is not None:
@@ -269,6 +292,7 @@ class RoleSelectorPreferencesMixin:
         crit_row.addSpacing(12)
         crit_row.addWidget(QLabel("暴击率上限："))
         crit_cap_edit = QLineEdit()
+        crit_cap_edit.setMinimumWidth(70)
         automatic_cap = self._automatic_crit_rate_cap(
             name,
             self.custom_weapons.get(name, "") or default_weapon
@@ -335,7 +359,23 @@ class RoleSelectorPreferencesMixin:
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
+        # 整页共用一个滚动视口，三份摘要保持完整；确定/取消独立留在固定底部。
+        scroll = QScrollArea(dlg)
+        scroll.setObjectName("rolePreferenceScroll")
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+        root.addWidget(buttons)
+        dlg.ensurePolished()
+        layout.activate()
+        margins = root.contentsMargins()
+        width = max(dlg.minimumWidth(), content.minimumSizeHint().width()+margins.left()+margins.right())
+        body_height = max(content.minimumSizeHint().height(), layout.totalHeightForWidth(width-margins.left()-margins.right()))
+        # 摘要只增加所需高度，不撑宽窗口；超出工作区的内容由外层滚动承接。
+        height = body_height+buttons.sizeHint().height()+root.spacing()+margins.top()+margins.bottom()
+        fit_dialog_to_available_screen(dlg, QSize(width, max(dlg.minimumHeight(), height)))
 
         if dlg.exec() == QDialog.Accepted:
             set_value = set_combo.currentText().strip()
@@ -365,6 +405,7 @@ class RoleSelectorPreferencesMixin:
                 grade_combo.currentData(),
                 crit_threshold_edit.text().strip(),
                 blacklist_zero_weight=blacklist_zero_weight.isChecked(),
+                soft_main_filter=soft_main_filter.isChecked(),
             )
             self._set_set_effect_mode(name, effect_combo.currentData())
             self._render_grid(self.search.text())

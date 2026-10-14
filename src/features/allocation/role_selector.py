@@ -28,7 +28,7 @@ from src.domain.crit_threshold import persistable_stat_priority_config
 from src.features.allocation.priority_groups import (
     normalize_priority_links,
 )
-from src.features.allocation.role_selector_visuals import role_avatar
+from src.features.allocation.role_selector_visuals import priority_link_style, role_avatar
 from src.features.allocation.priority_role_button import PriorityRoleButton
 from src.domain.role_name_order import role_name_sort_key
 from src.solver.set_effects import FOUR_PIECE, normalize_set_effect_mode
@@ -374,25 +374,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
                 link_btn = QPushButton(link_text)
                 link_btn.setFixedWidth(42)
                 link_btn.setObjectName("btnAction")
-                if link_text == ">>":
-                    if current_theme_name() == "light":
-                        link_btn.setStyleSheet(
-                            "QPushButton{color:#cf222e;border:1px solid #cf222e;"
-                            "background:#ffffff;border-radius:6px;font-weight:700}"
-                            "QPushButton:hover{background:#fff5f5;border-color:#cf222e}"
-                        )
-                    else:
-                        link_btn.setStyleSheet(
-                            "QPushButton{color:#ff7b72;border:1px solid #f85149;"
-                            "background:#2d1117;border-radius:6px;font-weight:700}"
-                            "QPushButton:hover{background:#3c151c;border-color:#ff7b72}"
-                        )
-                elif current_theme_name() == "light":
-                    link_btn.setStyleSheet(
-                        "QPushButton{color:#0969da;border:1px solid #0969da;"
-                        "background:#ffffff;border-radius:6px;font-weight:700}"
-                        "QPushButton:hover{background:#f6f8fa;border-color:#0969da}"
-                    )
+                link_btn.setStyleSheet(priority_link_style(link_text))
                 link_btn.setToolTip(">：严格优先；>>：批次边界；=：同批次平级。点击循环切换。")
                 link_btn.clicked.connect(lambda _checked=False, pos=index: self._cycle_priority_link(pos))
                 unit_layout.addWidget(link_btn)
@@ -581,11 +563,13 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         min_grade_limit="A",
         crit_threshold=None,
         blacklist_zero_weight=False,
+        soft_main_filter=False,
     ):
         payload = {
             "stats": stats or [],
             "blacklist": blacklist or [],
             "blacklist_zero_weight": blacklist_zero_weight,
+            "soft_main_filter": soft_main_filter,
             "equal_priority": equal_priority,
             "ignore_grade_limit": ignore_grade_limit,
             "min_grade_limit": min_grade_limit,
@@ -630,6 +614,8 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
 
     def _make_selected_summary_label(self):
         label = QLabel()
+        # 换行摘要按全文需要的高度参与布局，不能被同组里的下一份名单挤回单行。
+        label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         label.setWordWrap(True)
         label.setMinimumHeight(32)
         label.setMinimumWidth(150)

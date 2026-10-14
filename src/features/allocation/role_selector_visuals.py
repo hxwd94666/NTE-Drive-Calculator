@@ -9,8 +9,35 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel
 
-from src.app.theme import themed_style
+from src.app.theme import current_theme_name, themed_style
 from src.ui.role_portrait import custom_role_portrait
+
+
+def priority_link_style(link_text: str) -> str:
+    """关系按钮用不透明的中性底色；批次边界继续用红色提示，不改关系语义。"""
+    if current_theme_name() == "light":
+        color = "#cf222e" if link_text == ">>" else "#0969da"
+        hover = "#fff5f5" if link_text == ">>" else "#f6f8fa"
+        return (
+            f"QPushButton{{color:{color};border:1px solid {color};background:#ffffff;"
+            "border-radius:6px;font-weight:700}"
+            f"QPushButton:hover{{background:{hover}}}"
+            f"QPushButton:focus{{border:2px solid {color}}}"
+            "QPushButton:pressed{background:#eef2f6}"
+            "QPushButton:disabled{color:#6e7781;border-color:#d0d7de;background:#f6f8fa}"
+        )
+    color, border, background, hover = (
+        ("#ff7b72", "#f85149", "#2d1117", "#3c151c") if link_text == ">>"
+        else ("#58a6ff", "#58a6ff", "#21262d", "#30363d")
+    )
+    return themed_style(
+        f"QPushButton{{color:{color};border:1px solid {border};background:{background};"
+        "border-radius:6px;font-weight:700}"
+        f"QPushButton:hover{{background:{hover};border-color:{color}}}"
+        f"QPushButton:focus{{border:2px solid {color}}}"
+        "QPushButton:pressed{background:#161b22}"
+        "QPushButton:disabled{color:#6e7681;border-color:#30363d;background:#161b22}"
+    )
 
 
 def role_avatar(

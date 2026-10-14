@@ -207,7 +207,9 @@ class AccountUserDatabaseTests(unittest.TestCase):
                 imported_root / "config", user_database_path=imported_root / "user_data.sqlite3",
             )
             self.assertEqual(scan_preferences["discard"]["grade"], "A")
-            self.assertEqual(scan_preferences["selected_character_ids"], [1004])
+            self.assertNotIn("selected_character_ids", scan_preferences)
+            self.assertEqual(scan_preferences["discard"]["selected_character_ids"], [1004])
+            self.assertEqual(scan_preferences["lock"]["selected_character_ids"], [1004])
             self.assertEqual(
                 json.loads((imported_root / "config" / "guide_seen.json").read_text(encoding="utf-8")),
                 {"seen": True},

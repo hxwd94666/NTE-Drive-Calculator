@@ -259,6 +259,8 @@ def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
 
 
 def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch) -> None:
+    from PySide6.QtCore import QCoreApplication, QEvent, Qt
+    from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
 
     from src.features.toolbox.page import _RewindRecommendationDialog
@@ -292,30 +294,62 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
         def deleteLater(self) -> None:
             pass
 
-    QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])
     service = Service()
+    # 本例只验证百分比编辑与请求冻结，角色目录另有异步生命周期用例。
+    monkeypatch.setattr(_RewindRecommendationDialog, "_load_roles_async", lambda _self: None)
     dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
-    assert dialog._custom_percent_input.text() == ""
-    dialog._target_character_ids = {1004}
-    dialog._set_custom_target()
-    dialog._custom_percent_input.setValue(90.0)
+    owners = [dialog]
+    try:
+        assert dialog._custom_percent_input.text() == ""
+        dialog._target_character_ids = {1004}
+        dialog._set_custom_target()
+        dialog.show()
+        app.processEvents()
+        editor = dialog._custom_percent_input.lineEdit()
+        editor.setFocus()
+        QTest.keyClicks(editor, "90.5")
+        QTest.keyClick(editor, Qt.Key_Tab)
 
-    assert service.saved["target_threshold_mode"] == "custom"
-    assert service.saved["target_custom_percent"] == 90.0
-    assert dialog._custom_percent_input.isEnabled()
+        assert service.saved["target_threshold_mode"] == "custom"
+        assert service.saved["target_custom_percent"] == 90.5
+        assert dialog._custom_percent_input.isEnabled()
+        QTest.mouseDClick(editor, Qt.LeftButton, pos=editor.rect().center())
+        assert editor.selectedText().removesuffix("%") == "90.5"
+        QTest.keyClicks(editor, "91.7")
+        QTest.keyClick(editor, Qt.Key_Tab)
+        assert dialog._custom_percent_input.value() == 91.7
+        assert service.saved["target_custom_percent"] == 91.7
 
-    reopened = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
-    assert reopened._target_threshold_mode == "custom"
-    assert reopened._custom_percent_input.value() == 90.0
-    assert reopened._custom_percent_input.isEnabled()
+        reopened = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
+        owners.append(reopened)
+        assert reopened._target_threshold_mode == "custom"
+        assert reopened._custom_percent_input.value() == 91.7
+        assert reopened._custom_percent_input.isEnabled()
 
-    from src.features.toolbox.rewind import selection_ui as rewind_selection_ui
-    monkeypatch.setattr(rewind_selection_ui, "WorkerThread", ImmediateWorker)
-    dialog._refresh_analysis()
+        from src.features.toolbox.rewind import selection_ui as rewind_selection_ui
+        monkeypatch.setattr(rewind_selection_ui, "WorkerThread", ImmediateWorker)
+        dialog._refresh_analysis()
 
-    assert service.request is not None
-    assert service.request["target_grade"] == "S"
-    assert service.request["target_custom_percent"] == 90.0
+        assert service.request is not None
+        assert service.request["target_grade"] == "S"
+        assert service.request["target_custom_percent"] == 91.7
+        from src.domain.rewind_shape_recommendation import target_percentage_score
+        assert abs(target_percentage_score(service.request["target_custom_percent"], 3) - 27.51) < 1e-10
+        assert dialog._custom_percent_input.minimum() == 0.0
+        assert dialog._custom_percent_input.maximum() == 100.0
+        for text, value in (("100.0", 100.0), ("0.0", None)):
+            editor.setFocus()
+            dialog._custom_percent_input.selectAll()
+            QTest.keyClicks(editor, text)
+            QTest.keyClick(editor, Qt.Key_Tab)
+            assert service.saved["target_custom_percent"] == value
+    finally:
+        # 只回收本例创建的对话框，键入行为不接触真实游戏输入。
+        for owner in owners:
+            owner.close()
+            owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def test_rewind_execution_dialog_shows_stop_key_and_disables_custom_for_blue_only() -> None:
@@ -482,3 +516,52 @@ def test_generating_another_strategy_replaces_the_current_transient_slots() -> N
         slot is not None and slot.shape.shape_id == "EquipmentGeometry_Hen3"
         for slot in dialog._editable_slots
     )
+
+
+def test_rewind_quality_gap_ceils_to_hundredths_on_render_and_inventory_refresh() -> None:
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from src.features.toolbox.page import _RewindRecommendationDialog
+
+    gaps = (3.55271e-15, 0.0, 12.5, 12.344, 12.346, 1_000_000.0, 0.004, 0.006)
+    expected = ("0.01", "0.00", "12.50", "12.35", "12.35", "1000000.00", "0.01", "0.01")
+
+    class Service:
+        def load_preferences(self):
+            return {
+                "saved_rewind_slots": [
+                    {"shape_id": "EquipmentGeometry_Hen2", "quality_gap": gap}
+                    for gap in gaps
+                ],
+            }
+
+    QApplication.instance() or QApplication([])
+    dialog = _RewindRecommendationDialog(Service(), None, operation_entry=lambda *_: True)
+    try:
+        labels = dialog.findChildren(QLabel, "rewindShapeMetrics")
+        assert len(labels) == len(gaps)
+        for label in labels:
+            index = int(label.property("slotIndex"))
+            assert label.text().split(" · ")[0] == f"缺分 {expected[index]}"
+
+        dialog._set_replacement_inventory_counts({"EquipmentGeometry_Hen2": 77})
+        for label in labels:
+            index = int(label.property("slotIndex"))
+            assert label.text().split(" · ")[:2] == [f"缺分 {expected[index]}", "库存 77"]
+        assert [slot["quality_gap"] for slot in dialog._serialize_rewind_slots()] == list(gaps)
+    finally:
+        dialog.close()
+
+
+def test_rewind_quality_gap_ceiling_preserves_exact_hundredths() -> None:
+    from math import inf, nextafter
+
+    from src.features.toolbox.rewind.slot_ui import _format_quality_gap
+
+    assert _format_quality_gap(0.01) == "0.01"
+    assert _format_quality_gap(0.07) == "0.07"
+    # 原维护用例的这个字面量与 0.07 是同一 float；用下一可表示值覆盖真正的越界。
+    assert 0.07000000000000001 == 0.07
+    assert _format_quality_gap(nextafter(0.07, inf)) == "0.08"
+    assert _format_quality_gap(12.341) == "12.35"
+    assert _format_quality_gap(0.0001) == "0.01"

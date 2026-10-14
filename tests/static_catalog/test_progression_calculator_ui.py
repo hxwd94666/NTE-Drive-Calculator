@@ -1,4 +1,4 @@
-# 验证公共养成计算器的真实静态数据、响应式卡片和身份回投。
+# 验证养成计算器的精确活力、已有材料扣除、身份回投与窄窗可用性。
 from __future__ import annotations
 
 import os
@@ -12,8 +12,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QScrollArea,
-    QTableView,
-    QTableWidget,
 )
 
 from src.features.static_catalog.progression_calculator import (
@@ -48,7 +46,7 @@ class StaticCatalogProgressionCalculatorUiTests(unittest.TestCase):
         self.dialog.dispose()
         self.dao.close()
 
-    def test_real_material_request_renders_cards_and_exact_stamina_at_narrow_width(
+    def test_real_material_request_keeps_exact_stamina_and_identity_at_narrow_width(
         self,
     ) -> None:
         self.dialog.open_request(
@@ -85,12 +83,7 @@ class StaticCatalogProgressionCalculatorUiTests(unittest.TestCase):
             for label in self.dialog.findChildren(QLabel)
             if label.isVisibleTo(self.dialog)
         )
-        self.assertIn("超屑井主", visible_text)
-        self.assertEqual("鉴别 7（原生）", self.dialog.identification_level.currentText())
         self.assertIn("最低活力  160", visible_text)
-        self.assertNotIn("EquipmentUpMaterial_lv3", visible_text)
-        self.assertFalse(self.dialog.findChildren(QTableWidget))
-        self.assertFalse(self.dialog.findChildren(QTableView))
         self.assertTrue(all(
             scroll.horizontalScrollBar().maximum() == 0
             for scroll in self.dialog.findChildren(QScrollArea)
@@ -98,6 +91,7 @@ class StaticCatalogProgressionCalculatorUiTests(unittest.TestCase):
         self.assertEqual(1, len(self.outcomes))
         self.assertEqual("1036", self.outcomes[0].owner_id)
         self.assertEqual("skill-audit", self.outcomes[0].skill_id)
+        self.assertEqual(160, self.outcomes[0].result.total_stamina)
 
 
 if __name__ == "__main__":

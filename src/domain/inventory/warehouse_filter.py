@@ -18,7 +18,7 @@ class WarehouseFilterSpec:
     statuses: frozenset[str] = frozenset()
     main_property_ids: frozenset[str] = frozenset()
     sub_property_ids: frozenset[str] = frozenset()
-    min_sub_stat_matches: int | None = None
+    sub_stat_match_counts: frozenset[int] = frozenset()
 
     def with_search(self, search: str) -> WarehouseFilterSpec:
         return replace(self, search=str(search or ""))
@@ -32,7 +32,7 @@ class WarehouseFilterSpec:
                 bool(self.qualities),
                 bool(self.statuses),
                 bool(self.main_property_ids),
-                bool(self.sub_property_ids) and self.min_sub_stat_matches is not None,
+                bool(self.sub_property_ids) and bool(self.sub_stat_match_counts),
             )
         )
 
@@ -217,9 +217,10 @@ def filter_projected_warehouse_items(
             spec.main_property_ids
         ):
             continue
-        if spec.sub_property_ids and spec.min_sub_stat_matches is not None:
+        if spec.sub_property_ids and spec.sub_stat_match_counts:
+            # 按正式property_id去重后精确计数；{0}是零命中，空集合才关闭数量筛选。
             matches = len(_property_ids(item, "sub_stats") & spec.sub_property_ids)
-            if matches < spec.min_sub_stat_matches:
+            if matches not in spec.sub_stat_match_counts:
                 continue
         if needle and needle not in str(item.get("search_text") or ""):
             continue
@@ -337,9 +338,8 @@ def normalize_warehouse_filter_spec(
             else frozenset()
         ),
         sub_property_ids=sub_property_ids,
-        min_sub_stat_matches=(
-            min(4, max(0, spec.min_sub_stat_matches))
-            if sub_property_ids and spec.min_sub_stat_matches is not None
-            else None
+        sub_stat_match_counts=(
+            frozenset(value for value in spec.sub_stat_match_counts if type(value) is int and 0 <= value <= 4)
+            if sub_property_ids else frozenset()
         ),
     )

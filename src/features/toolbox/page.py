@@ -8,7 +8,7 @@ from src.domain.rewind_loadout import read_slot_preferences
 
 from typing import Callable
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QButtonGroup,
     QAbstractSpinBox,
@@ -46,6 +46,25 @@ from src.features.toolbox.toolbox_navigation import (
     CultivationToolboxNavigation,
     ToolboxDependencies,
 )
+
+
+class _RewindPercentInput(QDoubleSpinBox):
+    """完整输入百分比后再提交，双击选中整个数值而非小数点两侧的单个片段。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        # valueChanged 回调会调整后缀并写偏好，不能在首个数字时重排尚未完成的小数文本。
+        self.setKeyboardTracking(False)
+        self.lineEdit().installEventFilter(self)
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if (watched is self.lineEdit() and event.type() == QEvent.MouseButtonDblClick
+                and event.button() == Qt.LeftButton):
+            self.selectAll()
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
 
 class ToolboxPage:
     """Builds a tile-based toolbox without introducing another primary domain."""
@@ -336,7 +355,7 @@ class _RewindRecommendationDialog(RewindSelectionUiMixin, RewindExecutionUiMixin
         self._custom_target_button.clicked.connect(self._set_custom_target)
         self._grade_group.addButton(self._custom_target_button)
         grade_row.addWidget(self._custom_target_button)
-        self._custom_percent_input = QDoubleSpinBox()
+        self._custom_percent_input = _RewindPercentInput()
         self._custom_percent_input.setObjectName("rewindCustomPercent")
         self._custom_percent_input.setRange(0.0, 100.0)
         self._custom_percent_input.setDecimals(1)

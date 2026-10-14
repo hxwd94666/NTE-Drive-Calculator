@@ -4,7 +4,9 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
+from shiboken6 import isValid
 
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.domain.battle_report.replay.models import BattleHitReplayResult
@@ -16,9 +18,23 @@ class BattleReportHitLogUiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
+    def _retire_view(self, view: BattleLongAnalysisView) -> None:
+        # 未展示的页面 close 不会收起它 open 的独立窗口；只回收本例拥有的日志窗和页面。
+        dialog = view.log_dialog
+        try:
+            dialog.close()
+            self.assertFalse(dialog.isVisible())
+            self.assertIsNot(self.app.activeModalWidget(), dialog)
+        finally:
+            view.close()
+            view.deleteLater()
+            QCoreApplication.sendPostedEvents(view, QEvent.Type.DeferredDelete)
+        self.assertFalse(isValid(dialog))
+        self.assertFalse(isValid(view))
+
     def test_hit_log_requests_replay_then_opens_with_signed_error(self) -> None:
         view = BattleLongAnalysisView()
-        self.addCleanup(view.close)
+        self.addCleanup(self._retire_view, view)
         hit = BattleAnalysisHit(
             event_id="1:primary",
             sequence=1,

@@ -283,7 +283,9 @@ def test_root_switch_failure_restores_real_context_owner_and_discards_old_projec
     from src.app.context import AccountContext, AppContext, CallbackAccountLifecycle
     from src.features.inventory.equipment.display_controller import reset_equipment_account_state
     from src.features.settings.native_plugin_update_controller import NativePluginUpdateController
+    from src.services.work_modes.service import WorkModeService
     from src.ui.app import MainWindow
+    from src.ui.controllers.auto_sync_controller import AutoSyncController
 
     account, plans = database
     directory = account.database_path.parent
@@ -305,7 +307,14 @@ def test_root_switch_failure_restores_real_context_owner_and_discards_old_projec
         context=context, policy=None, session=None, loader=None, generation=lambda: context.generation,
         maintenance=SimpleNamespace(uncertain=False), parent=host)
     host._inventory_sync_service = None
-    host._maybe_auto_start_inventory_sync = lambda: None
+    # 本机偏好与账号库分别隔离；真实切换门禁参与回滚，离线模式不启动外部采集。
+    mode_path = directory / "local-config" / "work-mode.json"
+    host.work_mode_service = WorkModeService(mode_path)
+    host.work_mode_service.set_auto_sync_enabled(True)
+    host.auto_sync_controller = AutoSyncController(
+        window=host, policy=host.work_mode_service, request_check=lambda: None)
+    host._maybe_auto_start_inventory_sync = host.auto_sync_controller.refresh
+    host.auto_sync_controller.start()
     host._saved_equipment_states = {"old": {"_sqlite_plan_id": plans[0]}}
     host._equip_role_states = dict(host._saved_equipment_states)
     host.equip_role_strip, host.equip_content = QWidget(host), QWidget(host)
@@ -318,7 +327,10 @@ def test_root_switch_failure_restores_real_context_owner_and_discards_old_projec
         is_running=controller.is_running, stop=controller.stop,
         rebuild=lambda _account: controller.rebuild(), start=lambda: None))
 
+    lifecycle_failures = []
+
     def fail():
+        lifecycle_failures.append(True)
         raise RuntimeError("later lifecycle failed")
 
     context.register_account_lifecycle(CallbackAccountLifecycle(
@@ -326,24 +338,30 @@ def test_root_switch_failure_restores_real_context_owner_and_discards_old_projec
         rebuild=lambda current: fail() if advanced and current == new else None, start=lambda: None))
     context.subscribe_account_changed(lambda _event: host.reset_equipment_account_state())
     monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
-    assert MainWindow._switch_account(host, "new") is False
-    assert context.account == old
-    assert context.generation == (2 if advanced else 0)
-    if advanced:
-        assert host._saved_equipment_states == host._equip_role_states == {}
-        assert not host.equip_role_strip.isEnabled() and not host.equip_content.isEnabled()
-    else:
-        assert host._saved_equipment_states["old"]["_sqlite_plan_id"] == plans[0]
-    delivered, failed = [], []
-    assert controller.prepare(lambda snapshot, _operation: delivered.append(snapshot), failed.append)
-    spin(app, lambda: bool(delivered or failed) and not controller.is_running())
-    assert not failed and delivered[0].account.account_id == context.account.active_account_id
-    with UserDataDao(account.database_path) as dao:
-        assert dao.is_current_loadout_slot_plan(plans[0])
-        assert not dao.get_loadout_plan(plans[0])["allocation_locked"]
-    host.native_plugin_update_controller.begin_close()
-    controller.close()
-    host.deleteLater()
+    try:
+        assert MainWindow._switch_account(host, "new") is False
+        assert lifecycle_failures == [True]  # 两分支都必须抵达注入故障，而非提前缺依赖返回。
+        assert context.account == old
+        assert context.generation == (2 if advanced else 0)
+        assert host.work_mode_service.settings.auto_sync_enabled
+        assert WorkModeService(mode_path).settings.auto_sync_enabled
+        if advanced:
+            assert host._saved_equipment_states == host._equip_role_states == {}
+            assert not host.equip_role_strip.isEnabled() and not host.equip_content.isEnabled()
+        else:
+            assert host._saved_equipment_states["old"]["_sqlite_plan_id"] == plans[0]
+        delivered, failed = [], []
+        assert controller.prepare(lambda snapshot, _operation: delivered.append(snapshot), failed.append)
+        spin(app, lambda: bool(delivered or failed) and not controller.is_running())
+        assert not failed and delivered[0].account.account_id == context.account.active_account_id
+        with UserDataDao(account.database_path) as dao:
+            assert dao.is_current_loadout_slot_plan(plans[0])
+            assert not dao.get_loadout_plan(plans[0])["allocation_locked"]
+    finally:
+        host.auto_sync_controller.close()
+        host.native_plugin_update_controller.begin_close()
+        controller.close()
+        host.deleteLater()
 
 
 def test_account_reset_rebuilds_an_equal_equipment_projection(app):

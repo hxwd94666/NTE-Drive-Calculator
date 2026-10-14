@@ -9,6 +9,7 @@ from src.integrations.analysis_core_release import create_bundled_analysis_clien
 from src.integrations.native_allocation_wire import freeze
 from src.integrations.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError
 from src.models.equipment import Drive, Tape
+from src.optimizer.allocation_kernel import execute_with_soft_main_fallback
 
 
 def create_allocation_executor(*, static_database_path, cancel_check=None):
@@ -33,10 +34,16 @@ def create_allocation_executor(*, static_database_path, cancel_check=None):
                 raise CancelledError("分配计算已取消")
 
         checkpoint()
-        payload = freeze(request, scorer)
+        def allocate_once(frozen_request):
+            checkpoint()
+            plans = client.allocate(freeze(frozen_request, scorer), checkpoint=checkpoint)
+            result = restore(plans, frozen_request)
+            checkpoint()
+            return result
+
         try:
-            plans = client.allocate(payload, checkpoint=checkpoint)
-            result = restore(plans, request)
+            # 全部轮次仍走同一组件与冻结库存；共用内存内核只编排，不在Python重复评分。
+            result = execute_with_soft_main_fallback(request, allocate_once)
             for group in request.priority_groups:
                 selected = [result[role] for role in group if role in result]
                 if len(selected) < 2:

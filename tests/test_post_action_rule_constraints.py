@@ -1,5 +1,7 @@
-# 测试扫描后处理预留规则的约束校验。
+# 测试扫描后处理规则的范围、动作优先级和约束校验。
 import unittest
+from itertools import permutations
+from types import SimpleNamespace
 
 from src.domain.stat_catalog import StatCatalog
 from src.domain.post_actions import (
@@ -7,11 +9,31 @@ from src.domain.post_actions import (
     default_post_action_config,
     merge_post_action_config,
     validate_post_action_config,
+    build_state_changes,
+    target_state_for_item,
+    summarize_post_action_filtering,
 )
-from src.models.equipment import Drive
+from src.models.equipment import Drive, Tape
 
 
 class PostActionRuleConstraintTests(unittest.TestCase):
+    def test_processing_category_filters_execution_even_when_other_ranges_are_selected(self):
+        drive = Drive(uid="range-drive", quality="Gold", area=3, shape_id="H_3",
+                      main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={})
+        tape = Tape(uid="range-tape", quality="Gold", area=15, set_name="套装甲",
+                    main_stats="攻击力", sub_stats={})
+        scoring = SimpleNamespace(roles_db={"角色": {}}, get_grade_tag=lambda *_args: "S")
+        for module, target in (("discard", "discarded"), ("lock", "locked")):
+            config = default_post_action_config()
+            config[module].update(enabled=True, grade="S", shape_ids=["H_3"], set_names=["套装甲"])
+            for kind, chosen, excluded in (("drive", drive, tape), ("tape", tape, drive)):
+                config[module]["type_scope"] = kind
+                self.assertEqual(target, target_state_for_item(chosen, "normal", config, scoring))
+                self.assertEqual("normal", target_state_for_item(excluded, "normal", config, scoring))
+                summary = summarize_post_action_filtering([(1, drive, "normal"), (2, tape, "normal")], config)
+                self.assertEqual(1, summary["post_action_candidate_count"])
+                self.assertEqual(1, summary["post_action_type_filtered_count"])
+
     def test_selected_role_scope_is_persisted_inside_post_action_config(self):
         config = default_post_action_config()
         config["discard"]["enabled"] = True
@@ -19,11 +41,64 @@ class PostActionRuleConstraintTests(unittest.TestCase):
 
         self.assertIn("指定角色", validate_post_action_config(config))
 
+        # 旧文件没有模块内身份列表；只在迁移时把共享值分别复制到两侧。
+        for module in ("discard", "lock"):
+            config[module].pop("selected_character_ids", None)
         config["selected_character_ids"] = [1003, "1003", "bad", 1004]
         normalized = merge_post_action_config(config)
 
-        self.assertEqual([1003, 1004], normalized["selected_character_ids"])
+        self.assertNotIn("selected_character_ids", normalized)
+        self.assertEqual([1003, 1004], normalized["discard"]["selected_character_ids"])
+        self.assertEqual([1003, 1004], normalized["lock"]["selected_character_ids"])
         self.assertIsNone(validate_post_action_config(normalized))
+        normalized["lock"]["selected_character_ids"].clear()
+        normalized["lock"].update(enabled=True, role_scope="selected")
+        self.assertIn("锁定模块", validate_post_action_config(normalized))
+        self.assertEqual([1003, 1004], merge_post_action_config(normalized)["discard"]["selected_character_ids"])
+
+    def test_explicit_empty_module_selection_does_not_reuse_legacy_or_other_module(self):
+        normalized = merge_post_action_config({
+            "selected_character_ids": [1003],
+            "discard": {"selected_character_ids": [], "enabled": True, "role_scope": "selected"},
+            "lock": {"selected_character_ids": [1004]},
+        })
+        self.assertEqual([], normalized["discard"]["selected_character_ids"])
+        self.assertEqual([1004], normalized["lock"]["selected_character_ids"])
+        self.assertIn("弃置模块", validate_post_action_config(normalized))
+
+    def test_direct_discard_is_normalized_planned_and_order_independent(self):
+        item = Drive(uid="rule-drive", quality="Gold", area=3, shape_id="H_3",
+                     main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={"攻击力": 1.0})
+        scoring = SimpleNamespace(roles_db={})
+        rules = [{"name": action, "item_type": "drive", "action": action,
+                  "sub_stats": ["攻击力"], "sub_match": 1}
+                 for action in ("discard", "keep", "lock")]
+        config = default_post_action_config()
+        config["preserve_rules"] = rules[:1]
+        normalized = merge_post_action_config(config)
+        self.assertEqual("discard", normalized["preserve_rules"][0]["action"])
+        self.assertIsNone(validate_post_action_config(normalized))
+        changes = build_state_changes([(1, item, "normal")], normalized, scoring)
+        self.assertEqual(["discarded"], [change["target_state"] for change in changes])
+        self.assertEqual([], build_state_changes([(1, item, "discarded")], normalized, scoring))
+        self.assertEqual([], build_state_changes([(1, item, "locked")], normalized, scoring))
+        normalized["discard"]["on_locked"] = "normal"
+        self.assertEqual("discarded", target_state_for_item(item, "locked", normalized, scoring))
+        normalized["lock"].update(enabled=True, on_locked="normal")
+        scoring.roles_db = {"角色": {}}
+        scoring.get_grade_tag = lambda *_args: "D"
+        self.assertEqual("discarded", target_state_for_item(item, "locked", normalized, scoring))
+        normalized["discard"]["on_locked"] = "skip"
+        self.assertEqual("normal", target_state_for_item(item, "locked", normalized, scoring))
+        scoring.get_grade_tag = lambda *_args: "SSS"
+        self.assertEqual("locked", target_state_for_item(item, "normal", normalized, scoring))
+        # 自定义展示顺序不是 first-hit；直接锁定 > 直接弃置 > 仅保留。
+        for ordered in permutations(rules):
+            config["preserve_rules"] = list(ordered)
+            self.assertEqual("locked", target_state_for_item(item, "normal", config, scoring))
+        for ordered in permutations(rules[:2]):
+            config["preserve_rules"] = list(ordered)
+            self.assertEqual("discarded", target_state_for_item(item, "normal", config, scoring))
 
     def test_catalog_exposes_strict_main_and_sub_stat_pools(self):
         catalog = StatCatalog.from_config_dir("config")

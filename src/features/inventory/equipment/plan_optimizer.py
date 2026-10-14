@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
     QLabel,
+    QLayout,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -43,6 +45,7 @@ from src.optimizer.contracts import (
 
 
 from src.features.inventory.equipment.plan_display_state import _sqlite_inventory_item_display
+from src.ui.equipment_replacement_dialog import ReplacementCandidateLoader
 
 
 def _replacement_item_icon(asset_catalog, item_kind, item):
@@ -403,6 +406,9 @@ def _optimize_saved_equipment(
         if custom_main_weights is not None
         else role_cfg.get("main_weights")
     )
+    # 延后构卡也使用本次评分的冻结权重，不被其他页面随后修改的字典重解释。
+    weights = dict(weights)
+    main_weights = dict(main_weights) if isinstance(main_weights, dict) else None
     presentation = equipment_presentation(self)
     if item_kind == "drive":
         score = lambda item: float(
@@ -429,7 +435,7 @@ def _optimize_saved_equipment(
         ((None, score(candidate), candidate) for candidate in candidates),
         key=lambda row: row[1],
         reverse=True,
-    )[:30]
+    )
     if not ranked:
         QMessageBox.information(self, "优化替换", "当前快照中没有可替换的同类装备。")
         return
@@ -498,17 +504,29 @@ def _optimize_saved_equipment(
         )
     )
     layout.addWidget(current_group)
-    candidates_group = QGroupBox(f"可替换{'驱动' if item_kind == 'drive' else core_term} ({len(ranked)}个)")
+    context = getattr(self, "app_context", None)
+    generation = getattr(context, "generation", None)
+    def current_context():
+        return getattr(self, "app_context", None) is context and getattr(context, "generation", None) == generation
+
+    candidates_group = QGroupBox()
+    candidates_group.setObjectName("equipmentReplacementCandidateGroup")
+    candidates_group.setStyleSheet(themed_style("QGroupBox#equipmentReplacementCandidateGroup{margin-top:0;padding:8px}"))
     candidates_layout = QVBoxLayout(candidates_group)
     scroll = QScrollArea(candidates_group)
     scroll.setWidgetResizable(True)
     content = QWidget()
     content_layout = QVBoxLayout(content)
+    content_layout.setSizeConstraint(QLayout.SetMinimumSize)
     content_layout.setContentsMargins(0, 0, 0, 0)
     content_layout.setSpacing(8)
-    for candidate_margin, candidate_score, candidate in ranked:
+    def append_candidate(_index, row):
+        candidate_margin, candidate_score, candidate = row
 
         def apply_replacement(_checked=False, selected=candidate, selected_score=candidate_score):
+            if not current_context():
+                dialog.reject()
+                return
             try:
                 assignments = _replacement_assignments(plan, uid, selected)
                 # 显式替换标记新件为 CHANGE；完整 SQLite 差异在刷新后仍供按钮与弹窗读取。
@@ -619,7 +637,9 @@ def _optimize_saved_equipment(
             user_label = QLabel(f"使用者：{', '.join(used_by)}")
             user_label.setStyleSheet(themed_style("color:#ff9800;font-size:12px"))
             candidate_layout.addWidget(user_label)
-        content_layout.addWidget(candidate_card)
+        content_layout.insertWidget(_index, candidate_card)
+    loader = ReplacementCandidateLoader(dialog, candidates_layout, ranked, append_candidate,
+        is_current=current_context, title=f"可替换{'驱动' if item_kind == 'drive' else core_term}")
     content_layout.addStretch()
     scroll.setWidget(content)
     candidates_layout.addWidget(scroll)
@@ -627,4 +647,13 @@ def _optimize_saved_equipment(
     close = QPushButton("关闭")
     close.clicked.connect(dialog.accept)
     layout.addWidget(close)
-    dialog.exec()
+    monitor = QTimer(dialog)
+    monitor.setInterval(25)
+    monitor.timeout.connect(lambda: dialog.reject() if not current_context() else None)
+    monitor.start()
+    try:
+        dialog.exec()
+    finally:
+        monitor.stop()
+        loader.close()
+        dialog.deleteLater()

@@ -1,11 +1,13 @@
 # 管理首页自动背包同步的进程观察、异步收尾和重新同步请求。
 from __future__ import annotations
 
+from contextlib import contextmanager
 from threading import Thread
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QMessageBox
 
+from src.app.context import AccountSwitchError
 from src.integrations.game_process_watcher import GameProcessWatcher
 from src.ui.controllers.sync_recovery import SyncRecovery
 
@@ -26,6 +28,7 @@ class AutoSyncController(QObject):
         self._submit_stop = submit_stop or self._background
         self._closed = False
         self._maintenance = False
+        self._account_switching = False
         self._started = False
         self._key = None
         self._watcher = None
@@ -95,6 +98,35 @@ class AutoSyncController(QObject):
         self._timer.start()
         self.refresh()
 
+    @contextmanager
+    def account_switch(self):
+        """切换期间封住自动重入，正式账号提交后才关闭本机同步偏好。"""
+        previous = self._context()[:2]
+        self._account_switching = True
+        self._stop_watcher()
+        recoverable = True
+        try:
+            yield
+        except AccountSwitchError as error:
+            recoverable = not error.recovery_failed
+            raise
+        finally:
+            try:
+                if self._context()[0] != previous[0]:
+                    # 此时旧 owner 已物理退场且索引已提交；落盘失败仍保持内存关闭。
+                    try:
+                        self.policy.set_auto_sync_enabled(False)
+                    except OSError:
+                        QMessageBox.warning(self.window, "自动同步设置待保存",
+                            "账号已切换，本次自动同步已关闭；设置保存失败，请检查配置目录后重试。")
+                if self._context()[:2] != previous:
+                    # 旧 owner 的收尾归 AppContext；首次刷新不停止新账号的手动会话。
+                    self._key = None
+            finally:
+                self._account_switching = False
+            if recoverable:
+                self.refresh()
+
     def observe_probe(self, probe):
         self._probe = probe
         self._probe_context = self._context()
@@ -155,11 +187,12 @@ class AutoSyncController(QObject):
         self.refresh()
 
     def set_enabled(self, enabled):
-        if self._closed:
+        if self._closed or self._account_switching:
             return
         if enabled and (not self.policy.settings.auto_sync_enabled or self.policy.settings.paused) and self._request_enable_preflight:
             self.render()  # 用户确认前仍显示已保存的关闭状态。
-            self._request_enable_preflight(self._confirm_enable)
+            frozen = self._context()[:2]
+            self._request_enable_preflight(lambda: self._confirm_enable(frozen))
             return
         if enabled and not (self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")):
             self.window.operation_entry("game_sync", "自动同步")
@@ -179,8 +212,11 @@ class AutoSyncController(QObject):
         if self.policy.settings.auto_sync_enabled:
             self._request_check()
 
-    def _confirm_enable(self) -> bool:
-        if self._closed or (self.policy.settings.auto_sync_enabled and not self.policy.settings.paused):
+    def _confirm_enable(self, frozen) -> bool:
+        # 确认仅属于发起账号及代次；回滚同一账号也不会复活旧弹窗许可。
+        if self._closed or self._account_switching or frozen != self._context()[:2]:
+            return False
+        if self.policy.settings.auto_sync_enabled and not self.policy.settings.paused:
             return False
         if not (self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")):
             self.render()
@@ -196,7 +232,7 @@ class AutoSyncController(QObject):
         return True
 
     def refresh(self):
-        if self._closed or not self._started:
+        if self._closed or not self._started or self._account_switching:
             return
         if self._maintenance:
             self.render()
@@ -327,7 +363,7 @@ class AutoSyncController(QObject):
         dialog.deleteLater()
 
     def restart(self):
-        if self._closed or self._maintenance or self.window.battle_report_controller.is_running():
+        if self._closed or self._maintenance or self._account_switching or self.window.battle_report_controller.is_running():
             return
         capability = "native_sync" if self.policy.allowed("native_sync") else "packet_capture"
         if not self.policy.allowed(capability, automatic=True):

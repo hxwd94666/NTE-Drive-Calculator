@@ -76,18 +76,17 @@ class JsonStoreTests(unittest.TestCase):
                 with self.assertRaises(PermissionError):
                     read_json(path, default)
 
-    def test_scanning_consumers_keep_explicit_paths_and_propagate_failed_save(self):
-        from src.features.scanning import post_action_dialog, preserve_rule_editor
-        for consumer in (post_action_dialog, preserve_rule_editor):
-            with self.subTest(consumer=consumer.__name__), tempfile.TemporaryDirectory() as directory:
-                a, b = (Path(directory) / name for name in ("a", "b"))
-                consumer.save_scan_post_action_config(a, {})
-                path = consumer.scan_post_action_config_path(a)
-                old = path.read_bytes()
-                consumer.save_scan_post_action_config(b, {})
-                with patch("os.replace", side_effect=OSError("replace denied")):
-                    with self.assertRaises(OSError):
-                        consumer.save_scan_post_action_config(a, {})
-                self.assertEqual(old, path.read_bytes())
-                self.assertEqual(read_json(path), read_json(consumer.scan_post_action_config_path(b)))
-                self.assertEqual([path], list(a.iterdir()))
+    def test_scanning_config_keeps_explicit_paths_and_propagates_failed_save(self):
+        from src.features.scanning import post_action_dialog as consumer
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = (Path(directory) / name for name in ("a", "b"))
+            consumer.save_scan_post_action_config(a, {})
+            path = consumer.scan_post_action_config_path(a)
+            old = path.read_bytes()
+            consumer.save_scan_post_action_config(b, {})
+            with patch("os.replace", side_effect=OSError("replace denied")):
+                with self.assertRaises(OSError):
+                    consumer.save_scan_post_action_config(a, {})
+            self.assertEqual(old, path.read_bytes())
+            self.assertEqual(read_json(path), read_json(consumer.scan_post_action_config_path(b)))
+            self.assertEqual([path], list(a.iterdir()))

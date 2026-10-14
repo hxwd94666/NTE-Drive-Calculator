@@ -12,6 +12,128 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 class RoleSelectorPreferenceTests(unittest.TestCase):
+    def test_soft_main_filter_is_first_option_and_round_trips_without_substat_selection(self) -> None:
+        from PySide6.QtWidgets import QApplication, QDialog, QCheckBox
+        from src.features.allocation.role_selector import RoleSelector
+
+        app = QApplication.instance() or QApplication([])
+        selector = RoleSelector()
+        selector.load_roles({"A": {}}, [], tape_main_stats=["攻击力%"])
+        selector.selected = ["A"]
+        try:
+            def choose(dialog):
+                switches = dialog.findChildren(QCheckBox)
+                self.assertEqual(["取消主词条硬过滤", "副词条优先级一致", "黑名单为零权重",
+                                  "选取不设置等级门槛"], [switch.text() for switch in switches])
+                from PySide6.QtCore import QPoint
+                from PySide6.QtWidgets import QLabel
+                dialog.show(); app.processEvents()
+                first_y = switches[0].mapTo(dialog, QPoint()).y()
+                self.assertEqual(first_y, switches[2].mapTo(dialog, QPoint()).y())
+                self.assertGreater(switches[3].mapTo(dialog, QPoint()).y(), first_y)
+                grade_label = next(label for label in dialog.findChildren(QLabel) if label.text() == "最低等级门槛")
+                row_gap = grade_label.mapTo(dialog, QPoint()).x()-switches[3].mapTo(dialog, QPoint()).x()-switches[3].width()
+                self.assertGreaterEqual(row_gap, switches[3].fontMetrics().horizontalAdvance("\u3000\u3000"))
+                initial_left = grade_label.mapTo(dialog, QPoint()).x()
+                dialog.resize(dialog.width()+80, dialog.height())
+                app.processEvents()
+                # 拉宽窗口只扩展行尾留白，等级不能脱离左侧的选项块向右漂移。
+                self.assertEqual(initial_left, grade_label.mapTo(dialog, QPoint()).x())
+                switches[0].setChecked(True)
+                return QDialog.Accepted
+            with patch.object(QDialog, "exec", choose):
+                selector._manage_role_preferences("A")
+            self.assertTrue(selector.get_crit_priority_modes()["A"]["soft_main_filter"])
+            self.assertEqual([], selector.get_crit_priority_modes()["A"]["stats"])
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "priority.json"
+                selector._write_priority_config(path)
+                restored = RoleSelector()
+                try:
+                    restored.load_roles({"A": {}}, [], tape_main_stats=["攻击力%"])
+                    restored._load_priority_config_from(path)
+                    self.assertTrue(restored.get_crit_priority_modes()["A"]["soft_main_filter"])
+                finally:
+                    restored.close(); restored.deleteLater()
+        finally:
+            selector.close(); selector.deleteLater(); app.sendPostedEvents()
+
+    def test_stat_help_explains_three_inputs_before_the_five_options(self) -> None:
+        from src.features.allocation.role_selector_help import STAT_PRIORITY_HELP
+
+        first_option = STAT_PRIORITY_HELP.index("取消主词条硬过滤")
+        for label in ("卡带主词条", "卡带/驱动副词条", "副词条黑名单"):
+            self.assertLess(STAT_PRIORITY_HELP.index(label), first_option)
+        option_names = ("取消主词条硬过滤", "副词条优先级一致", "黑名单为零权重",
+                        "选取不设置等级门槛", "最低等级门槛")
+        positions = [STAT_PRIORITY_HELP.index(name) for name in option_names]
+        self.assertEqual(sorted(positions), positions)
+        self.assertIn("暴击率% > 暴击伤害%", STAT_PRIORITY_HELP)
+        self.assertIn("最终按评分", STAT_PRIORITY_HELP)
+
+    def test_long_stat_summaries_remain_accessible_and_save_full_order_in_limited_windows(self) -> None:
+        from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect
+        from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QScrollArea, QPushButton
+        from src.features.allocation.role_selector import RoleSelector
+        from src.app.theme import current_style_sheet
+        from src.ui.widgets import SearchableComboBox
+
+        app = QApplication.instance() or QApplication([])
+        main = ["生命值%", "攻击力%", "防御力%", "暴击率%", "暴击伤害%", "环合强度", "倾陷强度", "治疗加成",
+                *[f"{element}属性异能伤害增强%" for element in ("光", "灵", "咒", "暗", "魂", "相")], "心灵伤害增强%"]
+        sub = ["暴击率%", "暴击伤害%", "伤害增加%", "攻击力%", "攻击力", "防御力", "防御力%",
+               "生命值%", "生命值", "环合强度", "倾陷强度"]
+        for available in (QRect(0, 0, 1280, 1024), QRect(0, 0, 800, 480)):
+            with self.subTest(work_area=(available.width(), available.height())):
+                selector = RoleSelector(style_sheet=current_style_sheet())
+                selector.load_roles({"A": {}}, [], tape_main_stats=main, drive_sub_stats=sub)
+                selector.selected = ["A"]
+                selector._set_tape_main_filter("A", main)
+                selector._set_stat_priority_config("A", sub, sub, False, False, "A")
+                created = []
+                def choose(dialog):
+                    created.append(dialog)
+                    dialog.show(); app.processEvents()
+                    scrolls = dialog.findChildren(QScrollArea)
+                    self.assertEqual(1, len(scrolls))  # 三份名单共用外层滚动，不能各自截断成独立小视口。
+                    scroll = scrolls[0]
+                    summaries = [label for label in dialog.findChildren(QLabel)
+                                 if label.toolTip() in ("、".join(main), " > ".join(sub), "、".join(sub))]
+                    self.assertEqual(3, len(summaries))
+                    main_row = summaries[0].parentWidget()
+                    main_row.findChild(QPushButton, "btnDanger").click()
+                    self.assertEqual("未选择", summaries[0].text())
+                    combo = main_row.findChild(SearchableComboBox)
+                    for value in main:
+                        combo.setCurrentText(value)
+                        main_row.findChild(QPushButton, "btnAction").click()
+                    QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+                    app.processEvents()
+                    self.assertEqual("、".join(main), summaries[0].text())
+                    for label in summaries:
+                        self.assertGreaterEqual(label.height(), label.heightForWidth(label.width()))
+                        scroll.ensureWidgetVisible(label); app.processEvents()
+                        self.assertTrue(scroll.viewport().rect().contains(
+                            label.rect().translated(label.mapTo(scroll.viewport(), QPoint()))))
+                    footer = dialog.findChild(QDialogButtonBox)
+                    self.assertFalse(scroll.isAncestorOf(footer))
+                    for button in footer.buttons():
+                        self.assertTrue(dialog.rect().contains(button.rect().translated(button.mapTo(dialog, QPoint()))))
+                    self.assertTrue(available.contains(dialog.geometry()))
+                    footer.button(QDialogButtonBox.Ok).click()
+                    return dialog.result()
+                try:
+                    with patch("src.app.window_geometry._available_geometry", return_value=available), patch.object(QDialog, "exec", choose):
+                        selector._manage_role_preferences("A")
+                    self.assertEqual(main, selector.get_tape_main_filters()["A"])
+                    self.assertEqual(sub, selector.get_crit_priority_modes()["A"]["stats"])
+                    self.assertEqual(sub, selector.get_crit_priority_modes()["A"]["blacklist"])
+                finally:
+                    for dialog in created:
+                        dialog.close(); dialog.deleteLater()
+                    selector.close(); selector.deleteLater()
+                    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_latest_manual_or_weapon_action_owns_the_single_crit_cap(self) -> None:
         from PySide6.QtWidgets import QApplication
 

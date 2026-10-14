@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
+from decimal import Decimal, ROUND_CEILING
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -47,6 +48,13 @@ def all_rewind_shape_candidates() -> tuple[RewindShapeRecommendation, ...]:
             key=lambda item: warehouse_shape_order(item[0]),
         )
     )
+
+
+def _format_quality_gap(value: float) -> str:
+    """仅展示缺分向上保留两位小数，原始分数与保存值保持不变。"""
+    # 按十进制文本取整，避免乘以 100 的浮点误差把整百分位再次抬高。
+    rounded = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+    return f"{rounded:.2f}"
 
 
 class RewindSlotUiMixin:
@@ -166,7 +174,7 @@ class RewindSlotUiMixin:
                 quantity = sum(slot.shape.shape_id == recommendation.shape.shape_id for slot in filled)
                 probability = self._editable_pricing_rule.probability_for_quantity(quantity)
                 probability_label = QLabel(
-                    f"缺分 {recommendation.quality_gap:g} · "
+                    f"缺分 {_format_quality_gap(recommendation.quality_gap)} · "
                     f"库存 {recommendation.owned_count} · 概率 {probability:.0%}"
                 )
                 probability_label.setObjectName("rewindShapeMetrics")
@@ -254,7 +262,7 @@ class RewindSlotUiMixin:
             )
             probability = self._editable_pricing_rule.probability_for_quantity(quantity)
             label.setText(
-                f"缺分 {recommendation.quality_gap:g} · "
+                f"缺分 {_format_quality_gap(recommendation.quality_gap)} · "
                 f"库存 {recommendation.owned_count} · 概率 {probability:.0%}"
             )
 

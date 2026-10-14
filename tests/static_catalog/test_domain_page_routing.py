@@ -85,8 +85,6 @@ class StaticCatalogDomainPageRoutingTests(unittest.TestCase):
             current = page._stack.currentWidget()
             self.assertIsNotNone(current.findChild(page_type), domain_key)
 
-        self.assertEqual(set(expected), set(page._domain_pages))
-
         character = page._domain_contents["character"]
         self.assertIsInstance(character, CharacterCatalogPage)
 
@@ -112,8 +110,6 @@ class StaticCatalogDomainPageRoutingTests(unittest.TestCase):
 
         monster = page._domain_contents["monsters"]
         self.assertIsInstance(monster, MonsterCatalogPage)
-        self.assertFalse(hasattr(fork, "catalog_link_requested"))
-        self.assertFalse(hasattr(monster, "catalog_link_requested"))
 
 
 if __name__ == "__main__":

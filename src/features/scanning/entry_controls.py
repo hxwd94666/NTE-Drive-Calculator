@@ -13,7 +13,8 @@ def open_scan_post_action_manager(self):
             action_text="前往",
         ):
             self.navigate("warehouse")
-        return
+            return  # 接受建议只导航，不同时打开扫描管理。
+        # 取消/关闭仅拒绝导航建议，继续原管理入口；不改变执行阶段的权限与取消门禁。
     dependencies = _current_scanning_dependencies(self)
     show_scan_post_action_dialog(
         self.dialog_parent,

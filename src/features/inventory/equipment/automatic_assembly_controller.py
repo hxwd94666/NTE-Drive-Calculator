@@ -424,8 +424,15 @@ def _confirm_automatic_assembly_recommendation(window: Any) -> bool:
     policy = getattr(window, "work_mode_service", None)
     if policy is None or policy.settings.mode != WorkMode.MEDIUM:
         return True
-    return confirm_operation_recommendation(
+    navigate = confirm_operation_recommendation(
         window, title="自动装配提示",
-        message="当前已是中风险工作模式，强烈建议使用极速装配！是否继续？",
-        action_text="继续",
+        message="当前为中风险工作模式，建议使用极速装配。是否前往仓库？\n"
+                "取消此建议后，仍需确认普通自动装配操作。",
+        action_text="前往仓库",
     )
+    if not navigate:
+        return True  # 取消、关闭或 Esc 只拒绝建议；后续权限与执行确认仍照常复核。
+    go_to_page = getattr(window, "_go", None)
+    if callable(go_to_page):
+        go_to_page("warehouse")
+    return False  # 前往只导航，不授权或派发本次普通/极速装配。

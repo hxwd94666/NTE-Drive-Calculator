@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from time import perf_counter
+from typing import Any, Callable, Mapping, Sequence
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QObject, QSize, Qt, QTimer
 from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QDialog,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QLayout,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -41,6 +43,100 @@ REPLACEMENT_DIALOG_WIDTH = (
     + REPLACEMENT_DIALOG_CHROME_WIDTH
 )
 REPLACEMENT_DIALOG_HEIGHT = 920
+
+
+class ReplacementCandidateLoader(QObject):
+    """首批最多三十件，展开只消费已冻结池；后续卡片在有界 Qt 轮次构建。"""
+
+    def __init__(self, dialog, layout, candidates, append_candidate, *, is_current=lambda: True,
+                 title="候选装备"):
+        super().__init__(dialog)
+        self._dialog, self._candidates = dialog, tuple(candidates)
+        self._append, self._is_current, self._title = append_candidate, is_current, title
+        self._loaded, self._limit = 0, min(30, len(self._candidates))
+        self._closed, self._paused = False, False
+        header = QHBoxLayout()
+        self.count_label = QLabel(f"{title} ({self._limit}个)")
+        self.count_label.setObjectName("equipmentReplacementCandidateCount")
+        header.addWidget(self.count_label)
+        self.all_button = QPushButton("全部候选")
+        self.all_button.setObjectName("equipmentReplacementAllCandidates")
+        self.all_button.setToolTip("展开本次快照中已筛选、已排序的全部候选；不改变筛选与评分口径。")
+        self.all_button.setEnabled(self._limit < len(self._candidates))
+        self.all_button.clicked.connect(self.show_all)
+        header.addWidget(self.all_button)
+        self.progress = QLabel()
+        header.addWidget(self.progress)
+        header.addStretch()
+        layout.addLayout(header)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._batch)
+        dialog.finished.connect(self.close)
+        # 首批保持原来可立即比较的三十件；不在“全部”按钮点击前转换剩余 DTO 或构卡。
+        while self._loaded < self._limit:
+            self._append(self._loaded, self._candidates[self._loaded])
+            self._loaded += 1
+        self.progress.hide()
+
+    def show_all(self):
+        if self._closed or self._paused or self._limit == len(self._candidates):
+            return
+        if not self._is_current():
+            self._dialog.reject()
+            return
+        self._limit = len(self._candidates)
+        self.count_label.setText(f"{self._title} ({self._limit}个)")
+        self.all_button.setEnabled(False)
+        self._schedule()
+
+    def _schedule(self):
+        if not self._closed and not self._paused and self._loaded < self._limit:
+            self.progress.setText(f"正在载入 {self._loaded}/{self._limit}")
+            self.progress.show()
+            self._timer.start(0)
+        elif self._loaded == self._limit:
+            self.progress.hide()
+
+    def _batch(self):
+        if self._closed or self._paused:
+            return
+        if not isValid(self._dialog) or not self._dialog.isVisible():
+            self.close()
+            return
+        if not self._is_current():
+            self._dialog.reject()
+            return
+        started, count = perf_counter(), 0
+        try:
+            while self._loaded < self._limit and count < 4:
+                # 每次追加前检查代次/取消；慢机器上单轮最多四卡且十二毫秒后交还事件循环。
+                if self._closed or not self._is_current():
+                    self._dialog.reject()
+                    return
+                self._append(self._loaded, self._candidates[self._loaded])
+                self._loaded += 1
+                count += 1
+                if perf_counter()-started >= .012:
+                    break
+        except Exception as exc:
+            self._timer.stop()
+            self.progress.setText("候选加载失败，请关闭后重试。")
+            QMessageBox.warning(self._dialog, "候选加载失败", str(exc))
+            return
+        self._schedule()
+
+    def set_paused(self, paused):
+        self._paused = bool(paused)
+        self._timer.stop()
+        self.all_button.setEnabled(not self._closed and not self._paused and self._limit < len(self._candidates))
+        if not self._paused:
+            self._schedule()
+
+    def close(self, *_args):
+        self._closed = True
+        self._timer.stop()
+        self._append = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +214,8 @@ def show_equipment_replacement_dialog(
     role_name: str,
     summary: str,
     current: EquipmentReplacementCard,
-    candidates: list[EquipmentReplacementCard],
+    candidates: Sequence[Any],
+    candidate_adapter: Callable[[Any], EquipmentReplacementCard] | None = None,
     on_confirm: Callable[[EquipmentReplacementCard], None] | None = None,
     submit_confirm=None, is_current: Callable[[], bool] = lambda: True,
     cancel_pending: Callable[[], None] = lambda: None,
@@ -220,9 +317,10 @@ def show_equipment_replacement_dialog(
     comparison_scroll.setWidget(comparison_group)
     root.addWidget(comparison_scroll)
 
-    candidate_group = QGroupBox(f"候选装备 ({len(candidates)}个)")
+    candidate_group = QGroupBox()
     candidate_group.setObjectName("equipmentReplacementCandidateGroup")
     candidate_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+    candidate_group.setStyleSheet(themed_style("QGroupBox#equipmentReplacementCandidateGroup{margin-top:0;padding:8px}"))
     # The card list owns its own scrollbar, so it may yield vertical space to
     # the comparison and bottom action row on scaled notebook screens.
     candidate_group.setMinimumHeight(
@@ -233,6 +331,8 @@ def show_equipment_replacement_dialog(
     scroll.setWidgetResizable(True)
     content = QWidget()
     grid = QGridLayout(content)
+    # 追加候选后同步推进内容最小高度，滚动区域不能停留在首批三十件的尺寸。
+    grid.setSizeConstraint(QLayout.SetMinimumSize)
     grid.setContentsMargins(0, 0, 0, 0)
     grid.setHorizontalSpacing(REPLACEMENT_CANDIDATE_GAP)
     grid.setVerticalSpacing(10)
@@ -312,7 +412,8 @@ def show_equipment_replacement_dialog(
             // (WarehouseResultCard.CARD_SIZE.width() + REPLACEMENT_CANDIDATE_GAP),
         ),
     )
-    for index, choice in enumerate(candidates):
+    def append_candidate(index, raw_choice):
+        choice = candidate_adapter(raw_choice) if candidate_adapter is not None else raw_choice
         card = WarehouseResultCard(
             choice.item_view,
             score=choice.score,
@@ -330,6 +431,7 @@ def show_equipment_replacement_dialog(
             index % candidate_columns,
             Qt.AlignLeft | Qt.AlignTop,
         )
+    loader = ReplacementCandidateLoader(dialog, candidate_layout, candidates, append_candidate, is_current=is_current)
     grid.setColumnStretch(candidate_columns, 1)
     scroll.setWidget(content)
     candidate_layout.addWidget(scroll)
@@ -358,6 +460,7 @@ def show_equipment_replacement_dialog(
         if not active():
             return
         submitting[0] = False
+        loader.set_paused(False)
         confirm.setEnabled(True)
         confirm.setText("确定替换")
         QMessageBox.warning(dialog, "替换失败", str(error))
@@ -373,6 +476,7 @@ def show_equipment_replacement_dialog(
             return
         if submit_confirm is not None:
             submitting[0] = True
+            loader.set_paused(True)
             confirm.setEnabled(False)
             confirm.setText("正在保存…")
             try:
@@ -400,7 +504,9 @@ def show_equipment_replacement_dialog(
     confirm.clicked.connect(commit)
     fit_dialog_to_available_screen(dialog, fitted_size)
     monitor.start()
-    accepted = dialog.exec() == QDialog.Accepted
-    monitor.stop()
-    dialog.deleteLater()
-    return accepted
+    try:
+        return dialog.exec() == QDialog.Accepted
+    finally:
+        monitor.stop()
+        loader.close()
+        dialog.deleteLater()

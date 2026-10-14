@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QToolButton,
@@ -277,6 +278,17 @@ def update_equipment_role_status(
             str(state.get("_display_name") or role_name),
             state,
         )
+    content = getattr(window, "equip_content", None)
+    if (isinstance(state, dict) and state.get("_game_mode") and content is not None
+            and "_game_imported" in changes):
+        # 仅改当前详情中相同正式角色的导入动作，不重建详情或覆盖其他角色选择。
+        for import_button in content.findChildren(QPushButton):
+            if import_button.property("gameImportRole") == role_name:
+                import_button.setText("已导入" if state.get("_game_imported") else "导入")
+                import_button.setEnabled(bool(state.get("_game_importable")) and not bool(
+                    state.get("_game_imported") or state.get("_game_existing_plan_locked")))
+                if state.get("_game_imported"):
+                    import_button.setToolTip("")
 
 
 def capture_equipment_navigation_state(window: Any) -> None:
