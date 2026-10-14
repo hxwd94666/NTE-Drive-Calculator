@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.app.workers import FullVisualScanParseWorkerThread
 from src.features.scanning.hotkey_actions import on_hotkey_stop
-from src.integrations.vision.recognition import backend_runtime
+from src.integrations.vision.recognition.ocr import backend_runtime
 from tests.vision.test_ocr_runtime import model_fixture
 from src.features.scanning.vision_worker import VisionWorkerThread
 from src.integrations.vision.recognition import identification_parser, screenshot_parser

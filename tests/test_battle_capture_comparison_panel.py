@@ -5,11 +5,10 @@ import unittest
 
 from PySide6.QtWidgets import QApplication
 
-from src.domain.battle_capture_comparison import BattleCaptureComparisonState
-from src.domain.battle_report import (
-    BattleAbyssSummary, BattleCaptureState, BattleQualitySummary, BattleSummary,
-)
-from src.features.battle_report.comparison_panel import BattleCaptureComparisonPanel
+from src.domain.battle_report.capture.state import BattleCaptureComparisonState
+from src.domain.battle_report.capture.summary import BattleAbyssSummary, BattleQualitySummary, BattleSummary
+from src.domain.battle_report.capture.state import BattleCaptureState
+from src.features.battle_report.capture.comparison_panel import BattleCaptureComparisonPanel
 from src.features.battle_report.page import BattleReportPage
 
 

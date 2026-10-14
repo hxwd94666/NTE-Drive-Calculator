@@ -1,7 +1,7 @@
 # 已审计觉醒目录与逐击门禁共用显式选择判定，不把条件属性提升为常驻面板。
 from __future__ import annotations
 from typing import Any, Mapping
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from dataclasses import dataclass
 
 

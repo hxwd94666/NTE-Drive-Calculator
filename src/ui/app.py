@@ -10,6 +10,7 @@ from typing import Optional
 
 from src.app.context import (
     AccountChangedEvent,
+    AccountSwitchError,
     CallbackAccountLifecycle,
 )
 from src.ui.controllers.workshop_refresh_controller import WorkshopRefreshController
@@ -37,6 +38,7 @@ from src.ui.qt_log_sink import QtLogSink
 
 from src.features.accounts.manager import populate_account_combo, show_account_manager_dialog
 from src.features.settings.page import refresh_account_scoped_settings
+from src.features.settings.updates.controller import CalcUpdateController
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.services.components.loader_service import ModPluginLoadingService
 from src.ui.work_mode_composition import (
@@ -152,7 +154,6 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._application_log_context = OperationContext.create(
             "application",
         )
-        self._account_switch_operation = None
         self._account_context_unsubscribe = self.app_context.subscribe_account_changed(
             self._on_app_context_account_changed
         )
@@ -336,11 +337,21 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             parent=self,
             on_help=self._show_group_chat_notice,
         )
-        self._update_config = self._load_update_config()
+        self.calc_update_controller = CalcUpdateController(
+            identity_provider=lambda: (self.app_context.account.active_account_id, self.app_context.generation),
+            load_settings=lambda: self.app_context.account_settings.load("update"),
+            save_settings=lambda values: self.app_context.account_settings.save("update", values),
+            style_sheet=self._current_style_sheet, show_group=self._show_group_chat_notice,
+            show_netdisk=self._show_netdisk_download_dialog, request_close=self.close, parent=self,
+        )
+        # rebuild 早于账号变更通知；回调直接读取新上下文，不借旧账号 settings 缓存。
+        self._unregister_calc_updates = self.app_context.register_account_lifecycle(CallbackAccountLifecycle(
+            is_running=lambda: False, stop=self.calc_update_controller.stop_for_account,
+            rebuild=lambda _account: self.calc_update_controller.rebuild_account(), start=lambda: None,
+        ))
         self._ui_preferences = self._load_ui_preferences()
         migrate_legacy_component_facts(self)
         self._apply_theme_preference()
-        self._update_check_manual = True
 
         self.log_signal.connect(self._on_log)
         self.inventory_sync_state_signal.connect(self._on_inventory_sync_state)
@@ -375,7 +386,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._on_log("系统就绪")
         self.onboarding_guide.maybe_show()
         self.work_mode_controller.start_upgrade_guidance()
-        self._maybe_check_updates_on_startup()
+        self.calc_update_controller.startup()
 
     def _load_static_catalog_inventory(self):
         """Freeze the current account projection for the equipment archive."""
@@ -467,6 +478,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.scanning_controller.begin_close()
         self.workshop_refresh_controller.close()
         self.native_plugin_update_controller.begin_close()
+        self.calc_update_controller.begin_close()
         from src.app.page_tasks import close_page_tasks
         self._ui_latency_timer.stop()
         self.dashboard_controller.close()
@@ -482,7 +494,8 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 owner.close()
         if (close_page_tasks(self) or self.workshop_refresh_controller.is_running()
                 or self.scanning_controller.is_running()
-                or self.native_plugin_update_controller.is_running()):
+                or self.native_plugin_update_controller.is_running()
+                or self.calc_update_controller.is_running()):
             e.ignore()
             QTimer.singleShot(25, self.close)
             return
@@ -521,6 +534,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self._account_context_unsubscribe()
         self._unregister_page_tasks()
         self._unregister_toolbox_lifecycle()
+        self._unregister_calc_updates()
         self._unregister_warehouse_reads()
         self._unregister_equipment_persistence()
         log_event(
@@ -607,7 +621,6 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             account_id=self.app_context.account.active_account_id,
             context_generation=self.app_context.generation,
         )
-        self._account_switch_operation = operation
         log_event(
             "INFO",
             "account.switch_started",
@@ -615,18 +628,18 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             operation,
             target_account_id=account_id,
         )
-        if self._equipment_assembly_is_running():
+        if self._equipment_assembly_is_running() or self.toolbox_page.is_rewind_running():
             QMessageBox.information(
                 self,
-                "装配任务运行中",
-                "当前装配任务仍在使用本账号的数据和游戏状态。请等待任务结束，或在自动装配中按 F12 停止后再切换账号。",
+                "输入任务运行中",
+                "装配或倒带仍在使用本账号的数据和游戏状态。请停止任务并等待收尾，再切换账号。",
             )
             log_event(
                 "WARNING",
                 "account.switch_blocked",
-                "装配任务运行期间阻止账号切换",
+                "装配或倒带运行及收尾期间阻止账号切换",
                 operation,
-                reason="equipment_assembly_running",
+                reason="equipment_input_running",
             )
             return False
         if (
@@ -683,31 +696,38 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.equipment_persistence_controller.rebuild()
         try:
             target_account = self._account_manager.activate(account_id)
-            event = self.app_context.switch_account(target_account)
+            self.app_context.switch_account(
+                target_account, publish=lambda: self._account_manager.set_active_account_id(account_id),
+            )
         except Exception as exc:
-            if self.app_context.account.active_account_id == account_id:
-                self.reset_equipment_account_state()  # 已推进时先清除旧账号按钮/读取，再恢复入场。
+            if isinstance(exc, AccountSwitchError) and exc.recovery_failed:
+                # 回滚 owner/页面仍有故障时停止自动监听并冻结交互，不在混合投影上继续操作。
+                try:
+                    self.work_mode_service.set_paused(True)  # 先撤权；配置落盘失败仍保持本次内存暂停。
+                except Exception:
+                    logger.error("账号恢复受阻，安全暂停配置保存失败；本次权限仍已撤销")
+                try:
+                    self.auto_sync_controller.close()
+                except Exception:
+                    logger.error("账号恢复受阻，自动监听仍在退场；新的副作用权限已撤销")
+                self.setEnabled(False)
+                QMessageBox.warning(self, "账号恢复待完成", str(exc))
+                return exc.committed
             if not self.equipment_persistence_controller.is_running():
                 self.equipment_persistence_controller.rebuild()
-            if self.app_context.account.active_account_id != account_id:
-                QMessageBox.warning(self, "账号切换未完成", str(exc))
-                return False
-            QMessageBox.warning(self, "账号已切换，但页面刷新未完成", str(exc))
-        try:
-            self._account_manager.set_active_account_id(account_id)
-        except Exception as exc:
-            # 当前上下文已推进，不能返回False诱使管理器删除这个活动账号。
-            QMessageBox.warning(self, "账号索引尚未保存", "当前账号已切换；请重试保存账号索引。" + str(exc))
+            committed = isinstance(exc, AccountSwitchError) and exc.committed
+            QMessageBox.warning(self, "账号自动服务待恢复" if committed else "账号切换未完成", str(exc))
+            return committed
+        log_event("INFO", "account.switch_succeeded", "账号切换完成", operation,
+                  target_account_id=account_id, new_context_generation=self.app_context.generation)
         if not (self._inventory_sync_service and self._inventory_sync_service.is_running):
-            self._maybe_auto_start_inventory_sync()
+            try:
+                self._maybe_auto_start_inventory_sync()
+            except Exception as exc:
+                QMessageBox.warning(self, "账号自动服务待恢复", str(exc))
         return True
 
     def _on_app_context_account_changed(self, event: AccountChangedEvent):
-        operation = self._account_switch_operation or OperationContext.create(
-            "account",
-            account_id=event.previous.active_account_id,
-            context_generation=max(0, event.generation - 1),
-        )
         if self._log_enabled:
             disable_session_log(
                 reason="account_switch",
@@ -729,7 +749,6 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             stop_hotkey=self._hk_stop,
             battle_rerecord_hotkey=self._hk_battle_rerecord,
         )
-        self._update_config = self._load_update_config()
         self._ui_preferences = self._load_ui_preferences()
         self._toggle_log(
             bool(self._ui_preferences["log_enabled"]),
@@ -749,15 +768,6 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         if hasattr(self, "_ss_info"):
             self._refresh_ss()
         self._refresh_home()
-        log_event(
-            "INFO",
-            "account.switch_succeeded",
-            "账号切换完成",
-            operation,
-            target_account_id=event.current.active_account_id,
-            new_context_generation=event.generation,
-        )
-        self._account_switch_operation = None
 
     def _manage_accounts(self):
         from src.ui.controllers.configuration_controller import defer_page_transition

@@ -253,11 +253,11 @@ def test_restore_overlay_preserves_historical_scores_while_new_scoring_uses_curr
         float(index + 1), item_id=a.item_id, suit_id=a.suit_id, geometry=a.geometry, grid_count=a.grid_count)
         for index, a in enumerate(option.assignments))
     signature = runner.WeightedSavedPlanSignature(1, 1, 77, option.used_uids, saved)
-    restored = runner._restore_saved_option(context, option, signature)
+    restored = runner._restore_saved_option(context, signature)
     assert restored.score == 77
     assert tuple(a.score for a in restored.assignments) == tuple(a.score for a in saved)
     assert adapter.score_allocation_candidate(context, context.roles[0], context.candidates[0]) == 50
-    assert runner._restore_saved_option(context, option, signature) == restored
+    assert runner._restore_saved_option(context, signature) == restored
 
 
 def test_replacement_recomputes_score_from_frozen_context_not_presentation(tmp_path):

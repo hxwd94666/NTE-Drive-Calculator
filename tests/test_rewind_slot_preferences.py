@@ -2,18 +2,20 @@
 import pytest
 
 from src.domain.rewind_loadout import RewindSlotReference, read_slot_preferences
-from src.services.rewind_shape_recommendation_service import RewindShapeRecommendationService
+from src.services.rewind.recommendation import RewindShapeRecommendationService
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 
 
 def create_account(path, identifier):
     with UserDataDao(path, account_id=identifier) as dao:
-        snapshot_id = dao.import_inventory_snapshot({"params": {
+        # 使用完整原生事件及明确装备状态；方案 UID 只引用这份合成库存，不绕过完整性校验。
+        snapshot_id = dao.import_inventory_snapshot({"method": "event.inventory.snapshot", "params": {
             "complete": True, "generation": 1, "sequence": 1,
             "observed_at_unix_ms": 1_784_308_856_895, "item_count": 1,
             "items": [{"uid": {"serial": 11, "slot": 22}, "kind": "module",
                        "item_id": "cell4_style1_1_Orange", "suit_id": "Suit1", "geometry": "Hen4",
                        "grid": 4, "quality": "orange", "level": 20, "max_level": 20,
+                       "locked": False, "equipped": False,
                        "main_stats": [], "sub_stats": []}],
         }})
         plan_id = dao.save_loadout_plan(name="测试", character_id=1004,

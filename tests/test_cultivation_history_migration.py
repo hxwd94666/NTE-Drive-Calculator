@@ -8,10 +8,8 @@ import pytest
 from src.storage.sqlite.user_data_base import UserDataDaoCore
 from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao
 
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def _legacy_database(path):

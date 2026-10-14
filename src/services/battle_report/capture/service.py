@@ -9,12 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from src.domain.battle_report import (
-    BattleCaptureState,
-    BattleSummary,
-    BattleSummaryPersistenceOutcome,
-    EMPTY_BATTLE_CAPTURE_STATE,
-)
+from src.domain.battle_report.capture.state import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
+from src.domain.battle_report.capture.summary import BattleSummary
+from src.domain.battle_report.history.records import BattleSummaryPersistenceOutcome
 from src.integrations.nte_core_battle import (
     parse_battle_axis,
     parse_battle_record,
@@ -27,7 +24,7 @@ from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
 from src.integrations.capture.raw_retention import prune_raw_capture_files
-from src.domain.battle_summary_observation import has_active_battle_observation
+from src.domain.battle_report.capture.summary import has_active_battle_observation
 from src.services.battle_report.inputs.scopes import observe_native_scopes
 from src.services.battle_report.capture.metadata import (
     freeze_nte_core_provenance,

@@ -1,4 +1,4 @@
 interface:
   display_name: "异环计算器版本更新"
-  short_description: "根据新版解包维护静态资料、公共素材与新角色功能接入，并核验更新链"
-  default_prompt: "使用 $nte-game-update，根据我提供的新版本解包目录更新计算器的数据、素材及新角色功能接入，并按本次授权完成验证与晋升。"
+  short_description: "核对新版解包差异，维护静态候选、公共素材和角色逐功能接入及晋升边界"
+  default_prompt: "使用 $nte-game-update，根据我提供的新版解包和更新目标维护数据、公共素材与角色逐功能接入，按本次授权验证、晋升并记录回退和未知项。"

@@ -1,4 +1,4 @@
-# 验证弃置/锁定管理角色弹窗的拼音搜索和紧凑计数文案。
+# 验证管理角色选择的正式身份、搜索和已有区域配置。
 import os
 import tempfile
 import unittest
@@ -7,8 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication, QToolButton
+from PySide6.QtWidgets import QApplication
 
 from src.features.scanning.post_action_dialog import (
     RoleScopeDialog,
@@ -23,40 +22,22 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_role_search_supports_full_pinyin_and_count_is_compact(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            avatar_path = os.path.join(temp_dir, "avatar.png")
-            avatar = QPixmap(32, 32)
-            avatar.fill("#58a6ff")
-            self.assertTrue(avatar.save(avatar_path))
-            dialog = RoleScopeDialog(
-                None,
-                [(1003, "早雾", avatar_path, False), (1004, "安魂曲", avatar_path, False)],
-                [],
-            )
-            self.assertEqual("已选0名", dialog.count_label.text())
-            self.assertTrue(dialog.role_scroll.widgetResizable())
-            self.assertTrue(all(isinstance(card[0], QToolButton) for card in dialog.role_cards))
-            self.assertFalse(dialog.role_cards[0][0].icon().isNull())
-            self.assertTrue(
-                all(card.parent() is dialog.role_grid_widget for card, _character_id, _name in dialog.role_cards)
-            )
-            self.assertTrue(
-                all(card not in QApplication.topLevelWidgets() for card, _character_id, _name in dialog.role_cards)
-            )
-            cards_by_id = {character_id: card for card, character_id, _name in dialog.role_cards}
-            self.assertEqual([1004, 1003], [character_id for _, character_id, _ in dialog.role_cards])
+    def test_role_search_selects_the_matching_formal_identity(self):
+        dialog = RoleScopeDialog(
+            None,
+            [(1003, "早雾", "", False), (1004, "安魂曲", "", False)],
+            [],
+        )
+        self.addCleanup(dialog.close)
+        cards_by_id = {character_id: card for card, character_id, _name in dialog.role_cards}
 
-            dialog.search_edit.setText("zaowu")
-            self.app.processEvents()
+        dialog.search_edit.setText("zaowu")
+        self.app.processEvents()
 
-            self.assertFalse(cards_by_id[1003].isHidden())
-            self.assertTrue(cards_by_id[1004].isHidden())
-            cards_by_id[1003].click()
-            self.assertTrue(cards_by_id[1003].isChecked())
-            self.assertEqual([1003], dialog.selected_character_ids())
-            self.assertEqual("已选1名", dialog.count_label.text())
-            dialog.close()
+        self.assertFalse(cards_by_id[1003].isHidden())
+        self.assertTrue(cards_by_id[1004].isHidden())
+        cards_by_id[1003].click()
+        self.assertEqual([1003], dialog.selected_character_ids())
 
 
     def test_warehouse_context_hides_region_option_without_resetting_it(self):
@@ -90,15 +71,6 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
 
         self.assertTrue(dialog.hmt_region_check.isHidden())
         self.assertEqual("hmt", dialog._collect_config()["server_region"])
-        dialog.close()
-
-    def test_custom_role_uses_question_mark_portrait(self):
-        dialog = RoleScopeDialog(None, [(900001, "自建角色", "", True)], [900001])
-        card, character_id, role_name = dialog.role_cards[0]
-        self.assertEqual(900001, character_id)
-        self.assertEqual("自建角色", role_name)
-        self.assertFalse(card.icon().isNull())
-        self.assertEqual("已选1名", dialog.count_label.text())
         dialog.close()
 
     def test_role_options_identify_account_custom_roles_for_portrait(self):

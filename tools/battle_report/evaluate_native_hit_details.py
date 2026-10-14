@@ -25,7 +25,7 @@ from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIn
 from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService  # noqa: E402
 from src.services.battle_report.buffs.hit_explanation import BattleHitBuffExplanationService  # noqa: E402
 from src.services.battle_report.replay.explanation import BattleHitReplayExplanationService  # noqa: E402
-from src.integrations.native_battle_page_wire import decode_page  # noqa: E402
+from src.integrations.battle_analysis.page_wire import decode_page  # noqa: E402
 
 
 def main():

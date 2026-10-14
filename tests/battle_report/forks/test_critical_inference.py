@@ -6,7 +6,8 @@ NTE_TEST_TIER = "core"
 from dataclasses import replace
 import unittest
 
-from src.domain.battle_report import BattleAnalysisHit, BattleHitReplayResult
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.services.battle_report.forks.critical_inference import (
     BattleForkCriticalInferenceService,
 )

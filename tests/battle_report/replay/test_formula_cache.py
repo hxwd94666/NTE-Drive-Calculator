@@ -7,14 +7,10 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
-    BattleTargetCondition,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.replay.service import BattleHitReplayService
 
 

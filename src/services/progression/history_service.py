@@ -7,7 +7,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from uuid import uuid4
 
-from src.domain.cultivation_history import (
+from src.domain.progression.history import (
     HistoryCalculationEnvelope, HistoryConflict, HistoryContextExpired, HistoryPage,
     HistoryPayload, HistoryRecord, HistorySelection, HistorySummary, freeze_configuration,
 )

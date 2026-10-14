@@ -11,7 +11,7 @@ from threading import Event
 from PySide6.QtCore import QObject, Signal, Slot
 
 from src.app.page_tasks import PageCommitLane
-from src.domain.cultivation_history import HistoryConflict, HistoryContextExpired
+from src.domain.progression.history import HistoryConflict, HistoryContextExpired
 from src.services.progression.history_service import CultivationHistoryService
 from src.storage.sqlite.user_data_support import UserDataError
 from src.utils.cultivation_trace import trace_cultivation

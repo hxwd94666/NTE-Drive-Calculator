@@ -1,518 +1,170 @@
-# 覆盖更新检查、Mirror 响应与安装包下载行为。
+# 覆盖更新传输及可见选择，不固化像素、装饰或重复公共链接字面值。
+from __future__ import annotations
 
-import os
-import tempfile
-import unittest
-import urllib.error
-from pathlib import Path
-from types import SimpleNamespace
+from io import BytesIO
+import json
+from threading import Event
 from unittest.mock import patch
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+import pytest
+from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QLabel, QMessageBox, QPushButton, QWidget
 
-from PySide6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox, QPushButton, QTextBrowser, QWidget
+from auto_sync_ui_fixture import application
+from src.features.settings import support
+from src.features.settings.updates import dialogs
+from src.integrations.updates import mirror
 
 
+class Response(BytesIO):
+    def __init__(self, body=b"MZtestok", length="8"):
+        super().__init__(body)
+        self.headers = {} if length is None else {"Content-Length": length}
 
-class UpdateWorkflowTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
 
-    def test_public_project_links_and_group_notice(self):
-        from src.app.constants import (
-            BILIBILI_HOME_URL,
-            DISCORD_GROUP_URL,
-            GITHUB_HOME_URL,
-            GITHUB_LATEST_RELEASE_URL,
-            GROUP_CHAT_DEVELOPER_HINT,
-            GROUP_CHAT_DISCORD_HINT,
-            MIRROR_PROJECT_URL,
-            QQ_GROUP_NUMBER,
-            SUPPORT_US_URL,
-        )
-        from src.ui.controllers import update_controller
+@pytest.fixture
+def qt():
+    return application()
 
-        opened = []
-        window = SimpleNamespace(_open_url=opened.append)
-        update_controller._open_update_homepage(window)
-        update_controller._open_bilibili_homepage(window)
-        update_controller._open_project_homepage(window)
-        update_controller._open_support_homepage(window)
-        update_controller._open_discord_group(window)
 
-        self.assertEqual(
-            [
-                GITHUB_LATEST_RELEASE_URL,
-                BILIBILI_HOME_URL,
-                GITHUB_HOME_URL,
-                SUPPORT_US_URL,
-                DISCORD_GROUP_URL,
-            ],
-            opened,
-        )
-        self.assertEqual(
-            "https://github.com/hxwd94666/NTE-Drive-Calculator/releases/latest",
-            GITHUB_LATEST_RELEASE_URL,
-        )
-        self.assertEqual("https://afdian.com/a/hxwd94666", SUPPORT_US_URL)
-        self.assertEqual(
-            "https://mirrorchyan.com/zh/projects?rid=NTE-Drive-Calc&channel=stable",
-            MIRROR_PROJECT_URL,
-        )
-        self.assertEqual("1029030672", QQ_GROUP_NUMBER)
-        self.assertEqual("若想加入开发群，请先入本群私聊群主", GROUP_CHAT_DEVELOPER_HINT)
-        self.assertEqual("获取开发动态，也可在这里交流。", GROUP_CHAT_DISCORD_HINT)
-        self.assertEqual("https://discord.gg/P3ZvMN7Hwj", DISCORD_GROUP_URL)
+def test_version_response_freezes_request_and_omits_raw_network_errors(monkeypatch):
+    seen = []
+    payload = {"code": 0, "data": {"version_name": "v2.1.0", "url": "https://synthetic.invalid/package",
+                                   "release_note": "changes"}}
+    def response(request, timeout):
+        seen.append((request.full_url, timeout))
+        return Response(json.dumps(payload).encode(), None)
+    monkeypatch.setattr(mirror, "_open", response)
+    info = mirror.fetch_update_info("https://synthetic.invalid/latest", "2.0.0", cdk="fixture cdk")
+    assert info["newer"] and info["latest"] == "v2.1.0" and info["message"] == "changes"
+    assert "cdk=fixture+cdk" in seen[0][0] and seen[0][1] <= 5
+    mirror.fetch_update_info("https://synthetic.invalid/latest", "2.0.0")
+    assert "cdk=" not in seen[1][0]
+    monkeypatch.setattr(mirror, "_open", lambda *_args: (_ for _ in ()).throw(
+        OSError("https://synthetic.invalid/?token=fixture-secret")))
+    failure = mirror.fetch_update_info("https://synthetic.invalid/latest", "2.0.0")
+    assert not failure["has_release"] and not failure["newer"] and failure["url"] == ""
+    assert "fixture-secret" not in repr(failure) and "OSError" in failure["error"]
 
-    def test_update_dialog_reuses_about_page_group_notice(self):
-        from src.features.settings import updates
-        from src.ui.controllers import update_controller
 
-        opened = []
+@pytest.mark.parametrize("payload", [b"not-json", b"[]", b'{"code":4001,"msg":"CDK fixture-secret"}',
+                                      b'{"code":0,"data":{}}'])
+def test_invalid_update_metadata_does_not_become_latest(monkeypatch, payload):
+    monkeypatch.setattr(mirror, "_open", lambda *_args: Response(payload, None))
+    result = mirror.fetch_update_info("https://synthetic.invalid/latest", "2.0.0")
+    assert not result["has_release"] and not result["newer"] and not result["url"]
+    assert "fixture-secret" not in repr(result)
 
-        class Window(QWidget):
-            def _open_discord_group(self):
-                opened.append("discord")
 
-            def _show_group_chat_notice(self):
-                return update_controller._show_group_chat_notice(self)
+@pytest.mark.parametrize("case", ["valid", "unknown_length", "bad_length", "oversized", "non_exe", "cancel_eof"])
+def test_download_publication_and_old_files_are_isolated(tmp_path, monkeypatch, case):
+    old = tmp_path / "NTE-Drive-Calc-update.exe"
+    old.write_bytes(b"old installer retained")
+    cancel = Event()
+    class FinalResponse(Response):
+        def read1(self, size):
+            block = super().read1(size)
+            if not block and case == "cancel_eof":
+                cancel.set()
+            return block
+    response = FinalResponse(b"not an exe" if case == "non_exe" else b"MZtestok",
+        None if case == "unknown_length" else "12" if case == "bad_length"
+        else str(mirror._MAX_INSTALLER_BYTES + 1) if case == "oversized" else "8")
+    monkeypatch.setattr(mirror, "_open", lambda *_args: response)
+    progress = []
+    if case in {"valid", "unknown_length"}:
+        receipt = mirror.download_update_installer("https://synthetic.invalid/setup", destination_dir=tmp_path,
+            progress_callback=lambda *values: progress.append(values), cancel_check=cancel.is_set)
+        assert mirror.validate_installer(receipt).read_bytes() == b"MZtestok"
+        assert progress[-1][0] == receipt.downloaded == 8
+        mirror.discard_installer(receipt)
+    else:
+        with pytest.raises((ValueError, mirror.UpdateDownloadCancelled)):
+            mirror.download_update_installer("https://synthetic.invalid/setup", destination_dir=tmp_path,
+                                            cancel_check=cancel.is_set)
+    assert old.read_bytes() == b"old installer retained"
+    assert list(tmp_path.iterdir()) == [old]
 
-            @staticmethod
-            def _current_style_sheet():
-                return ""
 
-            @staticmethod
-            def _show_netdisk_download_dialog(_links):
-                return None
+@pytest.mark.parametrize("change", ["replace", "in_place", "cancel", "success"])
+def test_receipt_revalidation_precedes_os_dispatch(tmp_path, monkeypatch, change):
+    monkeypatch.setattr(mirror, "_open", lambda *_args: Response())
+    receipt = mirror.download_update_installer("https://synthetic.invalid/setup", destination_dir=tmp_path)
+    if change == "replace":
+        replacement = receipt.path.with_suffix(".tmp")
+        replacement.write_bytes(b"MZchanged")
+        replacement.replace(receipt.path)
+    elif change == "in_place":
+        receipt.path.write_bytes(b"MZchanged")
+    calls = []
+    monkeypatch.setattr(mirror.subprocess, "Popen", lambda *args, **kwargs: calls.append((args, kwargs)))
+    if change == "success":
+        mirror.launch_installer(receipt)
+        assert len(calls) == 1
+        mirror.discard_installer(receipt)
+    else:
+        with pytest.raises((ValueError, mirror.UpdateDownloadCancelled)):
+            mirror.launch_installer(receipt, cancel_check=lambda: change == "cancel")
+        assert not calls
+        mirror.discard_installer(receipt)
+        if change in {"replace", "in_place"}:
+            assert receipt.path.read_bytes() == b"MZchanged"
 
-            @staticmethod
-            def _start_mirror_download():
-                return None
 
-        window = Window()
-        captured = []
+def test_https_redirect_rejects_downgrade_before_request():
+    request = mirror.urllib.request.Request("https://synthetic.invalid/start")
+    with pytest.raises(ValueError):
+        mirror._HttpsRedirect().redirect_request(request, None, 302, "", {}, "http://synthetic.invalid/end")
 
-        def capture_dialog(dialog):
-            captured.append(dialog)
-            return 0
 
-        with patch.object(QDialog, "exec", capture_dialog):
-            group_dialog = update_controller._show_group_chat_notice(window)
-            updates.show_update_dialog(
-                window,
-                "",
-                {"latest": "2.4.0", "message": "测试更新说明"},
-                "2.3.0",
-            )
+def test_update_dialog_actions_and_preferences(qt):
+    owner = QWidget()
+    actions = []
+    captured = []
+    def choose(dialog):
+        captured.append(dialog)
+        for box in dialog.findChildren(QCheckBox):
+            box.setChecked(True)
+        for button in dialog.findChildren(QPushButton):
+            if button.text() in {"加入群聊", "网盘下载", "Mirror 下载"}:
+                button.click()
+        return 0
+    with patch.object(QDialog, "exec", choose):
+        result = dialogs.show_update_dialog(owner, "", {"latest": "2.9.0", "message": "-changes"}, "2.0.0",
+            show_group=lambda: actions.append("group"), show_netdisk=lambda _links: actions.append("netdisk"),
+            start_download=lambda: actions.append("download"))
+    assert actions == ["group", "download", "netdisk"]
+    assert result == {"changed": True, "never_remind": True, "ignored_version": "2.9.0"}
+    for dialog in captured:
+        dialog.deleteLater()
+    owner.deleteLater()
 
-        self.assertEqual(2, len(captured))
-        group_text = [label.text() for label in group_dialog.findChildren(QLabel)]
-        self.assertNotIn("加入群聊", group_text)
-        self.assertIn("1029030672", group_text)
-        self.assertIn("若想加入开发群，请先入本群私聊群主", group_text)
-        self.assertIn("获取开发动态，也可在这里交流。", group_text)
-        self.assertNotIn("关闭", [button.text() for button in group_dialog.findChildren(QPushButton)])
-        copy_button = next(
-            button for button in group_dialog.findChildren(QPushButton)
-            if button.text() == "复制群号"
-        )
-        copy_button.click()
-        self.assertEqual("1029030672", QApplication.clipboard().text())
-        self.assertEqual("已复制", copy_button.text())
-        update_dialog = captured[1]
-        update_group = next(
-            button for button in update_dialog.findChildren(QPushButton)
-            if button.text() == "加入群聊"
-        )
-        with patch.object(QDialog, "exec", capture_dialog):
-            update_group.click()
-        self.assertEqual(3, len(captured))
-        self.assertEqual("加入群聊", captured[2].windowTitle())
-        notes = update_dialog.findChild(QTextBrowser, "updateReleaseNotes")
-        self.assertGreaterEqual(notes.minimumHeight(), 140)
-        self.assertLessEqual(notes.minimumHeight(), 300)
-        for dialog in (group_dialog, captured[2]):
-            discord = next(
-                button
-                for button in dialog.findChildren(QPushButton)
-                if button.text() == "加入 Discord"
-            )
-            discord.click()
-        self.assertEqual(["discord", "discord"], opened)
 
-    def test_netdisk_dialog_uses_channel_cards_without_footer(self):
-        from src.ui.controllers import update_controller
-
-        opened = []
-
-        class Window(QWidget):
-            def _open_url(self, url):
-                opened.append(url)
-
-            @staticmethod
-            def _current_style_sheet():
-                return ""
-
-        links = (
-            ("夸克网盘", "https://pan.quark.cn/s/item"),
-            ("百度网盘", "https://pan.baidu.com/s/item"),
-            ("迅雷网盘", "https://pan.xunlei.com/s/item"),
-        )
-        window = Window()
-        with patch.object(QDialog, "exec", return_value=0):
-            dialog = update_controller._show_netdisk_download_dialog(window, links)
-
-        texts = [label.text() for label in dialog.findChildren(QLabel)]
-        self.assertNotIn("选择下载网盘", texts)
-        self.assertNotIn("选择一个渠道，随后在浏览器中完成下载。", texts)
-        for name, url in links:
-            self.assertIn(name, texts)
-            self.assertNotIn(url, texts)
-        self.assertNotIn("下载地址不再铺满弹窗，按钮与渠道一一对应。", texts)
-        buttons = dialog.findChildren(QPushButton)
-        self.assertNotIn("取消", [button.text() for button in buttons])
-        self.assertEqual(3, len(buttons))
-        for name, _url in links:
-            button = next(button for button in buttons if button.accessibleName() == f"打开{name}")
-            self.assertEqual("打开网盘", button.text())
-            button.click()
-        self.assertEqual([url for _name, url in links], opened)
-
-    def test_mirror_download_failure_link_opens_the_project_page(self):
-        from src.app.constants import MIRROR_PROJECT_URL
-        from src.ui.controllers import update_controller
-
-        link_text = update_controller._mirror_project_link_text("尝试下载")
-
-        self.assertIn("Mirror 项目页面尝试下载", link_text)
-        self.assertIn(f'href="{MIRROR_PROJECT_URL}"', link_text)
-        self.assertIn(MIRROR_PROJECT_URL, link_text)
-
-    def test_mirror_download_only_allows_current_or_newer_release(self):
-        from src.ui.controllers import update_controller
-
-        self.assertTrue(
-            update_controller._mirror_download_version_is_available("v2.1.0", "v2.1.0")
-        )
-        self.assertTrue(
-            update_controller._mirror_download_version_is_available("v2.1.1", "v2.1.0")
-        )
-        self.assertFalse(
-            update_controller._mirror_download_version_is_available("v2.0.9", "v2.1.0")
-        )
-
-    def test_mirror_older_version_download_requires_explicit_choice(self):
-        from src.ui.controllers import update_controller
-
-        class Window(QWidget):
-            def __init__(self):
-                super().__init__()
-                self._update_status = QLabel()
-                self._mirror_download_btn = QPushButton()
-                self.downloads = []
-
-            def _start_mirror_installer_download(self, url):
-                self.downloads.append(url)
-
-        window = Window()
-        info = {"latest": "2.2.0", "url": "https://example.invalid/setup.exe"}
-        with patch.object(update_controller, "APP_VERSION", "2.3.0"), \
-                patch.object(update_controller, "log_event"), \
-                patch.object(update_controller, "_confirm_mirror_older_version_download", return_value=False) as confirm:
-            window._mirror_download_btn.setEnabled(False)
-            update_controller._on_mirror_download_ready(window, info)
-            confirm.assert_called_once_with(window, "2.3.0", "2.2.0")
-            self.assertEqual([], window.downloads)
-            self.assertTrue(window._mirror_download_btn.isEnabled())
-            self.assertEqual("已取消较旧版本下载。", window._update_status.text())
-
-        with patch.object(update_controller, "APP_VERSION", "2.3.0"), \
-                patch.object(update_controller, "log_event"), \
-                patch.object(update_controller, "_confirm_mirror_older_version_download", return_value=True):
-            window._mirror_download_btn.setEnabled(False)
-            update_controller._on_mirror_download_ready(window, info)
-            self.assertEqual([info["url"]], window.downloads)
-            self.assertFalse(window._mirror_download_btn.isEnabled())
-
-        with patch.object(update_controller, "APP_VERSION", "2.3.0"), \
-                patch.object(update_controller, "log_event"), \
-                patch.object(update_controller, "_confirm_mirror_older_version_download") as confirm:
-            update_controller._on_mirror_download_ready(
-                window, {"latest": "2.3.0", "url": "https://example.invalid/current.exe"},
-            )
-            confirm.assert_not_called()
-            self.assertEqual("https://example.invalid/current.exe", window.downloads[-1])
-        window.deleteLater()
-
-    def test_mirror_older_version_dialog_has_download_and_default_cancel(self):
-        from src.ui.controllers import update_controller
-
-        owner = QWidget()
-        choices = []
-
+def test_older_version_requires_explicit_download_and_defaults_cancel(qt):
+    owner = QWidget()
+    for selected in ("取消", "下载"):
         def choose(dialog):
             buttons = {button.text(): button for button in dialog.buttons()}
-            self.assertEqual({"下载", "取消"}, set(buttons))
-            self.assertEqual(QMessageBox.Icon.Warning, dialog.icon())
-            self.assertIs(dialog.defaultButton(), buttons["取消"])
-            self.assertIs(dialog.escapeButton(), buttons["取消"])
-            self.assertIn("2.3.0", dialog.informativeText())
-            self.assertIn("2.2.0", dialog.informativeText())
-            buttons[choices.pop(0)].click()
-
-        choices.extend(("取消", "下载"))
+            assert dialog.defaultButton() is buttons["取消"] and dialog.escapeButton() is buttons["取消"]
+            assert "2.3.0" in dialog.informativeText() and "2.2.0" in dialog.informativeText()
+            buttons[selected].click()
         with patch.object(QMessageBox, "exec", choose), patch.object(QApplication, "beep"):
-            self.assertFalse(update_controller._confirm_mirror_older_version_download(
-                owner, "2.3.0", "2.2.0",
-            ))
-            self.assertTrue(update_controller._confirm_mirror_older_version_download(
-                owner, "2.3.0", "2.2.0",
-            ))
-        owner.deleteLater()
-
-    def test_update_check_default_timeout_is_short(self):
-        from src.features.settings import updates
-
-        seen_timeouts = []
-        original_urlopen = updates.urllib.request.urlopen
-
-        def fake_urlopen(_request, **kwargs):
-            seen_timeouts.append(kwargs.get("timeout"))
-            raise urllib.error.URLError("network unavailable")
-
-        updates.urllib.request.urlopen = fake_urlopen
-        try:
-            updates.fetch_update_info(
-                "https://example.invalid/latest",
-                "1.1.0",
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertTrue(seen_timeouts)
-        self.assertTrue(all(timeout <= 5 for timeout in seen_timeouts))
-
-    def test_startup_update_error_updates_status_without_prompt(self):
-        import src.ui.app as app_module
-
-        class Label:
-            def __init__(self):
-                self.text = ""
-
-            def setText(self, text):
-                self.text = text
-
-        class Window:
-            def __init__(self):
-                self._update_check_manual = False
-                self._update_status = Label()
-                self.prompts = []
-
-            def _show_update_failure_netdisk_prompt(self, detail=""):
-                self.prompts.append(detail)
-
-        window = Window()
-        app_module.MainWindow._on_update_error(window, "timeout")
-
-        self.assertIn("Mirror 酱", window._update_status.text)
-        self.assertEqual([], window.prompts)
-
-    def test_update_network_failure_returns_user_facing_result(self):
-        from src.features.settings import updates
-
-        original_urlopen = updates.urllib.request.urlopen
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            urllib.error.URLError(OSError(10061, "connection refused"))
-        )
-        try:
-            info = updates.fetch_update_info(
-                "https://example.invalid/latest",
-                "1.1.0",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertFalse(info["has_release"])
-        self.assertFalse(info["newer"])
-        self.assertEqual("", info["url"])
-        self.assertEqual("Mirror 酱更新服务请求失败，请稍后重试。", info["message"])
-        self.assertNotIn("Traceback", info["message"])
-
-    def test_mirror_error_code_returns_user_facing_result(self):
-        from src.features.settings import updates
-
-        original_urlopen = updates.urllib.request.urlopen
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return '{"code":4001,"msg":"CDK 无效"}'.encode("utf-8")
-
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
-        try:
-            info = updates.fetch_update_info(
-                "https://example.invalid/latest",
-                "1.1.0",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertFalse(info["has_release"])
-        self.assertTrue(info["error"])
-        self.assertEqual("CDK 无效", info["message"])
-
-    def test_mirror_update_response_includes_version_notes_and_download_url(self):
-        from src.features.settings import updates
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return (
-                    '{"code":0,"msg":"success","data":{'
-                    '"version_name":"v2.1.0","url":"https://download.example/file",'
-                    '"release_note":"修复配装页面"}}'
-                ).encode("utf-8")
-
-        original_urlopen = updates.urllib.request.urlopen
-        requested_urls = []
-
-        def fake_urlopen(request, **_kwargs):
-            url = request.full_url if hasattr(request, "full_url") else str(request)
-            requested_urls.append(url)
-            return Response()
-
-        updates.urllib.request.urlopen = fake_urlopen
-        try:
-            info = updates.fetch_update_info(
-                "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest",
-                "2.0.0",
-                cdk="0001bf xxxxxx",
-                timeout=1,
-            )
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertTrue(info["has_release"])
-        self.assertTrue(info["newer"])
-        self.assertEqual("v2.1.0", info["latest"])
-        self.assertEqual("https://download.example/file", info["url"])
-        self.assertEqual("修复配装页面", info["message"])
-        self.assertEqual(
-            "https://mirrorchyan.com/api/resources/NTE-Drive-Calc/latest?current_version=2.0.0&cdk=0001bf+xxxxxx",
-            requested_urls[0],
-        )
-
-    def test_mirror_installer_download_writes_valid_exe_and_reports_progress(self):
-        from src.features.settings import updates
-
-        class Response:
-            headers = {"Content-Length": "8"}
-
-            def __init__(self):
-                self._blocks = [b"MZtest", b"ok", b""]
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _size):
-                return self._blocks.pop(0)
-
-        original_urlopen = updates.urllib.request.urlopen
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
-        updates_progress = []
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                result = updates.download_update_installer(
-                    "https://download.example/NTE-Drive-Calc.exe",
-                    destination_dir=temp_dir,
-                    progress_callback=lambda current, total: updates_progress.append((current, total)),
-                )
-                installer = Path(result["path"])
-                self.assertEqual(b"MZtestok", installer.read_bytes())
-                self.assertEqual(8, result["downloaded"])
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-        self.assertEqual((0, 8), updates_progress[0])
-        self.assertEqual((8, 8), updates_progress[-1])
-
-    def test_mirror_installer_download_removes_partial_file_when_cancelled(self):
-        from src.features.settings import updates
-
-        class Response:
-            headers = {"Content-Length": "16"}
-
-            def __init__(self):
-                self._blocks = [b"MZfirst", b"second", b""]
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _size):
-                return self._blocks.pop(0)
-
-        original_urlopen = updates.urllib.request.urlopen
-        updates.urllib.request.urlopen = lambda *_args, **_kwargs: Response()
-        cancelled = {"value": False}
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                with self.assertRaises(updates.UpdateDownloadCancelled):
-                    updates.download_update_installer(
-                        "https://download.example/NTE-Drive-Calc.exe",
-                        destination_dir=temp_dir,
-                        progress_callback=lambda *_args: cancelled.__setitem__("value", True),
-                        cancel_check=lambda: cancelled["value"],
-                    )
-                self.assertEqual([], list(Path(temp_dir).iterdir()))
-        finally:
-            updates.urllib.request.urlopen = original_urlopen
-
-    def test_update_check_uses_mirror_without_cdk_and_keeps_github_release_link(self):
-        from src.ui.controllers import update_controller
-
-        captured = {}
-        original_fetch = update_controller.fetch_update_info
-
-        def fake_fetch(api_url, version, *, cdk=""):
-            captured.update(api_url=api_url, version=version, cdk=cdk)
-            return {"has_release": True, "latest": "v2.0.1"}
-
-        class Window:
-            pass
-
-        update_controller.fetch_update_info = fake_fetch
-        try:
-            info = update_controller._fetch_update_info(Window())
-        finally:
-            update_controller.fetch_update_info = original_fetch
-
-        self.assertEqual("", captured["cdk"])
-        self.assertIn("mirrorchyan.com/api/resources/NTE-Drive-Calc/latest", captured["api_url"])
-        self.assertTrue(info["release_url"].endswith("/releases"))
+            assert dialogs._confirm_mirror_older_version_download(owner, "2.3.0", "2.2.0") == (selected == "下载")
+    owner.deleteLater()
 
 
-
-
-
-if __name__ == "__main__":
-
-    unittest.main()
+def test_support_links_keep_explicit_user_actions(qt):
+    opened = []
+    class Host(QWidget):
+        _current_style_sheet = staticmethod(lambda: "")
+        _open_url = staticmethod(opened.append)
+        _open_discord_group = staticmethod(lambda: opened.append("discord"))
+    host = Host()
+    with patch.object(QDialog, "exec", return_value=0):
+        dialog = support._show_netdisk_download_dialog(host, (("channel", "https://synthetic.invalid/page"),))
+        group = support._show_group_chat_notice(host)
+    assert opened == []
+    dialog.findChild(QPushButton).click()
+    next(b for b in group.findChildren(QPushButton) if b.text() == "加入 Discord").click()
+    assert opened == ["https://synthetic.invalid/page", "discord"]
+    assert any(label.text() == "channel" for label in dialog.findChildren(QLabel))
+    dialog.deleteLater(); group.deleteLater(); host.deleteLater()

@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from src.domain.progression_material_conversion import allocate_owned, conversion_edges
-from src.domain.progression_stamina import FarmingStage, MaterialYield
+from src.domain.progression.materials import allocate_owned, conversion_edges
+from src.domain.progression.stamina import FarmingStage, MaterialYield
 from src.services.progression.character_requirements import MaterialSummaryStatus
 from src.services.progression.batch_planner import (
     CultivationBatchPlannerService,

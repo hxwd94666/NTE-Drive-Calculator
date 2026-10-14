@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.battle_report.capture_controls import BattleCaptureControlsMixin
+from src.features.battle_report.capture.controls import BattleCaptureControlsMixin
 from src.features.battle_report.dependencies import build_battle_report_controller
 from src.observability import OperationContext
-from src.services.battle_capture_service import BattleCaptureService
+from src.services.battle_report.capture.service import BattleCaptureService
 from tests.test_battle_capture_axis_service import _Writer, _wait_until
 
 
@@ -42,7 +42,7 @@ def test_capture_factory_checks_frozen_start_before_and_during_handoff(monkeypat
         _page=SimpleNamespace(clear_summary=lambda: None, clear_analysis=lambda _: None,
                               overlay_toggle=SimpleNamespace(isChecked=lambda: False)),
         _client_factory=lambda path, check: checks.append(check) or path)
-    monkeypatch.setattr("src.features.battle_report.capture_controls.BattleCaptureService", Capture)
+    monkeypatch.setattr("src.features.battle_report.capture.controls.BattleCaptureService", Capture)
     BattleCaptureControlsMixin.start(owner)
     create = created[0]["client_factory"]
     assert create() == Path("logs/nte_core/raw_capture")
@@ -104,7 +104,9 @@ def test_only_requested_factory_cancellation_is_normal_empty_capture(requested, 
         release.set()
         _wait_until(lambda: not service.is_running)
         assert service.state.phase == phase
-        assert writer.discarded
+        # 连接工厂失败尚未 begin_capture，既不发布空战报，也不清理从未创建的暂存。
+        assert not writer.begun and not writer.discarded
+        assert writer.pages == [] and writer.record is None
         if phase == "stopped":
             assert service.state.persistence_status == "skipped_empty"
         else:

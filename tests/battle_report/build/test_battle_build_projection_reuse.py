@@ -2,7 +2,8 @@
 from dataclasses import replace
 import unittest
 
-from src.domain.battle_report import BattleBuffModifierEvidence, BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.build.counterfactual import BattleBuildCounterfactualService
 from tests.battle_report.build.test_battle_build_counterfactual_service import _buff_interval, _hit, _replay, _snapshot

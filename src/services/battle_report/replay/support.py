@@ -6,15 +6,12 @@ from collections.abc import Mapping
 from dataclasses import replace
 from math import floor
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-    BattleSkillDamageEvidence,
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import (
+    BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm, BattleSkillDamageEvidence,
 )
 
 

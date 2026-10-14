@@ -4,14 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from src.domain.battle_buff_counterfactual import (
-    BattleBuffBeneficiaryResult,
-    BattleDamageCoverage,
-)
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-)
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report.counterfactual.results import BattleBuffBeneficiaryResult, BattleDamageCoverage
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
 
 
 # 仅分解本次已量化收益；缺少正式角色身份的份额保持未归因。

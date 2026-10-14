@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.services.battle_report.characters.passives import _CATALOG, _DIRECT_RULES, BattleCharacterPassiveService
 from src.services.battle_report.characters.skill_buffs import BattleCharacterSkillBuffService
-from src.domain.battle_buff_rule import BattleStaticBuffRule
-from src.domain.battle_report import BattleBuffModifierEvidence
+from src.domain.battle_report.buffs.models import BattleStaticBuffRule
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
 from src.services.battle_report.forks.state_compute import _BASIS as FORK_STATE_BASIS
 from src.services.battle_report.native.fork_damage_state import _BASIS as FORK_DAMAGE_BASIS
 from src.services.battle_report.mechanics.dot_evidence import DOT_KIND_NAMES as DOT_NAMES, dot_basis

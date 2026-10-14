@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from src.app.context import AccountContext, AppContext, ApplicationPaths
 from src.features.settings.page import _settings_paths
 from src.ui.controllers.environment_controller import _new_environment_operation
-from src.ui.controllers.update_controller import _new_update_operation
 
 
 class FakeSettings:
@@ -65,7 +64,7 @@ class SettingsContextTests(unittest.TestCase):
             Path("src/ui/controllers/configuration_controller.py"),
             Path("src/ui/controllers/environment_controller.py"),
             Path("src/ui/controllers/inventory_sync_controller.py"),
-            Path("src/ui/controllers/update_controller.py"),
+            Path("src/features/settings/updates/controller.py"),
         ]
         violations = []
         for path in paths:
@@ -79,7 +78,7 @@ class SettingsContextTests(unittest.TestCase):
                         violations.append(str(path))
         self.assertEqual([], violations)
 
-    def test_environment_and_update_operations_use_active_account_identity(self):
+    def test_environment_operation_uses_active_account_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             paths = ApplicationPaths.from_roots(
@@ -101,12 +100,9 @@ class SettingsContextTests(unittest.TestCase):
                 owner,
                 "nte_core_diagnostics",
             )
-            update = _new_update_operation(owner)
 
             self.assertEqual("diagnostic-account", environment.account_id)
-            self.assertEqual("diagnostic-account", update.account_id)
             self.assertEqual(context.generation, environment.context_generation)
-            self.assertEqual(context.generation, update.context_generation)
 
     def test_account_context_consumers_do_not_use_removed_account_id_field(self):
         violations = []

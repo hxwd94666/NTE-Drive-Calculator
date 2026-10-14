@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from src.services.battle_report.build.equipment import apply_equipment_override
-from src.domain.battle_world_bonus_edit import world_bonus_edit_stats
+from src.domain.battle_report.build.inputs import world_bonus_edit_stats
 
 
 def apply_battle_build_edit(

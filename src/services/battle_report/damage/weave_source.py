@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
 
 
 # 线序号只在半场、方向与目标范围内有意义；与技能证据共享同一配对键。

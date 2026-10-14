@@ -4,16 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.domain.battle_buff_counterfactual import (
-    BattleBuffBeneficiaryResult,
-    BattleBuffCounterfactualResult,
-    BattleDamageCoverage,
+from src.domain.battle_report.counterfactual.results import (
+    BattleBuffBeneficiaryResult, BattleBuffCounterfactualResult, BattleDamageCoverage,
 )
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 
 
 CREATION_PASSIVE_COUNTERFACTUAL_MODEL_VERSION = (

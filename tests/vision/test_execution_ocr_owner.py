@@ -12,9 +12,9 @@ import pytest
 
 from src.features.drive_assembly import assembly_session, executor
 from src.features.drive_assembly.rewind import execution as rewind
-from src.integrations.vision.recognition import ocr_engine, task_session
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
-from src.integrations.vision.recognition.task_session import OcrTaskStateError, use_ocr_session
+from src.integrations.vision.recognition.ocr import ocr_engine, task_session
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.task_session import OcrTaskStateError, use_ocr_session
 from src.integrations.vision.window_capture import WindowRect
 from src.utils.exceptions import OCRParseError
 from tests.vision.test_ocr_runtime import model_fixture, NativeOCR

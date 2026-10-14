@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from src.domain import battle_page_models
+import src.domain.battle_report.counterfactual.results as battle_page_models
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 

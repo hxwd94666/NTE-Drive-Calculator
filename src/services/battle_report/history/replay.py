@@ -7,9 +7,9 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
-from src.domain.battle_encounter import BattleEncounterCandidate
-from src.domain.battle_report import BattleAnalysisSnapshot
-from src.domain.native_analysis import available_battle_compute
+from src.domain.battle_report.targets.encounter import BattleEncounterCandidate
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.analysis.progress import BattleAnalysisProgressCallback, report_battle_analysis_progress
 from src.services.battle_report.buffs.inference import (
@@ -23,7 +23,7 @@ from src.services.battle_report.replay.service import (
     HIT_REPLAY_MODEL_VERSION,
     BattleHitReplayService,
 )
-from src.domain.battle_page_models import BattleInferredEncounter
+from src.domain.battle_report.targets.encounter import BattleInferredEncounter
 from src.services.battle_report.targets.inferred_condition import BattleInferredTargetConditionService
 from src.services.battle_report.environment.outer_realm_buffs import BattleOuterRealmBuffService
 from src.services.battle_report.damage.skill_evidence import (

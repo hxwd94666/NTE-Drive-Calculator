@@ -10,7 +10,7 @@ from src.features.toolbox.page import build_toolbox_page, refresh_toolbox_page
 from src.ui.controllers.environment_controller import EnvironmentControllerMixin
 from src.ui.controllers.hotkey_controller import HotkeyControllerMixin
 from src.ui.controllers.inventory_sync_controller import InventorySyncControllerMixin
-from src.ui.controllers.update_controller import UpdateControllerMixin
+from src.features.settings.support import SupportActionsMixin
 
 
 class ToolboxMixin:
@@ -22,7 +22,7 @@ class FeatureMainWindowMixin(
     EnvironmentControllerMixin,
     HotkeyControllerMixin,
     InventorySyncControllerMixin,
-    UpdateControllerMixin,
+    SupportActionsMixin,
     WarehouseControllerMixin,
     EquipmentAssemblyControllerMixin,
     EquipmentDisplayControllerMixin,

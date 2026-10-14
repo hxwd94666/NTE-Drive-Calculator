@@ -4,10 +4,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleQuantificationGap,
-)
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
 from src.services.battle_report.marginal.calculation_support import quantify_marginal
 
 

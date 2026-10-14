@@ -1,6 +1,7 @@
 # 保存冻结加权配装与对应槽位的同权重变动记录。
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -133,18 +134,23 @@ def save_weighted_preview_records(
             )
             record = prepared.as_record()
             record["comparison_baseline"] = diff
-            if explicit_writer or bindings:
-                # None是用户确认的“首个槽位”意图，只能随整批方案同事务创建。
-                record["slot_id"] = int(slot_id) if slot_id is not None else None
-                if slot_id is None:
-                    record["create_slot_name"] = role_name
+            # 两种入口都消费冻结的目标槽位；首槽随方案创建，不从最新主力指针补齐。
+            record["slot_id"] = int(slot_id) if slot_id is not None else None
+            if slot_id is None:
+                record["create_slot_name"] = role_name
             prepared_plans.append(record)
-        if explicit_writer:
-            return user_dao.save_plans_to_slots(
-                prepared_plans, checkpoint=checkpoint, validate=validate, commit_context=commit_context,
-            )
-        return user_dao.replace_active_loadout_plans(
-            prepared_plans, checkpoint=checkpoint, validate=validate, commit_context=commit_context,
+
+        @contextmanager
+        def validated_commit():
+            # 加权末端复核在原 owner 接受锁内；不重复其他消费者的旧槽位基线回调。
+            with commit_context():
+                validate()
+                yield
+
+        # 当前槽位才是占用身份，不能只释放 is_active 历史指针或仅覆盖目标槽位。
+        return user_dao.save_calculated_loadout_plans(
+            prepared_plans, checkpoint=checkpoint, validate=validate,
+            commit_context=validated_commit, activate_primary=not explicit_writer,
         )
 
 def freeze_weighted_allocation_locks(user_dao, context):

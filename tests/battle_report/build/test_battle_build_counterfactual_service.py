@@ -4,22 +4,13 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleBuffModifierEvidence,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayResult,
-    BattleHitReplayFactor,
-    BattleHitReplayTerm,
-    BattleInferredBuffInterval,
-    BattleInferredAction,
-    BattleMaxHpReductionEvent,
-    BattleRangeRoleSummary,
-    BattleTargetCondition,
-    BattleTimelineDamageGroup,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTimelineDamageGroup
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleHitReplayFactor, BattleHitReplayTerm
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent, BattleTargetCondition
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.services.battle_report.build.counterfactual import (
     BattleBuildCounterfactualService,
 )

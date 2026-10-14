@@ -1,5 +1,6 @@
 # 区分公式暴击分支与原生观测标记，避免把飘字标记当作伤害倍率证据。
-from src.domain.battle_report import BattleAnalysisHit, BattleHitReplayResult
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.replay.models import BattleHitReplayResult
 
 
 def critical_explanation(hit: BattleAnalysisHit, replay: BattleHitReplayResult) -> str:

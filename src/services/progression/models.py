@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.domain.progression_stamina import FarmingStage, ProgressionStaminaResult
+from src.domain.progression.stamina import FarmingStage, ProgressionStaminaResult
 from src.services.progression.character_requirements import MaterialSummaryStatus, ProgressionRequirementGap
 
 

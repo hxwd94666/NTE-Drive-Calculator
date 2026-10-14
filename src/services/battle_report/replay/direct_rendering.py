@@ -2,13 +2,10 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
-from src.domain.battle_report import (
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
 from src.services.battle_report.replay.support import (
     dot_final_replay_factors,
     literal_replay_term,

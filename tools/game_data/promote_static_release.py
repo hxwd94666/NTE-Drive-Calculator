@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import tempfile
 from contextlib import closing
@@ -16,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
 
 try:
+    from .static_release_installation import install_static_release_pair, sha256
     from .static_database_build_support import (
         IMPORTER_VERSION,
         SCHEMA_VERSION,
@@ -41,6 +40,7 @@ try:
         format_size, validate_database_size,
     )
 except ImportError:  # 支持直接运行
+    from static_release_installation import install_static_release_pair, sha256
     from static_database_build_support import (
         IMPORTER_VERSION,
         SCHEMA_VERSION,
@@ -74,14 +74,6 @@ MANIFEST_FILENAME = "manifest.json"
 REPORT_RELATIVE_PATH = Path("report") / "static_database_report.json"
 GOLD_FIX_PROVENANCE_FILENAME = "gold_fix_provenance.json"
 SIZE_MANIFEST_REQUIRED_SCHEMA_VERSION = 30
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest().upper()
 
 
 def _read_json_object(path: Path, label: str) -> dict[str, Any]:
@@ -584,14 +576,6 @@ def verify_candidate(
     }
 
 
-def _temporary_path(directory: Path, filename: str, label: str) -> Path:
-    handle, temporary_name = tempfile.mkstemp(
-        prefix=f".{filename}.{label}.", suffix=".tmp", dir=directory
-    )
-    os.close(handle)
-    return Path(temporary_name)
-
-
 def promote_candidate(
     candidate_dir: Path,
     local_config_path: Path,
@@ -646,53 +630,14 @@ def promote_candidate(
     if source_database == target_database or source_manifest == target_manifest:
         raise StaticReleasePromotionError("候选产物不得与正式发行产物相同")
 
-    pending_database = _temporary_path(target_dir, DATABASE_FILENAME, "pending")
-    pending_manifest = _temporary_path(target_dir, MANIFEST_FILENAME, "pending")
-    rollback_database = _temporary_path(target_dir, DATABASE_FILENAME, "rollback")
-    rollback_manifest = _temporary_path(target_dir, MANIFEST_FILENAME, "rollback")
-    database_existed = target_database.is_file()
-    manifest_existed = target_manifest.is_file()
-    database_replaced = False
-    manifest_replaced = False
     expected_hash = sha256(source_database)
-    try:
-        shutil.copy2(source_database, pending_database)
-        shutil.copy2(source_manifest, pending_manifest)
-        if sha256(pending_database) != expected_hash:
-            raise StaticReleasePromotionError("候选数据库复制到 pending 后 SHA-256 变化")
-        if database_existed:
-            shutil.copy2(target_database, rollback_database)
-        if manifest_existed:
-            shutil.copy2(target_manifest, rollback_manifest)
-
-        os.replace(pending_database, target_database)
-        database_replaced = True
-        os.replace(pending_manifest, target_manifest)
-        manifest_replaced = True
+    with install_static_release_pair(
+        source_database, source_manifest, target_database, target_manifest, expected_hash,
+    ):
         final_summary = _database_summary(target_database)
         validate_manifest(target_database, target_manifest, final_summary)
         if final_summary["dataset_id"] != finalized["summary"]["dataset_id"]:
             raise StaticReleasePromotionError("晋升后的 dataset 与候选不一致")
-    except BaseException:
-        if database_replaced:
-            if database_existed:
-                os.replace(rollback_database, target_database)
-            else:
-                target_database.unlink(missing_ok=True)
-        if manifest_replaced:
-            if manifest_existed:
-                os.replace(rollback_manifest, target_manifest)
-            else:
-                target_manifest.unlink(missing_ok=True)
-        raise
-    finally:
-        for path in (
-            pending_database,
-            pending_manifest,
-            rollback_database,
-            rollback_manifest,
-        ):
-            path.unlink(missing_ok=True)
 
     return {
         "dataset_id": finalized["summary"]["dataset_id"],
@@ -788,6 +733,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
     except (OSError, sqlite3.Error, StaticReleasePromotionError) as exc:
         print(f"[失败] {exc}")
+        for note in getattr(exc, "__notes__", ()):
+            print(note)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

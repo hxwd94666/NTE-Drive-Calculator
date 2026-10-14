@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import theme_color, themed_style
-from src.domain.progression_material_conversion import allocate_owned, lower_tier_ids
-from src.domain.cultivation_history import normalize_owned_materials
+from src.domain.progression.materials import allocate_owned, lower_tier_ids
+from src.domain.progression.history import normalize_owned_materials
 from src.features.toolbox.cultivation.controls import disable_numeric_input_method
 from src.services.progression.planner_service import CultivationMaterial
 from src.ui.progression_material_card import ProgressionMaterialCard

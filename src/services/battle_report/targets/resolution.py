@@ -8,11 +8,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from src.domain.battle_report import BattleTargetCondition
-from src.domain.battle_target import (
-    BattleSelectedTargetProfile,
-    BattleTargetInstanceResolution,
-)
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleSelectedTargetProfile, BattleTargetInstanceResolution
 from src.services.battle_report.targets.instance_mapping import (
     BattleTargetInstanceMappingService,
 )

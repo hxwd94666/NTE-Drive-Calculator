@@ -5,11 +5,7 @@ import unittest
 from dataclasses import replace
 from typing import Literal
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleInferredAction,
-    BattleTreatmentEvent,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTreatmentEvent
 from src.services.battle_report.treatment.mechanisms import BattleTreatmentBuffService
 from src.services.battle_report.treatment.mechanisms import BattleTreatmentEventService
 from src.services.battle_report.characters.zankou import (

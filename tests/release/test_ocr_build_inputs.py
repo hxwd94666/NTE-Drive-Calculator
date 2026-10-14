@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.integrations.vision.recognition.backend_support import OcrBackendSupport, load_packaged_backend_support
+from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport, load_packaged_backend_support
 from tools.release import ocr_build_inputs as build
 
 NTE_TEST_TIER = 'core'
@@ -77,22 +77,19 @@ def test_selected_collection_missing_role_is_a_build_error(monkeypatch, missing)
 
 
 def test_project_ocr_dependency_groups_preserve_single_namespace_and_default():
-    """公开 profile 的安装输入与运行库声明一致，替代仅限定在核对过的版本。"""
+    """公开 profile 的安装分发互斥；依赖覆盖仅命中所选包装器版本。"""
     config = tomllib.loads((Path(__file__).parents[2] / 'pyproject.toml').read_text(encoding='utf-8'))
     groups = config['dependency-groups']
     uv = config['tool']['uv']
     assert uv['default-groups'] == ['dev', 'ocr-openvino', 'ocr-onnx-directml']
     assert uv['conflicts'] == [[{'group': 'ocr-onnx-cpu'}, {'group': 'ocr-onnx-directml'}]]
-    assert groups['ocr-openvino'] == ["loguru>=0.7.0 ; sys_platform == 'win32'",
-                                          "rapidocr-openvino==1.4.4 ; sys_platform == 'win32'"]
+    assert any(requirement.startswith('rapidocr-openvino==') for requirement in groups['ocr-openvino'])
+    metadata = next(entry for entry in uv['dependency-metadata'] if entry['name'] == 'rapidocr-onnxruntime')
     for profile, group in [('onnx_cpu', 'ocr-onnx-cpu'), ('onnx_directml', 'ocr-onnx-directml')]:
         support = OcrBackendSupport(profile)
-        assert groups[group][0] == "loguru>=0.7.0 ; sys_platform == 'win32'"
-        assert groups[group][1] == "rapidocr-onnxruntime==1.4.4 ; sys_platform == 'win32'"
+        assert any(requirement.split(';', 1)[0].strip() == f"rapidocr-onnxruntime=={metadata['version']}"
+                   for requirement in groups[group])
         assert groups[group][2].split('>=')[0] == support.ort_distribution
-    metadata, = uv['dependency-metadata']
-    assert metadata == {
-        'name': 'rapidocr-onnxruntime', 'version': '1.4.4', 'requires-python': '>=3.6,<3.13',
-        'requires-dist': ['pyclipper>=1.2.0', 'opencv-python>=4.5.1.48', 'numpy<3.0.0,>=1.19.5',
-                          'six>=1.15.0', 'Shapely!=2.0.4,>=1.7.1', 'PyYAML', 'Pillow', 'tqdm'],
-    }
+    # 后端只由对应 group 引入；包装器覆盖不得暗带另一个共享 ORT namespace 分发。
+    assert not any(requirement.lower().replace('_', '-').startswith('onnxruntime')
+                   for requirement in metadata['requires-dist'])

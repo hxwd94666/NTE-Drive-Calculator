@@ -11,27 +11,23 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 from src.app.context import AppContext
-from src.domain.battle_report import (
-    BattleCaptureState,
-    BattleRetentionMutation,
-    EMPTY_BATTLE_CAPTURE_STATE,
-    StoredBattleSummary,
-)
-from src.features.battle_report.history_dialog import BattleReportHistoryDialog
-from src.features.battle_report.transfer_dialog import BattleReportTransferDialog
-from src.features.battle_report.analysis_controller_mixin import (
+from src.domain.battle_report.capture.state import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
+from src.domain.battle_report.history.records import BattleRetentionMutation, StoredBattleSummary
+from src.features.battle_report.history.dialog import BattleReportHistoryDialog
+from src.features.battle_report.history.transfer_dialog import BattleReportTransferDialog
+from src.features.battle_report.analysis.loading import (
     BattleReportAnalysisControllerMixin,
 )
-from src.features.battle_report.build_snapshot_controller import (
+from src.features.battle_report.editing.controller import (
     BattleBuildSnapshotController,
 )
-from src.features.battle_report.capture_controls import BattleCaptureControlsMixin
-from src.features.battle_report.entry_guidance import show_capture_connection_failure
-from src.features.battle_report.comparison_capture import ComparisonCapture
-from src.features.battle_report.marginal_session_controller import (
+from src.features.battle_report.capture.controls import BattleCaptureControlsMixin
+from src.features.battle_report.capture.entry_guidance import show_capture_connection_failure
+from src.features.battle_report.capture.comparison import ComparisonCapture
+from src.features.battle_report.marginal.session import (
     BattleMarginalSessionController,
 )
-from src.features.battle_report.overlay import BattleReportOverlay
+from src.features.battle_report.capture.overlay import BattleReportOverlay
 from src.features.battle_report.page import BattleReportPage
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability import OperationContext
@@ -699,8 +695,7 @@ class BattleReportController(
         state: BattleCaptureState,
         stored: StoredBattleSummary,
     ) -> None:
-        # A selected history record owns the view; queued notifications from the
-        # preceding capture must not overwrite its summary or trigger analysis.
+        # 选中的历史记录接管页面；前一次采集排队中的通知不再覆盖摘要或触发分析。
         self._operation_token += 1
         show_report = getattr(self._page, "show_report", None)
         if callable(show_report):

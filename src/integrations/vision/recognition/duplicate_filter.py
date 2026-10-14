@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from src.integrations.vision.window_capture import crop_window_border_from_image
-from src.integrations.vision.recognition.backend_runtime import check_cancel
+from src.integrations.vision.recognition.ocr.backend_runtime import check_cancel
 from src.utils.image_io import imread_unicode
 
 

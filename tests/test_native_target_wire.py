@@ -1,7 +1,7 @@
 # 验证原生目标身份有值但血量缺失时，展示契约保留未知。
-from src.domain.battle_target import BattleTargetInstanceResolution
-from src.integrations.native_battle_page_wire import decode
-from src.domain.battle_page_models import BattleInferredTargetIdentity
+from src.domain.battle_report.targets.profiles import BattleTargetInstanceResolution
+from src.integrations.battle_analysis.page_wire import decode
+from src.domain.battle_report.targets.encounter import BattleInferredTargetIdentity
 
 
 def test_native_target_resolution_keeps_unknown_hp():

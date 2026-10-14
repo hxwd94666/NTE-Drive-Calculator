@@ -1,6 +1,7 @@
 # 持有鉴定两阶段任务、取消代次及物理空闲后的临时图片清理。
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -15,6 +16,7 @@ from src.integrations.vision.recognition.identification_temp_files import (
     cleanup_identify_clipboard_files, is_identify_clipboard_file,
 )
 from src.integrations.vision.recognition.resources import RecognitionResources
+from src.services.recognition.resources import load_recognition_resources
 from src.services.identification.tasks import (
     IdentificationImageRequest, IdentificationMatchRequest,
     parse_identification_images, match_identification_items,
@@ -46,7 +48,8 @@ class IdentificationTaskController(QObject):
         self._lane = PageTaskLane(self)
         self._lane.idle.connect(self._on_idle)
         self._sequence = 0
-        self._resources: RecognitionResources | None = None  # 主线程持有 worker 返回的不可变资料，不在确认后重绑。
+        # 图片由 worker 返回资料；手工在解析前冻结。两条入口匹配时都不重绑最新规则。
+        self._resources: RecognitionResources | None = None
         self._task: IdentificationTask | None = None
         self._phase = False
         self.closed = False
@@ -69,6 +72,19 @@ class IdentificationTaskController(QObject):
     def resources_for(self, task: IdentificationTask | None) -> RecognitionResources | None:
         """确认页面只读本次解析资料，不在模态弹窗期间重新读取配置。"""
         return self._resources if self.is_current(task) else None
+
+    def freeze_manual_resources(self, task: IdentificationTask) -> RecognitionResources:
+        """手工/文本剪贴板共用本次词条与静态身份，不初始化图片模板或 OCR。"""
+        if not self.is_current(task):
+            raise CancelledError("装备鉴定已取消")
+        if self._resources is None:
+            dependencies = task.dependencies
+            resources = load_recognition_resources(dependencies.config_dir, dependencies.static_database_path)
+            # 读取失败不留下半份资料；读取期间账号失效也不把候选挂到另一任务。
+            if not self.is_current(task):
+                raise CancelledError("装备鉴定已取消")
+            self._resources = resources
+        return self._resources
 
     def has_worker(self) -> bool:
         return self._lane.is_running()

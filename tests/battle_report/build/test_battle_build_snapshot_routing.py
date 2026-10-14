@@ -7,10 +7,10 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtWidgets import QApplication, QDialog
 
-from src.features.battle_report.build_snapshot_controller import (
+from src.features.battle_report.editing.controller import (
     BattleBuildSnapshotController,
 )
-from src.features.battle_report.marginal_session_controller import (
+from src.features.battle_report.marginal.session import (
     BattleMarginalSessionController,
 )
 from src.features.battle_report.page import BattleReportPage
@@ -88,7 +88,7 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
         errors = []
         with (
             patch(
-                "src.features.battle_report.build_snapshot_controller."
+                "src.features.battle_report.editing.controller."
                 "BattleBuildSnapshotEditorDialog",
                 FakeEditorDialog,
             ),
@@ -361,12 +361,12 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
         reload_analysis = Mock()
         with (
             patch(
-                "src.features.battle_report.build_snapshot_controller."
+                "src.features.battle_report.editing.controller."
                 "BattleBuildSnapshotEditorDialog",
                 FakeEditorDialog,
             ),
             patch(
-                "src.features.battle_report.build_snapshot_controller."
+                "src.features.battle_report.editing.controller."
                 "QMessageBox.information",
             ),
         ):

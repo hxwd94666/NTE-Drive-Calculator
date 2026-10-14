@@ -6,9 +6,10 @@ from unittest import TestCase
 from unittest.mock import Mock, patch
 
 from src.integrations.operation_guard import GuardedGuiInput, require_operation
+from src.integrations.nte_core_protocol import NteCoreRpcError
 from src.integrations.vision.mouse_scan_input import PyAutoGuiMouseScanInput
-from src.services.equipment_apply_service import EquipmentApplyService
-from src.services.bulk_equipment_apply_service import BulkEquipmentApplyService
+from src.services.equipment.apply import EquipmentApplyService
+from src.services.equipment.bulk_apply import BulkEquipmentApplyService
 
 
 class ExecutionGuardTests(TestCase):
@@ -77,12 +78,15 @@ class ExecutionGuardTests(TestCase):
         dispatch.assert_not_called()
 
     def test_native_busy_retry_rechecks_revoked_authorization(self):
-        dispatch = Mock(side_effect=RuntimeError("busy"))
+        # 使用正式未派发 busy 错误，覆盖真实分类与下一次派发前的权限复核。
+        dispatch = Mock(side_effect=NteCoreRpcError({
+            "code": -32001, "message": "busy",
+            "data": {"domain_code": "EQUIPMENT_PLUGIN_BUSY"},
+        }))
         guard = Mock(side_effect=[None, PermissionError("revoked")])
         service = EquipmentApplyService(Mock(), Mock(), operation_guard=guard)
         with (
-            patch("src.services.equipment_apply_service.is_mods_plugin_busy_error", return_value=True),
-            patch("src.services.equipment_apply_service.time.sleep"),
+            patch("src.services.equipment.apply.time.sleep"),
             self.assertRaises(PermissionError),
         ):
             service._dispatch_with_busy_retry(dispatch, operation="test")
@@ -141,7 +145,7 @@ class ExecutionGuardTests(TestCase):
         scanner.gamepad.release_button.assert_called_once_with(button="A")
 
     def test_drone_swipe_releases_button_when_permission_changes(self):
-        from src.scanner.drone_scanner import DroneScanner, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP
+        from src.integrations.vision.incremental_scan import DroneScanner, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP
 
         scanner = DroneScanner.__new__(DroneScanner)
         scanner.operation_guard = Mock(side_effect=[None, None, PermissionError("revoked")])
@@ -151,8 +155,8 @@ class ExecutionGuardTests(TestCase):
         scanner._content_left = scanner._content_top = 0
         scanner._stopped = False
         with (
-            patch("src.scanner.drone_scanner.time.sleep"),
-            patch("src.scanner.drone_scanner._send_input") as send,
+            patch("src.integrations.vision.incremental_scan.time.sleep"),
+            patch("src.integrations.vision.incremental_scan._send_input") as send,
             self.assertRaises(PermissionError),
         ):
             scanner._swipe_up()

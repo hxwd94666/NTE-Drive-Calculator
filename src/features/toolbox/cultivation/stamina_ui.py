@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.progression_stamina import (
+from src.domain.progression.stamina import (
     ProgressionStaminaResult,
     project_identification_level,
 )

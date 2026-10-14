@@ -24,9 +24,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.features.settings.work_mode_card import build_work_mode_card
-from src.features.settings.language_card import LanguageCard
+from src.features.settings.language.card import LanguageCard
 from src.services.preferences.language_settings_service import LanguageSettingsService
-from src.features.settings.performance_card import PerformanceCard
+from src.features.settings.performance.card import PerformanceCard
 from src.app.constants import NETDISK_DOWNLOAD_LINKS
 from src.app.context import AppContext
 from src.app.theme import THEME_LABELS, themed_style
@@ -482,10 +482,10 @@ def build_settings_page(
     update_row.setSpacing(10)
     window._check_update_btn = QPushButton("检查更新")
     window._check_update_btn.setObjectName("btnPrimary")
-    window._check_update_btn.clicked.connect(lambda: window._check_updates(manual=True))
+    window._check_update_btn.clicked.connect(lambda: window.calc_update_controller.check(manual=True))
     window._mirror_download_btn = QPushButton("Mirror 下载")
     window._mirror_download_btn.setObjectName("btnPrimary")
-    window._mirror_download_btn.clicked.connect(window._start_mirror_download)
+    window._mirror_download_btn.clicked.connect(window.calc_update_controller.start_download)
     home_btn = QPushButton("GitHub 下载")
     home_btn.clicked.connect(window._open_update_homepage)
     netdisk_btn = QPushButton("网盘下载")
@@ -508,8 +508,11 @@ def build_settings_page(
     window._mirror_cdk_edit.setPlaceholderText("填写 Mirror CDK（仅用于请求下载地址）")
     window._mirror_cdk_edit.setEchoMode(QLineEdit.Password)
     window._mirror_cdk_edit.setFixedWidth(360)
-    window._mirror_cdk_edit.setText(str(window._update_config.get("mirror_cdk") or ""))
-    window._mirror_cdk_edit.editingFinished.connect(window._save_mirror_cdk)
+    window._mirror_cdk_edit.editingFinished.connect(window.calc_update_controller.save_cdk)
+    window.calc_update_controller.bind_view(
+        status=window._update_status, check_button=window._check_update_btn,
+        download_button=window._mirror_download_btn, cdk_editor=window._mirror_cdk_edit,
+    )
     mirror_cdk_row.addWidget(mirror_cdk_label)
     mirror_cdk_row.addWidget(window._mirror_cdk_edit)
     mirror_cdk_row.addStretch()

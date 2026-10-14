@@ -6,14 +6,10 @@ from __future__ import annotations
 from dataclasses import asdict
 from collections.abc import Mapping, Sequence
 from src.services.battle_report.native.team_state import compute_team_state
-from src.domain.native_analysis import available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleInferredBuffInterval,
-    BattleLinkoCoattackInference,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleLinkoCoattackInference
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.characters.passives import (
     BattleCharacterPassiveService,
 )

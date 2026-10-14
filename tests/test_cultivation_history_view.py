@@ -4,10 +4,8 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def test_cross_page_selection_and_filter_change(tmp_path):
@@ -155,7 +153,7 @@ def test_delete_completion_immediately_revokes_detail_before_refresh(tmp_path, m
 
 def test_select_all_uses_current_mode_and_search_across_pages(tmp_path):
     import json
-    from src.domain.cultivation_history import HistoryPayload
+    from src.domain.progression.history import HistoryPayload
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history import history_payload
     from tests.test_cultivation_history_page import _page, _wait
@@ -192,7 +190,7 @@ def test_select_all_uses_current_mode_and_search_across_pages(tmp_path):
 def test_old_history_role_and_fork_pinyin_search_share_list_and_all_selection(tmp_path):
     import json
     import sqlite3
-    from src.domain.cultivation_history import HistoryPayload
+    from src.domain.progression.history import HistoryPayload
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history import history_payload
 

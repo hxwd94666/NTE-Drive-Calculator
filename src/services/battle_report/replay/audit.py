@@ -8,12 +8,9 @@ from collections.abc import Sequence
 from dataclasses import replace
 from math import isfinite, log
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
 from src.services.battle_report.replay.support import (
     settle_replay_damage,
     replay_error_percent,
@@ -26,7 +23,7 @@ from src.services.battle_report.analysis.progress import (
 from src.services.battle_report.replay.local_critical import (
     BattleHitLocalCritInferenceService,
 )
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
 
 _NIGHTMARE_MARKER = "lacrimosa_blood_damage"

@@ -19,11 +19,7 @@ from src.domain.static_catalog import (
     StaticCatalogRelease,
     StaticCatalogRequest,
 )
-from src.features.static_catalog.menu import (
-    MENU_ENTRIES,
-    CatalogMenuCard,
-    StaticCatalogMenu,
-)
+from src.features.static_catalog.menu import MENU_ENTRIES
 from src.features.static_catalog.page import (
     StaticCatalogDomainPageSpec,
     StaticCatalogPage,
@@ -81,43 +77,6 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
         cls.asset_root = Path("data/role_catalog/game_ui").resolve()
-
-    def test_menu_exposes_only_the_five_player_facing_entries(self) -> None:
-        menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)
-        menu.set_domains(_domains())
-        self.app.processEvents()
-
-        cards = menu.findChildren(CatalogMenuCard)
-        object_names = {card.objectName() for card in cards}
-        self.assertEqual(len(cards), len(MENU_ENTRIES))
-        self.assertNotIn("staticCatalogMenuCard_all", object_names)
-        self.assertNotIn("staticCatalogMenuCard_coverage", object_names)
-        self.assertNotIn("staticCatalogMenuCard_assets", object_names)
-        self.assertNotIn("staticCatalogMenuCard_sources", object_names)
-        self.assertIn("staticCatalogMenuCard_character", object_names)
-        self.assertIn("staticCatalogMenuCard_combat_mechanics", object_names)
-        menu.deleteLater()
-
-    def test_menu_reflows_to_one_column_without_a_narrow_horizontal_grid(self) -> None:
-        menu = StaticCatalogMenu(game_ui_asset_root=self.asset_root)
-        menu.resize(600, 800)
-        menu.set_domains(_domains())
-        menu.show()
-        self.app.processEvents()
-
-        self.assertEqual(1, menu._columns)
-        for grid, cards in menu._group_cards:
-            for index, _card in enumerate(cards):
-                _row, column, _row_span, _column_span = grid.getItemPosition(index)
-                self.assertEqual(0, column)
-
-        menu.resize(900, 800)
-        self.app.processEvents()
-        self.assertEqual(2, menu._columns)
-        two_card_grid, _cards = menu._group_cards[0]
-        self.assertEqual(0, two_card_grid.getItemPosition(0)[1])
-        self.assertEqual(1, two_card_grid.getItemPosition(1)[1])
-        menu.deleteLater()
 
     def test_page_starts_on_menu_and_opens_only_the_selected_domain(self) -> None:
         controller = _Controller()

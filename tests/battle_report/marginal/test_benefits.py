@@ -6,19 +6,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleDamageQuantification,
-    BattleQuantificationGap,
+from src.domain.battle_report.counterfactual.results import BattleBuildHitCounterfactual
+from src.domain.battle_report.counterfactual.quantification import (
+    BattleCounterfactualRatio, BattleDamageQuantification, BattleQuantificationGap,
 )
-from src.domain.battle_marginal_benefit import BattleMarginalDelta
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-)
+from src.domain.battle_report.counterfactual.results import BattleMarginalDelta
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
 from src.services.battle_report.marginal.benefits import (
     BattleMarginalBenefitService,
 )

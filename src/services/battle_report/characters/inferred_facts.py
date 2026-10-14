@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence, Set
 from typing import Any
 
-from src.domain.battle_report import BattleInferredCharacterFact
+from src.domain.battle_report.build.inputs import BattleInferredCharacterFact
 
 
 INFERRED_CHARACTER_FACT_MODEL_VERSION = "battle-inferred-character-fact-v1"

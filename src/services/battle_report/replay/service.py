@@ -2,9 +2,9 @@
 from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from src.domain.battle_report import (
-    BattleAnalysisSnapshot, BattleHitBuffProjection, BattleHitReplayResult, BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
 from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService
 from src.services.battle_report.buffs.interval_index import (
     BattleBuffIntervalIndex, BattleBuffIntervalQuery,
@@ -36,7 +36,7 @@ from src.services.battle_report.replay.buff_cache import (
 from src.services.battle_report.damage.weave_source import BattleWeaveSourceIndex, find_paired_weave_source_hit
 from src.services.battle_report.replay.formula_projection import project_formula_hit, project_replay_formula_context
 from src.services.battle_report.replay.direct_rendering import BattleDirectHitReplayMixin
-from src.domain.native_analysis import DirectFormulaBackend, available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import DirectFormulaBackend, available_battle_compute
 from src.services.battle_report.replay.direct_batch import DirectReplayBatch
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.replay.special_batch import SpecialReplayBatch, PendingSpecialReplay

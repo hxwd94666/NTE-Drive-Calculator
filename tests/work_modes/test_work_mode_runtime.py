@@ -91,16 +91,25 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.assertEqual(probe.component_update_detail, "旧组件尚待清理。")
         self.assertNotIn("已部署", probe.component_update_detail)
 
-    def test_preflight_preview_does_not_clean_deploy_or_close_session(self):
+    def test_preflight_preview_never_applies_or_creates_business_connection(self):
         self.enable_auto()
-        self.policy.set_cleanup_pending(True)
+        self.process.return_value = True
+        self.deployed_value.files_compatible = True
+        self.stub("native_capture_game_pid", return_value=123)
+        self.native.inspect = MagicMock(return_value={})
         with patch.object(self.runtime, "cleanup") as cleanup, patch.object(
             self.runtime, "_automatic_deploy",
         ) as deploy:
-            self.runtime.tick(preview=True)
-        cleanup.assert_not_called()
-        deploy.assert_not_called()
-        self.native.close.assert_not_called()
+            for pending in (True, False):
+                self.policy.set_cleanup_pending(pending)
+                self.runtime.tick(preview=True)
+            cleanup.assert_not_called()
+            deploy.assert_not_called()
+            self.native.close.assert_not_called()
+            self.native.inspect.assert_not_called()
+            # 正常非预检观察仍读取会话；不把预检收口变成全面禁用连接。
+            self.runtime.tick()
+            self.native.inspect.assert_called_once_with(refresh=False, check_equipment=False)
 
     def test_inspection_failure_preserves_shared_reason_and_unknown_handshake(self):
         from src.integrations.nte_core_protocol import NteCoreTimeoutError

@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from src.services.battle_report.native.state_payload import HIT_FIELDS, HP_EVENT_FIELDS, state_rows, fadia_character
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.characters.state_compute import compute_character_state, restore_fadia_intervals
-from src.domain.battle_report import BattleAnalysisHit, BattleBuffModifierEvidence, BattleInferredBuffInterval, BattleMaxHpReductionEvent
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent
 from src.services.battle_report.characters.passives import BattleCharacterPassiveService
 
 

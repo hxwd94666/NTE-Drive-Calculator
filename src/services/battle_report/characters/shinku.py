@@ -5,9 +5,12 @@ from dataclasses import dataclass, replace
 from math import isfinite
 from typing import Any
 from src.services.battle_report.native.state_payload import HIT_FIELDS, state_rows, state_row
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.characters.state_compute import compute_character_state
-from src.domain.battle_report import BattleAnalysisHit, BattleBuffModifierEvidence, BattleInferredBuffInterval, BattleAnalysisSnapshot, BattleSkillDamageEvidence
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 from src.services.battle_report.characters.awakening import SHINKU_RAGE_DAMAGE_IDS, SHINKU_RAGE_REQUIREMENT
 from src.services.official_role.awakening import active_awaken_effects
 from src.services.battle_report.timeline.clock import ACTIVE_TIME_MODE, projected_range_duration_us

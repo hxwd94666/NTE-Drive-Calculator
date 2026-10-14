@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QApplication
 
-from src.domain.battle_report import BattleCharacterBaseline, BattleCharacterStat
-from src.features.battle_report.marginal_character_panel import (
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.features.battle_report.marginal.character_panel import (
     BattleMarginalCharacterPanel,
 )
 

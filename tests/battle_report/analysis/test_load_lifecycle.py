@@ -9,10 +9,10 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QObject, QTimer
 
-from src.features.battle_report.analysis_controller_mixin import (
+from src.features.battle_report.analysis.loading import (
     BattleReportAnalysisControllerMixin,
 )
-from src.domain.battle_page_models import BattleReportAnalysisLoadResult
+from src.domain.battle_report.analysis.page_results import BattleReportAnalysisLoadResult
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest, BattleReportAnalysisLoadService
 from src.services.battle_report.analysis.progress import BattleAnalysisProgress
 

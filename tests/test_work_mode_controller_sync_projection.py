@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QWidget
 
-pytest_plugins = ("tests.test_work_mode_controller",)
+pytest_plugins = ("tests.work_modes.test_controller",)
 
 def test_native_saved_inventory_does_not_mark_packet_capture_ready(controller):
     c, window, policy, _events, _popups, probe = controller
@@ -62,7 +62,7 @@ def test_settings_card_keeps_only_compact_status_and_explicit_details(controller
     assert {
         "离线：", "低风险：", "中风险：", "开发：",
         "本地计算、配装、已保存数据与历史战报分析。",
-        "以上功能 + 抓包同步/战报 + 鼠标或手柄扫描；不使用游戏组件。",
+        "以上功能 + 基础同步/抓包 + 鼠标或手柄扫描；不使用游戏组件。",
         "以上功能 + 原生同步、原生战报、极速装配、锁定/弃置及插件。",
         "抓包与原生双线对比，仅供开发人员使用。",
     } <= labels
@@ -76,7 +76,7 @@ def test_settings_card_keeps_only_compact_status_and_explicit_details(controller
     c._apply((policy.settings.revision, 1, probe, 0))
     assert "\n" not in status.text()
     assert status.text() != report_text(policy.build_report(probe))
-    assert popups == [] and check.text() == "检测详情"
+    assert popups == [] and check.text() == "检测并处理"
     check.click()
     request = c._show_request_id
     c._apply((policy.settings.revision, 1, probe, request))

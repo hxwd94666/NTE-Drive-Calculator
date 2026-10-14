@@ -6,9 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
 
-from src.domain.battle_report import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
+from src.domain.battle_report.capture.state import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
 from src.features.battle_report.controller import BattleReportController
-from src.services.work_mode_service import WorkModeService
+from src.services.work_modes.service import WorkModeService
 
 
 class _Overlay:
@@ -242,15 +242,16 @@ def test_start_freezes_raw_capture_setting_and_account_directory(compare: bool, 
             self.comparison_changed = SimpleNamespace(connect=lambda _callback: None)
             assert defer_packet_start is True
 
-    with (patch("src.features.battle_report.capture_controls.BattleCaptureService", Capture),
-          patch("src.features.battle_report.capture_controls.ComparisonCapture", Pair)):
+    with (patch("src.features.battle_report.capture.controls.BattleCaptureService", Capture),
+          patch("src.features.battle_report.capture.controls.ComparisonCapture", Pair)):
         BattleReportController.start(controller, preserve_inventory_pause=continuation,
                                      continue_after_scene=continuation)
 
     kwargs = created[0]
     expected_directory = Path("account-logs") / "nte_core" / "raw_capture"
     assert kwargs is not None
-    assert kwargs["raw_capture_enabled"] is False
+    # 诊断偏好不受模式限制；双路只由抓包侧保存，原生单路仍冻结本次明确偏好。
+    assert kwargs["raw_capture_enabled"] is (not compare)
     assert kwargs["raw_capture_directory"] == expected_directory
     assert kwargs["device_name"] == "capture-device"
     assert kwargs["client_factory"]() == expected_directory

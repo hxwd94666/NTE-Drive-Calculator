@@ -13,10 +13,10 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from src.integrations.vision.recognition import backend_runtime as runtime
-from src.integrations.vision.recognition import model_resources as resources
-from src.integrations.vision.recognition import language_resources as language
-from src.integrations.vision.recognition.ocr_engine import OCREngine
+from src.integrations.vision.recognition.ocr import backend_runtime as runtime
+from src.integrations.vision.recognition.ocr import model_resources as resources
+from src.integrations.vision.recognition.ocr import language_resources as language
+from src.integrations.vision.recognition.ocr.ocr_engine import OCREngine
 from src.utils.exceptions import OCRParseError
 
 NTE_TEST_TIER = 'core'
@@ -88,23 +88,6 @@ class OcrRuntimeTests(unittest.TestCase):
                 with self.assertRaises(resources.OcrModelResourceError):
                     frozen.verify_unchanged()
 
-    def test_modes_probe_only_the_selected_gpu_route(self):
-        for mode in ('openvino', 'cpu', 'low_load', 'amd_compat', 'directml', 'auto'):
-            with self.subTest(mode=mode), model_fixture(), patch.dict('sys.modules', {
-                'rapidocr_openvino': SimpleNamespace(RapidOCR=Mock(return_value=NativeOCR())),
-                'rapidocr_onnxruntime': SimpleNamespace(RapidOCR=Mock(return_value=NativeOCR())),
-            }), patch.object(runtime, '_get_video_adapter_names', return_value=['NVIDIA GeForce fixture']) as adapters, patch.object(runtime, '_available_ort_providers', return_value=['DmlExecutionProvider']) as providers, patch.object(runtime, '_apply_low_load_runtime_limits'):
-                engine = OCREngine(mode)
-                chosen = runtime.sys.modules['rapidocr_onnxruntime' if mode in {'cpu', 'directml', 'auto'} else 'rapidocr_openvino'].RapidOCR
-                kwargs = chosen.call_args.kwargs
-                expected = engine.runtime_resources.model_kwargs()
-                self.assertEqual(expected, {key: kwargs[key] for key in expected})
-                self.assertEqual(mode in {'directml', 'auto'}, kwargs.get('rec_use_dml', False))
-                self.assertEqual(int(mode in {'directml', 'auto'}), adapters.call_count)
-                self.assertEqual(adapters.call_count, providers.call_count)
-                self.assertEqual(['攻击力'], engine.extract_text(np.zeros((12, 20), dtype=np.uint8)))
-                self.assertEqual([{'text': '攻击力', 'box': (1, 2, 11, 8)}], engine.extract_lines(np.zeros((12, 20), dtype=np.uint8)))
-
     def test_unknown_or_integrated_gpu_skips_provider_import(self):
         for names in ([], ['Intel(R) UHD Graphics'], ['AMD Radeon Vega Graphics']):
             with self.subTest(names=names), model_fixture(), patch.object(runtime, '_get_video_adapter_names', return_value=names), patch.object(runtime, '_available_ort_providers') as providers, patch.dict('sys.modules', {'rapidocr_openvino': SimpleNamespace(RapidOCR=Mock(return_value=NativeOCR()))}):
@@ -120,9 +103,13 @@ class OcrRuntimeTests(unittest.TestCase):
             calls.append(kwargs)
             return NativeOCR()
         with model_fixture(), patch.dict('sys.modules', {'rapidocr_openvino': SimpleNamespace(RapidOCR=failing), 'rapidocr_onnxruntime': SimpleNamespace(RapidOCR=succeeding)}):
-            OCREngine('openvino')
+            engine = OCREngine('openvino')
         self.assertEqual(2, len(calls))
         self.assertEqual(calls[0], calls[1])
+        # 后端路线由 support 行为保护；灰度文本/框投影只需验证一次实际备用实例。
+        image = np.zeros((12, 20), dtype=np.uint8)
+        self.assertEqual(['攻击力'], engine.extract_text(image))
+        self.assertEqual([{'text': '攻击力', 'box': (1, 2, 11, 8)}], engine.extract_lines(image))
 
     def test_model_change_during_failed_native_init_is_not_a_fallback(self):
         with model_fixture() as (root, specs):
@@ -241,7 +228,7 @@ with tempfile.TemporaryDirectory() as temporary:
     before = os.environ.get('PATH', '')
     registrations = []
     os.add_dll_directory = lambda path: registrations.append(path)
-    import src.integrations.vision.recognition.ocr_engine
+    import src.integrations.vision.recognition.ocr.ocr_engine
     assert not registrations, registrations
     assert os.environ.get('PATH', '') == before
     assert logging.getLogger().level == logging.INFO

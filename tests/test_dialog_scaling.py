@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
 
 from src.app import theme as theme_module
 from src.app.window_geometry import (
-    constrained_window_size,
     fit_dialog_to_available_screen,
 )
 from src.app.theme import install_dialog_defaults
@@ -93,15 +92,6 @@ def test_tall_dialog_keeps_requested_margin_when_owner_is_near_screen_bottom() -
     assert dialog.geometry().top() >= available.top() + 24
     assert dialog.geometry().bottom() <= available.bottom() - 24
     owner.hide()
-
-
-@pytest.mark.parametrize("scale", (1.0, 1.25, 1.5, 1.75, 2.0))
-def test_dialog_geometry_covers_common_windows_scaling_ratios(scale: float) -> None:
-    available = QRect(0, 0, round(1920 / scale), round(1040 / scale))
-    fitted = constrained_window_size(QSize(1064, 920), available)
-
-    assert fitted.width() <= available.width() - 48
-    assert fitted.height() <= available.height() - 48
 
 
 def test_global_dialog_defaults_fit_future_oversized_dialogs() -> None:

@@ -5,7 +5,7 @@ from concurrent.futures import CancelledError
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
-from src.integrations.native_battle_page_wire import decode_page, decode_derived_snapshot
+from src.integrations.battle_analysis.page_wire import decode_page, decode_derived_snapshot
 from src.integrations.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.analysis.progress import report_battle_analysis_progress
 from src.services.battle_report.analysis.progress import BattlePageOverallProgress
@@ -47,7 +47,7 @@ class BattleNativePageService:
         self._page_cache = BattleNativePageCache()
 
     def load_editor_facts(self, battle_record_id):
-        from src.integrations.native_battle_editor_facts import load_editor_facts
+        from src.integrations.battle_analysis.editor_facts import load_editor_facts
         return load_editor_facts(self._client, self._dependencies, self._context_is_current, battle_record_id)
 
     def load(self, request, *, progress_callback=None):

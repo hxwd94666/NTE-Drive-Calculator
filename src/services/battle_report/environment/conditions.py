@@ -4,12 +4,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from src.domain.battle_report import (
-    BattleBuffModifierEvidence,
-    BattleInferredBuffInterval,
-    BattleTargetCondition,
-)
-from src.domain.battle_target import BattleSelectedTargetProfile
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleSelectedTargetProfile
 
 
 def _text(value: object, fallback: str = "") -> str:

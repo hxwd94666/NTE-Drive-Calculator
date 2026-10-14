@@ -80,7 +80,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def _marginal(history, record_id, static_database, source_root, progress, metrics):
     from src.domain.stat_catalog import StatCatalog
-    from src.features.battle_report.marginal_page import BattleMarginalPage
+    from src.features.battle_report.marginal.page import BattleMarginalPage
     from src.services.battle_report.marginal.calculation import BattleMarginalCalculationService
     from src.services.battle_report.marginal.calculation_support import drive_substat_marginal_units
     from src.services.battle_report.marginal.candidates import BattleMarginalCandidateService
@@ -92,7 +92,7 @@ def _marginal(history, record_id, static_database, source_root, progress, metric
         from src.services.battle_report.marginal.panel import character_panel_marginal_units
     else:
         # The frozen v0.1/v2 application calculated its panel in the UI helper.
-        from src.features.battle_report.marginal_character_panel import character_panel_marginal_units
+        from src.features.battle_report.marginal.character_panel import character_panel_marginal_units
 
     started = time.perf_counter()
     editor_data = history.load_build_editor_data(record_id)

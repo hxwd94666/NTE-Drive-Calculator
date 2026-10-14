@@ -20,7 +20,7 @@ from src.integrations.vision import incremental_scan as scan
 from src.integrations.vision.recognition import batch_processor
 from src.integrations.vision.recognition.image_resources import CaptureTemplateFile
 from src.integrations.vision.recognition.resources import RecognitionResourceError
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from src.integrations.vision.window_capture import WindowRect
 from src.models.equipment import Tape
 from src.services.inventory.visual_scan_commit import commit_completed_vision_inventory

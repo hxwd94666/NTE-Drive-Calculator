@@ -56,6 +56,7 @@ class NativeGameSession:
         self._closing = False
         self._close_requested = Event()
         self._permanently_closed = Event()
+        self._hud_enable_epoch = object()
         self._failed = False
         self._snapshots_disabled = False
         self._refresh_active = None
@@ -411,9 +412,24 @@ class NativeGameSession:
 
     def configure_hud(self, options: dict[str, bool], *, connect: bool) -> dict:
         """共享唯一采集连接；关闭 HUD 不建立新连接。"""
-        with self._lock:
-            if self._maintenance.is_set() and (options.get('cooldown') or options.get('enemy_bars')):
+        enabled = bool(options.get('cooldown') or options.get('enemy_bars'))
+        enable_epoch = self._hud_enable_epoch
+        context = self._current_context()
+
+        def check_enable():
+            if not enabled:
+                return  # 撤权后的关闭仍由原会话收尾，不要求新的启用权限。
+            self._guard("native_load")
+            if (self._closing or self._close_requested.is_set() or self._permanently_closed.is_set()
+                    or enable_epoch is not self._hud_enable_epoch
+                    or context != self._current_context()):
+                raise NteCoreError('原生会话已停止或账号已改变，未启用 HUD。')
+            if self._maintenance.is_set():
                 raise NteCoreError('组件更新中，HUD 暂时暂停。')
+
+        with self._lock:
+            # 偏好投影可能在等锁前已通过授权；锁内及连接后都复核，不把旧启用借给新会话。
+            check_enable()
             if connect:
                 self._guard("native_load")
                 client = self._connect()
@@ -421,6 +437,9 @@ class NativeGameSession:
                 client = self._client
             if client is None or not client.is_running:
                 return {}
+            check_enable()
+            if enabled and (self._failed or self._connected_context != context):
+                raise NteCoreError('HUD 所属原生连接已改变，未派发旧启用请求。')
             capabilities = (client.hello_result or {}).get("capabilities", ())
             if "native_hud_v1" not in capabilities:
                 if connect:
@@ -475,6 +494,9 @@ class NativeGameSession:
 
     def request_close(self, *, permanent: bool = False) -> None:
         """先无阻塞撤销新工作，实际 owner 随后完成 RPC 收尾。"""
+        # 完成收尾会清临时 Event，但等锁的旧启用仍失效；新请求捕获新的生命周期。
+        # 单次对象替换不等待 RPC 锁，也不把暂停时仍允许的手动能力永久撤销。
+        self._hud_enable_epoch = object()
         if permanent:
             self._permanently_closed.set()
         self._close_requested.set()
@@ -587,6 +609,7 @@ class NativeBattleLease:
         return result
 
     def observe_battle_scopes(self, record, *, final=False, stop_requested=None):
+        from src.services.battle_report.capture.build_context import PANEL_DOMAINS, native_equipment_projection
         from src.services.battle_report.inputs.scopes import scope_attempts
         from src.services.battle_report.inputs.preparation import first_hit_snapshot_ready, retain_scope_pending_snapshot
         from copy import deepcopy
@@ -631,9 +654,11 @@ class NativeBattleLease:
                     frozen = deepcopy(self._preparation.snapshot)
                 else:
                     frozen = self._read_battle_snapshot(stop_requested)
+                # 当前装备来自同一角色修订的在装子集，不要求或补读整背包域；
+                # 面板域及投影完整后，仍由下方首击证据校验决定冻结或继续等待。
                 if frozen.get("state") == "source_changed" or (frozen.get("state") == "observed" and
-                        (not {"character", "inventory", "team"} <= (frozen.get("domains") or {}).keys() or
-                         "inventory_projection" not in frozen or "character_projection" not in frozen)):
+                        (not set(PANEL_DOMAINS) <= (frozen.get("domains") or {}).keys() or
+                         "character_projection" not in frozen or native_equipment_projection(frozen) is None)):
                     continue
                 # A read can finish before the matching context reaches Core.
                 # Retain its evidence but allow later polls to establish binding.

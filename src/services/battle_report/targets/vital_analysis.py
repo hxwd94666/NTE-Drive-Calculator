@@ -12,11 +12,8 @@ from typing import Any
 
 from src.services.battle_report.targets.observation import target_event_sequence
 
-from src.domain.battle_report import (
-    BattleMaxHpReductionEvent,
-    BattleTargetCondition,
-    BattleTimelineDamageGroup,
-)
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent, BattleTargetCondition
+from src.domain.battle_report.timeline.events import BattleTimelineDamageGroup
 from src.services.battle_report.characters.fadia import (
     is_plausible_fadia_observed_source_hp,
     resolve_fadia_source_max_hp,

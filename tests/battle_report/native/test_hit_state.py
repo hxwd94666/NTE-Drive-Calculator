@@ -16,6 +16,29 @@ from tests.battle_report.characters.test_zankou_form import _action
 
 
 class HitStateAdapterTests(unittest.TestCase):
+    def test_early_settlement_evidence_preserves_unknown_coefficient_and_clears_stack(self):
+        # 正式三觉终段后的结算不是普通跳伤；证据文案须与未解析系数保持一致。
+        analysis = SimpleNamespace(hits=(
+            _hit("apply", 0, "GE_Player_Lacrimosa_Melee1_Damage", 1004),
+            _hit("ordinary", 100_000, "GE_Player_Lacrimosa_Blood_Damage", 1004),
+            _hit("finish", 200_000, "GE_Player_Lacrimosa_Melee5_Damage", 1004),
+            _hit("early", 300_000, "GE_Player_Lacrimosa_Blood_Damage_LV6", 1004),
+            _hit("after", 400_000, "GE_Player_Lacrimosa_Blood_Damage", 1004),
+        ), time_stop_intervals=())
+        build = {"characters": [{"character_id": 1004,
+                                 "profile": {"selected_awaken_effect_ids": ["Effect3"]}}]}
+        states = reconstruct_dot_stack_states(analysis, build)
+        early = states["early"]
+        self.assertEqual((0, "未解析", "三觉：噩梦提前结算"),
+                         (early.coefficient, early.confidence, early.label))
+        self.assertIn("剩余伤害结算", early.evidence_basis)
+        self.assertIn("本击不按普通噩梦跳伤估算", early.evidence_basis)
+        self.assertNotIn("剩余伤害结算", states["ordinary"].evidence_basis)
+        self.assertEqual((1, "低", "噩梦观测下限"),
+                         (states["after"].coefficient, states["after"].confidence,
+                          states["after"].label))
+        self.assertIn("不反推精确层数", states["after"].evidence_basis)
+
     def test_native_dot_restores_the_same_weak_evidence_without_import_cycle(self):
         class Backend:
             supports_battle_compute = True

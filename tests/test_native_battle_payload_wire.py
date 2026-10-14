@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from src.integrations.native_battle_payload_wire import restore_payloads
+from src.integrations.battle_analysis.payload_wire import restore_payloads
 from src.integrations.nte_analysis_core import NativeAnalysisError
 
 
@@ -38,8 +38,8 @@ class NativePayloadWireTests(unittest.TestCase):
         hit = {"native_evidence": {"payload_fragments": [0]}}
         page = {"native_payload_fragments": ["中文"], "analysis": {"hits": [hit]},
                 "candidate_display_analysis": {"hits": [hit]}}
-        with patch("src.integrations.native_battle_payload_wire.MAX_EXPANDED_PAYLOAD_BYTES", 11):
+        with patch("src.integrations.battle_analysis.payload_wire.MAX_EXPANDED_PAYLOAD_BYTES", 11):
             with self.assertRaisesRegex(NativeAnalysisError, "大小限制"):
                 restore_payloads(page)
-        with patch("src.integrations.native_battle_payload_wire.MAX_EXPANDED_PAYLOAD_BYTES", 12):
+        with patch("src.integrations.battle_analysis.payload_wire.MAX_EXPANDED_PAYLOAD_BYTES", 12):
             self.assertEqual(restore_payloads(page)["analysis"]["hits"][0]["native_evidence"]["payload_json"], "中文")

@@ -3,15 +3,15 @@
 
 from __future__ import annotations
 
-from src.domain import battle_page_models
+import src.domain.battle_report.analysis.page_results as battle_page_models
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.integrations.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.history.service import BattleReportHistoryService
-from src.domain.battle_page_models import BattleMarginalCandidate
+from src.domain.battle_report.counterfactual.results import BattleMarginalCandidate
 from src.services.battle_report.analysis.progress import (
     BattleAnalysisProgressCallback,
 )

@@ -7,14 +7,12 @@ import sqlite3
 from datetime import datetime
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def _multiple_payload():
-    from src.domain.cultivation_history import HistoryPayload
+    from src.domain.progression.history import HistoryPayload
     from tests.test_cultivation_history import history_payload
 
     base = history_payload(quantity=30)
@@ -172,7 +170,7 @@ def test_history_materials_expand_all_rows_and_outer_preview_owns_scroll(tmp_pat
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QListView
-    from src.domain.cultivation_history import HistoryPayload, HistoryRecord
+    from src.domain.progression.history import HistoryPayload, HistoryRecord
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history_page import _page, _wait
 
@@ -194,6 +192,8 @@ def test_history_materials_expand_all_rows_and_outer_preview_owns_scroll(tmp_pat
     detail = view._detail
     materials = detail.findChild(QListView, "cultivationHistoryMaterialTotals")
     application.processEvents()
+    # 网格定高后，外层 QScrollArea 要在后续事件轮次接收布局请求；等可滚动状态，不假定一轮即就绪。
+    _wait(lambda: detail.verticalScrollBar().maximum() > 0)
     assert materials.model().rowCount() == 140
     assert not materials.verticalScrollBar().isVisible()
     assert materials.verticalScrollBar().maximum() == 0
@@ -227,7 +227,7 @@ def test_calculator_history_button_is_between_reset_and_copy(tmp_path):
 
 def test_preview_scope_filters_only_frozen_materials_and_preserves_record(tmp_path):
     from PySide6.QtWidgets import QLabel, QListView
-    from src.domain.cultivation_history import HistoryPayload, HistoryRecord
+    from src.domain.progression.history import HistoryPayload, HistoryRecord
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history_page import _page
 
@@ -257,7 +257,7 @@ def test_preview_scope_filters_only_frozen_materials_and_preserves_record(tmp_pa
 
 def test_complete_zero_is_not_rendered_as_unknown(tmp_path):
     from PySide6.QtWidgets import QLabel
-    from src.domain.cultivation_history import HistoryPayload, HistoryRecord
+    from src.domain.progression.history import HistoryPayload, HistoryRecord
     from src.storage.sqlite.user_data_dao import UserDataDao
     from tests.test_cultivation_history_page import _page
 

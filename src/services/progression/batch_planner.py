@@ -8,9 +8,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from time import perf_counter
 
-from src.domain.progression_material_conversion import allocate_owned
-from src.domain.cultivation_history import HistoryCalculationEnvelope
-from src.domain.progression_stamina import FarmingStage, ProgressionStaminaResult
+from src.domain.progression.materials import allocate_owned
+from src.domain.progression.history import HistoryCalculationEnvelope
+from src.domain.progression.stamina import FarmingStage, ProgressionStaminaResult
 from src.services.progression.planner_service import (
     CultivationMaterial,
     CultivationPlan,

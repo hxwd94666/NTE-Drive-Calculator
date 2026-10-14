@@ -5,18 +5,12 @@ import unittest
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-    BattleInferredBuffInterval,
-    BattleTargetCondition,
-)
-from src.domain.battle_target import BattleTargetInstanceResolution
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleTargetInstanceResolution
 from src.services.battle_report.marginal.calculation import (
     BattleMarginalCalculationService,
 )

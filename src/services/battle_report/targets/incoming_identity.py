@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
-from src.domain.battle_encounter import BattleObservedTarget
+from src.domain.battle_report.targets.encounter import BattleObservedTarget
 from src.services.battle_report.targets.candidate_graph import normalized_monster_key
 
 

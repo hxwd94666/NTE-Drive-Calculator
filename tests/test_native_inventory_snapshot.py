@@ -29,6 +29,18 @@ def fixture(count=130):
 @pytest.mark.parametrize("count", [0, 1, 64, 65, 1878])
 def test_reads_declared_collection_without_inventing_coverage(count):
     header, calls, call = fixture(count)
+    if count == 0:
+        # 双空观测属于登录等待；有同次角色证明时，零装备仍是合法集合，不设数量下限。
+        with pytest.raises(NativeSnapshotPending, match="等待登录数据就绪"):
+            read_native_projection(call, lambda: None, domain="inventory")
+        assert len(calls) == 2
+        calls.clear()
+        original = call
+        def call(method, params):
+            result = original(method, params)
+            if method.endswith("page"):
+                result["characters"] = [{"character_id": 1020, "uid": {"slot": 700, "serial": 701}}]
+            return result
     result = read_native_projection(call, lambda: None, domain="inventory")
     assert len(result["items"]) == count
     assert result["complete"] is False and result["changeCoverage"] == "unknown"

@@ -6,8 +6,8 @@ from unittest.mock import patch
 from PySide6.QtCore import QCoreApplication, QEvent, QObject
 from PySide6.QtWidgets import QApplication
 
-from src.domain.battle_report import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
-from src.features.battle_report.comparison_capture import ComparisonCapture
+from src.domain.battle_report.capture.state import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
+from src.features.battle_report.capture.comparison import ComparisonCapture
 from tests.battle_report.persistence.test_service import _summary
 
 
@@ -149,7 +149,7 @@ class ComparisonCaptureTests(unittest.TestCase):
     def test_close_requests_both_stops_and_shares_deadline_without_dispatch(self):
         owner = self.owner()
         self.actions.clear()
-        with patch('src.features.battle_report.comparison_capture.time.monotonic',
+        with patch('src.features.battle_report.capture.comparison.time.monotonic',
                    side_effect=[100.0, 100.0, 105.0]):
             owner.close(timeout=12)
         self.assertEqual([('stop', 'native'), ('stop', 'packet'),

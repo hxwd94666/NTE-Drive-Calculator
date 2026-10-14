@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from stat import S_ISREG
 
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
 
@@ -17,17 +18,24 @@ def _asset_root(value: str | Path | None) -> Path:
 def probe_role_read_inputs(
     database_paths: Sequence[Path], asset_root: Path | None, *,
     template_path: Path | None, semantics_path: Path,
+    account_database_path: Path | None = None,
 ) -> tuple:
     """仅探测调用方给定的输入；不寻找或替换账号与静态来源。"""
-    def stamp(path: Path):
+    def stamp(path: Path, *, empty_is_absent: bool = False):
         try:
             info = path.stat()
+            # 账号只读连接可建立空 WAL，但其中没有提交页；主库和非空 WAL 仍参与失效。
+            # 静态/共享来源不适用此规则，sidecar 的存在本身仍是来源变化。
+            if empty_is_absent and S_ISREG(info.st_mode) and info.st_size == 0:
+                return None
             return info.st_ino, info.st_size, info.st_mtime_ns
         except OSError:
             return None
 
     return (
-        tuple((stamp(path), stamp(path.with_name(path.name + "-wal"))) for path in database_paths),
+        tuple((stamp(path), stamp(path.with_name(path.name + "-wal"),
+                                 empty_is_absent=path == account_database_path))
+              for path in database_paths),
         stamp(asset_root / "manifest.json") if asset_root else None,
         stamp(template_path) if template_path is not None else None,
         stamp(semantics_path),

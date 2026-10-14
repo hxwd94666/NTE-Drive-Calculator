@@ -148,31 +148,71 @@ def test_changed_frozen_boundary_keeps_old_plans(scenario, explicit, changed):
     assert rows(s.database) == before
 
 
-def test_missing_first_slot_is_created_with_plan_and_cancel_creates_neither(scenario, monkeypatch):
+@pytest.mark.parametrize("explicit", [True, False], ids=["explicit-slots", "primary-overlay"])
+def test_batch_borrow_releases_current_slots_and_failures_preserve_every_old_plan(scenario, monkeypatch, explicit):
     s = scenario
-    # 无槽角色1004，默认主槽1003按原contract保留；取消也不释放其旧装备。
-    option = replace(s.preview.result.unified.selected[0], character_id=1004)
+    with UserDataDao(s.database) as user:
+        original_plan = user.get_loadout_plan(s.plan_id)
+        backup = user.create_loadout_slot(1003, "备用", slot_key="backup")
+        user.save_plan_to_slot(backup, name="历史备用", assignments=[assignment()],
+            source_snapshot_id=s.preview.result.snapshot_id, score=40, payload=original_plan["payload"])
+    # 另一账号刻意使用相同 snapshot/slot/UID 数值，身份不由这些局部编号推断。
+    other_database = s.tmp / "other.sqlite3"
+    with UserDataDao(other_database, account_id="b") as other:
+        snapshot = other.import_inventory_snapshot(inventory_snapshot())
+        slot = other.create_loadout_slot(1003, "另一账号", slot_key="primary")
+        other.save_plan_to_slot(slot, name="另一账号历史", assignments=[assignment()], source_snapshot_id=snapshot)
+    other_before = rows(other_database)
+    with StaticGameDataDao(s.static) as static:
+        second_character = next(int(role["character_id"]) for role in static.list_characters()
+                                if int(role["character_id"]) not in (1003, 1004))
+    first = replace(s.preview.result.unified.selected[0], character_id=1004)
+    second = replace(first, character_id=second_character, assignments=(replace(first.assignments[0], uid=(22, 12)),))
     preview = replace(s.preview, result=replace(s.preview.result, unified=replace(
-        s.preview.result.unified, selected=(option,))), loadout_comparisons={})
+        s.preview.result.unified, selected=(first, second), total_score=110.)), loadout_comparisons={})
     original = rows(s.database)
-    # 同一个公开保存入口的末端取消；slot与plan都已暂存，但均未提交。
+    def persist():
+        return save_weighted_allocation_preview(preview, ownership=s.owner.begin_save(preview),
+            slot_ids_by_character={1004: None, second_character: None} if explicit else None)
+
     real_context = WeightedOperation.commit_context
     @contextmanager
     def revoke_at_final(operation):
         operation.cancelled.set()
         with real_context(operation):
             yield
-    monkeypatch.setattr(WeightedOperation, "commit_context", revoke_at_final)
-    task = s.owner.begin_save(preview)
-    with pytest.raises(CancelledError):
-        save_weighted_allocation_preview(preview, ownership=task, slot_ids_by_character={1004: None})
+    with monkeypatch.context() as patcher:
+        patcher.setattr(WeightedOperation, "commit_context", revoke_at_final)
+        with pytest.raises(CancelledError):
+            persist()
+    assert rows(s.database) == original  # 借出方改写和两个首槽都已暂存，末端撤权整批回滚。
+
+    real_write = UserDataDao.save_loadout_plan
+    def fail_second(user, **arguments):
+        if arguments["character_id"] == second_character:
+            raise RuntimeError("synthetic second target failure")
+        return real_write(user, **arguments)
+    with monkeypatch.context() as patcher:
+        patcher.setattr(UserDataDao, "save_loadout_plan", fail_second)
+        with pytest.raises(RuntimeError, match="second target failure"):
+            persist()
     assert rows(s.database) == original
-    monkeypatch.setattr(WeightedOperation, "commit_context", real_context)
-    task = s.owner.begin_save(preview)
-    saved = save_weighted_allocation_preview(preview, ownership=task, slot_ids_by_character={1004: None})
+    saved = persist()
+    assert len(saved) == 2
     with UserDataDao(s.database) as user:
-        slots = user.list_loadout_slots(1004)
-        assert len(slots) == 1 and slots[0]["current_plan_id"] == saved[0]
+        for role_id, plan_id in zip((1004, second_character), saved):
+            target, = user.list_loadout_slots(role_id)
+            assert target["current_plan_id"] == plan_id
+            assert target["current_plan"]["is_active"] is (not explicit)
+            assert target["current_plan"]["source_snapshot_id"] == preview.result.snapshot_id
+        for current in user.list_loadout_slots(1003):
+            assert current["current_plan"]["assignments"][0]["uid_slot"] == 0
+            assert current["current_plan"]["score"] == 0.
+        for old in original[0]:
+            historical = user.get_loadout_plan(old["plan_id"])
+            assert historical["assignments"] == old["assignments"]
+            assert historical["payload"] == old["payload"] and historical["score"] == old["score"]
+    assert rows(other_database) == other_before
     rows(s.database)
 
 

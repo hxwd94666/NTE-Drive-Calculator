@@ -6,8 +6,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from src.domain.battle_buff_counterfactual import BattleBuffCounterfactualResult
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report.counterfactual.results import BattleBuffCounterfactualResult
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.services.battle_report.creation.counterfactual import (
     CREATION_PASSIVE_COUNTERFACTUAL_MODEL_VERSION,
     BattleCreationPassiveCounterfactualService,

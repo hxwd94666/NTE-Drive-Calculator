@@ -1,6 +1,9 @@
 # 验证正式current指针、显式冻结选择、迟到交付和历史来源评分，不运行游戏或外部写入。
 from unittest.mock import patch
 from threading import Event
+from dataclasses import replace
+from concurrent.futures import CancelledError
+import os
 
 import pytest
 from src.features.weighted_allocation import runner
@@ -25,8 +28,11 @@ def test_c1_default_restores_current_not_historical_active(scenario):
     before = s.rows()
     persisted = s.read()
     assert [p.plan_id for p in persisted.saved_plans] == [current]
-    preview = runner.restore_weighted_allocation_preview(persisted,
-        ownership=s.owner.capture(s.owner.current_identity()))
+    # 正式恢复仍物化 SQLite/context/static pin；这里只阻断不应出现的选优入口。
+    with patch.object(runner, 'solve_allocation_context', side_effect=AssertionError('restore must not solve')) as solver:
+        preview = runner.restore_weighted_allocation_preview(persisted,
+            ownership=s.owner.capture(s.owner.current_identity()))
+    solver.assert_not_called()
     assert binding(preview).slot_id == slot and binding(preview).plan_id == current
     assert preview.result.unified.selected[0].assignments[0].uid == (22, 12)
     assert preview.result.unified.selected[0].score == 55.
@@ -120,14 +126,14 @@ def test_c6_inflight_restore_rechecks_current_pointer_and_cancelled_selection(sc
     persisted = s.read({1003: b})
     operation = s.owner.capture(s.owner.current_identity())
     ready, release = Event(), Event()
-    actual = runner.run_weighted_allocation
-    def delayed(request):
-        result = actual(request)
+    actual = runner._restore_saved_option
+    def delayed(context, signature):
+        result = actual(context, signature)
         ready.set()
-        assert release.wait(30), '真实solve完成后的受控恢复未释放'
+        assert release.wait(30), '真实历史布局校验后的受控恢复未释放'
         return result
     delivered, errors = [], []
-    with patch.object(runner, 'run_weighted_allocation', side_effect=delayed):
+    with patch.object(runner, '_restore_saved_option', side_effect=delayed):
         worker = WorkerThread(target=lambda: runner.restore_weighted_allocation_preview(persisted, ownership=operation))
         worker.result_ready.connect(delivered.append)
         worker.error.connect(errors.append)
@@ -210,4 +216,129 @@ def test_c12_missing_not_zero_while_real_zero_and_virtual_restore(scenario, miss
     before = s.rows()
     persisted = s.read()
     assert persisted.restore_request is None
+    assert s.rows() == before
+
+
+def test_restore_missing_core_retains_saved_score_and_truthful_metadata(scenario):
+    s = scenario
+    a, _ = s.primary()
+    record = s.record(score=0.)
+    record['assignments'] = [row for row in record['assignments'] if row['kind'] == 'module']
+    with UserDataDao(s.database) as dao:
+        dao.save_plans_to_slots([{**record, 'slot_id': a}])
+    before = s.rows()
+    _, preview = s.restore()
+    option = preview.result.unified.selected[0]
+    assert option.score == 0. and option.missing_core_reason == '保存方案未包含卡带'
+    assert option.rank == 1 and option.priority_values == () and preview.result.role_top_k == ()
+    assert all(item.virtual and item.score == 0. for item in option.assignments)
+    assert 'ScoringEngine' not in option.satisfied_constraints
+    assert s.rows() == before
+
+
+@pytest.mark.parametrize('invalid', ['duplicate', 'two-core', 'virtual-real-uid', 'virtual-score',
+                                    'nonfinite', 'overlap', 'missing-candidate'])
+def test_restore_validates_saved_facts_not_an_unrelated_new_solution(scenario, invalid):
+    s = scenario
+    s.primary()
+    persisted = s.read()
+    signature = persisted.saved_plans[0]
+    assignments = list(signature.assignments)
+    if invalid == 'duplicate':
+        assignments.append(assignments[0])
+    elif invalid == 'two-core':
+        assignments.append(replace(assignments[0], uid=(22, 12)))
+    elif invalid == 'virtual-real-uid':
+        assignments[0] = replace(assignments[0], virtual=True, score=0.)
+    elif invalid == 'virtual-score':
+        assignments[1] = replace(assignments[1], score=1.)
+    elif invalid == 'nonfinite':
+        assignments[0] = replace(assignments[0], score=float('nan'))
+    elif invalid == 'overlap':
+        assignments[2] = replace(assignments[2], geometry=assignments[1].geometry,
+            target_row=assignments[1].target_row, target_column=assignments[1].target_column)
+    else:
+        assignments[0] = replace(assignments[0], uid=(22, 999))
+    signature = replace(signature, assignments=tuple(assignments), uids=frozenset(a.uid for a in assignments))
+    persisted = replace(persisted, saved_plans=(signature,))
+    before = s.rows()
+    with pytest.raises(RuntimeError):
+        runner.restore_weighted_allocation_preview(persisted,
+            ownership=s.owner.capture(s.owner.current_identity()))
+    assert s.rows() == before
+
+
+def test_restore_rejects_cross_role_real_uid_reuse(tmp_path):
+    application = app()
+    s = SlotScenario(tmp_path, roles=(1003, 1004))
+    try:
+        s.primary(serial=11)
+        s.primary(cid=1004, serial=12)
+        persisted = s.read()
+        first, second = persisted.saved_plans
+        assignments = (replace(second.assignments[0], uid=first.assignments[0].uid), *second.assignments[1:])
+        second = replace(second, assignments=assignments, uids=frozenset(a.uid for a in assignments))
+        before = s.rows()
+        with pytest.raises(RuntimeError, match='重复使用真实装备'):
+            runner.restore_weighted_allocation_preview(replace(persisted, saved_plans=(first, second)),
+                ownership=s.owner.capture(s.owner.current_identity()))
+        assert s.rows() == before
+    finally:
+        s.close(application)
+
+
+@pytest.mark.parametrize('changed', ['global-lock', 'generation'])
+def test_restore_rechecks_late_lock_and_owner_without_solver(scenario, changed):
+    s = scenario
+    s.primary()
+    persisted = s.read()
+    actual = runner._restore_saved_option
+    before = []
+    def delayed(context, signature):
+        result = actual(context, signature)
+        if changed == 'global-lock':
+            with UserDataDao(s.database) as dao:
+                lock = dao.save_loadout_plan(**s.record(cid=1004, serial=13, core_only=True), is_active=True)
+                dao.set_allocation_lock(lock, True)
+        else:
+            # 注入已经推进的组合根代次；现有 c11 另覆盖真实账号 ABA 切换。
+            s.context._generation += 1
+        before.append(s.rows())
+        return result
+    with patch.object(runner, '_restore_saved_option', side_effect=delayed):
+        with pytest.raises(CancelledError if changed == 'generation' else RuntimeError):
+            runner.restore_weighted_allocation_preview(persisted,
+                ownership=s.owner.capture(s.owner.current_identity()))
+    assert len(before) == 1 and s.rows() == before[0]
+
+
+@pytest.mark.parametrize('changed', ['pin', 'dataset'])
+def test_restore_preserves_static_identity_and_pin(scenario, tmp_path, changed):
+    from tests.allocation.static_release_helpers import clone_test_release
+    s = scenario
+    database, release = clone_test_release(tmp_path / 'release')
+    s.primary()
+    persisted = runner.read_weighted_allocation_persistence(s.database, database, True)
+    before = s.rows()
+    if changed == 'dataset':
+        persisted = replace(persisted, static_dataset=replace(persisted.static_dataset, dataset_id='other'))
+        with pytest.raises(RuntimeError, match='数据集'):
+            runner.restore_weighted_allocation_preview(persisted,
+                ownership=s.owner.capture(s.owner.current_identity()))
+    else:
+        actual = runner._restore_saved_option
+        guarded = []
+        def while_pinned(context, signature):
+            # 实际克隆文件仅尝试取写句柄，无写入；恢复期间应由正式静态 pin 拒绝。
+            with pytest.raises(PermissionError):
+                descriptor = os.open(database, os.O_WRONLY)
+                os.close(descriptor)
+            guarded.append(True)
+            return actual(context, signature)
+        with patch.object(runner, '_restore_saved_option', side_effect=while_pinned):
+            preview = runner.restore_weighted_allocation_preview(persisted,
+                ownership=s.owner.capture(s.owner.current_identity()))
+        assert guarded == [True] and preview.static_release == release
+        descriptor = os.open(database, os.O_WRONLY)
+        os.close(descriptor)  # owner 退出已释放 pin，仍不写候选文件。
     assert s.rows() == before

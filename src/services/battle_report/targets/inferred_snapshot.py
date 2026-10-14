@@ -9,14 +9,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from typing import Any
 
-from src.domain.battle_encounter import (
-    BattleEncounterCandidate,
-    BattleEncounterCandidateMatch,
-    BattleEncounterTargetPreset,
+from src.domain.battle_report.targets.encounter import (
+    BattleEncounterCandidate, BattleEncounterCandidateMatch, BattleEncounterTargetPreset,
 )
-from src.domain.battle_report import BattleTargetCondition
-from src.domain.battle_target import BattleSelectedTargetProfile
-from src.domain.battle_page_models import INFERRED_ENCOUNTER_ALGORITHM_VERSION, BattleInferredEncounter, BattleInferredTargetIdentity
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleSelectedTargetProfile
+from src.domain.battle_report.targets.encounter import (
+    INFERRED_ENCOUNTER_ALGORITHM_VERSION, BattleInferredEncounter, BattleInferredTargetIdentity,
+)
 from src.services.battle_report.targets.inferred_condition import BattleInferredTargetConditionService
 from src.observability import OperationContext
 from src.observability.operation import log_event, safe_exception

@@ -6,11 +6,11 @@ from __future__ import annotations
 from typing import Any, Callable
 from concurrent.futures import CancelledError
 
-from src.integrations.vision.recognition.interaction_ocr import (
+from src.integrations.vision.recognition.ocr.interaction_ocr import (
     prepare_ocr_image, best_ocr_line_match, crop_image_region,
 )
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
-from src.integrations.vision.recognition.task_session import OcrTaskSession, OcrTaskStateError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.task_session import OcrTaskSession, OcrTaskStateError
 
 
 from src.features.drive_assembly.input_backends import MouseBackend

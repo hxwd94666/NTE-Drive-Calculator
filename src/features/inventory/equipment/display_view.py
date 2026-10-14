@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import partial
 from time import perf_counter
 from typing import Any
 
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.app.workers import WorkerThread
+from src.app.page_tasks import PageRequest, PageTaskLane
 from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -117,8 +118,9 @@ def _page_equipment(self):
             page,
         )
         self._equipment_mode_switch_fallback.hide()
-    # 状态仍供回调读取；游戏配装错误由详情空状态显示，不新增重复状态栏。
+    # 正常数据不显示重复状态栏；读取失败保留旧详情时，必须有独立可见的失效说明。
     self.equip_mode_status = QLabel("", page)
+    self.equip_mode_status.setWordWrap(True)
     self.equip_mode_status.hide()
     sh = QHBoxLayout()
     sh.addWidget(QLabel("搜索"))
@@ -165,6 +167,7 @@ def _page_equipment(self):
     self._equip_saved_action_buttons = (clear_btn, fast_btn, automatic_btn)
     self._equipment_mode = getattr(self, "_equipment_mode", "saved")
     l.addLayout(sh)
+    l.addWidget(self.equip_mode_status)
     build_equipment_master_detail(self, l)
     return page
 
@@ -294,16 +297,21 @@ def _on_sqlite_equipment_display_loaded(self, token, eq):
         return
     states = eq if isinstance(eq, dict) else {}
     self.equip_mode_status.setText("")
+    self.equip_mode_status.hide()
     self._saved_equipment_states = dict(states)
     self._saved_equipment_cache_valid = True
     _publish_equipment_states(self, states)
 
 
 def _on_sqlite_equipment_display_error(self, token, error):
-    if token is not getattr(self, "_equip_load_token", None):
+    if (token is not getattr(self, "_equip_load_token", None)
+            or getattr(self, "_equipment_mode", "saved") != "saved"):
         return
     logger.error(f"刷新 SQLite 配装展示失败: {error}")
-    self.equip_mode_status.setText("读取已保存配装失败")
+    # 刷新失败不改上次已验证的方案事实；旧详情只供解释，不开放本次未核验的操作。
+    self._saved_equipment_cache_valid = False
+    self.equip_mode_status.setText("读取已保存配装失败；保留原展示，本次数据未更新。")
+    self.equip_mode_status.show()
     QMessageBox.warning(
         self,
         "读取配装失败",
@@ -311,9 +319,17 @@ def _on_sqlite_equipment_display_error(self, token, error):
         "原因：部分方案未通过当前资料库核对。\n"
         "下一步：查看账号日志中的错误码，再决定是否重新计算。",
     )
-    self._saved_equipment_states = {}
-    self._saved_equipment_cache_valid = False
-    _publish_equipment_states(self, {})
+    # 模态框会嵌套 Qt 事件循环；其间转场或新读取后，旧错误不得清掉新账号投影。
+    if (token is not getattr(self, "_equip_load_token", None)
+            or getattr(self, "_equipment_mode", "saved") != "saved"):
+        return
+    if getattr(self, "_equip_rendered_mode", None) != "saved":
+        # 重试可能已清掉旧控件；恢复的仍是旧事实，失败提示与禁用态明确其非本次结果。
+        _publish_equipment_states(self, getattr(self, "_saved_equipment_states", {}))
+    for name in ("equip_role_strip", "equip_content"):
+        widget = getattr(self, name, None)
+        if widget is not None:
+            widget.setEnabled(False)
 
 
 def _on_game_equipment_display_loaded(self, token, result):
@@ -328,7 +344,7 @@ def _on_game_equipment_display_loaded(self, token, result):
         result.get("saved_states", {}) if isinstance(result, dict) else {}
     )
     if projection is None:
-        _on_sqlite_equipment_display_error(self, token, "游戏内方案投影结果无效")
+        _on_game_equipment_display_error(self, token, "游戏内方案投影结果无效")
         return
     if projection.supported:
         ready_count = sum(
@@ -371,21 +387,29 @@ def _on_game_equipment_display_loaded(self, token, result):
         button.setEnabled(bool(projection.supported))
     self._saved_equipment_states = dict(saved_states)
     self._saved_equipment_cache_valid = True
+    self.equip_mode_status.hide()
     _publish_equipment_states(self, scored_states)
 
 
 def _on_game_equipment_display_error(self, token, error):
-    if token is not getattr(self, "_equip_load_token", None):
+    if (token is not getattr(self, "_equip_load_token", None)
+            or getattr(self, "_equipment_mode", "saved") != "game"):
         return
     logger.error(f"刷新游戏内配装展示失败: {error}")
-    self.equip_mode_status.setText("读取游戏内装备失败")
+    self.equip_mode_status.setText("读取游戏内装备失败；保留原展示，本次数据未更新。")
+    self.equip_mode_status.show()
     self.equip_import_all_btn.setEnabled(False)
     button = getattr(self, 'equip_practice_share_btn', None)
     if button is not None:
         button.setEnabled(False)
-    self._game_loadout_states = {}
     self._game_loadout_message = "游戏配装读取中断；请重新检测连接后再试。原方案保持不变。"
-    _publish_equipment_states(self, {})
+    # 与计算配装相同，故障不把已验证事实伪装成空结果，也不放行旧导入按钮。
+    if getattr(self, "_equip_rendered_mode", None) != "game":
+        _publish_equipment_states(self, getattr(self, "_game_loadout_states", {}))
+    for name in ("equip_role_strip", "equip_content"):
+        widget = getattr(self, name, None)
+        if widget is not None:
+            widget.setEnabled(False)
 
 
 def _refresh_equip(self, *, restore_role_name=None):
@@ -421,6 +445,7 @@ def _refresh_equip(self, *, restore_role_name=None):
                 widget.setEnabled(False)
     # 每份方案需要来源快照投影，正式页面将数据库工作移出 Qt 事件循环；简单宿主保留直接读取。
     if isinstance(self, QWidget):
+        self.equip_mode_status.hide()
         token = object()
         self._equip_load_token = token
         game_mode = getattr(self, "_equipment_mode", "saved") == "game"
@@ -437,34 +462,32 @@ def _refresh_equip(self, *, restore_role_name=None):
                 if getattr(self, "_saved_equipment_cache_valid", False)
                 else None
             )
-            target = lambda cached=cached_saved_states: _load_game_equipment_display_states(
+            target = partial(_load_game_equipment_display_states,
                 database_path,
                 static_database_path=static_database_path,
-                saved_states=cached,
+                saved_states=cached_saved_states,
             )
         else:
-            target = lambda: _load_sqlite_equipment_display_states(
+            target = partial(_load_sqlite_equipment_display_states,
                 database_path,
                 static_database_path=static_database_path,
             )
-        worker = WorkerThread(target=target, parent=self)
-        self._equip_load_worker = worker
+        lane = getattr(self, "_equip_read_lane", None)
+        if lane is None:
+            # 正式窗口的 close_page_tasks 会发现此 owner，等真实 IO 结束再销毁父窗口。
+            lane = PageTaskLane(self)
+            self._equip_read_lane = lane
+        context = getattr(self, "app_context", None)
+        identity = (getattr(getattr(context, "account", None), "active_account_id", str(database_path)),
+                    getattr(context, "generation", None), "game" if game_mode else "saved", token)
         if game_mode:
-            worker.result_ready.connect(
-                lambda result, current=token: _on_game_equipment_display_loaded(
-                    self, current, result,
-                )
-            )
-            worker.error.connect(
-                lambda error, current=token: _on_game_equipment_display_error(
-                    self, current, error,
-                )
-            )
+            apply = partial(_on_game_equipment_display_loaded, self, token)
+            failed = partial(_on_game_equipment_display_error, self, token)
         else:
-            worker.result_ready.connect(lambda eq, current=token: _on_sqlite_equipment_display_loaded(self, current, eq))
-            worker.error.connect(lambda error, current=token: _on_sqlite_equipment_display_error(self, current, error))
-        worker.finished.connect(worker.deleteLater)
-        worker.start()
+            apply = partial(_on_sqlite_equipment_display_loaded, self, token)
+            failed = partial(_on_sqlite_equipment_display_error, self, token)
+        # 单个运行读与一个最新请求；目标冻结路径参数，不反向持有 QWidget。
+        lane.submit(PageRequest(key=identity, read=target, apply=apply, failed=failed))
         return
     if getattr(self, "_equipment_mode", "saved") == "game":
         try:

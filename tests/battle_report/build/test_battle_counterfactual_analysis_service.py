@@ -5,11 +5,8 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from src.domain.battle_report import (
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleLinkoCoattackInference,
-)
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
+from src.domain.battle_report.timeline.events import BattleLinkoCoattackInference
 from src.services.battle_report.actions.inference import (
     BattleActionAnimationCandidate,
 )

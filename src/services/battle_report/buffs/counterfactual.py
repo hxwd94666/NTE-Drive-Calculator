@@ -5,22 +5,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from src.domain.battle_buff_counterfactual import (
-    BattleBuffCounterfactualResult,
-    BattleDamageCoverage,
-)
-from src.domain.native_analysis import DirectFormulaBackend
+from src.domain.battle_report.counterfactual.results import BattleBuffCounterfactualResult, BattleDamageCoverage
+from src.domain.battle_report.analysis.backend_contracts import DirectFormulaBackend
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.buffs.candidate_projection import (
     PreparedBuffCandidateProjection, prepare_buff_candidate_projection_batch,
 )
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleHitBuffProjection,
-    BattleInferredBuffInterval,
-    BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection, BattleInferredBuffInterval
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 from src.services.battle_report.buffs.counterfactual_executor import (
     BattleBuffCounterfactualBatchExecutor,
 )

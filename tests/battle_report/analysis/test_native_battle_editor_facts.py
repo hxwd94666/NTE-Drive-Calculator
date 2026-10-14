@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from src.integrations.native_battle_editor_facts import load_editor_facts
+from src.integrations.battle_analysis.editor_facts import load_editor_facts
 from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_report.characters.inferred_facts import BattleInferredCharacterFactService
 from src.services.battle_report.history.projection import character_analysis_scopes

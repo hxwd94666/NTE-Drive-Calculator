@@ -6,14 +6,10 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
-from src.domain.native_analysis import BattleComputeBackend, available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend, available_battle_compute
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleInferredAction,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.damage.composition import (
     classify_battle_hit_channel,
 )

@@ -7,7 +7,7 @@ from functools import partial
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
-from src.domain.cultivation_history import HistoryCalculationEnvelope, HistoryContextExpired, HistoryPayload
+from src.domain.progression.history import HistoryCalculationEnvelope, HistoryContextExpired, HistoryPayload
 from src.features.toolbox.cultivation.history_controller import CultivationHistoryController, HistoryOperationResult
 from src.services.progression.history_service import CultivationHistoryService
 

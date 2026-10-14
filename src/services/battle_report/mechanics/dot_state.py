@@ -7,10 +7,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from src.services.battle_report.mechanics.dot_evidence import BattleDotStackState, DOT_KIND_NAMES, dot_basis, dot_final_basis
 from src.services.battle_report.native.state_payload import HIT_FIELDS, state_rows
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.native.hit_state import compute_hit_state, restore_dot_states
 
-from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.services.battle_report.characters.passives import BattleCharacterPassiveService
 from src.services.battle_report.damage.composition import (
     explicit_reaction_channel_for_hit,
@@ -636,10 +637,7 @@ def reconstruct_dot_stack_states(
                         else "中"
                     )
                 ),
-                evidence_basis=dot_basis({
-                    **evidence_row,
-                    "early": False if not is_scorch else is_early_settlement,
-                }),
+                evidence_basis=dot_basis(evidence_row),
                 active_dot_kind_count=dot_kind_count,
                 dot_final_multiplier=dot_final_multiplier,
                 dot_final_multiplier_basis=dot_final_basis(evidence_row),

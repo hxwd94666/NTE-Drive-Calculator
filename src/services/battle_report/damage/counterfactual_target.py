@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from src.domain.battle_report import (
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleTargetCondition,
-)
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.damage_calculation_service import (
     DamageScene,
     EnemyDefenseProfileInput,

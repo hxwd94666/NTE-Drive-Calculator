@@ -5,19 +5,17 @@ from dataclasses import dataclass, replace
 from PySide6.QtCore import QObject, Signal, QTimer, Qt
 from PySide6.QtWidgets import QDialog, QMessageBox, QInputDialog
 
-from src.domain.work_mode import WorkMode, allowed_capabilities
+from src.domain.work_mode import allowed_capabilities
 from src.app.theme import theme_color
 from src.ui.operation_guidance import allow_operation_entry, explain_operation_unavailable
 from src.features.settings.work_mode_card import (
-    MODE_LABELS, CleanupResultDialog, ModeReportDialog, confirm_mode,
-    prompt_offline_sync_mode, report_summary,
+    MODE_LABELS, CleanupResultDialog, confirm_mode, report_summary,
 )
 from src.services.work_modes.observation import GameObservationService, ObservationResult
 from src.services.work_modes.inspection import detection_failure_detail
-from src.services.work_modes.sync_preflight import decide_sync_activation, decide_sync_enable
+from src.services.work_modes.sync_preflight import decide_sync_enable
 from src.ui.controllers.component_upgrade_guide import ComponentUpgradeGuideMixin, UpgradeResult
 from src.ui.controllers.work_mode_report_actions import WorkModeReportActionsMixin
-
 
 @dataclass(frozen=True)
 class _TeardownResult:
@@ -26,13 +24,11 @@ class _TeardownResult:
     error: str = ""
     service: object = None
 
-
 @dataclass(frozen=True)
 class _PathResult:
     revision: int
     generation: int
     paths: tuple[str, ...]
-
 
 @dataclass(frozen=True)
 class _CleanupResult:
@@ -41,9 +37,6 @@ class _CleanupResult:
     pending: bool
     state: str
     detail: str
-
-
-
 
 class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin, QObject):
     observed = Signal(object)
@@ -198,7 +191,8 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             probe = self.runtime.tick(**tick_args)
             if getattr(self.runtime.native_session, 'maintenance_active', False):
                 return None
-            if self._observe_plugins is not None:
+            # 预检只读取环境事实，不借观察回调应用插件或创建业务连接。
+            if not preview and self._observe_plugins is not None:
                 self._observe_plugins(probe)
             return revision, generation, probe, request_id
         except Exception as error:
@@ -307,82 +301,6 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             self.check(show=self._report_dialog is not None,
                        preview=self._sync_preflight_callback is not None)
             self.request_upgrade_assessment()
-
-    def begin_sync_enable(self, confirm) -> None:
-        if self._closed:
-            return
-        if self.policy.settings.mode == WorkMode.OFFLINE:
-            if prompt_offline_sync_mode(self.window):
-                self.open_settings("mode")
-            return
-        if self._sync_activation_request is not None:
-            if self._report_dialog is not None:
-                self._report_dialog.raise_()
-            return
-        self._sync_preflight_callback = confirm
-        self._sync_preflight_context = (
-            self.policy.settings.revision, self.window.app_context.generation,
-        )
-        self.check(show=True, preview=True)
-
-    def check(self, *, show: bool = False, allow_unrecorded_legacy_cleanup: bool = False,
-              preview: bool = False, retry_deployment: bool = False) -> None:
-        if self._closed or self._sync_activation_request is not None:
-            return
-        if not preview:
-            self.cancel_report_sync_guidance()
-        self._request_serial += 1
-        request_id = self._request_serial
-        if preview:
-            self._sync_preflight_request = request_id
-            self._sync_preflight_context = (
-                self.policy.settings.revision, self.window.app_context.generation,
-            )
-        else:
-            self._sync_preflight_request = None
-            self._sync_preflight_callback = None
-        if show or self._show_request_id is not None:
-            self._show_request_id = request_id
-            if self._report_dialog is None:
-                self._report_dialog = ModeReportDialog(
-                    self.window, self, sync_action_provider=self.sync_enable_action_for_report,
-                )
-                self._report_dialog.finished.connect(self._dismiss_report)
-            self._report_dialog.begin(self.policy.settings.mode.value, preview=preview)
-            if self._controls:
-                self._controls[1].setText("正在核对同步条件…" if preview else "正在检测并处理组件…")
-        expected = self.policy.settings.revision, self.window.app_context.generation
-
-        def perform():
-            if self._closed:
-                return None
-            self.runtime.invalidate(retry_deployment=retry_deployment and not preview)
-            result = self._observe(
-                allow_connect=not preview,
-                request_id=request_id,
-                expected=expected,
-                allow_unrecorded_legacy_cleanup=allow_unrecorded_legacy_cleanup,
-                preview=preview,
-            )
-            return result or ObservationResult("superseded", "检测上下文已改变，请重新检测。", *expected, request_id)
-        self._observer.submit(perform, key="check")
-
-    def _dismiss_report(self, _result=0) -> None:
-        self.cancel_report_sync_guidance()
-        dialog, self._report_dialog = self._report_dialog, None
-        self._show_request_id = None
-        self._sync_preflight_request = None
-        self._sync_preflight_callback = None
-        if self._sync_activation_callback is not None:
-            self._sync_activation_callback = None
-            if not self._sync_activation_prior_ready:
-                try:
-                    self.policy.set_component_auto_ready(False)
-                except OSError:
-                    pass  # 保存前已撤销进程内自动权限，保存失败不恢复副作用。
-                self.refresh_controls()
-        if dialog is not None:
-            dialog.deleteLater()
 
     def detect_path(self) -> None:
         if self._closed:
@@ -633,90 +551,6 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
                         self._report_dialog.set_sync_preflight(decision)
         if request_id == self._sync_activation_request:
             self._finish_sync_activation(probe)
-
-    def _confirm_sync_enable(self) -> None:
-        callback = self._sync_preflight_callback
-        if callback is None:
-            return
-        if self._sync_preflight_context != (
-            self.policy.settings.revision, self.window.app_context.generation,
-        ):
-            self.check(show=True, preview=True)
-            return
-        prior_ready = self.policy.settings.component_auto_ready
-        try:
-            if not prior_ready:
-                self.policy.set_component_auto_ready(True)
-        except OSError:
-            if self._report_dialog is not None:
-                self._report_dialog.set_error("组件准备状态未能保存，请检查配置目录后重试。")
-            return
-        self._sync_preflight_callback = None
-        self._sync_preflight_request = None
-        self._sync_activation_callback = callback
-        self._sync_activation_prior_ready = prior_ready
-        self._request_serial += 1
-        request_id = self._request_serial
-        self._sync_activation_request = request_id
-        self._show_request_id = request_id
-        if self._report_dialog is not None:
-            self._report_dialog.begin(self.policy.settings.mode.value)
-        frozen = (self.policy.operation_revision, self.window.app_context.generation,
-                  self.policy.settings.mode, self.policy.settings.game_executable)
-
-        def perform():
-            settings = self.policy.settings
-            expected = settings.revision, frozen[1]
-            self.runtime.invalidate(retry_deployment=True)
-            result = self._observe(allow_connect=True, request_id=request_id, expected=expected)
-            if isinstance(result, ObservationResult) or result is None:
-                return result or ObservationResult("superseded", "准备上下文已改变，请重新检测。", *expected, request_id)
-            current = self.policy.settings
-            if frozen != (self.policy.operation_revision, self.window.app_context.generation,
-                          current.mode, current.game_executable):
-                return ObservationResult("superseded", "准备期间模式或游戏路径已改变，请重新开启同步。",
-                                         current.revision, self.window.app_context.generation, request_id)
-            verified = self._observe(preview=True, request_id=request_id,
-                                     expected=(current.revision, frozen[1]))
-            return verified or ObservationResult(
-                "superseded", "准备上下文已改变，请重新开启同步。",
-                current.revision, frozen[1], request_id,
-            )
-
-        if not self._observer.submit(perform, key="check"):
-            self._finish_sync_activation(error="后台检测已结束，自动同步仍保持关闭。")
-
-    def _finish_sync_activation(self, probe=None, *, error="") -> None:
-        callback = self._sync_activation_callback
-        prior_ready = self._sync_activation_prior_ready
-        self._sync_activation_request = None
-        self._sync_activation_callback = None
-        if callback is None:
-            return
-        decision = (decide_sync_activation(self.policy.settings, probe) if probe is not None
-                    else None)
-        success = False
-        if decision and decision.ready:
-            try:
-                success = bool(callback())
-            except Exception:
-                error = "同步偏好保存未完成，自动同步仍保持关闭。"
-        if not success and not prior_ready:
-            try:
-                self.policy.set_component_auto_ready(False)
-            except OSError:
-                pass  # revoke_first 已撤销进程内自动权限，保存失败不恢复副作用。
-            self.refresh_controls()
-        self.finish_report_sync_guidance(success)
-        if self._report_dialog is not None:
-            if success:
-                self._report_dialog.accept()
-            else:
-                self._report_dialog.set_activation_result(
-                    False,
-                    (decision.detail if decision is not None and not decision.ready
-                     else error or "同步偏好未能保存，请重新检测。"),
-                )
 
     def close(self) -> None:
         if self._closed:

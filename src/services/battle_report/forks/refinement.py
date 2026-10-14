@@ -8,17 +8,12 @@ from src.services.battle_report.forks.clock import event_active_time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.forks.state_compute import compute_fork_intervals
 from src.services.battle_report.forks.damage_completion import BattleForkDamageCompletionService
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleInferredAction,
-    BattleInferredBuffInterval,
-    BattleTreatmentEvent,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTreatmentEvent
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.buffs.damage_stacks import (
     demon_blade_damage_stack_rules,
     infer_damage_stack_intervals,

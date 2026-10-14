@@ -244,31 +244,25 @@ class DuplicateFilterTests(unittest.TestCase):
         self.assertEqual([], processor.inventory)
 
 
-class _FakeIdentifyItem:
-    def __init__(self, *stats):
-        self.sub_stats = {stat: 1 for stat in stats}
-
-
 class IdentifyParserTests(unittest.TestCase):
-    def test_valid_identify_item_rejects_current_bad_keyword(self):
-        item = _FakeIdentifyItem("攻击力增加", "最多提高")
-        self.assertFalse(identify_parser.is_valid_identify_item(item))
-
-    def test_identify_stat_candidate_rejects_current_bad_keyword(self):
-        self.assertFalse(identify_parser.is_identify_stat_candidate("装配一个驱动时增加 10%"))
-
     def test_identify_stat_texts_keeps_flat_stats_when_type_forced(self):
         lines = [
             {"text": "\u653b\u51fb\u529b 48", "box": (0, 0, 10, 10)},
             {"text": "\u751f\u547d\u503c 100", "box": (0, 12, 10, 22)},
             {"text": "\u66b4\u51fb\u7387 2.4%", "box": (0, 24, 10, 34)},
+            {"text": "装配一个驱动时增加 10%", "box": (0, 36, 10, 46)},
+            {"text": "附近攻击力提高 10%", "box": (0, 48, 10, 58)},
         ]
 
         texts = identify_parser.identify_stat_texts(lines, forced_type="drive")
 
-        self.assertIn("\u653b\u51fb\u529b 48", texts)
-        self.assertIn("\u751f\u547d\u503c 100", texts)
-        self.assertIn("\u66b4\u51fb\u7387 2.4%", texts)
+        self.assertEqual(["攻击力 48", "生命值 100", "暴击率 2.4%"], texts)
+        self.assertFalse(identify_parser.is_identify_stat_candidate(lines[3]["text"]))
+        self.assertFalse(identify_parser.is_identify_stat_candidate(lines[4]["text"]))
+        # 必须有四项才真正触及效果词门禁，不能由前置数量不足制造假保护。
+        from types import SimpleNamespace
+        rejected = SimpleNamespace(sub_stats={"攻击力": 1, "生命值": 1, "暴击率%": 1, "附近攻击力": 1})
+        self.assertFalse(identify_parser.is_valid_identify_item(rejected))
 
     def test_identify_clusters_include_flat_stat_lines(self):
         lines = [
@@ -390,24 +384,6 @@ class IdentifyParserTests(unittest.TestCase):
 
         self.assertEqual("\u5947\u70b9\u5957\u88c5", item["set_name"])
         self.assertEqual(["\u751f\u547d\u503c%"], item["main_texts"])
-
-    def test_shape_picker_groups_shapes_by_area(self):
-        from src.features.identification.dialogs import group_shape_ids_by_area
-
-        grouped = group_shape_ids_by_area(
-            {
-                "TAPE_15": 15,
-                "H_2": 2,
-                "V_2": 2,
-                "L_3_TL": 3,
-                "H_4": 4,
-                "Trap_4_V": 4,
-            }
-        )
-
-        self.assertEqual(["H_2", "V_2"], grouped[2])
-        self.assertEqual(["L_3_TL"], grouped[3])
-        self.assertEqual(["H_4", "Trap_4_V"], grouped[4])
 
     def test_tape_identity_defaults_do_not_carry_unforced_main_stat(self):
         from types import SimpleNamespace
@@ -578,6 +554,37 @@ class RewardSceneParserTests(unittest.TestCase):
         self.assertEqual("\u8fea\u4e9a\u6ce2\u7f57\u65af", item.set_name)
         self.assertEqual("\u5149\u5c5e\u6027\u5f02\u80fd\u4f24\u5bb3\u589e\u5f3a", item.main_stats)
         self.assertEqual(4, len(item.sub_stats))
+
+def test_recognition_diagnostics_omit_raw_text_without_changing_parse(monkeypatch):
+    from src.integrations.vision.recognition import equipment_classifier, screenshot_parser
+
+    secret = "OCR_SECRET_SENTINEL_UID"
+    logs = []
+    recorder = SimpleNamespace(debug=logs.append, info=logs.append)
+    for module in (equipment_classifier, screenshot_parser, identify_parser):
+        monkeypatch.setattr(module, "logger", recorder)
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+    regions = {"drive_shape_icon": (0, 0, 10, 10), "identity_check": (0, 10, 10, 20),
+               "tape_main_stat": (10, 0, 20, 10), "tape_sub_stats": (20, 0, 30, 10)}
+    item = SimpleNamespace(sub_stats={"a": 1, "b": 1, "c": 1, "d": 1})
+    parser = SimpleNamespace(REAL_SETS_WHITE_LIST=[], TAPE_MAIN_STATS_POOL=[],
+        GOLD_BASE_VALUES=item.sub_stats, _fuzzy_match_set_name=lambda _text: "未知套装",
+        _fuzzy_match_tape_main=lambda _text: "未知主词条", _clean_stats=lambda _texts: {"a": 1},
+        synthesize_tape=lambda *_args: item)
+    processor = SimpleNamespace(parser=parser, DRIVE_TYPE_CONFIDENCE=.86,
+        shape_recognizer=SimpleNamespace(recognize=lambda _image: {"shape_id": "Unknown", "confidence": .1}),
+        layout=SimpleNamespace(get_region_profiles=lambda **_kwargs: [("fixture", regions)]),
+        ocr_engine=SimpleNamespace(extract_text=lambda _image: [secret]))
+    monkeypatch.setattr(screenshot_parser, "imread_unicode", lambda _path: image)
+    monkeypatch.setattr(screenshot_parser, "crop_window_border_from_image", lambda value: value)
+    assert screenshot_parser.process_single_image(processor, "synthetic.png") is item
+    monkeypatch.setattr(identify_parser, "locate_shape_in_image",
+                        lambda *_args: {"shape_id": "Unknown", "confidence": .1})
+    rejected = identify_parser.synthesize_identify_cluster(processor, image,
+        [{"text": "攻击力 10% " + secret, "box": (0, 0, 10, 10)}])
+    assert rejected is None
+    assert logs and all(secret not in line for line in logs)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,15 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm
 from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )

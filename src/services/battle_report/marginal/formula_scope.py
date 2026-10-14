@@ -6,17 +6,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleTargetCondition,
-)
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    QuantificationStatus,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, QuantificationStatus
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.replay.buff_cache import BattleHitBuffProjectionCache

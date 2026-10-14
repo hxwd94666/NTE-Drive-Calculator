@@ -4,9 +4,10 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import replace
 
-from src.domain.battle_report import BattleAnalysisHit, BattleHitBuffProjection, BattleInferredBuffInterval
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection, BattleInferredBuffInterval
 from src.services.battle_report.buffs.projection_rules import IntervalProjectionEvaluation, evaluate_interval_projection
-from src.domain.native_analysis import BuffProjectionBackend, DirectFormulaBackend
+from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBackend, DirectFormulaBackend
 from src.services.battle_report.native.buff_projection import NativeBuffProjectionBatch
 from src.services.battle_report.analysis.progress import BattleAnalysisProgressCallback, report_battle_analysis_progress
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalQuery

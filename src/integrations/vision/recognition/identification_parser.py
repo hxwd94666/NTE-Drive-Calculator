@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 from concurrent.futures import CancelledError
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 import re
 
 from src.integrations.vision.recognition.equipment_classifier import (
@@ -17,6 +17,14 @@ from src.integrations.vision.recognition.equipment_classifier import (
 from src.integrations.vision.window_capture import crop_window_border_from_image
 from src.utils.image_io import imread_unicode
 from src.utils.logger import logger
+
+
+# 这套中文判词属于截图输入语言，不随界面 locale 或 OCR 执行设备变化。
+# 物品合法性只排效果词；文本挑选/聚类还排品质与 UI 说明，不能互相替代。
+_EFFECT_WORDS = ("附近", "最多", "持续", "每层", "每有", "受到", "造成", "装备者", "角色位于")
+_NON_STAT_TEXT_WORDS = ("史诗", "传说", *_EFFECT_WORDS, "依旧生效", "推荐", "装配一个", "每装配")
+_STAT_TEXT_HINTS = ("增加", "提升", "增强", "%", "暴击率", "暴击伤害", "伤害",
+                    "攻击力", "防御力", "生命值", "环合强度", "倾陷强度")
 
 
 def parse_identify_items(
@@ -104,9 +112,8 @@ def parse_identify_items(
 def is_valid_identify_item(item) -> bool:
     if item is None or len(getattr(item, "sub_stats", {}) or {}) < 4:
         return False
-    bad_keywords = ("附近", "最多", "持续", "每层", "每有", "受到", "造成", "装备者", "角色位于")
     for name in item.sub_stats.keys():
-        if any(keyword in str(name) for keyword in bad_keywords):
+        if any(keyword in str(name) for keyword in _EFFECT_WORDS):
             return False
     return True
 
@@ -404,29 +411,21 @@ def synthesize_identify_cluster(
     if shape["shape_id"] == "Unknown":
         shape = locate_shape_in_image(processor.shape_recognizer, img, None)
     if shape["shape_id"] == "Unknown":
-        logger.debug(f"鉴定候选未找到形状，跳过: {texts}")
+        # 候选可能含 UID 或任意截图文字；日志只保留数量，不持久化原文。
+        logger.debug(f"鉴定候选未找到形状，跳过；文本行数={len(texts)}")
         return None
     return processor.parser.synthesize_drive(shape["shape_id"], parse_texts[:4])
 
 
 def identify_stat_texts(lines: list[dict], forced_type: str | None = None) -> list[str]:
-    bad_keywords = (
-        "史诗", "传说", "附近", "最多", "持续", "每层", "每有", "受到", "造成",
-        "装备者", "角色位于", "依旧生效", "推荐", "装配一个", "每装配",
-    )
-    good_keywords = ("增加", "提升", "增强", "%")
-    stat_keywords = ("暴击率", "暴击伤害", "伤害", "攻击力", "防御力", "生命值", "环合强度", "倾陷强度")
     texts = []
     for line in sorted(lines, key=lambda item: (item["box"][1], item["box"][0])):
         text = (line.get("text") or "").strip()
         if not any(ch.isdigit() for ch in text):
             continue
-        if any(keyword in text for keyword in bad_keywords):
+        if any(keyword in text for keyword in _NON_STAT_TEXT_WORDS):
             continue
-        if forced_type in ("drive", "tape") and not (
-            any(keyword in text for keyword in good_keywords)
-            or any(keyword in text for keyword in stat_keywords)
-        ):
+        if forced_type in ("drive", "tape") and not any(keyword in text for keyword in _STAT_TEXT_HINTS):
             continue
         if len(text) > 24:
             continue
@@ -438,16 +437,10 @@ def is_identify_stat_candidate(text: str) -> bool:
     text = (text or "").strip()
     if not any(ch.isdigit() for ch in text):
         return False
-    bad_keywords = (
-        "史诗", "传说", "附近", "最多", "持续", "每层", "每有", "受到", "造成",
-        "装备者", "角色位于", "依旧生效", "推荐", "装配一个", "每装配", "UID",
-    )
-    if any(keyword in text for keyword in bad_keywords):
+    # 聚类入口排除 UID 页脚；挑词的长度限制与强制类型条件仍由上方流程拥有。
+    if "UID" in text or any(keyword in text for keyword in _NON_STAT_TEXT_WORDS):
         return False
-    stat_keywords = ("暴击率", "暴击伤害", "伤害", "攻击力", "防御力", "生命值", "环合强度", "倾陷强度")
-    return any(keyword in text for keyword in ("增加", "提升", "增强", "%")) or any(
-        keyword in text for keyword in stat_keywords
-    )
+    return any(keyword in text for keyword in _STAT_TEXT_HINTS)
 
 
 def dedupe_identify_items(processor, items: list) -> list:

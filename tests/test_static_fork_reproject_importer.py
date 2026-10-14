@@ -21,11 +21,15 @@ def test_reprojection_marks_candidate_with_current_importer_version(tmp_path):
     output = tmp_path / "candidate.sqlite3"
     audit = tmp_path / "audit.json"
     with sqlite3.connect(source) as connection:
+        # 使用已发布 dataset/schema_migration 的真实字段；候选重投影要更新构建时间身份。
         connection.executescript("""
-            CREATE TABLE dataset(importer_version INTEGER NOT NULL);
-            INSERT INTO dataset VALUES (49);
-            CREATE TABLE schema_migration(version INTEGER NOT NULL);
-            INSERT INTO schema_migration VALUES (39);
+            CREATE TABLE dataset(
+                dataset_id TEXT PRIMARY KEY, game_version TEXT,
+                importer_version INTEGER NOT NULL, built_at_utc TEXT NOT NULL
+            );
+            INSERT INTO dataset VALUES ('fixture', NULL, 49, '2000-01-01T00:00:00+00:00');
+            CREATE TABLE schema_migration(version INTEGER PRIMARY KEY, applied_at_utc TEXT NOT NULL);
+            INSERT INTO schema_migration VALUES (39, '2000-01-01T00:00:00+00:00');
             CREATE TABLE fork_permanent_property(
                 fork_id TEXT, refinement_level INTEGER, property_id TEXT,
                 modifier_operation TEXT, property_value REAL,
@@ -53,14 +57,16 @@ def test_reprojection_marks_candidate_with_current_importer_version(tmp_path):
         )
 
     with sqlite3.connect(output) as connection:
-        version = connection.execute(
-            "SELECT importer_version FROM dataset"
-        ).fetchone()[0]
+        version, built_at = connection.execute(
+            "SELECT importer_version, built_at_utc FROM dataset"
+        ).fetchone()
     with sqlite3.connect(source) as connection:
-        source_version = connection.execute(
-            "SELECT importer_version FROM dataset"
-        ).fetchone()[0]
+        source_version, source_built_at = connection.execute(
+            "SELECT importer_version, built_at_utc FROM dataset"
+        ).fetchone()
     assert version == IMPORTER_VERSION
     assert source_version == 49
+    assert source_built_at == '2000-01-01T00:00:00+00:00'
+    assert built_at != source_built_at
     assert report["importer_version"] == IMPORTER_VERSION
     assert audit.is_file()

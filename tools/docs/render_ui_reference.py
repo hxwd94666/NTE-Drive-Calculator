@@ -135,7 +135,7 @@ def main() -> None:
     ], '展示离线模式；未运行模式确认、检测、部署或清理。', 280)
 
     from PySide6.QtCore import QObject, Signal
-    from src.features.settings.performance_card import PerformanceCard
+    from src.features.settings.performance.card import PerformanceCard
     class PerformancePreview(QObject):
         changed = Signal()
         log_dir = OUTPUT

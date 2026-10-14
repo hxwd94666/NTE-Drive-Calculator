@@ -1,8 +1,6 @@
 # 验证同权重对比的原子保存、旧评分保护和槽位基线防漂移。
 from copy import deepcopy
-from contextlib import nullcontext
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
@@ -11,11 +9,8 @@ from src.services.equipment.weighted_loadout_comparison_service import (
     freeze_role_loadout_comparisons,
     refresh_weighted_loadout_comparisons,
 )
-from src.services.allocation.weighted_save import save_weighted_preview_records
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 from tests.allocation.test_allocation_comparison_scoring import StaticDao, UserDao, item, scorer
-from tests.allocation.static_release_helpers import clone_test_release
-from src.domain.allocation.inputs import StaticDatasetReference
 from tests.equipment.test_role_loadout_slots import assignment, inventory_snapshot
 
 
@@ -140,69 +135,3 @@ def test_changed_drives_compare_at_one_weight_and_retain_freeze_on_refresh():
         uid=(1, 10), kind="module", score=expected, grid_count=2, geometry="EquipmentGeometry_Hen2")
     unchanged = SimpleNamespace(character_id=1003, assignments=(kept_assignment,))
     assert not refresh_weighted_loadout_comparisons({1003: frozen}, context, (unchanged,))[1003][0].diff["changed"]
-
-
-def test_weighted_save_persists_selected_frozen_diff_not_live_weights(tmp_path):
-    basis = scorer()
-    baselines = freeze_role_loadout_comparisons(UserDao(), StaticDao(), 1003, basis)
-    captured = []
-
-    class Dao:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        def profile(self):
-            return {"account_id": "comparison-test"}
-
-        def save_plans_to_slots(self, records, *, checkpoint, validate, commit_context):
-            checkpoint()
-            validate()
-            with commit_context():
-                captured.extend(records)
-            return (10,)
-
-    class Bridge:
-        def __init__(self, *_args):
-            pass
-
-        def prepare_role_plan(self, **arguments):
-            return SimpleNamespace(as_record=lambda: dict(arguments))
-
-    score = basis.score_inventory_item(item())
-    assignment_row = SimpleNamespace(uid=(2, 20), kind="module", geometry="EquipmentGeometry_Hen2",
-                                     grid_count=2, virtual=False, item_id="fixture", suit_id=None, score=score)
-    option = SimpleNamespace(character_id=1003, score=score, assignments=(assignment_row,), generated_board=())
-    context = SimpleNamespace(candidates=(SimpleNamespace(
-        uid=(2, 20), quality="orange", sub_stats=(SimpleNamespace(property_id="AtkAdd", value=12, percent=False),),
-    ),), attributes=(SimpleNamespace(property_id="AtkAdd", scoring_name="攻击力"),))
-    frozen = refresh_weighted_loadout_comparisons({1003: baselines}, context, (option,))[1003]
-    static_path, release = clone_test_release(tmp_path)
-    dataset = StaticDatasetReference(release.schema_version, release.dataset_id,
-                                     release.importer_version, release.built_at_utc)
-    context.static_dataset = dataset
-    context.account_id = "comparison-test"
-    context.snapshot = SimpleNamespace(snapshot_id=8)
-    preview = SimpleNamespace(
-        account_id="comparison-test", ownership=SimpleNamespace(identity=SimpleNamespace(
-            account_id="comparison-test", user_database_path=(tmp_path / "user.sqlite3").resolve())),
-        lock_snapshot=SimpleNamespace(inventory_snapshot_id=8),
-        result=SimpleNamespace(unified=SimpleNamespace(selected=(option,), strategy="role_priority"),
-                               snapshot_id=8, profile_id=1, profile_version=1, solver_version="fixture"),
-        context=context, loadout_comparisons={1003: frozen},
-        slot_bindings=(), explicit_slots=False,
-        static_release=release, static_dataset=dataset,
-        user_database_path=tmp_path / "user.sqlite3", static_database_path=tmp_path / "static.sqlite3",
-    )
-    with patch("src.services.allocation.weighted_save.UserDataDao", return_value=Dao()), \
-            patch("src.services.allocation.weighted_save.SavedStateLoadoutBridge", Bridge), \
-            patch("src.services.allocation.weighted_save.verify_allocation_lock_snapshot"):
-        assert save_weighted_preview_records(preview, checkpoint=lambda: None, commit_context=nullcontext, slot_ids_by_character={1003: 9}) == (10,)
-    assert captured[0]["payload"]["last_diff"]["baseline_plan_id"] == 8
-    assert captured[0]["payload"]["last_diff"]["scoring"] == frozen[0].diff["scoring"]
-    assert captured[0]["comparison_baseline"]["baseline_slot_id"] == 9
-    assert captured[0]["payload"]["last_diff"]["added"][0]["score"] == score
-    assert captured[0]["payload"]["last_diff"]["removed"][0]["score"] == score
-    assert captured[0]["payload"]["assignment_scores"] == {"nte-module-2-20": score}

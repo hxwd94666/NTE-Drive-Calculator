@@ -6,7 +6,7 @@ from unittest.mock import patch
 import unittest
 
 from tests.battle_report.replay.test_prepared_weave import fixture
-from src.integrations.native_battle_hit_details_wire import decode_hit_details
+from src.integrations.battle_analysis.hit_details_wire import decode_hit_details
 from src.integrations.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.buffs.hit_explanation import BattleHitBuffExplanationService
 from src.services.battle_report.replay.explanation import BattleHitReplayExplanationService

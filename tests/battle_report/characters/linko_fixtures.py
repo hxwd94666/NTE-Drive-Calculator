@@ -1,7 +1,7 @@
 # 共享完整灵可动作、独立配对与时停来源夹具，避免测试模块间导入。
 from __future__ import annotations
 
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
 from src.services.battle_report.actions.inference import BattleActionAnimationCandidate
 from src.services.battle_report.timeline.stop_projection import BattleTimeStopProjection
 

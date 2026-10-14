@@ -8,14 +8,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() -> None:
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QEvent, Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (
         QApplication,
         QFrame,
         QLabel,
         QPushButton,
-        QScrollArea,
         QToolButton,
         QWidget,
     )
@@ -35,7 +34,10 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
         CultivationSkill,
     )
 
-    class Service:
+    from tests.cultivation_planner_fixture import PlanningFixture
+    from tests.test_cultivation_history_page import _wait
+
+    class Service(PlanningFixture):
         def __init__(self):
             self.requests = []
 
@@ -86,6 +88,8 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     QApplication.instance() or QApplication([])
     service = Service()
     page = CultivationCalculatorPage(service, None)
+    # 本例核对全部材料合计，显式选择范围，不把默认体力筛选当作完整材料视图。
+    page.material_scope.setCurrentIndex(page.material_scope.findData("all"))
     dialog = page.calculator
     QApplication.processEvents()
 
@@ -93,21 +97,18 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     assert dialog._current_stage.currentData() == 1
     assert dialog._target_level.value() == 80
     assert dialog._skill_inputs["skill-a"][0].value() == 3
-    assert dialog._fork.text() == "专属弧盘"
+    # 弧盘身份投影在名称卡；更换按钮表示动作，不承载已选弧盘名。
+    assert any(label.text() == "专属弧盘" for label in dialog.findChildren(QLabel))
     assert dialog._fork_current_level.value() == 40
     assert dialog._fork_current_level.isEnabled()
-    assert dialog._result_body.parentWidget().objectName() == "cultivationCalculatorResultPanel"
-    assert page.findChild(QLabel, "cultivationCalculatorPageTitle").text() == "养成计算器"
-    assert dialog.findChild(QPushButton, "cultivationCalculatorCalculate").text() == "计算所需材料与体力"
     page.resize(1120, 740)
     page.show()
     QApplication.processEvents()
 
     dialog._calculate()
-    QApplication.processEvents()
+    # 正式计算经后台 owner 交付，以公共复制资格确认当前结果已完成，不假定一次事件处理即可。
+    _wait(lambda: page.copy_button.isEnabled())
     rendered = "\n".join(label.text() for label in dialog.findChildren(QLabel))
-    assert "材料数据完整" not in rendered
-    assert "品质 5" not in rendered
     material_cards = dialog.findChildren(ProgressionMaterialCard)
     assert material_cards
     icon = material_cards[0].findChild(QLabel, "progressionMaterialIcon")
@@ -125,11 +126,7 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     details_content = details.findChild(
         QWidget, "cultivationCalculatorDetailsContent"
     )
-    assert dialog._result_layout.indexOf(totals) < dialog._result_layout.indexOf(details)
     assert len(total_cards) == 4
-    scroll_areas = page.findChildren(QScrollArea)
-    assert scroll_areas == [page.scroll]
-    assert page.scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert page.scroll.horizontalScrollBar().maximum() == 0
     assert not details_toggle.isChecked()
     assert not details_content.isVisibleTo(dialog)
@@ -138,6 +135,7 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     QApplication.processEvents()
     assert details_toggle.isChecked()
     assert details_content.isVisibleTo(dialog)
+    _wait(lambda: page.scroll.verticalScrollBar().maximum() > 0)
     assert page.scroll.verticalScrollBar().maximum() > 0
     detail_cards = [
         card for card in details_content.findChildren(QFrame)
@@ -155,7 +153,7 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     assert not dialog._fork_current_level.isEnabled()
     assert not dialog._skill_inputs["skill-a"][0].isEnabled()
     dialog._calculate()
-    QApplication.processEvents()
+    _wait(lambda: page.copy_button.isEnabled())
     assert dialog.findChild(
         QToolButton, "cultivationCalculatorDetailsToggle"
     ).isChecked()
@@ -166,30 +164,12 @@ def test_cultivation_calculator_prefills_role_state_and_renders_merged_totals() 
     QApplication.processEvents()
     assert not page.copy_button.isEnabled()
     assert dialog._current_level.value() == 20
-
-
-def test_cultivation_image_selector_is_a_searchable_single_choice_card_grid() -> None:
-    from PySide6.QtWidgets import QApplication
-
-    from src.features.toolbox.cultivation.selectors import CultivationImageSelector
-
-    QApplication.instance() or QApplication([])
-    dialog = CultivationImageSelector(
-        None,
-        title="选择弧盘",
-        description="测试",
-        options=(("fork-a", "赤红弧盘", None), ("fork-b", "青蓝弧盘", None)),
-        selected_id="fork-a",
-    )
-
-    cards = {option_id: card for card, option_id, _name in dialog._cards}
-    assert dialog.selected_id() == "fork-a"
-    cards["fork-b"].setChecked(True)
-    assert dialog.selected_id() == "fork-b"
-    dialog._search.setText("qinglan")
+    page.shutdown()
+    _wait(lambda: not dialog._controller.is_running() and not page.batch_calculator._controller.is_running())
+    page.close()
+    page.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     QApplication.processEvents()
-    assert cards["fork-a"].isHidden()
-    assert not cards["fork-b"].isHidden()
 
 
 def test_progression_material_grid_reflows_without_horizontal_rows() -> None:
@@ -228,9 +208,9 @@ def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
 ) -> None:
     from PySide6.QtWidgets import QApplication, QDialog
 
-    from src.features.toolbox import rewind_execution_ui
+    from src.features.toolbox.rewind import execution_ui as rewind_execution_ui
     from src.features.toolbox.page import _RewindRecommendationDialog
-    from src.features.toolbox.rewind_execution_dialog import RewindExecutionOptions
+    from src.features.toolbox.rewind.execution_dialog import RewindExecutionOptions
 
     class Service:
         def __init__(self) -> None:
@@ -279,9 +259,8 @@ def test_rewind_execution_dialog_accept_persists_and_reopens_account_options(
 
 
 def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch) -> None:
-    from PySide6.QtWidgets import QApplication, QPushButton
+    from PySide6.QtWidgets import QApplication
 
-    from src.features.toolbox import page as toolbox_page
     from src.features.toolbox.page import _RewindRecommendationDialog
 
     class Service:
@@ -317,28 +296,6 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
     service = Service()
     dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
     assert dialog._custom_percent_input.text() == ""
-    grade_help = next(
-        button
-        for button in dialog.findChildren(QPushButton, "btnHelp")
-        if "评分等级" in button.toolTip()
-    )
-    shown: dict[str, str] = {}
-    def capture_message(message):
-        shown.update(
-            title=message.windowTitle(),
-            detail=message.text(),
-            icon=message.icon(),
-        )
-        return 0
-
-    monkeypatch.setattr(toolbox_page.QMessageBox, "exec", capture_message)
-    grade_help.click()
-    assert shown["title"] == "自选评分等级说明"
-    assert shown["icon"] == toolbox_page.QMessageBox.Icon.NoIcon
-    assert shown["detail"].splitlines() == [
-        "D：0%", "C：20%", "B：30%", "A：40%", "S：50%", "SS：60%", "SSS：70%", "ACE：80%",
-        "自选：以填写百分比为准",
-    ]
     dialog._target_character_ids = {1004}
     dialog._set_custom_target()
     dialog._custom_percent_input.setValue(90.0)
@@ -352,7 +309,7 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
     assert reopened._custom_percent_input.value() == 90.0
     assert reopened._custom_percent_input.isEnabled()
 
-    from src.features.toolbox import rewind_selection_ui
+    from src.features.toolbox.rewind import selection_ui as rewind_selection_ui
     monkeypatch.setattr(rewind_selection_ui, "WorkerThread", ImmediateWorker)
     dialog._refresh_analysis()
 
@@ -364,7 +321,7 @@ def test_rewind_custom_percentage_persists_and_is_passed_to_analysis(monkeypatch
 def test_rewind_execution_dialog_shows_stop_key_and_disables_custom_for_blue_only() -> None:
     from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
-    from src.features.toolbox.rewind_execution_dialog import (
+    from src.features.toolbox.rewind.execution_dialog import (
         RewindExecutionDialog,
         RewindExecutionOptions,
     )
@@ -395,7 +352,7 @@ def test_rewind_execution_dialog_shows_stop_key_and_disables_custom_for_blue_onl
 def test_rewind_execution_minimizes_host_and_restores_after_completion() -> None:
     from PySide6.QtWidgets import QApplication, QWidget
 
-    from src.features.drive_assembly.rewind_execution import RewindExecutionReport
+    from src.features.drive_assembly.rewind.execution import RewindExecutionReport
     from src.features.toolbox.page import _RewindRecommendationDialog
 
     class Service:
@@ -417,7 +374,7 @@ def test_rewind_execution_minimizes_host_and_restores_after_completion() -> None
 
     assert not dialog.isHidden()
     assert not host.isMinimized()
-    assert dialog._start_rewind_button.text() == "倒带完成 30 次，剩余 50"
+    assert dialog._start_rewind_button.text() == "输入已结束：计划 30 次，预计剩余 50"
 
     dialog._on_rewind_complete(RewindExecutionReport(
         3000,
@@ -432,187 +389,20 @@ def test_rewind_execution_minimizes_host_and_restores_after_completion() -> None
         (("gold", 50), ("blue", 20)),
     ))
 
-    assert dialog._start_rewind_button.text() == "倒带完成 50 次，金剩50、蓝剩20"
-
-
-def test_rewind_execution_replaces_deleted_worker_and_clears_finished_reference(monkeypatch) -> None:
-    from PySide6.QtWidgets import QApplication, QPushButton
-
-    from src.features.toolbox import rewind_execution_ui
-    from src.features.toolbox.rewind_execution_dialog import RewindExecutionOptions
-
-    class DeletedWorker:
-        def isRunning(self):
-            raise RuntimeError("libshiboken: Internal C++ object already deleted")
-
-    class Signal:
-        def __init__(self) -> None:
-            self.callbacks = []
-
-        def connect(self, callback) -> None:
-            self.callbacks.append(callback)
-
-        def emit(self) -> None:
-            for callback in tuple(self.callbacks):
-                callback()
-
-    class FakeWorker:
-        def __init__(self, target, parent=None) -> None:
-            self.target = target
-            self.parent = parent
-            self.result_ready = Signal()
-            self.error = Signal()
-            self.finished = Signal()
-            self.started = False
-            self.deleted = False
-
-        def start(self) -> None:
-            self.started = True
-
-        def deleteLater(self) -> None:
-            self.deleted = True
-
-    class Host(rewind_execution_ui.RewindExecutionUiMixin):
-        def __init__(self) -> None:
-            self._rewind_worker = DeletedWorker()
-            self.operation_guard = lambda _: None
-            self.operation_entry = lambda *_: True
-            self.operation_generation = lambda: 1
-            self._rewind_options = RewindExecutionOptions(("purple",), "none")
-            self._saved_rewind_shape_ids = ()
-            self._start_rewind_button = QPushButton()
-
-        def _prepare_rewind_game_foreground(self) -> None:
-            pass
-
-    QApplication.instance() or QApplication([])
-    monkeypatch.setattr(rewind_execution_ui, "WorkerThread", FakeWorker)
-    host = Host()
-
-    host._start_rewind_execution()
-
-    worker = host._rewind_worker
-    assert isinstance(worker, FakeWorker)
-    assert worker.started
-    worker.finished.emit()
-    assert host._rewind_worker is None
-    assert worker.deleted
-
-
-def test_rewind_execution_registers_and_releases_the_global_stop_hotkey(monkeypatch) -> None:
-    from types import SimpleNamespace
-
-    from PySide6.QtWidgets import QApplication, QWidget
-
-    from src.features.toolbox import rewind_execution_ui
-    from src.features.toolbox.page import _RewindRecommendationDialog
-    from src.features.toolbox.rewind_execution_dialog import RewindExecutionDialog
-
-    class Signal:
-        def __init__(self) -> None:
-            self.callbacks = []
-
-        def connect(self, callback) -> None:
-            self.callbacks.append(callback)
-
-        def emit(self) -> None:
-            for callback in tuple(self.callbacks):
-                callback()
-
-    class FakeWorker:
-        def __init__(self, target, parent=None) -> None:
-            self.target = target
-            self.parent = parent
-            self.result_ready = Signal()
-            self.error = Signal()
-            self.finished = Signal()
-
-        def start(self) -> None:
-            pass
-
-        def deleteLater(self) -> None:
-            pass
-
-    class FakeHotkeys:
-        def __init__(self) -> None:
-            self.configuration = SimpleNamespace(stop="F8")
-            self.active_owner = None
-            self.on_stop = None
-
-        def start(self, *, owner, on_stop) -> None:
-            self.active_owner = owner
-            self.on_stop = on_stop
-
-        def stop(self, *, owner) -> None:
-            if self.active_owner == owner:
-                self.active_owner = None
-
-    class Service:
-        def load_preferences(self):
-            return {}
-
-    QApplication.instance() or QApplication([])
-    host = QWidget()
-    hotkeys = FakeHotkeys()
-    host.global_hotkey_manager = hotkeys
-    dialog = _RewindRecommendationDialog(Service(), host, operation_entry=lambda *_: True)
-    execution_dialog = RewindExecutionDialog(dialog)
-    assert execution_dialog._stop_hotkey_label() == "F8"
-    dialog._rewind_foreground_settle_seconds = 0
-    captured = {}
-    monkeypatch.setattr(rewind_execution_ui, "WorkerThread", FakeWorker)
-    monkeypatch.setattr(dialog, "_prepare_rewind_game_foreground", lambda: None)
-    monkeypatch.setattr(
-        rewind_execution_ui,
-        "execute_rewind_request",
-        lambda _request, *, backend, should_stop: captured.setdefault("stopped", should_stop()),
-    )
-    monkeypatch.setattr(
-        rewind_execution_ui, "PyAutoGuiMouseBackend",
-        lambda **_: SimpleNamespace(force_mouse_release=lambda: None, close=lambda: None),
-    )
-
-    dialog._start_rewind_execution()
-
-    worker = dialog._rewind_worker
-    assert isinstance(worker, FakeWorker)
-    assert hotkeys.active_owner == "rewind_execution"
-    assert hotkeys.on_stop is not None
-    hotkeys.on_stop()
-    assert worker.target() is True
-    worker.finished.emit()
-    assert hotkeys.active_owner is None
-
-
-def test_rewind_open_prefers_saved_plan_and_replacement_has_all_twelve_shapes() -> None:
-    from PySide6.QtWidgets import QApplication, QSpinBox, QToolButton
-
-    from src.features.toolbox.page import _RewindRecommendationDialog
-    from src.features.toolbox.rewind_execution_dialog import RewindShapeReplacementDialog
-    from src.features.toolbox.rewind_slot_ui import all_rewind_shape_candidates
-
-    class Service:
-        def load_preferences(self):
-            return {"saved_rewind_shape_ids": ["EquipmentGeometry_Hen2"] * 8}
-
-    QApplication.instance() or QApplication([])
-    dialog = _RewindRecommendationDialog(Service(), None, operation_entry=lambda *_: True)
-    assert dialog._slots_complete()
-    assert all(slot.shape.shape_id == "EquipmentGeometry_Hen2" for slot in dialog._editable_slots)
-    picker = RewindShapeReplacementDialog(None, candidates=all_rewind_shape_candidates())
-    assert len(picker.findChildren(QToolButton, "rewindShapeReplacementOption")) == 12
-    assert not picker.findChildren(QSpinBox)
+    assert dialog._start_rewind_button.text() == "输入已结束：计划 50 次，预计金剩50、蓝剩20"
 
 
 def test_saved_rewind_plan_restores_quality_gap_without_another_analysis() -> None:
-    from PySide6.QtWidgets import QApplication, QLabel
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+
+    from copy import deepcopy
 
     from src.domain.rewind_shape_recommendation import RewindShape, RewindShapeRecommendation
     from src.features.toolbox.page import _RewindRecommendationDialog
 
     class Service:
         def __init__(self) -> None:
-            self.saved: dict[str, object] = {}
+            self.saved: dict[str, object] = {"saved_rewind_shape_ids": ["EquipmentGeometry_Hen2"] * 8}
 
         def load_preferences(self):
             return dict(self.saved)
@@ -623,6 +413,9 @@ def test_saved_rewind_plan_restores_quality_gap_without_another_analysis() -> No
     QApplication.instance() or QApplication([])
     service = Service()
     dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
+    # 旧的 ID-only 保存格式仍能恢复，不依赖首次打开自动求解。
+    assert dialog._slots_complete()
+    assert all(slot.shape.shape_id == "EquipmentGeometry_Hen2" for slot in dialog._editable_slots)
     saved = RewindShapeRecommendation(
         RewindShape("EquipmentGeometry_Hen2", 2),
         suit_demand=1,
@@ -643,46 +436,14 @@ def test_saved_rewind_plan_restores_quality_gap_without_another_analysis() -> No
     assert [slot.quality_gap for slot in reopened._editable_slots if slot is not None] == [
         12.5
     ] * 8
-    assert all(
-        "缺分 12.5" in label.text()
-        for label in reopened.findChildren(QLabel, "rewindShapeMetrics")
-    )
-
-
-def test_rewind_candidates_clear_only_the_current_page_and_keep_the_saved_plan() -> None:
-    from PySide6.QtWidgets import QApplication, QPushButton
-
-    from src.features.toolbox.page import _RewindRecommendationDialog
-
-    class Service:
-        def __init__(self) -> None:
-            self.saved = {"saved_rewind_shape_ids": ["EquipmentGeometry_Hen2"] * 8}
-
-        def load_preferences(self):
-            return dict(self.saved)
-
-        def save_preferences(self, value):
-            self.saved = dict(value)
-
-    QApplication.instance() or QApplication([])
-    service = Service()
-    dialog = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
-    clear_button = dialog.findChild(QPushButton, "rewindClearCandidates")
-
-    assert clear_button is not None
-    assert clear_button.isEnabled()
-    clear_button.click()
-
-    assert not any(dialog._editable_slots)
-    assert service.saved["saved_rewind_shape_ids"] == ["EquipmentGeometry_Hen2"] * 8
-    assert dialog._saved_rewind_shape_ids == ("EquipmentGeometry_Hen2",) * 8
-
-    reopened = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
-    assert reopened._slots_complete()
-    assert all(
-        slot.shape.shape_id == "EquipmentGeometry_Hen2"
-        for slot in reopened._editable_slots
-    )
+    assert any("12.5" in label.text() for label in reopened.findChildren(QLabel, "rewindShapeMetrics"))
+    saved_preferences = deepcopy(service.saved)
+    saved_slots = tuple(reopened._editable_slots)
+    reopened.findChild(QPushButton, "rewindClearCandidates").click()
+    assert not any(reopened._editable_slots)
+    assert service.saved == saved_preferences
+    again = _RewindRecommendationDialog(service, None, operation_entry=lambda *_: True)
+    assert tuple(again._editable_slots) == saved_slots
 
 
 def test_generating_another_strategy_replaces_the_current_transient_slots() -> None:

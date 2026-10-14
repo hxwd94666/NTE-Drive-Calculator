@@ -5,7 +5,7 @@ import pytest
 
 from src.integrations import native_snapshot_timing as timing
 from src.integrations import native_transport_diagnostics as transport
-from src.integrations.performance_diagnostics import performance_counters
+from src.integrations.performance.journals import performance_counters
 
 
 def payload():

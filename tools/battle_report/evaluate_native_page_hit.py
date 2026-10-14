@@ -77,7 +77,7 @@ def evaluate(args):
         actual = page["analysis"]
         decode_error = None
         try:
-            from src.integrations.native_battle_page_wire import decode_page
+            from src.integrations.battle_analysis.page_wire import decode_page
             decode_page(page)
         except Exception as error:
             decode_error = {"type": type(error).__name__, "message": str(error)}

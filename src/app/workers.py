@@ -12,7 +12,7 @@ from PySide6.QtCore import QThread, Signal
 
 from src.integrations.vision.incremental_scan import DroneScanner
 from src.integrations.vision.recognition.image_resources import CaptureTemplateFile
-from src.integrations.vision.recognition.backend_runtime import check_cancel
+from src.integrations.vision.recognition.ocr.backend_runtime import check_cancel
 from src.integrations.vision.recognition.batch_processor import BatchProcessor
 from src.services.recognition.resources import load_recognition_resources
 from src.utils.logger import logger

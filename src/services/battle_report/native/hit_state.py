@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.mechanics.dot_evidence import (
     BattleDotStackState, DOT_KIND_NAMES, dot_basis, dot_final_basis,
 )

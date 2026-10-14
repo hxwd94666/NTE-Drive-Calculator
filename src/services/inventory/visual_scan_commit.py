@@ -12,7 +12,7 @@ from typing import Any
 from src.services.inventory.vision_snapshot import import_vision_inventory
 from src.services.recognition.resources import check_recognition_resources
 from src.integrations.vision.recognition.image_resources import RecognitionImageProfile
-from src.integrations.vision.recognition.language_resources import OcrRuntimeResources
+from src.integrations.vision.recognition.ocr.language_resources import OcrRuntimeResources
 from src.integrations.vision.recognition.resources import RecognitionResources, RecognitionResourceError
 
 

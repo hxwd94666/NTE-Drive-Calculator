@@ -7,7 +7,7 @@ import stat
 from dataclasses import dataclass
 from tools.release.managed_paths import iter_plain_tree, plain_directory_root, plain_member_stat
 from pathlib import Path
-from src.integrations.vision.recognition.backend_support import OcrBackendSupport
+from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport
 
 
 # RapidOCR OpenVINO 的当前适配器固定用 CPU 读取 ONNX 模型。保留 CPU、

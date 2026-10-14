@@ -10,7 +10,7 @@ from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from threading import Lock
 
-from src.domain.progression_stamina import (
+from src.domain.progression.stamina import (
     ProgressionStaminaRequest,
     ProgressionStaminaResult,
 )
@@ -34,7 +34,7 @@ def calculate_isolated_progression_stamina(
     """
 
     if sys.platform != "win32":
-        from src.domain.progression_stamina import calculate_progression_stamina
+        from src.domain.progression.stamina import calculate_progression_stamina
 
         return calculate_progression_stamina(request)
     global _sequence
@@ -110,7 +110,7 @@ def _drop_process() -> None:
 
 
 def _serve(connection: Connection) -> None:
-    from src.domain.progression_stamina import calculate_progression_stamina
+    from src.domain.progression.stamina import calculate_progression_stamina
 
     # 请求已携带冻结副本/材料；纯领域默认 policy 与原无来源 Service 完全相同。
     try:

@@ -1,7 +1,8 @@
 # 独立判断单个冻结命中与 Buff 区间的适用修正和证据理由。
 from __future__ import annotations
 from dataclasses import dataclass
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredBuffInterval
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.services.battle_report.buffs.semantics import calculation_applies_to_damage, specialized_calculation_reason
 from src.services.battle_report.characters.awakening import character_awakening_requirement_applies
 from src.services.battle_report.characters.passives import passive_requirement_applies

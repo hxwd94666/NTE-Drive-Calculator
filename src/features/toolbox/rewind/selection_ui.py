@@ -50,6 +50,8 @@ class RewindSelectionUiMixin:
 
     def done(self, code):
         self._cancel_selection()
+        if self._defer_rewind_done(code):
+            return
         super().done(code)
 
     def _cancel_selection(self):

@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from threading import Event
 from src.domain.all_item_snapshot import ALL_ITEMS_CAPABILITY
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
-from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError
+from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError, equipment_request_failure_kind
 from src.observability import OperationContext, log_event
 
 
@@ -394,6 +394,12 @@ class NativeInventoryLease:
     def _equipment_direct(self, method, **kwargs):
         self._check()
         self._owner._guard("native_equipment")
+        if method not in {"set_item_locked", "set_item_discarded", "set_item_states"}:
+            # 装卸期间仍可能切换目标角色对象域；逐条复核身份，不把 epoch 增长当切场。
+            # 仓库状态批保留既有入批/拒绝后复核，不增加逐件状态探测。
+            # 此时尚未派发，检查失败不进入下方“写结果未知”的异常分支。
+            self.equipment_identity()
+            self._owner._guard("native_equipment")
         self._write_operation = {
             'equip_one_key': '极速装配', 'set_item_locked': '仓库锁定／解锁',
             'set_item_discarded': '仓库弃置标记', 'set_item_states': '仓库锁定／弃置批量标记',
@@ -401,6 +407,9 @@ class NativeInventoryLease:
         try:
             return getattr(self._client, method)(**kwargs)
         except NteCoreRpcError as error:
+            # RPC 已返回不等于副作用已确认；未知结果跨批次保留维护占用，仍原样抛给调用方。
+            if equipment_request_failure_kind(error) == "outcome_unknown":
+                self._write_outcome_unknown = True
             if error.code != -32001 or error.message != "source_changed" or error.domain_code is not None:
                 raise
             self._check()

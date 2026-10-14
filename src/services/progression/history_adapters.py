@@ -5,11 +5,11 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
-from src.domain.cultivation_history import (
+from src.domain.progression.history import (
     HistoryPayload, HistoryRecord, PAYLOAD_VERSION, freeze_configuration,
 )
-from src.domain.progression_material_conversion import allocate_owned
-from src.domain.progression_stamina import ProgressionStaminaResult
+from src.domain.progression.materials import allocate_owned
+from src.domain.progression.stamina import ProgressionStaminaResult
 from src.services.progression.batch_planner import CultivationBatchPlan
 from src.services.progression.models import (
     CultivationForkSeed, CultivationPlan, CultivationSeed, CultivationStaminaPlan,

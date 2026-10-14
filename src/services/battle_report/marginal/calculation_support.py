@@ -5,17 +5,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-    QuantificationStatus,
+from src.domain.battle_report.counterfactual.quantification import (
+    BattleCounterfactualRatio, BattleDamageQuantification, BattleQuantificationGap, QuantificationStatus,
 )
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleCharacterBaseline,
-    BattleHitReplayResult,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.domain.official_role.models import ROLE_PANEL_MARGINAL_UNITS
 from src.services.battle_report.damage.fixed_critical import (
     continuous_direct_attribute,

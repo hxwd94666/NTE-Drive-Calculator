@@ -759,8 +759,8 @@ def _support_entries(
             status="complete",
             modeling_scheme="按已量化伤害桶和缺口传播；unavailable 数值保持 nullable。",
             evidence=(
-                _ref("implementation", "src/domain/battle_counterfactual_quantification.py", "BattleCounterfactualRatio", "四态量化 contract"),
-                _ref("public_behavior_test", "tests/test_battle_partial_quantification_buff_ui.py", "test_unavailable_does_not_render_zero_gain", "不可用不显示零收益"),
+                _ref("implementation", "src/domain/battle_report/counterfactual/quantification.py", "BattleCounterfactualRatio", "四态量化 contract"),
+                _ref("public_behavior_test", "tests/battle_report/analysis/test_battle_partial_quantification_buff_ui.py", "test_unavailable_does_not_render_zero_gain", "不可用不显示零收益"),
             ),
             consumer_entries=("BattleBuffCounterfactualService.calculate", "BattleMarginalCalculationService.calculate"),
             gap_codes=(),

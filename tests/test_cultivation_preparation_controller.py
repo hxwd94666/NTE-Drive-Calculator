@@ -6,10 +6,8 @@ from dataclasses import replace
 from threading import Event
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def test_single_prepares_before_calculation_and_reuses_materials(tmp_path):

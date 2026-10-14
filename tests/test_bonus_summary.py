@@ -5,24 +5,11 @@ from src.features.allocation.bonus_summary import (
     BonusSummaryContext,
     aligned_bonus_comparison_rows,
     equipment_bonus_rows,
-    has_bonus_delta,
-    merge_bonus_row_lists,
-    split_loadout_sources,
     synthesize_character_bonus_rows,
 )
 
 
 class BonusSummaryTests(unittest.TestCase):
-    def test_split_loadout_sources_separates_tape_and_drives(self):
-        tape, drives = split_loadout_sources(
-            [
-                {"type": "tape", "main_stats": "攻击力%", "uid": "t1"},
-                {"type": "drive", "shape_id": "H_3", "uid": "d1"},
-            ]
-        )
-        self.assertEqual("t1", tape["uid"])
-        self.assertEqual(["d1"], [drive["uid"] for drive in drives])
-
     def test_synthesize_character_bonus_rows_combines_panel_stats(self):
         rows = synthesize_character_bonus_rows(
             [
@@ -32,21 +19,6 @@ class BonusSummaryTests(unittest.TestCase):
             ]
         )
         self.assertEqual([("总攻击力", 1620.0), ("小攻击", 120.0)], rows)
-
-    def test_aligned_bonus_comparison_rows_reports_delta(self):
-        aligned = aligned_bonus_comparison_rows(
-            [("暴击率%", 30.0)],
-            [("暴击率%", 36.5)],
-        )
-        self.assertEqual(1, len(aligned))
-        self.assertEqual(6.5, aligned[0]["delta"])
-        self.assertTrue(has_bonus_delta(aligned[0]))
-
-
-    def test_merge_bonus_row_lists_sums_same_stat(self):
-        ctx = BonusSummaryContext({}, {}, {}, {})
-        rows = merge_bonus_row_lists(ctx, [("暴击率%", 10)], [("暴击率%", 5)])
-        self.assertEqual([("暴击率%", 15.0)], rows)
 
     def test_same_crit_tape_is_not_reported_as_a_new_thirty_percent_gain(self):
         ctx = BonusSummaryContext({}, {}, {}, {})

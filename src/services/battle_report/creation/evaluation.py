@@ -6,15 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from src.domain.battle_buff_counterfactual import (
-    BattleBuffCounterfactualResult,
-    BattleDamageCoverage,
-)
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot
+from src.domain.battle_report.counterfactual.results import BattleBuffCounterfactualResult, BattleDamageCoverage
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.services.battle_report.characters.passives import (
     BattleCharacterPassiveService,
     EnabledCharacterPassive,

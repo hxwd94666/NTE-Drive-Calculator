@@ -15,7 +15,7 @@ from tests.test_native_direct_replay import frozen_fixture
 from tests.test_native_mixed_hit_replay import _fixture
 from tests.battle_report.replay.test_audit_repairs import _hit, _replay
 from tests.battle_report.buffs.test_attribute_projection import _interval
-from src.domain.battle_report import BattleCharacterStat, BattleCharacterSourceStat
+from src.domain.battle_report.build.inputs import BattleCharacterStat, BattleCharacterSourceStat
 
 
 @dataclass
@@ -64,7 +64,30 @@ class NativeBattleReplayApplicationTests(unittest.TestCase):
         else:
             self.assertEqual(expected, actual, path)
 
-    def compare(self, analysis, evidence, configs=None, *, refined=True):
+    def replay_equivalent(self, expected, actual, evidence_terms, path="result"):
+        # 仅本文件重放契约允许已裁决的证据措辞变化；每个其他字段独立断言，避免文本先挡住数值。
+        if path in evidence_terms:
+            with self.subTest(field=path):
+                self.assertIsInstance(actual, str)
+                for term in evidence_terms[path]:
+                    self.assertIn(term, expected)
+                    self.assertIn(term, actual)
+        elif isinstance(expected, dict):
+            with self.subTest(field=path):
+                self.assertEqual(expected.keys(), actual.keys())
+            for key in expected:
+                if key in actual:
+                    self.replay_equivalent(expected[key], actual[key], evidence_terms, f"{path}.{key}")
+        elif isinstance(expected, list):
+            with self.subTest(field=path):
+                self.assertEqual(len(expected), len(actual))
+            for index, (left, right) in enumerate(zip(expected, actual)):
+                self.replay_equivalent(left, right, evidence_terms, f"{path}[{index}]")
+        else:
+            with self.subTest(field=path):
+                self.equivalent(expected, actual, path)
+
+    def compare(self, analysis, evidence, configs=None, *, refined=True, evidence_terms=None):
         expected = BattleHitReplayService.replay(
             analysis, evidence, topple_character_configs=configs,
             apply_observed_refinements=refined,
@@ -73,7 +96,10 @@ class NativeBattleReplayApplicationTests(unittest.TestCase):
             "analysis": wire(analysis), "skill_evidence": wire(evidence),
             "topple_configs": wire(configs or {}), "apply_observed_refinements": refined,
         },))
-        self.equivalent(wire(expected), actual["results"])
+        if evidence_terms is None:
+            self.equivalent(wire(expected), actual["results"])
+        else:
+            self.replay_equivalent(wire(expected), actual["results"], evidence_terms)
         return actual["results"]
 
     def test_final_zero_stat_does_not_restore_earlier_source_term(self):
@@ -90,7 +116,12 @@ class NativeBattleReplayApplicationTests(unittest.TestCase):
         analysis, evidence, configs = _fixture()
         for refined in (False, True):
             with self.subTest(refined=refined):
-                self.compare(analysis, evidence, configs, refined=refined)
+                self.compare(analysis, evidence, configs, refined=refined, evidence_terms={
+                    "result[1].factors[0].evidence_basis": ("UnbalMax=50",),
+                    "result[1].factors[0].terms[0].evidence_basis": ("目标",),
+                    "result[1].factors[1].terms[1].evidence_basis": ("该角色等级", "穿防"),
+                    "result[1].factors[1].terms[2].evidence_basis": ("固有伤害属性", "属性穿透", "目标"),
+                })
 
     def test_dynamic_projection_source_terms_and_inferred_target_routing(self):
         analysis, evidence = frozen_fixture()
@@ -112,9 +143,15 @@ class NativeBattleReplayApplicationTests(unittest.TestCase):
             resolved_monster_id="enemy",
         ),)
         analysis = RoutedAnalysis(**vars(analysis))
-        self.compare(analysis, evidence)
+        rows = self.compare(analysis, evidence, evidence_terms={})
+        for row in rows:
+            self.assertIsNotNone(row["selected_damage"])
         analysis.target_instance_resolutions = ()
-        self.compare(analysis, evidence)
+        terms = {f"result[{index}].missing_evidence[0]": ("目标", "防御") for index in (0, 1)}
+        rows = self.compare(analysis, evidence, evidence_terms=terms)
+        for row in rows:
+            self.assertEqual("unreplayable", row["critical_state"])
+            self.assertIsNone(row["selected_damage"])
 
     def test_critical_policies_state_guards_and_missing_sources(self):
         for policy in ("character", "fixed", "disabled", "unknown"):
@@ -129,12 +166,63 @@ class NativeBattleReplayApplicationTests(unittest.TestCase):
         self.compare(analysis, evidence)
 
     def test_weave_records_exact_source_and_retains_missing_source(self):
-        analysis, evidence = frozen_fixture()
-        first = analysis.hits[0]
-        weave = replace(first, event_id="weave", classification="weave", is_follow_up=True,
-                        damage_name="覆纹", damage=10.0)
-        analysis.hits = (first, weave, replace(weave, event_id="unpaired", sequence=500))
-        self.compare(analysis, evidence)
+        # 正式覆纹扩展了来源/比例因子，不再把旧离线解释布局当协议；数值仍独立逐字段比较。
+        for strength, passive, damage, settled in ((0., False, 100., 20.),
+                                                  (0., True, 100., 32.),
+                                                  (180., True, 1000., 463.)):
+            with self.subTest(strength=strength, passive=passive):
+                analysis, evidence = frozen_fixture()
+                first = replace(analysis.hits[0], damage=damage)
+                baseline = replace(analysis.baselines[0], stats=(
+                    *analysis.baselines[0].stats,
+                    BattleCharacterStat("MagBase", "环合强度", strength, False),
+                ), enabled_team_passive_ids=("PASSIVE-1072-GA_Radio072_Passive_1",) if passive else ())
+                # 跨角色追加仍取实际原伤来源，不能借用覆纹记录角色的更高强度。
+                owner = 2 if strength else first.character_id
+                analysis.baselines = (baseline, replace(baseline, character_id=2, stats=(
+                    BattleCharacterStat("MagBase", "环合强度", 900., False),
+                )))
+                weave = replace(first, event_id="weave", character_id=owner, classification="weave",
+                                is_follow_up=True, damage_name="覆纹", damage=10.0)
+                analysis.hits = (first, weave, replace(weave, event_id="unpaired", sequence=500))
+                expected = wire(BattleHitReplayService.replay(analysis, evidence))
+                result, = self.native.compute_batch("battle_replay_v1", ({
+                    "analysis": wire(analysis), "skill_evidence": wire(evidence),
+                    "topple_configs": {}, "apply_observed_refinements": True,
+                },))
+                rows = result["results"]
+                self.replay_equivalent(expected[0], rows[0], {}, "direct")
+                self.replay_equivalent(expected[2], rows[2], {}, "unpaired")
+                before, after = dict(expected[1]), dict(rows[1])
+                old_factors = {f["factor_id"]: f for f in before.pop("factors")}
+                factors = {f["factor_id"]: f for f in after.pop("factors")}
+                self.assertEqual(len(rows[1]["factors"]), len(factors))
+                before["formula_panel_character_id"] = first.character_id
+                before["formula_damage_attribute"] = first.damage_attribute
+                self.replay_equivalent(before, after, {}, "weave")
+                self.assertEqual(set(old_factors) | {
+                    "weave_copy_ratio", "weave_strength_addition", "weave_final",
+                }, set(factors))
+                for key, factor in old_factors.items():
+                    self.equivalent(factor["value"], factors[key]["value"], key)
+                self.assertEqual(settled, rows[1]["selected_damage"])
+                self.assertEqual(damage, factors["recorded_direct_damage"]["value"])
+                self.assertIn(first.event_id, factors["recorded_direct_damage"]["evidence_basis"])
+                self.assertEqual(1., factors["weave_final"]["value"])
+                self.assertEqual(factors["weave_strength"]["value"] - 1.,
+                                 factors["weave_strength_addition"]["value"])
+                copy = factors["weave_copy_ratio"]
+                self.assertAlmostEqual(.33 if passive else .20, copy["value"], places=7)
+                terms = {term["term_id"]: term for term in copy["terms"]}
+                self.assertEqual({"weave:base", "weave:extension"}, set(terms))
+                self.assertEqual(.20, terms["weave:base"]["value"])
+                self.assertEqual(.13 if passive else 0., terms["weave:extension"]["value"])
+                self.assertEqual("DT_ReactionEffectFigure.LingZhouCopyCoef",
+                                 terms["weave:base"]["source_name"])
+                self.assertIn("LingZhouReactionExpendOne.ExtraDamageRatio",
+                              terms["weave:extension"]["source_name"])
+                self.assertIsNone(rows[2]["selected_damage"])
+                self.assertEqual("unreplayable", rows[2]["critical_state"])
 
     def test_overkill_and_formula_context_keep_raw_identity(self):
         analysis, evidence = frozen_fixture()

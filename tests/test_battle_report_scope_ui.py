@@ -6,20 +6,17 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QApplication
 
-from src.domain.battle_counterfactual_quantification import BattleDamageQuantification
-from src.domain.battle_buff_counterfactual import BattleDamageCoverage
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleInferredAction,
-    BattleInferredInput,
-    BattleTimelineDamageGroup,
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification
+from src.domain.battle_report.counterfactual.results import BattleDamageCoverage
+from src.domain.battle_report.timeline.events import (
+    BattleAnalysisHit, BattleInferredAction, BattleInferredInput, BattleTimelineDamageGroup,
 )
-from src.features.battle_report.analysis_scope_mixin import (
-    BattleAnalysisScopeMixin,
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.features.battle_report.analysis.timeline_interaction import (
+    BattleAnalysisTimelineMixin,
 )
-from src.features.battle_report.analysis_view import BattleLongAnalysisView
-from src.features.battle_report.buff_evidence_view import BattleBuffEvidencePanel
+from src.features.battle_report.analysis.view import BattleLongAnalysisView
+from src.features.battle_report.analysis.buff_evidence import BattleBuffEvidencePanel
 from src.services.battle_report.buffs.counterfactual_plan import (
     battle_buff_counterfactual_key,
 )
@@ -251,7 +248,7 @@ class BattleReportScopeUiTests(unittest.TestCase):
     def test_selected_half_focuses_the_full_timeline_viewport(self) -> None:
         scrollbar = SimpleNamespace(value=None)
         scrollbar.setValue = lambda value: setattr(scrollbar, "value", value)
-        harness = BattleAnalysisScopeMixin()
+        harness = BattleAnalysisTimelineMixin()
         harness._analysis = SimpleNamespace(
             range_start_us=80_000_000,
             range_end_us=100_000_000,
@@ -269,6 +266,20 @@ class BattleReportScopeUiTests(unittest.TestCase):
         self.app.processEvents()
 
         self.assertEqual(700, scrollbar.value)
+
+        original = harness._analysis
+        for name, replacement in (
+            ("换成另一份同范围快照", SimpleNamespace(**vars(original))),
+            ("清空分析", None),
+        ):
+            with self.subTest(name=name):
+                harness._analysis = original
+                scrollbar.value = 41
+                harness._focus_selected_timeline_range()
+                # 旧聚焦已排队，但新视图并未要求定位；旧任务应静默退出。
+                harness._analysis = replacement
+                self.app.processEvents()
+                self.assertEqual(41, scrollbar.value)
 
 
 if __name__ == "__main__":

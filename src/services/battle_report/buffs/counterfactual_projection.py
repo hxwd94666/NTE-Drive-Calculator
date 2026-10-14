@@ -6,17 +6,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from src.domain.battle_buff_counterfactual import (
-    BattleBuffBeneficiaryResult,
-    BattleDamageCoverage,
+from src.domain.battle_report.counterfactual.results import BattleBuffBeneficiaryResult, BattleDamageCoverage
+from src.domain.battle_report.counterfactual.quantification import (
+    BattleCounterfactualRatio, BattleDamageQuantification, BattleQuantificationGap, QuantificationStatus,
 )
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-    QuantificationStatus,
-)
-from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 
 _LACRIMOSA_NIGHTMARE_EFFECTS = frozenset({
     "ge_player_lacrimosa_blood_damage",

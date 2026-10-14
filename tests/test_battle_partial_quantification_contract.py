@@ -2,76 +2,13 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import fields
 
-from src.domain.battle_counterfactual import (
-    BattleBuildCounterfactual,
-    BattleBuildHitCounterfactual,
-    BattleBuildRoleCounterfactual,
-    BattleBuildVitalCounterfactual,
-    BattleMarginalResult,
-)
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-)
-from src.domain.battle_buff_counterfactual import BattleDamageCoverage
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
+from src.domain.battle_report.counterfactual.results import BattleDamageCoverage
 
-
-def _field_names(value_type) -> set[str]:
-    return {field.name for field in fields(value_type)}
 
 
 class BattlePartialQuantificationContractTests(unittest.TestCase):
-    def test_marginal_uses_nullable_known_and_full_results(self) -> None:
-        names = _field_names(BattleMarginalResult)
-
-        self.assertTrue({
-            "known_projection_damage",
-            "quantified_role_gain_percent",
-            "quantified_team_gain_percent",
-            "full_role_gain_percent",
-            "full_team_gain_percent",
-            "quantification",
-            "role_denominator_status",
-            "team_denominator_status",
-        }.issubset(names))
-        self.assertTrue({
-            "predicted_damage",
-            "role_gain_percent",
-            "team_dps_gain_percent",
-            "supported_damage",
-            "unsupported_damage",
-            "coverage_percent",
-        }.isdisjoint(names))
-
-    def test_build_types_separate_known_candidate_and_heuristic_values(self) -> None:
-        hit_names = _field_names(BattleBuildHitCounterfactual)
-        vital_names = _field_names(BattleBuildVitalCounterfactual)
-        role_names = _field_names(BattleBuildRoleCounterfactual)
-        build_names = _field_names(BattleBuildCounterfactual)
-
-        projections = {
-            "known_projection_damage",
-            "candidate_damage",
-            "heuristic_projection_damage",
-            "quantification",
-        }
-        self.assertTrue(projections.issubset(hit_names))
-        self.assertTrue(projections.issubset(vital_names))
-        self.assertIn("candidate_state", vital_names)
-        self.assertTrue(projections.issubset(role_names))
-        self.assertTrue(projections.issubset(build_names))
-        self.assertTrue({
-            "predicted_damage", "ratio", "method", "confidence", "explanation",
-        }.isdisjoint(hit_names))
-        self.assertTrue({
-            "predicted_damage", "estimated_damage",
-        }.isdisjoint(role_names))
-        self.assertTrue({
-            "predicted_damage", "predicted_dps", "estimated_damage",
-        }.isdisjoint(build_names))
-
     def test_partial_damage_summary_keeps_all_four_buckets(self) -> None:
         gap = BattleQuantificationGap(
             code="target_profile_missing",

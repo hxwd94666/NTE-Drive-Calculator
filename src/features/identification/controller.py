@@ -9,6 +9,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import CancelledError
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable
@@ -59,7 +60,6 @@ from src.models.equipment import Drive, Tape
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
-from src.optimizer.scoring import ScoringEngine
 from src.services.identification.tasks import (
     IdentificationImageJob, IdentificationImageRequest, IdentificationMatchRequest,
 )
@@ -103,7 +103,6 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._activate_window = activate_window
         self._shape_areas: dict[str, int] = {}
         self.all_set_names: list[str] = []
-        self.scoring_engine: ScoringEngine | None = None
         self._identify_task: IdentificationTask | None = None
         self._identify_dependencies: IdentificationDependencies | None = None
         self._identify_tasks = IdentificationTaskController(
@@ -128,11 +127,9 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         *,
         shape_areas: dict[str, int],
         set_names: list[str],
-        scoring_engine: ScoringEngine,
     ) -> None:
         self._shape_areas = dict(shape_areas)
         self.all_set_names = list(set_names)
-        self.scoring_engine = scoring_engine
         self.refresh_options()
 
     def reset_account_state(self) -> None:
@@ -639,14 +636,20 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._on_identify_type_changed()
 
     def _identify_from_manual(self):
-        text = self.ident_manual_text.toPlainText()
-        self._apply_identify_manual_fields(text)
-        quality = self._identify_quality()
-        uid = f"identify_{int(time.time() * 1000)}"
+        task = self._identify_task
+        if not self._identify_tasks.is_current(task):
+            return
         try:
+            resources = self._identify_tasks.freeze_manual_resources(task)
+            catalog = resources.stat_catalog()
+            text = self.ident_manual_text.toPlainText()
+            self._apply_identify_manual_fields(text)
+            quality = self._identify_quality()
+            uid = f"identify_{int(time.time() * 1000)}"
             if self.ident_tape_rb.isChecked():
                 # 卡带副词条沿用扫描管线的 10 格当量，展示值与游戏同品质卡带一致。
-                sub_stats = self._parse_manual_stats(text, quality=quality, grid_equivalent=10)
+                sub_stats = self._parse_manual_stats(text, quality=quality, grid_equivalent=10,
+                                                     stat_catalog=catalog)
                 set_name = self._combo_data_or_resolved_text(self.ident_set_combo, self.all_set_names)
                 set_name = resolve_name(set_name, self.all_set_names, cutoff=0.78) or set_name
                 main_stat = self._combo_data_or_resolved_text(self.ident_main_combo, self._get_tape_main_stats_pool())
@@ -665,7 +668,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
                     0
                 ]
                 area = self._shape_areas.get(shape_id, 3)
-                sub_stats = self._parse_manual_stats(text, quality=quality, grid_equivalent=area)
+                sub_stats = self._parse_manual_stats(text, quality=quality, grid_equivalent=area,
+                                                     stat_catalog=catalog)
                 item = Drive(
                     uid=uid,
                     item_type="drive",
@@ -675,6 +679,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
                     main_stats=self._manual_drive_main_stats(area, quality),
                     sub_stats=sub_stats,
                 )
+        except CancelledError:
+            return
         except Exception as e:
             _identification_event(
                 self,
@@ -702,6 +708,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             user_database_path=dependencies.user_database_path,
             static_database_path=dependencies.static_database_path,
             items=items,
+            resources=self._identify_tasks.resources_for(task),
         )
         self._set_identify_busy(True, "正在匹配角色图纸并评分...")
         self._identify_tasks.submit_matches(task, request)

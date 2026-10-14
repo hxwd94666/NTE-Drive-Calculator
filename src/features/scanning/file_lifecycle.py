@@ -10,15 +10,18 @@ to review and rollback independently from UI changes.
 from __future__ import annotations
 
 import shutil
+import stat
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from concurrent.futures import CancelledError
 from src.integrations.vision.recognition.resources import RecognitionResourceError
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from pathlib import Path
 from typing import Iterable
 
 from src.utils.logger import logger
 from src.utils.image_io import imread_unicode
+from src.integrations.vision.capture_files import CaptureFileError, capture_output_lease
 from src.features.scanning.naming import (
     FAILED_SCREENSHOT_DIRNAME,
     IMAGE_EXTS,
@@ -49,15 +52,21 @@ class ScreenshotUsage:
     size_mb: float = 0.0
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScreenshotCleanupPlan:
-    """Files that are safe to remove from one account according to lifecycle rules."""
+    """确认窗口打开前冻结确切文件及所属目录，不让旧计划清理新任务。"""
 
-    delete_files: list[Path] = field(default_factory=list)
-    preserved_files: list[Path] = field(default_factory=list)
+    screenshot_dir: Path
+    file_versions: tuple[tuple[Path, tuple[int, int, int, int]], ...]
+    directory_versions: tuple[tuple[Path, tuple[int, int]], ...]
+    preserved_files: tuple[Path, ...] = ()
     scan_delete_count: int = 0
     temp_delete_count: int = 0
     baseline_missing: bool = False
+
+    @property
+    def delete_files(self) -> tuple[Path, ...]:
+        return tuple(path for path, _version in self.file_versions)
 
     @property
     def total_count(self) -> int:
@@ -68,6 +77,7 @@ class ScreenshotCleanupPlan:
             "由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n"
             f"将删除 {self.scan_delete_count} 个其它扫描截图、"
             f"{self.temp_delete_count} 个临时鉴定粘贴截图，不可恢复。"
+            "\n未完成扫描暂存、发布恢复目录及其它子目录保持不变。"
         )
         if self.baseline_missing:
             prompt += "\n\n注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"
@@ -162,42 +172,107 @@ def managed_screenshot_usage(screenshot_dir: Path, account_root: Path) -> Screen
 
 
 def build_screenshot_cleanup_plan(screenshot_dir: Path, account_root: Path) -> ScreenshotCleanupPlan:
-    """Build a cleanup plan while preserving files required by incremental scanning."""
+    """只选根截图、直接失败隔离成员和账号临时图片，不递归清理恢复资产。"""
 
-    screenshot_dir = Path(screenshot_dir)
-    scan_files = iter_image_files(screenshot_dir)
-    temp_files = _iter_account_temp_images(Path(account_root))
+    screenshot_dir, account_root = Path(screenshot_dir).absolute(), Path(account_root).absolute()
+    directories = []
+    scan_files, temp_files = [], []
+    for directory in dict.fromkeys((screenshot_dir, screenshot_dir / FAILED_SCREENSHOT_DIRNAME, account_root)):
+        try:
+            identity = _cleanup_directory_identity(directory)
+        except (FileNotFoundError, ValueError):
+            continue  # 缺失或非普通目录不形成可删除范围，也不创建新目录。
+        directories.append((directory, identity))
+        candidates = (_iter_account_temp_images(directory) if directory == account_root
+                      else iter_root_image_files(directory))
+        for path in sorted(candidates):
+            try:
+                version = _cleanup_file_version(path)
+            except (FileNotFoundError, ValueError):
+                continue
+            (temp_files if directory == account_root else scan_files).append((path, version))
     baseline = screenshot_dir / "raw_drive_0001.png"
-    baseline_resolved = baseline.resolve()
     delete_scan_files = []
     preserved_files = []
-    for path in scan_files:
-        if path.resolve() == baseline_resolved:
+    for path, version in scan_files:
+        if path == baseline:
             preserved_files.append(path)
         else:
-            delete_scan_files.append(path)
+            delete_scan_files.append((path, version))
     return ScreenshotCleanupPlan(
-        delete_files=delete_scan_files + temp_files,
-        preserved_files=preserved_files,
+        screenshot_dir=screenshot_dir,
+        file_versions=tuple(delete_scan_files + temp_files),
+        directory_versions=tuple(directories),
+        preserved_files=tuple(preserved_files),
         scan_delete_count=len(delete_scan_files),
         temp_delete_count=len(temp_files),
-        baseline_missing=bool(scan_files) and not baseline.exists(),
+        baseline_missing=bool(scan_files) and not preserved_files,
     )
 
 
+def _cleanup_directory_identity(path: Path) -> tuple[int, int]:
+    # 不先 resolve：父段联接也必须被拒绝；目录 mtime 会随租约文件变化，不作身份。
+    for member in (*reversed(path.parents), path):
+        info = member.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise ValueError("截图清理目录不是普通目录。")
+    return info.st_dev, info.st_ino
+
+
+def _cleanup_file_version(path: Path) -> tuple[int, int, int, int]:
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)
+            or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+        raise ValueError("截图清理成员不是普通文件。")
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+
+
 def execute_screenshot_cleanup(plan: ScreenshotCleanupPlan) -> ScreenshotCleanupResult:
-    """Delete files from a cleanup plan and log any failures."""
+    """与发布共用租约；失效整批在首删前拒绝，逐次变化停止剩余清理。"""
 
     result = ScreenshotCleanupResult()
-    for path in plan.delete_files:
+    pending = dict(plan.file_versions)
+    if not pending:
+        return result
+
+    def check_directories():
+        for directory, identity in plan.directory_versions:
+            if _cleanup_directory_identity(directory) != identity:
+                raise ValueError("截图清理所属目录已变化，请重新确认。")
+
+    def unchanged(path, version):
         try:
-            path.unlink()
-            result.deleted += 1
+            current = _cleanup_file_version(path)
         except FileNotFoundError:
-            continue
-        except OSError as exc:
-            result.failed_files.append(path)
-            logger.warning(f"删除截图文件失败: {path} ({exc})")
+            return False  # 已被同 owner 清理的文件无需补删。
+        if current != version:
+            raise ValueError("截图清理文件已变化，请重新确认。")
+        return True
+
+    has_screenshots = plan.screenshot_dir in dict(plan.directory_versions)
+    try:
+        check_directories()  # 旧目录已替换时，不在新目录创建租约文件。
+        # 仅剪贴板临时图片且尚无截图目录时，不为清理创建截图目录或锁文件。
+        with capture_output_lease(plan.screenshot_dir) if has_screenshots else nullcontext():
+            check_directories()
+            for path, version in plan.file_versions:
+                unchanged(path, version)
+            for path, version in plan.file_versions:
+                check_directories()
+                if unchanged(path, version):
+                    try:
+                        path.unlink()
+                        result.deleted += 1
+                    except FileNotFoundError:
+                        pass
+                    except OSError as exc:
+                        result.failed_files.append(path)
+                        logger.warning(f"删除截图文件失败: {path} ({exc})")
+                pending.pop(path)
+    except (OSError, ValueError, CaptureFileError) as exc:
+        result.failed_files.extend(pending)
+        logger.warning(f"截图清理已停止，未完成成员保留: {exc}")
     return result
 
 

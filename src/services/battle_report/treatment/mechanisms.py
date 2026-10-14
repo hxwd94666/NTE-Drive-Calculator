@@ -7,13 +7,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from dataclasses import dataclass
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleInferredAction,
-    BattleInferredBuffInterval,
-    BattleTreatmentEvent,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTreatmentEvent
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.treatment.audited import (
     BattleAuditedTreatmentAdapterService,
 )

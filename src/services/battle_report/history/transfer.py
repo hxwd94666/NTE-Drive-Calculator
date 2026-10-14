@@ -19,13 +19,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from src.domain.battle_report_transfer import (
-    BattleReportExportOutcome,
-    BattleReportImportOutcome,
-    BattleReportTransferEntry,
-    battle_equipment_sha256,
-    canonical_battle_equipment_json,
-    portable_battle_evidence,
+from src.domain.battle_report.history.transfer import (
+    BattleReportExportOutcome, BattleReportImportOutcome, BattleReportTransferEntry, battle_equipment_sha256,
+    canonical_battle_equipment_json, portable_battle_evidence,
 )
 from src.integrations.battle_report_bundle import (
     BATTLE_REPORT_BUNDLE_EXTENSION,

@@ -107,7 +107,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
     def test_clicks_ocr_target_text_center_when_available(self):
         import numpy as np
         from src.features.drive_assembly.executor import execute_action_sequence
-        from src.integrations.vision.recognition.task_session import use_ocr_session
+        from src.integrations.vision.recognition.ocr.task_session import use_ocr_session
 
         engine = FakeOcrEngine([{"text": "Attack Percent", "box": (20, 10, 120, 50)}])
         backend = FakeScreenshotMouseBackend(np.zeros((500, 500, 3), dtype=np.uint8))
@@ -122,7 +122,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
     def test_ocr_target_action_falls_back_to_static_position(self):
         import numpy as np
         from src.features.drive_assembly.executor import execute_action_sequence
-        from src.integrations.vision.recognition.task_session import use_ocr_session
+        from src.integrations.vision.recognition.ocr.task_session import use_ocr_session
 
         engine = FakeOcrEngine([{"text": "Other", "box": (0, 0, 20, 20)}])
         backend = FakeScreenshotMouseBackend(np.zeros((500, 500, 3), dtype=np.uint8))
@@ -137,7 +137,7 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
     def test_ocr_target_resizes_large_search_region_before_matching(self):
         import numpy as np
         from src.features.drive_assembly.executor import execute_action_sequence
-        from src.integrations.vision.recognition.task_session import use_ocr_session
+        from src.integrations.vision.recognition.ocr.task_session import use_ocr_session
 
         engine = FakeOcrEngine([{"text": "Attack Percent", "box": (12, 8, 60, 28)}])
         backend = FakeScreenshotMouseBackend(np.zeros((900, 5000, 3), dtype=np.uint8))

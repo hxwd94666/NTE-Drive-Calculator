@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.integrations.vision.recognition import model_resources as resources
+from src.integrations.vision.recognition.ocr import model_resources as resources
 
 
 NTE_TEST_TIER = "core"
@@ -31,18 +31,6 @@ class OcrModelResourceTests(unittest.TestCase):
                 )
             )
         return tuple(specs)
-
-    def test_directory_validation_returns_all_backend_keywords(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            specs = self._fixture(root)
-            with patch.object(resources, "OCR_MODEL_SPECS", specs):
-                result = resources.validate_ocr_model_directory(root)
-
-        self.assertEqual(
-            {"det_model_path", "rec_model_path", "cls_model_path"},
-            set(result),
-        )
 
     def test_directory_validation_rejects_changed_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

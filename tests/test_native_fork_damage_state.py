@@ -41,8 +41,9 @@ def _fixture():
         _action(4, 2003, "QTE", 4_000_000, 4_500_000),
         _action(5, 2004, "E", 5_000_000, 6_000_000),
         _action(6, 1001, "Q", 7_000_000, 8_000_000),
+        # 使用发行目录中的正式 GE 身份；缩写不是同一技能，不能作为组件的同义输入。
         _action(7, 1001, "Q", 9_000_000, 10_000_000,
-                gameplay_effect_ids=("GE_Nanally_Cat_Skill_Damage",)),
+                gameplay_effect_ids=("GE_Player_Nanally_Cat_Skill_Damage",)),
         _action(8, 1001, "E", 14_000_000, 15_000_000),
         _action(9, 1001, "Q", 16_000_000, 17_000_000),
     )

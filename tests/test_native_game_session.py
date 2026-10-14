@@ -472,3 +472,113 @@ def test_start_cancellation_still_blocks_capture_before_it_begins():
     finally:
         lease.close()
         session.close()
+
+
+@pytest.mark.parametrize('change', ['permission', 'closing', 'account_aba'])
+def test_waiting_hud_enable_rechecks_owner_but_disable_remains_available(change):
+    from threading import Event, Thread, current_thread
+    from src.integrations.nte_core_protocol import NteCoreError
+
+    entered = Event()
+    state = {'allowed': True, 'context': ('account', 0)}
+
+    def guard(_cap):
+        if not state['allowed']:
+            raise PermissionError('synthetic revoked')
+
+    def identity():
+        value = state['context']
+        if current_thread().name == 'waiting-hud':
+            entered.set()
+        return value
+
+    session, clients = make_session(guard=guard, context_key=identity)
+    session.inspect()
+    core = clients[0]
+    core.hello_result['capabilities'].append('native_hud_v1')
+    enabled = {'cooldown': True, 'enemy_bars': False}
+    session.configure_hud(enabled, connect=False)  # 合法同会话启用仍可用。
+    before = len(core.calls)
+    failures = []
+
+    def enable():
+        try:
+            session.configure_hud(enabled, connect=False)
+        except (NteCoreError, PermissionError) as error:
+            failures.append(error)
+
+    worker = Thread(target=enable, name='waiting-hud')
+    try:
+        with session._lock:
+            worker.start()
+            assert entered.wait(2)
+            if change == 'permission':
+                state['allowed'] = False
+            elif change == 'closing':
+                session.request_close()
+            else:
+                state['context'] = ('account', 2)
+        worker.join(3)
+        assert not worker.is_alive() and len(failures) == 1
+        assert core.calls[before:] == []
+        disabled = {'cooldown': False, 'enemy_bars': False}
+        session.configure_hud(disabled, connect=False)
+        assert core.calls[before:] == [('native.hud.configure', disabled)]
+    finally:
+        worker.join(3)
+        assert not worker.is_alive()
+        session.close()
+
+
+def test_completed_close_invalidates_waiting_hud_but_allows_fresh_request():
+    from threading import Event, Thread, current_thread
+    from src.integrations.nte_core_protocol import NteCoreError
+
+    entered, failures, clients = Event(), [], []
+
+    def identity():
+        if current_thread().name == 'waiting-old-hud':
+            entered.set()
+        return ('account', 0)
+
+    def factory():
+        core = FakeNativeCore()
+        core.hello_result['capabilities'].append('native_hud_v1')
+        clients.append(core)
+        return core
+
+    # 暂停保留手动 native_load；仅物理收尾前排队的启用失效，不封死新合法请求。
+    session = NativeGameSession(factory, lambda _cap: None, context_key=identity)
+    enabled = {'cooldown': True, 'enemy_bars': False}
+    disabled = {'cooldown': False, 'enemy_bars': False}
+    session.configure_hud(enabled, connect=True)
+
+    def enable():
+        try:
+            session.configure_hud(enabled, connect=True)
+        except NteCoreError as error:
+            failures.append(error)
+
+    worker = Thread(target=enable, name='waiting-old-hud')
+    try:
+        with session._lock:
+            worker.start()
+            assert entered.wait(2)
+            session.close()
+            assert clients[0].closed and session._client is None
+            assert not session._close_requested.is_set()
+        worker.join(3)
+        assert not worker.is_alive() and len(failures) == 1
+        assert len(clients) == 1
+        session.configure_hud(disabled, connect=False)
+        assert len(clients) == 1  # 空会话关闭不因清理而重连。
+        session.configure_hud(enabled, connect=True)
+        assert len(clients) == 2
+        assert clients[1].calls == [('native.hud.configure', enabled)]
+        session.request_close()
+        session.configure_hud(disabled, connect=False)
+        assert clients[1].calls[-1] == ('native.hud.configure', disabled)
+    finally:
+        worker.join(3)
+        assert not worker.is_alive()
+        session.close()

@@ -8,11 +8,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from src.domain.battle_report import BattleAnalysisSnapshot, BattleTargetCondition
-from src.domain.battle_target import (
-    BattleSelectedTargetProfile,
-    BattleTargetInstanceResolution,
-)
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleSelectedTargetProfile, BattleTargetInstanceResolution
 from src.services.battle_report.targets.encounter.candidate_selection import (
     BattleEncounterCandidateSelectionService,
 )

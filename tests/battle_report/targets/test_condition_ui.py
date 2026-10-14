@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-from src.features.battle_report.target_condition_selector import (
+from src.features.battle_report.analysis.target_conditions import (
     BattleTargetConditionSelector,
 )
 from src.services.battle_report.targets.inferred_condition import (

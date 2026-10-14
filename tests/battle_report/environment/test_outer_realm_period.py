@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.domain.battle_encounter import BattleEncounterCandidate
+from src.domain.battle_report.targets.encounter import BattleEncounterCandidate
 from src.services.battle_report.environment.outer_realm_period import (
     filter_candidates_for_period,
     resolve_outer_realm_period,

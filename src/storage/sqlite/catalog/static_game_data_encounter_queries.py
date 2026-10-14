@@ -438,11 +438,14 @@ class StaticGameDataEncounterQueriesMixin:
             (str(level_config_id).strip(),),
         )
         if buff is not None:
+            # v37 才增加来源列；已支持的旧库保留未知，不从 Buff 总路径猜测组件来源。
+            effect_path_column = "effect_asset_path" if self.schema_version >= 37 else "NULL"
             buff["components"] = self._rows(
-                """
+                f"""
                 SELECT component_ordinal, trigger_kind, property_id,
                        property_value, duration_seconds,
-                       trigger_cooldown_seconds, stack_limit_count, curve_id
+                       trigger_cooldown_seconds, stack_limit_count, curve_id,
+                       {effect_path_column} AS effect_asset_path
                 FROM outer_realm_season_buff_component
                 WHERE level_config_id = ? ORDER BY component_ordinal
                 """,

@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
-from src.domain.battle_page_models import BattleMarginalCandidate
+from src.domain.battle_report.counterfactual.results import BattleMarginalCandidate
 from src.services.battle_report.analysis.page_cache import BattleNativePageCache
 from src.services.battle_report.analysis.native_page import BattleNativePageService
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest

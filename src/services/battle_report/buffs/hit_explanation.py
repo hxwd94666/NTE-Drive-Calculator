@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffProjectionDecision,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffProjectionDecision, BattleInferredBuffInterval
 from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
     normalize_battle_buff_property_id,

@@ -23,7 +23,7 @@ from src.features.inventory.equipment.plan_optimizer import _open_official_saved
 from src.features.inventory.warehouse.result_card import WarehouseResultCard
 from src.features.official_role.replacement_controller import show_official_role_replacement
 from src.features.official_role.replacement_tasks import ReplacementTaskOwner
-from src.features.battle_report.marginal_replacement_controller import show_marginal_equipment_replacement
+from src.features.battle_report.editing.equipment_replacement import show_battle_equipment_replacement
 from src.integrations._static_release_pin import WindowsStaticFilePin
 from src.integrations.static_catalog_release import StaticCatalogReleaseReader
 from src.optimizer.scoring import ScoringEngine
@@ -215,7 +215,7 @@ def test_actual_late_read_drops_selection_and_retires_before_account_switch(fixt
     timer.start()
     applied = []
     try:
-        assert not show_marginal_equipment_replacement(fixture["window"], fixture["detail"], fixture["target"],
+        assert not show_battle_equipment_replacement(fixture["window"], fixture["detail"], fixture["target"],
             context_key="saved", static_database_path=fixture["path"], static_schema_version=fixture["detail"]["static_schema_version"],
             on_replaced=applied.append, is_current=lambda: current[0])
         owners = fixture["window"].findChildren(ReplacementTaskOwner)

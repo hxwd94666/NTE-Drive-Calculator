@@ -18,8 +18,8 @@ from src.features.scanning.manual_recovery import ManualRecoverySession, complet
 from src.integrations.vision.recognition.config import RecognitionLayout
 from src.integrations.vision.recognition.duplicate_filter import RecoverableParseError
 from src.integrations.vision.recognition.image_resources import RecognitionImageProfile, ShapeTemplateFile
-from src.integrations.vision.recognition.language_resources import OcrDictionarySpec, OcrDictionaryFile, OcrRuntimeResources
-from src.integrations.vision.recognition.model_resources import OcrModelSpec, OcrModelFile, OcrModelResources
+from src.integrations.vision.recognition.ocr.language_resources import OcrDictionarySpec, OcrDictionaryFile, OcrRuntimeResources
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelSpec, OcrModelFile, OcrModelResources
 from src.integrations.vision.recognition.resources import RecognitionResources
 
 NTE_TEST_TIER = "core"

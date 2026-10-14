@@ -44,13 +44,16 @@ class InputEntryGuidanceTests(TestCase):
         owner = SimpleNamespace(operation_entry=Mock(return_value=True), operation_unavailable=Mock())
         _start_nte_core_equipment_apply(owner, ["test"])
         owner.operation_unavailable.assert_called_once()
-        self.assertEqual("detection", owner.operation_unavailable.call_args.args[2])
+        self.assertEqual("home", owner.operation_unavailable.call_args.args[2])
         self.assertFalse(hasattr(owner, "_equipment_apply_worker"))
 
     def test_rewind_and_capture_identification_decline_before_mutation(self):
-        from src.features.toolbox.rewind_execution_ui import RewindExecutionUiMixin
+        from src.features.toolbox.rewind.execution_ui import RewindExecutionUiMixin
         from src.features.identification.controller import IdentificationController
         owner = self.denied()
+        # 先满足当前 owner 的代次/空闲前置，才能验证权限拒绝发生在任何副作用之前。
+        owner._rewind_context_current = Mock(return_value=True)
+        owner.is_rewind_running = Mock(return_value=False)
         RewindExecutionUiMixin._configure_rewind(owner)
         RewindExecutionUiMixin._start_rewind_execution(owner)
         IdentificationController._start_identify_capture_mode(owner)

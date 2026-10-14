@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import wraps
+from math import isfinite
+from struct import pack, unpack
 from types import GeneratorType
 from typing import Any
 
@@ -121,16 +123,47 @@ def _settlement(observed: float, noncritical: float, critical: float | None = No
 
 
 def python_special_numeric(operation: str, values: dict) -> dict:
-    """Reference arithmetic for old components and native differential checks."""
+    """Offline diagnostic arithmetic; native errors never select this as a fallback."""
     if operation == "special_weave_v1":
-        strength = max(0.0, values["ring_strength"])
-        multiplier = calculate_weave_strength_multiplier(strength)
-        ratio = 0.30 if values["lingke_passive"] else 0.20
-        followup = (1.0 + ratio) * multiplier - 1.0
-        predicted = settle_replay_damage(values["source_damage"] * followup)
-        return {**_settlement(values["observed"], predicted, corrected_direct=True),
+        def number(name):
+            value = values.get(name)
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not isfinite(value):
+                raise ValueError("invalid_special_input")
+            return value
+
+        strength = max(0.0, number("ring_strength"))
+        base, extension = number("base_ratio"), number("extra_ratio")
+        source, observed = number("source_damage"), number("observed")
+        # 当前正式模型逐区转单精度；基础比例与灵可扩展独立保留，最终系数再转一次。
+        # 十进制等价式仅供展示，先算 (1+C)*K-1 会在整数边界错误少结算一点。
+        def f32(value):
+            try:
+                result = unpack("<f", pack("<f", value))[0]
+            except OverflowError as error:
+                raise ValueError("non_finite_special_result") from error
+            if not isfinite(result):
+                raise ValueError("non_finite_special_result")
+            return result
+
+        # 只有字段缺失才按强度求 R；显式 R=0、F=0 都是输入事实，不能用 or 默认值覆盖。
+        multiplier = f32(number("reaction_multiplier") if "reaction_multiplier" in values
+                         else calculate_weave_strength_multiplier(strength))
+        final = f32(number("final_multiplier"))
+        ratio = f32(base) + f32(extension)
+        addition = min(100.0, max(0.0, multiplier - 1.0))
+        followup = f32((ratio * multiplier + addition) * final)
+        raw = source * followup
+        if not isfinite(raw):
+            raise ValueError("non_finite_special_result")
+        predicted = settle_replay_damage(raw)
+        result = {**_settlement(observed, predicted, corrected_direct=True),
                 "ring_strength": strength, "strength_multiplier": multiplier,
-                "extra_ratio": ratio, "followup_multiplier": followup}
+                "base_ratio": base, "extra_ratio": extension, "copy_ratio": ratio,
+                "strength_addition": addition, "final_multiplier": final,
+                "followup_multiplier": followup, "unrounded_damage": raw}
+        if any(isinstance(value, float) and not isfinite(value) for value in result.values()):
+            raise ValueError("non_finite_special_result")
+        return result
     if operation in {"special_reaction_v1", "special_nova_v1"}:
         nova = operation == "special_nova_v1"
         result = _mitigation(values["mitigation"], defense_enabled=not nova)

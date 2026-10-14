@@ -179,6 +179,91 @@ class AllocationSolverTests(unittest.TestCase):
         all_uids = [assignment.uid for option in result.unified.selected for assignment in option.assignments]
         self.assertEqual(len(all_uids), len(set(all_uids)))
 
+    def test_equal_group_tape_recovery_preserves_unique_uid_and_missing_core(self) -> None:
+        first = replace(
+            fixture_role(1, weight_id="AtkUp", limit=PropertyLimit("CritRate", None, 20.0)),
+            core_main_property_id=None, substat_priorities=(),
+            effective_main_property_weights=(("CritRate", 1.0), ("AtkUp", 0.9)),
+        )
+        second = replace(
+            fixture_role(2, weight_id="DefUp"), core_main_property_id=None, substat_priorities=(),
+            effective_main_property_weights=(("AtkUp", 0.1), ("CritRate", 0.02)),
+        )
+        drives = tuple(
+            item for role_id, stat in ((1, "AtkUp"), (2, "DefUp"))
+            for item in complete_role_candidates(role_id, stat, shape_a_score=1.0)
+            if item.kind == "module"
+        )
+        crit = candidate((9, 1), kind="core", item_id="SyntheticCrit", geometry=None,
+                         suit_id="Preferred", stats={"CritRate": 30.0}, main=True)
+        attack = candidate((9, 2), kind="core", item_id="SyntheticAttack", geometry=None,
+                           suit_id="Preferred", stats={"AtkUp": 37.5}, main=True)
+        # 真正冻结输入贯穿评分/图纸/组求解；反转同级输入顺序也不能重复消费卡带。
+        for reverse, shortage in ((False, False), (True, False), (False, True)):
+            with self.subTest(reverse=reverse, shortage=shortage):
+                roles = (second, first) if reverse else (first, second)
+                cores = (attack,) if shortage else (crit, attack)
+                context = fixture_context(roles, (*drives, *cores))
+                context = replace(context, attributes=(*context.attributes,
+                    OfficialAttribute("AtkUp", "攻击力%"), OfficialAttribute("DefUp", "防御力%")))
+                result = solve_allocation_context(context, include_role_top_k=False, top_k=1)
+                selected = {option.character_id: option for option in result.unified.selected}
+                self.assertEqual({1, 2}, set(selected))
+                uids = [item.uid for option in selected.values() for item in option.assignments]
+                self.assertEqual(len(uids), len(set(uids)))
+                self.assertIn(attack.uid, selected[1].used_uids)
+                self.assertEqual(245.0, selected[1].score)
+                self.assertEqual(200.0 if shortage else 201.0, selected[2].score)
+                if shortage:
+                    self.assertTrue(selected[2].missing_core_reason)
+                else:
+                    self.assertIn(crit.uid, selected[2].used_uids)
+
+    def test_equal_group_tape_recovery_keeps_peer_substat_priority_and_actual_score(self) -> None:
+        first = replace(
+            fixture_role(1, weight_id="AtkUp", limit=PropertyLimit("CritRate", None, 20.0)),
+            core_main_property_id=None, substat_priorities=(),
+            effective_main_property_weights=(("CritRate", 1.0), ("AtkUp", 0.9)),
+        )
+        second = replace(
+            fixture_role(2, weight_id="DefUp", target_suit="Other"),
+            core_main_property_id=None, substat_priorities=("HpUp",), ignore_grade_limit=True,
+            effective_main_property_weights=(("DefUp", 0.2),),
+        )
+        drives = tuple(
+            replace(item, suit_id="Preferred" if role_id == 1 else "Other")
+            for role_id, stat in ((1, "AtkUp"), (2, "DefUp"))
+            for item in complete_role_candidates(role_id, stat, shape_a_score=1.0)
+            if item.kind == "module"
+        )
+        crit = candidate((9, 1), kind="core", item_id="SyntheticCrit", geometry=None,
+                         suit_id="Preferred", stats={"CritRate": 30.0}, main=True)
+        attack = candidate((9, 2), kind="core", item_id="SyntheticAttack", geometry=None,
+                           suit_id="Preferred", stats={"AtkUp": 37.5}, main=True)
+        preferred = replace(candidate((9, 3), kind="core", item_id="PreferredSubstat", geometry=None,
+                                      suit_id="Other", stats={"DefUp": 37.5}, main=True),
+                            sub_stats=(OfficialStat("HpUp", 1.0, False),))
+        higher_score = replace(preferred, uid_serial=4, item_id="NonpreferredHigherScore",
+                               sub_stats=(OfficialStat("DefUp", 1.0, False),))
+        context = fixture_context((first, second), (*drives, crit, attack, preferred, higher_score))
+        context = replace(context, attributes=(*context.attributes,
+            OfficialAttribute("AtkUp", "攻击力%"), OfficialAttribute("DefUp", "防御力%"),
+            OfficialAttribute("HpUp", "生命值%")))
+
+        result = solve_allocation_context(context, include_role_top_k=False, top_k=1)
+
+        selected = {option.character_id: option for option in result.unified.selected}
+        self.assertEqual({1, 2}, set(selected))
+        self.assertIn(attack.uid, selected[1].used_uids)
+        self.assertIn(preferred.uid, selected[2].used_uids)
+        uids = [item.uid for option in selected.values() for item in option.assignments]
+        self.assertEqual(len(uids), len(set(uids)))
+        # 同伴暴击修复不抹掉明确词条偏好；排名奖励也不进入保存用的冻结实分。
+        self.assertEqual(245.0, selected[1].score)
+        self.assertEqual(210.0, selected[2].score)
+        core = next(item for item in selected[2].assignments if item.uid == preferred.uid)
+        self.assertEqual(10.0, core.score)
+
     def test_property_limit_rejects_high_scoring_layout(self) -> None:
         # 暴击率上限包含固定基础 5%：装备 5% 时总计正好 10%。
         role = fixture_role(1, weight_id="Score", limit=PropertyLimit("CritRate", None, 10.0))

@@ -10,6 +10,7 @@ Typical usage:
     .\.venv\Scripts\python.exe build_installer.py
     .\.venv\Scripts\python.exe build_installer.py --skip-app-build
     .\.venv\Scripts\python.exe build_installer.py --generate-only
+    .\.venv\Scripts\python.exe build_installer.py --output-root build/release-candidate
 """
 
 from __future__ import annotations
@@ -19,15 +20,17 @@ import importlib.util
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
 
 from tools import build_cli
+from tools.release.managed_paths import plain_member_stat
 from src.app.version import windows_numeric_version
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, native_deployment_paths
-from src.integrations.vision.recognition.model_resources import validate_packaged_ocr_models
+from src.integrations.vision.recognition.ocr.model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.installer_asset_dedup import (
     InstallerAssetCopy,
@@ -37,6 +40,7 @@ from tools.release.installer_asset_dedup import (
 
 
 ROOT = Path(__file__).parent.resolve()
+OUTPUT_ROOT = ROOT
 THIRD_PARTY_DIR = ROOT / "third_party"
 DIST_APP = ROOT / "dist" / "NTE_Drive_Calc"
 APP_EXE = DIST_APP / "NTE_Drive_Calc.exe"
@@ -65,6 +69,47 @@ APP_ID = "{{D7DA28BE-8A19-4E05-9216-3F16C4C2C820}"
 CORE_CONFIG_FILES = ("stats.json",)
 STALE_AMBIENT_ICU_DLLS = ("icuuc.dll", "icudt78.dll")
 LOCAL_CONFIG_ENV = "NTE_LOCAL_CONFIG"
+
+
+def _configure_output_root(requested: Path | None) -> None:
+    """应用包、暂存与安装器共用普通输出根，源码及工具来源仍归 ROOT。"""
+    global OUTPUT_ROOT, DIST_APP, APP_EXE, APP_INTERNAL, APP_NTE_CORE, APP_ANALYSIS_CORE
+    global APP_ANALYSIS_CORE_MANIFEST, APP_USER_SCHEMA, APP_STATIC_DATABASE, APP_STATIC_MANIFEST
+    global APP_SHARED_DATABASE_SEED, APP_SHAPE_BONUS_BASELINE
+    global INSTALLER_DIR, OUTPUT_DIR, INSTALL_STAGE_INTERNAL, ISS_PATH
+    output = build_cli.select_output_root(ROOT, requested)
+    # stage helper 的固定路径契约相对本次输出根；预检不以 resolve 隐去重解析点。
+    internal = output / "dist/NTE_Drive_Calc/_internal"
+    for member, predicate in (
+        (output / "dist/NTE_Drive_Calc/_internal", stat.S_ISDIR),
+        (output / "build/installer-stage/_internal", stat.S_ISDIR),
+        (output / "installer/output", stat.S_ISDIR),
+        (output / "installer/NTE_Drive_Calc.iss", stat.S_ISREG),
+        (output / "dist/NTE_Drive_Calc/NTE_Drive_Calc.exe", stat.S_ISREG),
+        *((internal / relative, stat.S_ISREG) for relative in (
+            "nte-core.exe", "nte-analysis-core.exe", "analysis-core-meta/component.json",
+            "src/storage/sqlite/schema/001_user_data.sql", "data/game_static.sqlite3",
+            "data/manifest.json", "data/app_shared.sqlite3", "data/migrations/shape_bonus_defaults_2.0.2.json",
+        )),
+    ):
+        try:
+            info = plain_member_stat(ROOT, member)
+        except FileNotFoundError:
+            continue
+        if not predicate(info.st_mode):
+            raise ValueError(f"输出成员类型不符：{member}")
+    OUTPUT_ROOT = output
+    DIST_APP = output / "dist" / "NTE_Drive_Calc"
+    APP_EXE, APP_INTERNAL = DIST_APP / "NTE_Drive_Calc.exe", DIST_APP / "_internal"
+    APP_NTE_CORE, APP_ANALYSIS_CORE = APP_INTERNAL / "nte-core.exe", APP_INTERNAL / "nte-analysis-core.exe"
+    APP_ANALYSIS_CORE_MANIFEST = APP_INTERNAL / "analysis-core-meta/component.json"
+    APP_USER_SCHEMA = APP_INTERNAL / "src/storage/sqlite/schema/001_user_data.sql"
+    APP_STATIC_DATABASE, APP_STATIC_MANIFEST = APP_INTERNAL / "data/game_static.sqlite3", APP_INTERNAL / "data/manifest.json"
+    APP_SHARED_DATABASE_SEED = APP_INTERNAL / "data/app_shared.sqlite3"
+    APP_SHAPE_BONUS_BASELINE = APP_INTERNAL / "data/migrations/shape_bonus_defaults_2.0.2.json"
+    INSTALLER_DIR = output / "installer"
+    OUTPUT_DIR, ISS_PATH = INSTALLER_DIR / "output", INSTALLER_DIR / "NTE_Drive_Calc.iss"
+    INSTALL_STAGE_INTERNAL = output / "build/installer-stage/_internal"
 
 
 def _run(cmd: list[str], cwd: Path = ROOT) -> None:
@@ -217,7 +262,10 @@ def _ensure_app_bundle(skip_app_build: bool) -> None:
                 "or use --skip-app-build to package the existing app bundle."
             )
 
-        _run([sys.executable, str(ROOT / "build_exe.py")])
+        command = [sys.executable, str(ROOT / "build_exe.py")]
+        if OUTPUT_ROOT != ROOT:
+            command.extend(["--output-root", str(OUTPUT_ROOT)])
+        _run(command)
 
     _validate_app_bundle()
 
@@ -466,6 +514,7 @@ end;
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build NTE Drive Calc installer.")
+    parser.add_argument("--output-root", type=Path, help="输出至仓库 build 下的独立子目录；默认仓库根。")
     parser.add_argument(
         "--config",
         type=Path,
@@ -493,6 +542,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        _configure_output_root(args.output_root)
         local_config = _load_local_config(args.config)
         args.iscc = _configured_path(
             args.iscc,
@@ -508,7 +558,7 @@ def main() -> int:
         )
         _ensure_app_bundle(skip_app_build=args.skip_app_build)
         asset_copies = prepare_installer_asset_stage(
-            APP_INTERNAL, INSTALL_STAGE_INTERNAL, ROOT,
+            APP_INTERNAL, INSTALL_STAGE_INTERNAL, OUTPUT_ROOT,
         )
         validate_packaged_component_bundle(
             INSTALL_STAGE_INTERNAL, source_manifest_path=source_component_manifest(ROOT),

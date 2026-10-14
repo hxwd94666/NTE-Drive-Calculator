@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from src.integrations.nte_analysis_core import ENGINE_VERSION, NativeAnalysisError, NteAnalysisCoreClient
-from src.domain.native_analysis import BuffProjectionBatchTooLarge
+from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBatchTooLarge
 from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo

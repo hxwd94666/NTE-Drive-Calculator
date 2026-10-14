@@ -109,13 +109,16 @@ def invalidate_saved_equipment_cache(self: Any) -> None:
     self._saved_equipment_cache_valid = False
     # 写操作前启动的读取不得发布过期缓存；变更代次在交付时再次复核。
     self._equip_load_token = object()
+    lane = getattr(self, "_equip_read_lane", None)
+    if lane is not None:
+        # 只撤销交付和排队请求；原 IO 仍由页面通道持有至物理收尾，不阻塞账号切换。
+        lane.cancel()
 
 
 def reset_equipment_account_state(self: Any) -> None:
     """Discard account-owned projections before the shell refreshes a page."""
 
     invalidate_saved_equipment_cache(self)
-    self._equip_load_token = object()
     self._equipment_graduation_tokens = {}
     self._saved_equipment_states = {}
     self._game_loadout_states = {}

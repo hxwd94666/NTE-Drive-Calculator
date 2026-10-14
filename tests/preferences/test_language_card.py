@@ -14,7 +14,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QMessageBox, QWidget
 
 from src.app.theme import apply_app_theme
-from src.features.settings.language_card import LanguageCard
+from src.features.settings.language.card import LanguageCard
 from src.integrations.preferences.json_store import LocalPreferencesStore
 from src.integrations.preferences.locale_files import LocaleFiles
 from src.services.preferences.language_settings_service import LanguageSettingsService

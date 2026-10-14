@@ -7,8 +7,8 @@ from unittest.mock import Mock
 
 from PySide6.QtWidgets import QApplication
 
-from src.features.battle_report.marginal_page import BattleMarginalPage
-from src.features.battle_report.timeline_layout import TimelineSelection
+from src.features.battle_report.marginal.page import BattleMarginalPage
+from src.features.battle_report.timeline.layout import TimelineSelection
 
 
 class BattleMarginalTimelineDetailTests(unittest.TestCase):

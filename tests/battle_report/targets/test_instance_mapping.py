@@ -5,8 +5,9 @@ import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 
-from src.domain.battle_report import BattleAnalysisSnapshot, BattleTargetCondition
-from src.domain.battle_target import BattleSelectedTargetProfile
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleSelectedTargetProfile
 from src.services.battle_report.targets.instance_mapping import (
     BattleTargetInstanceMappingService,
 )

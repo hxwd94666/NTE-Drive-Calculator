@@ -6,20 +6,16 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleCharacterSourceStat,
-    BattleCharacterStat,
-    BattleInferredBuffInterval,
-    BattleMaxHpReductionEvent,
-    BattleRangeRoleSummary,
-    BattleRangeSkillSummary,
-    BattleTargetCondition,
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import (
+    BattleCharacterBaseline, BattleCharacterSourceStat, BattleCharacterStat,
 )
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent, BattleTargetCondition
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary, BattleRangeSkillSummary
 from src.services.battle_report.actions.inference import (
     ACTION_INFERENCE_MODEL_VERSION,
     BattleActionAnimationCandidate,

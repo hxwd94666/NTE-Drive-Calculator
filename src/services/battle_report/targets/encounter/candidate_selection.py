@@ -5,10 +5,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from src.domain.battle_encounter import (
-    BattleEncounterCandidate,
-    BattleEncounterCandidateMatch,
-    BattleEncounterCandidateSelection,
+from src.domain.battle_report.targets.encounter import (
+    BattleEncounterCandidate, BattleEncounterCandidateMatch, BattleEncounterCandidateSelection,
     BattleObservedTarget,
 )
 from src.services.battle_report.targets.candidate_graph import (

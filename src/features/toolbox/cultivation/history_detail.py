@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.cultivation_history import HistoryRecord
+from src.domain.progression.history import HistoryRecord
 from src.features.toolbox.cultivation.history_materials import HistoryMaterialGrid, IconLookup
 
 

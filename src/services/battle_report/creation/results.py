@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from src.domain.battle_buff_counterfactual import (
-    BattleBuffBeneficiaryResult,
-    BattleBuffCounterfactualResult,
-    BattleDamageCoverage,
+from src.domain.battle_report.counterfactual.results import (
+    BattleBuffBeneficiaryResult, BattleBuffCounterfactualResult, BattleDamageCoverage,
 )
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-)
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification
 from src.services.battle_report.characters.passives import EnabledCharacterPassive
 
 

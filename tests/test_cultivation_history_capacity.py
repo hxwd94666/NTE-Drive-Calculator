@@ -8,17 +8,15 @@ import sqlite3
 
 import pytest
 
-from src.domain.cultivation_history import MAX_PAYLOAD_BYTES, freeze_configuration
+from src.domain.progression.history import MAX_PAYLOAD_BYTES, freeze_configuration
 from src.services.progression.history_adapters import batch_history_payload
 from src.services.progression.batch_planner import CultivationBatchPlannerService, CultivationBatchRequest, CultivationTargetDraft
 from src.services.progression.models import CultivationForkTarget, CultivationRequest, CultivationSkillTarget
 from src.services.progression.planner_service import CultivationPlannerService
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.cultivation_history_test_support import module_load_tests
 
 # Real release resources are needed; this is an explicit capacity integration gate, not core.
 NTE_TEST_TIER = "integration"
-load_tests = module_load_tests(__name__, __file__)
 
 
 @pytest.mark.parametrize("relative", ["data/game_static.sqlite3", "data/role_catalog/game_static.sqlite3"])

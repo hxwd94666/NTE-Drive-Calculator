@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Protocol
 
-from src.domain.progression_stamina import (
+from src.domain.progression.stamina import (
     FarmingStage,
     HunterLevelPolicy,
     IdentificationLevelProjection,

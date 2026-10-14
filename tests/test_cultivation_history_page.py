@@ -7,10 +7,8 @@ import time
 from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def _wait(predicate):
@@ -24,7 +22,7 @@ def _wait(predicate):
 
 
 def _planner():
-    from src.domain.progression_stamina import IdentificationLevelProjection, ProgressionStaminaResult, StaminaPlanStatus
+    from src.domain.progression.stamina import IdentificationLevelProjection, ProgressionStaminaResult, StaminaPlanStatus
     from src.services.progression.character_requirements import MaterialSummaryStatus
     from src.services.progression.models import (
         CultivationForkSeed, CultivationMaterial, CultivationPlan, CultivationRole, CultivationSection,

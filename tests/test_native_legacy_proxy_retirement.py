@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from src.integrations import legacy_game_proxy as proxy
-from src.services.native_plugin_deployment import deploy_native_plugin
-from src.services.equipment_plugin_deployment import EquipmentPluginDeploymentError
+from src.integrations.components.native_files import deploy_native_plugin
+from src.integrations.components.environment import EquipmentPluginDeploymentError
 from tests.test_native_automatic_upgrade import setup_upgrade
 from tests.test_native_plugin_bundle import game_files, make_bundle
 
@@ -32,12 +32,12 @@ def test_automatic_deploy_ignores_proxy_when_new_files_match(tmp_path):
     (game.parent / 'd3d12.dll').write_bytes((runtime.root / payload['roles']['host']).read_bytes())
     target = game.parent / 'dwmapi.dll'
     target.write_bytes(b'residual proxy')
-    from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
+    from src.integrations.components.inspection import inspect_deployed_native_plugin
     runtime._native_deployed = inspect_deployed_native_plugin(
         application_root=runtime.root, game_executable_path=game,
     )
     assert runtime._native_deployed.files_compatible
-    with patch('src.services.work_mode_runtime.deploy_native_plugin') as deploy:
+    with patch('src.services.work_modes.runtime.deploy_native_plugin') as deploy:
         runtime._automatic_deploy(False)
     deploy.assert_not_called()
     assert target.read_bytes() == b'residual proxy'
@@ -55,7 +55,7 @@ def test_proxy_delete_failure_blocks_new_component_writes(tmp_path):
             raise PermissionError('proxy locked')
         return original(path, *args, **kwargs)
     with patch.object(Path, 'unlink', blocked):
-        with patch('src.services.native_plugin_deployment._replace_file') as replace:
+        with patch('src.integrations.components.native_files._replace_file') as replace:
             with pytest.raises(PermissionError):
                 deploy_native_plugin(
                     application_root=root, game_executable_path=game,
@@ -72,7 +72,7 @@ def test_failed_native_write_does_not_restore_removed_proxy(tmp_path):
     game = game_files(tmp_path, root, payload)
     target = game.parent / 'dwmapi.dll'
     target.write_bytes(b'old proxy')
-    with patch('src.services.native_plugin_deployment._replace_file', side_effect=OSError('write failed')):
+    with patch('src.integrations.components.native_files._replace_file', side_effect=OSError('write failed')):
         with pytest.raises(EquipmentPluginDeploymentError):
             deploy_native_plugin(
                 application_root=root, game_executable_path=game,

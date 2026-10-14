@@ -8,10 +8,8 @@ import pytest
 from src.services.progression.batch_planner import CultivationBatchPlannerService
 from tests.test_cultivation_batch_planner_service import _SingleService, _batch, _target
 
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def test_preparation_never_runs_stamina_solver(monkeypatch):

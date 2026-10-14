@@ -8,20 +8,13 @@ from dataclasses import replace
 import unittest
 from unittest.mock import PropertyMock, patch
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleBuffModifierEvidence,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayResult,
-    BattleInferredBuffInterval,
-    BattleMaxHpReductionEvent,
-)
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent
 from src.services.battle_report.buffs.counterfactual import (
     BattleBuffCounterfactualService,
 )

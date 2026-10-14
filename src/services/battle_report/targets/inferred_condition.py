@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from src.domain import battle_page_models
+import src.domain.battle_report.targets.encounter as battle_page_models
 
 import sqlite3
 from collections import Counter
@@ -12,14 +12,12 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from src.domain.battle_encounter import (
-    BattleEncounterCandidate,
-    BattleEncounterCandidateMatch,
-    BattleEncounterTargetPreset,
-    BattleObservedTarget,
+from src.domain.battle_report.targets.encounter import (
+    BattleEncounterCandidate, BattleEncounterCandidateMatch, BattleEncounterTargetPreset, BattleObservedTarget,
 )
-from src.domain.battle_report import BattleAnalysisSnapshot, BattleTargetCondition
-from src.domain.battle_target import BattleTargetInstanceResolution
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleTargetInstanceResolution
 from src.services.battle_report.targets.encounter.candidate_selection import (
     BattleEncounterCandidateSelectionService,
 )

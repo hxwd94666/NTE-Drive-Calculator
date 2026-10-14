@@ -16,13 +16,13 @@ from src.features.static_catalog.dependencies import (
     build_static_catalog_domain_pages,
     build_static_catalog_providers,
 )
-from src.features.static_catalog.domain_pages.character_page import CharacterCatalogPage
-from src.features.static_catalog.domain_pages.combat_mechanics_page import (
+from src.features.static_catalog.domain_pages.characters.page import CharacterCatalogPage
+from src.features.static_catalog.domain_pages.mechanics.page import (
     CombatMechanicsCatalogPage,
 )
-from src.features.static_catalog.domain_pages.equipment_page import EquipmentCatalogPage
-from src.features.static_catalog.domain_pages.fork_page import ForkCatalogPage
-from src.features.static_catalog.domain_pages.monster_page import MonsterCatalogPage
+from src.features.static_catalog.domain_pages.equipment.page import EquipmentCatalogPage
+from src.features.static_catalog.domain_pages.forks.page import ForkCatalogPage
+from src.features.static_catalog.domain_pages.monsters.page import MonsterCatalogPage
 from src.features.static_catalog.page import StaticCatalogPage
 from src.services.static_catalog.service import StaticCatalogService
 from src.ui.equipment_presentation import EquipmentPresentation

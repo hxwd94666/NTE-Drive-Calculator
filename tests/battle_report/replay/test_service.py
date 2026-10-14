@@ -4,28 +4,22 @@ NTE_TEST_TIER = "core"
 
 import unittest
 from math import floor
+from struct import pack, unpack
 from types import SimpleNamespace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit, BattleAnalysisSnapshot,
-    BattleCharacterBaseline, BattleCharacterStat,
-    BattleHitBuffProjection, BattleHitReplayFactor, BattleHitReplayResult,
-    BattleSkillDamageEvidence, BattleTargetCondition,
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import (
+    BattleHitReplayFactor, BattleHitReplayResult, BattleSkillDamageEvidence,
 )
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.replay.service import BattleHitReplayService
-from src.services.battle_report.replay.local_critical import (
-    BattleHitLocalCritInferenceService,
-)
-from src.services.battle_report.replay.support import (
-    apply_observed_damage_correction,
-    settle_replay_damage,
-)
-from src.services.battle_report.replay.special import (
-    BattleSpecialHitReplayService,
-)
-from src.services.battle_report.replay.topple import (
-    BattleToppleCharacterConfig,
-)
+from src.services.battle_report.replay.local_critical import BattleHitLocalCritInferenceService
+from src.services.battle_report.replay.support import apply_observed_damage_correction, settle_replay_damage
+from src.services.battle_report.replay.special import BattleSpecialHitReplayService
+from src.services.battle_report.replay.topple import BattleToppleCharacterConfig
 
 class BattleHitReplayServiceTests(unittest.TestCase):
     def test_replay_settlement_floors_only_after_all_factors(self) -> None:
@@ -281,7 +275,11 @@ class BattleHitReplayServiceTests(unittest.TestCase):
         )
 
         assert result is not None and result.selected_damage is not None
-        expected = float(floor(1000.0 * (1.30 * 1.08 - 1.0)))
+        # 正式比例分别为 0.20/0.13，各区先转 f32，双精度组合后系数再转 f32。
+        def f32(value):
+            return unpack("<f", pack("<f", value))[0]
+        coefficient = f32((f32(.20) + f32(.13)) * f32(1.08) + f32(1.08) - 1.)
+        expected = float(floor(1000.0 * coefficient))
         self.assertEqual(expected, result.selected_damage)
         self.assertEqual("not_applicable", result.critical_state)
         self.assertIn("弱点感应", result.factors[2].evidence_basis)

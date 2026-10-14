@@ -6,15 +6,23 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
 
 
 ZANKOU_DUAL_FORM_MAX_GAP_US = 8_000_000
 
 
+def dual_form_pause_matches(start_us, end_us, intervals):
+    """有完整记录时，两段证据须由同一次暂停覆盖；残缺区间不充当记录。"""
+    complete = tuple((int(start), int(end)) for start, end in intervals
+                     if start is not None and end is not None and int(start) <= int(end))
+    return not complete or any(start <= start_us <= end_us <= end for start, end in complete)
+
+
 def merge_zankou_dual_form_actions(
     actions: Sequence[BattleInferredAction],
     action_hits: dict[str, tuple[BattleAnalysisHit, ...]],
+    time_stop_intervals: Sequence[tuple[int | None, int | None]] = (),
 ) -> tuple[BattleInferredAction, ...]:
     """Join the fixed Magic/Force halves of one Zankou Q action."""
 
@@ -43,6 +51,7 @@ def merge_zankou_dual_form_actions(
             and candidate.character_id == action.character_id
             and 0 < candidate.start_us - action.end_us
             <= ZANKOU_DUAL_FORM_MAX_GAP_US
+            and dual_form_pause_matches(action.start_us, candidate.end_us - 1, time_stop_intervals)
             and candidate.gameplay_effect_ids
             and all(
                 "forceultraskill" in value.casefold()

@@ -6,12 +6,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from src.domain.battle_buff_rule import BattleStaticBuffRule
-from src.domain.native_analysis import BattleComputeBackend
-from src.domain.battle_report import (
-    BattleAnalysisHit, BattleBuffModifierEvidence, BattleInferredAction,
-    BattleInferredBuffInterval, BattleTreatmentEvent,
-)
+from src.domain.battle_report.buffs.models import BattleStaticBuffRule
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTreatmentEvent
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.buffs.interval_support import BattleBuffIntervalSupportMixin
 from src.services.battle_report.buffs.state_compute import compute_rule_intervals, finalize_buff_intervals
 from src.services.battle_report.buffs.semantics import (

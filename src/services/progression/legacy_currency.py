@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import replace
 
-from src.domain.progression_stamina import FarmingStage, MaterialYield
+from src.domain.progression.stamina import FarmingStage, MaterialYield
 from src.services.progression.character_requirements import CharacterMaterialRequirement
 
 

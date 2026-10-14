@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from src.services.components.upgrade_guide import UpgradeEvidence
-from src.features.settings.component_upgrade_dialog import ComponentUpgradeDialog
 from tests.work_modes.test_controller import controller, qt_app  # noqa: F401 - 复用同一离屏控制器契约夹具。
 
 
@@ -23,7 +22,6 @@ def test_upgrade_cleanup_continues_to_mode_step_after_result(controller, qt_app)
     c._observer.run_jobs()
     assert c._cleanup_dialog is not None
     assert c._cleanup_dialog.continue_button.isVisible()
-    assert "继续升级引导" in c._cleanup_dialog.message.text()
     c._cleanup_dialog.continue_button.click()
     qt_app.processEvents()
     assert opened == ["mode"]
@@ -63,14 +61,3 @@ def test_closing_success_result_does_not_force_reopen(controller, qt_app):
     assert not c._upgrade_cleanup_resume
 
 
-def test_upgrade_steps_end_at_deployment(qt_app):
-    dialog = ComponentUpgradeDialog(
-        None, stage="deploy", detail="", method="native-capture",
-        on_action=lambda *_args: None,
-    )
-    try:
-        assert "部署当前组件" in dialog.steps.text()
-        assert "启动后验证" not in dialog.steps.text()
-        assert dialog.action.text() == "前往部署"
-    finally:
-        dialog.close()

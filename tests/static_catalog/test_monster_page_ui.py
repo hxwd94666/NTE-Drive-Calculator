@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.domain.static_catalog_terminology import LocalizedTermRecord
-from src.features.static_catalog.domain_pages.monster_page import (
-    MonsterCatalogPageController,
+from src.features.static_catalog.domain_pages.monsters.controller import MonsterCatalogPageController
+from src.features.static_catalog.domain_pages.monsters.page import (
     build_monster_catalog_page,
 )
 from src.services.static_catalog.monsters.service import (

@@ -12,6 +12,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from .transaction_script import execute_transaction_script
+
 
 SCHEMA_VERSION = 2
 SCHEMA_DIR = Path(__file__).resolve().parent / "schema" / "shared"
@@ -49,7 +51,6 @@ class SharedDataDao:
         self._connection.execute("PRAGMA busy_timeout = 10000")
         try:
             self._initialize_or_migrate()
-            self._validate_schema()
         except BaseException:
             self.close()
             raise
@@ -85,56 +86,57 @@ class SharedDataDao:
 
     def _initialize_or_migrate(self) -> None:
         connection = self._db()
-        if not self._table_exists("schema_migration"):
-            try:
-                connection.execute("BEGIN IMMEDIATE")
+        # 稳定版本的普通读取不争写锁；只有可能修改结构时才进入下面的写事务。
+        if self._table_exists("schema_migration"):
+            row = connection.execute("SELECT MAX(version) AS version FROM schema_migration").fetchone()
+            if int(row["version"] or 0) == SCHEMA_VERSION:
+                self._validate_schema()
+                return
+        stage = "初始化"
+        try:
+            # 先拿写锁再判断结构/版本：等锁期间其他打开者可能已经完成建库或升级。
+            connection.execute("BEGIN IMMEDIATE")
+            if not self._table_exists("schema_migration"):
                 connection.execute(
                     """CREATE TABLE schema_migration (
                            version INTEGER PRIMARY KEY,
                            applied_at_utc TEXT NOT NULL
                        )"""
                 )
-                connection.executescript(
-                    MIGRATIONS[1].read_text(encoding="utf-8")
+            row = connection.execute(
+                "SELECT MAX(version) AS version FROM schema_migration"
+            ).fetchone()
+            version = int(row["version"] or 0)
+            if version > SCHEMA_VERSION:
+                raise SharedDataError(
+                    f"公共覆盖数据库版本 {version} 高于程序支持版本 {SCHEMA_VERSION}"
                 )
-                connection.execute(
-                    "INSERT INTO database_profile VALUES (1, 'app_shared', ?, ?)",
-                    (_utc_now(), _utc_now()),
+            for target_version in range(version + 1, SCHEMA_VERSION + 1):
+                stage = f"迁移 v{target_version}"
+                migration = MIGRATIONS.get(target_version)
+                if migration is None:
+                    raise SharedDataError(f"缺少公共覆盖数据库迁移 v{target_version}")
+                execute_transaction_script(
+                    connection, migration.read_text(encoding="utf-8"),
+                    incomplete_error=SharedDataError("公共覆盖数据库迁移脚本包含未结束的 SQL 语句"),
                 )
-                connection.execute(
-                    "INSERT INTO schema_migration(version, applied_at_utc) VALUES (1, ?)",
-                    (_utc_now(),),
-                )
-                connection.commit()
-            except (OSError, sqlite3.Error) as exc:
-                connection.rollback()
-                raise SharedDataError("无法初始化公共覆盖数据库") from exc
-
-        row = connection.execute(
-            "SELECT MAX(version) AS version FROM schema_migration"
-        ).fetchone()
-        version = int(row["version"] or 0)
-        if version > SCHEMA_VERSION:
-            raise SharedDataError(
-                f"公共覆盖数据库版本 {version} 高于程序支持版本 {SCHEMA_VERSION}"
-            )
-        for target_version in range(version + 1, SCHEMA_VERSION + 1):
-            migration = MIGRATIONS.get(target_version)
-            if migration is None:
-                raise SharedDataError(f"缺少公共覆盖数据库迁移 v{target_version}")
-            try:
-                connection.execute("BEGIN IMMEDIATE")
-                connection.executescript(migration.read_text(encoding="utf-8"))
+                if target_version == 1:
+                    connection.execute(
+                        "INSERT INTO database_profile VALUES (1, 'app_shared', ?, ?)",
+                        (_utc_now(), _utc_now()),
+                    )
                 connection.execute(
                     "INSERT INTO schema_migration(version, applied_at_utc) VALUES (?, ?)",
                     (target_version, _utc_now()),
                 )
-                connection.commit()
-            except (OSError, sqlite3.Error) as exc:
-                connection.rollback()
-                raise SharedDataError(
-                    f"公共覆盖数据库迁移 v{target_version} 失败"
-                ) from exc
+            # DDL、资料和版本标记必须同进退；末端校验也在提交前，失败仍保留原库。
+            self._validate_schema()
+            connection.commit()
+        except BaseException as exc:
+            connection.rollback()
+            if isinstance(exc, (OSError, sqlite3.Error)):
+                raise SharedDataError(f"公共覆盖数据库{stage}失败") from exc
+            raise
 
     def _validate_schema(self) -> None:
         connection = self._db()

@@ -5,12 +5,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from src.domain.battle_counterfactual import (
-    BattleBuildCounterfactual,
-    BattleBuildHitCounterfactual,
-    BattleBuildVitalCounterfactual,
+from src.domain.battle_report.counterfactual.results import (
+    BattleBuildCounterfactual, BattleBuildHitCounterfactual, BattleBuildVitalCounterfactual,
 )
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.marginal.calculation_support import (
     topple_character_contribution,

@@ -5,17 +5,11 @@ import unittest
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleDamageQuantification,
-)
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayResult,
-    BattleMaxHpReductionEvent,
-)
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleDamageQuantification
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent
 from src.services.battle_report.marginal.calculation import (
     BattleMarginalCalculationService,
 )

@@ -6,14 +6,10 @@ from collections.abc import Sequence
 from functools import reduce
 from operator import mul
 
-from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.counterfactual.results import BattleBuildHitCounterfactual
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.services.battle_report.damage.composition import (
     classify_battle_hit_channel,
 )

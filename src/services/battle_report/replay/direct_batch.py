@@ -2,7 +2,7 @@
 from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
-from src.domain.native_analysis import DirectFormulaBackend
+from src.domain.battle_report.analysis.backend_contracts import DirectFormulaBackend
 from src.services.battle_report.replay.direct_numeric import prepare_direct_formula_input
 from src.services.battle_report.replay.formula_projection import project_replay_formula_context
 from src.services.battle_report.replay.support import apply_observed_damage_correction, reanchor_direct_replay_result

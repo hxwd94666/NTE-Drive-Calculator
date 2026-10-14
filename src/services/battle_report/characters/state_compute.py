@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from math import isfinite
 from typing import Any
-from src.domain.battle_report import BattleBuffModifierEvidence, BattleInferredBuffInterval
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
 
 def compute_character_state(

@@ -1,7 +1,7 @@
 # 验证战报确认环境的中文显示名称和旧配置回退规则。
 """Regression coverage for player-facing battle environment labels."""
 
-from src.domain.battle_report import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.environment.conditions import (
     display_battle_environment_name,
 )

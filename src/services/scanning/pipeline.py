@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from src.integrations.vision.recognition.duplicate_filter import RecoverableParseError
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from src.domain.post_actions import (
     merge_post_action_config,
     post_actions_enabled,

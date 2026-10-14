@@ -9,10 +9,10 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from src.integrations.vision.recognition import language_resources as language
-from src.integrations.vision.recognition import model_resources as models
+from src.integrations.vision.recognition.ocr import language_resources as language
+from src.integrations.vision.recognition.ocr import model_resources as models
 from src.integrations.vision.recognition import identification_parser, screenshot_parser, batch_processor
-from src.integrations.vision.recognition.ocr_engine import OCREngine
+from src.integrations.vision.recognition.ocr.ocr_engine import OCREngine
 from src.services.identification import tasks
 from src.services.inventory import vision_snapshot
 from src.services.inventory.visual_scan_commit import commit_completed_vision_inventory
@@ -201,7 +201,7 @@ def test_packaged_dictionary_required_single_and_bound_to_recognizer(tmp_path, m
     monkeypatch.setattr(models, 'OCR_MODEL_SPECS', tuple(entry.spec for entry in frozen.models.files))
     monkeypatch.setattr(language, 'OCR_DICTIONARY_SPEC', frozen.dictionary.spec)
     from tools.release.ocr_build_inputs import write_ocr_support_manifest
-    from src.integrations.vision.recognition.backend_support import OcrBackendSupport
+    from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport
     write_ocr_support_manifest(internal / 'assets/ocr/backend_support.json', OcrBackendSupport('default'))
     assert len(models.validate_packaged_ocr_models(internal)) == 3
     duplicate = internal / 'rapidocr_openvino/ch_ppocr_rec/ppocr_keys_v1.txt'

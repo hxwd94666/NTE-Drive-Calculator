@@ -6,7 +6,7 @@ NTE_TEST_TIER = "core"
 import unittest
 from types import SimpleNamespace
 
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
 from src.services.battle_report.damage.skill_evidence import (
     BattleSkillDamageEvidenceService,
 )

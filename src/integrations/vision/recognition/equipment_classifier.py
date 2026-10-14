@@ -171,7 +171,7 @@ def classify_item(processor, img, region_profiles):
         )
         logger.debug(
             f"候选坐标[{profile_name}] identity={id_box} shape={shape_box} "
-            f"text={hub_text} shape={shape_res['shape_id']}({shape_res['confidence']})"
+            f"identity_len={len(hub_text)} shape={shape_res['shape_id']}({shape_res['confidence']})"
         )
 
     if not candidates:

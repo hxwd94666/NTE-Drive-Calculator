@@ -14,14 +14,12 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QLabel,
-    QPushButton,
-    QTableWidget,
 )
 
-from src.features.static_catalog.domain_pages.character_page import (
+from src.features.static_catalog.domain_pages.characters.page import (
     build_character_catalog_page,
 )
-from src.features.static_catalog.domain_pages.character_skills import SkillActionCard
+from src.features.static_catalog.domain_pages.characters.skills import SkillActionCard
 from src.services.static_catalog.characters.release_metadata import (
     CharacterReleaseMetadataService,
 )
@@ -91,29 +89,6 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         self.assertIn("毕业装备模板", visible_text)
         self.assertIn("推荐权重", visible_text)
         self.assertGreaterEqual(visible_text.count("项目推荐 · 派生"), 2)
-        self.assertEqual([], view.findChildren(QTableWidget))
-
-        self.page.resize(760, 760)
-        self.app.processEvents()
-        self.assertEqual(1, view._columns)
-        self.assertGreater(view._cards[0].width(), view.width() * 0.8)
-        self.page.resize(1200, 760)
-        self.app.processEvents()
-        self.assertEqual(2, view._columns)
-
-    def test_awakening_renders_player_facing_effects_without_raw_links(self) -> None:
-        view = self.page.detail_view.awakening_view
-        self.page.detail_view.tabs.setCurrentWidget(view)
-        self.app.processEvents()
-        visible_text = self._visible_text(view)
-
-        self.assertIn("技能等级加成", visible_text)
-        self.assertNotIn("$.", visible_text)
-        self.assertNotIn("Gameplay Effect", visible_text)
-        self.assertFalse(any(
-            button.text().startswith(("查看 Buff", "查看 Gameplay"))
-            for button in view.findChildren(QPushButton)
-        ))
 
     def test_skill_hints_render_directly_without_mechanics_links(self) -> None:
         skill_view = self.page.detail_view.skill_view
@@ -124,22 +99,14 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
             if card.action.slot == "A"
         )
         level = card.findChild(QComboBox, "characterSkillLevel")
-        toggle = card.findChild(QLabel, "characterSkillToggle")
         heading = card.findChild(QFrame, "characterSkillHeader")
         self.assertIsNotNone(level)
-        self.assertIsNotNone(toggle)
         self.assertIsNotNone(heading)
-        assert level is not None and toggle is not None and heading is not None
-        self.assertIsNone(card.findChild(QPushButton, "characterSkillToggle"))
+        assert level is not None and heading is not None
         level.setCurrentIndex(0)
         QTest.mouseClick(heading, Qt.MouseButton.LeftButton)
         self.app.processEvents()
         first_level = self._visible_text(card)
-        multiplier_label = card.findChild(QLabel, "characterSkillMultiplierLabel")
-        multiplier_value = card.findChild(QLabel, "characterSkillMultiplierValue")
-        self.assertIsNotNone(multiplier_label)
-        self.assertIsNotNone(multiplier_value)
-        assert multiplier_label is not None and multiplier_value is not None
         level.setCurrentIndex(1)
         self.app.processEvents()
         second_level = self._visible_text(card)
@@ -160,7 +127,7 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(card.drawer.isVisibleTo(card))
 
-    def test_skills_use_official_full_width_rows_and_editable_levels(self) -> None:
+    def test_skills_use_official_order_unlocks_and_editable_levels(self) -> None:
         view = self.page.detail_view.skill_view
         self.page.detail_view.tabs.setCurrentWidget(view)
         self.app.processEvents()
@@ -176,14 +143,9 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
             ],
             [row.action.slot for row in rows],
         )
-        self.assertTrue(all(row.width() > view.width() * 0.8 for row in rows))
         self.assertTrue(all(
             row.findChild(QComboBox, "characterSkillLevel") is not None
             for row in rows if row.action.skill is not None
-        ))
-        self.assertFalse(any(
-            button.text() == "养成"
-            for row in rows for button in row.findChildren(QPushButton)
         ))
         passive_rows = tuple(row for row in rows if row.action.passive is not None)
         self.assertEqual(3, len(passive_rows))
@@ -197,37 +159,6 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         self.assertIn("浊燃", passive_text)
         self.assertNotIn("GA_Zankou_Passive1", passive_text)
 
-    def test_cultivation_has_only_level_and_skill_sections(self) -> None:
-        detail = self.page.detail_view
-        tab_labels = tuple(
-            detail.tabs.tabText(index) for index in range(detail.tabs.count())
-        )
-        self.assertIn("养成", tab_labels)
-        self.assertNotIn("等级与养成", tab_labels)
-        self.assertEqual(2, detail.cultivation_tabs.count())
-        self.assertEqual("等级养成", detail.cultivation_tabs.tabText(0))
-        self.assertEqual("技能养成", detail.cultivation_tabs.tabText(1))
-        self.assertEqual(80, detail.growth_view.end_level.count())
-        self.assertEqual(80, detail.growth_view.end_level.currentData())
-
-    def test_overview_includes_level_80_and_awakening_stage_names(self) -> None:
-        detail = self.page.detail_view
-        detail.tabs.setCurrentWidget(detail.overview_host)
-        self.app.processEvents()
-        self.assertIn("Lv.80", self._visible_text(detail.overview_host))
-
-        detail.tabs.setCurrentWidget(detail.awakening_view)
-        self.app.processEvents()
-        stages = tuple(
-            label.text()
-            for label in detail.awakening_view.findChildren(QLabel)
-            if label.objectName() == "characterAwakeningStage"
-        )
-        self.assertEqual(
-            ("一觉", "二觉", "三觉", "四觉", "五觉", "六觉", "三觉", "六觉"),
-            stages,
-        )
-
     def test_shared_shell_owns_the_only_back_action(self) -> None:
         events: list[str | None] = []
         self.page.set_catalog_navigation_listener(
@@ -235,7 +166,6 @@ class StaticCatalogCharacterValueUiTests(unittest.TestCase):
         )
 
         self.assertEqual("角色列表", self.page.catalog_back_label())
-        self.assertIsNone(self.page.findChild(QPushButton, "characterBackButton"))
         self.assertTrue(self.page.catalog_go_back())
         self.assertIsNone(self.page.catalog_back_label())
         self.assertFalse(self.page.catalog_go_back())

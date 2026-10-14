@@ -413,111 +413,103 @@ class RolePriorityGroupStrategyMixin:
         crit_priority_modes: Dict[str, dict],
         crit_rate_caps: Dict[str, float] | None,
     ) -> AllocationResult:
-        """Try card-only constraint repair before releasing any drive."""
+        """在固定驱动上联合重选同级卡带；失败分支不保留已转移的 UID。"""
 
         result = self._copy_allocation(allocation)
         incomplete_roles = {
             slot["role"] for slot in self._missing_slots_for_partial_group(result)
         }
-        states = [{"tapes": {}, "uids": set(used_tape_uids), "valid": 0, "score": 0.0}]
-        for role, plan in result.items():
-            if role in incomplete_roles:
-                continue
-            config = crit_priority_modes.get(role)
-            constrained = (
-                self._crit_floor_threshold(config) is not None
-                or self._crit_rate_cap(role, crit_rate_caps) is not None
-            )
-            primary = plan.get("assigned_tape")
-            legal: list[Tape | None] = []
-            if constrained:
-                candidates = [
-                    tape
-                    for tape in tapes_pool.get(role, ())
-                    if tape.uid not in used_tape_uids
-                    and self._tape_matches_core_target(role, tape, custom_sets)
-                    and self._repair_quality_allowed(role, tape, config)
-                ]
-                if (
-                    isinstance(primary, Tape)
-                    and primary.uid not in used_tape_uids
-                    and self._repair_quality_allowed(role, primary, config)
-                    and all(tape.uid != primary.uid for tape in candidates)
-                ):
-                    candidates.append(primary)
-                candidates.sort(
-                    key=lambda tape: float(tape.role_scores.get(role, 0.0)),
-                    reverse=True,
-                )
-                selected: dict[str, Tape] = {}
-                if isinstance(primary, Tape):
-                    selected[primary.uid] = primary
-                for candidate in (
-                    next((t for t in candidates if self._is_crit_rate_key(t.main_stats)), None),
-                    next((t for t in candidates if not self._is_crit_rate_key(t.main_stats)), None),
-                ):
-                    if isinstance(candidate, Tape):
-                        selected.setdefault(candidate.uid, candidate)
-                for candidate in candidates:
-                    selected.setdefault(candidate.uid, candidate)
-                    if len(selected) >= 6:
-                        break
-                legal = list(selected.values())
-            else:
-                legal = [primary] if isinstance(primary, Tape) else [None]
-            if not legal and primary is None:
-                legal = [None]
-
+        roles = [role for role in result if role not in incomplete_roles]
+        if not roles:
+            return result
+        options: dict[str, dict[str | None, Tape | None]] = {}
+        tapes_by_uid: dict[str, Tape] = {}
+        for role in roles:
+            self._check_cancelled()
+            plan, config = result[role], crit_priority_modes.get(role)
             drives = [
                 *(plan.get("assigned_set_drives", ()) or ()),
                 *(plan.get("assigned_extra_drives", ()) or ()),
             ]
-            valid_options: list[Tape | None] = []
-            for tape in legal:
-                items = [tape, *drives]
-                if not self._within_crit_rate_cap(role, items, crit_rate_caps):
+            primary = plan.get("assigned_tape")
+            candidates = [*tapes_pool.get(role, ())]
+            if isinstance(primary, Tape):
+                candidates.append(primary)
+            options[role] = {}
+            # 无暴击约束的同级角色也必须参与换卡；固定其旧卡会堵住合法互换。
+            # None 是正式缺核心方案，不是失败；仍须满足本角色的暴击上下限。
+            for tape in [*candidates, None]:
+                if isinstance(tape, Tape) and (
+                    tape.uid in used_tape_uids
+                    or not self._tape_matches_core_target(role, tape, custom_sets)
+                    or not self._repair_quality_allowed(role, tape, config)
+                ):
+                    continue
+                if not self._within_crit_rate_cap(role, [tape, *drives], crit_rate_caps):
                     continue
                 if self._crit_floor_failure_reason(role, tape, drives, config):
                     continue
-                valid_options.append(tape)
+                uid = tape.uid if isinstance(tape, Tape) else None
+                options[role][uid] = tape
+                if isinstance(tape, Tape):
+                    tapes_by_uid.setdefault(uid, tape)
 
-            next_states: list[dict] = []
-            for state in states:
-                for tape in valid_options:
-                    tape_uid = tape.uid if isinstance(tape, Tape) else None
-                    if tape_uid is not None and tape_uid in state["uids"]:
-                        continue
-                    tape_score = float(tape.role_scores.get(role, 0.0)) if isinstance(tape, Tape) else 0.0
-                    next_states.append(
-                        {
-                            "tapes": {**state["tapes"], role: tape},
-                            "uids": state["uids"] | ({tape_uid} if tape_uid else set()),
-                            "valid": state["valid"] + 1,
-                            "score": state["score"] + tape_score,
-                        }
-                    )
-                next_states.append(
-                    {
-                        **state,
-                        "tapes": {**state["tapes"], role: False},
-                    }
+        # 固定驱动后每条合法边只依赖角色/卡带。沿用同级组的二分匹配，
+        # 先最大化有效角色数，再沿正式候选排名保留词条优先；不截断 UID 互换。
+        tapes = [tapes_by_uid[uid] for uid in sorted(tapes_by_uid)]
+        ranks = {
+            role: {
+                tape.uid: self._rank_score_for_item(
+                    role, tape, float(tape.role_scores.get(role, 0.0)), crit_priority_modes.get(role)
                 )
-            next_states.sort(key=lambda state: (state["valid"], state["score"]), reverse=True)
-            states = next_states[:64]
-
-        chosen = states[0]["tapes"] if states else {}
-        for role, tape in chosen.items():
-            plan = result[role]
-            if tape is False:
-                plan["valid"] = False
-                continue
+                for tape in options[role].values() if isinstance(tape, Tape)
+            }
+            for role in roles
+        }
+        success_bonus = 1.0 + sum(
+            max((abs(rank) for rank in ranks[role].values()), default=0.0)
+            for role in roles
+        )
+        matrix = np.full((len(roles), len(tapes) + len(roles)), -success_bonus)
+        for row, role in enumerate(roles):
+            matrix[row, len(tapes) + row] = success_bonus if None in options[role] else 0.0
+            for column, tape in enumerate(tapes):
+                if tape.uid in options[role]:
+                    # 排名只用于选边，后面仍以冻结实分更新结果；同为零时保留可用核心。
+                    matrix[row, column] = success_bonus + ranks[role][tape.uid] + 1e-6
+        self._check_cancelled()
+        from scipy.optimize import linear_sum_assignment
+        self._check_cancelled()
+        row_indices, column_indices = linear_sum_assignment(-matrix)
+        self._check_cancelled()
+        selected_uids: set[str] = set()
+        for row, column in zip(row_indices.tolist(), column_indices.tolist()):
+            role, plan = roles[row], result[roles[row]]
+            tape = tapes[column] if column < len(tapes) else None
             previous = plan.get("assigned_tape")
             previous_score = float(previous.role_scores.get(role, 0.0)) if isinstance(previous, Tape) else 0.0
             tape_score = float(tape.role_scores.get(role, 0.0)) if isinstance(tape, Tape) else 0.0
             plan["assigned_tape"] = tape
             plan["score"] = float(plan.get("score", 0.0)) - previous_score + tape_score
-            plan["valid"] = True
-            plan.pop("reason", None)
+            if "rank_score" in plan:
+                plan["rank_score"] = float(plan["rank_score"]) - previous_score + tape_score
+            plan["valid"] = bool(matrix[row, column] > 0.0)
+            if plan["valid"]:
+                plan.pop("reason", None)
+                if isinstance(tape, Tape):
+                    selected_uids.add(tape.uid)
+
+        # 未填满驱动的角色尚未参与上述匹配；其旧卡若已转给成功同级，
+        # 补驱动阶段不得凭残留对象再次变为有效。后续约束恢复只用未占用卡带。
+        for role in incomplete_roles:
+            plan = result[role]
+            previous = plan.get("assigned_tape")
+            if isinstance(previous, Tape) and previous.uid in selected_uids:
+                score = float(previous.role_scores.get(role, 0.0))
+                plan["assigned_tape"] = None
+                plan["score"] = float(plan.get("score", 0.0)) - score
+                if "rank_score" in plan:
+                    plan["rank_score"] = float(plan["rank_score"]) - score
         return result
 
     def _recover_equal_priority_group(

@@ -1,12 +1,12 @@
 # 在后台请求中计算人物动态面板与驱动词条收益，返回可丢弃的完整展示结果。
 from __future__ import annotations
 
-from src.domain import battle_page_models
+import src.domain.battle_report.counterfactual.results as battle_page_models
 
 from collections.abc import Mapping
 
 from src.services.battle_report.analysis.progress import BattleAnalysisProgressCallback
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.marginal.calculation import BattleMarginalCalculationService
 

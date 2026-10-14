@@ -1,12 +1,11 @@
-# 构建只读取官方静态库与账号 SQLite 指针的新角色页面。
-"""Rebuilt character page using the old UI skeleton and official data sources."""
+# 将角色编辑草稿投影为只读面板、直伤与权重展示，不承担保存或任务生命周期。
+"""消费已物化的正式输入，复用 Service 计算口径，展示层不读取数据库。"""
 
 from __future__ import annotations
 
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -22,7 +21,6 @@ from src.services.official_role.graduation import graduation_rate, graduation_to
 from src.services.official_role.marginal_scoring import calculate_official_role_final_weights, calculate_official_role_margins
 from src.services.official_role.panel_explanation import calculate_official_role_damage_breakdown
 
-__all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
 
 def _attribute_name(detail: dict, property_id: str) -> str:
     attribute = detail.get("attributes", {}).get(property_id, {})
@@ -35,10 +33,8 @@ def _clear_layout(layout) -> None:
         if item.widget() is not None:
             widget = item.widget()
             widget.hide()
-            # Keep deferred-deletion widgets owned by the visible role page.
-            # Detaching them turns them into transient top-level windows; on
-            # Windows the native handle can flash as a tiny popup before the
-            # deleteLater event is delivered during a role-tab switch.
+            # 延迟删除期间继续归原页面所有；解除 parent 会短暂成为原生顶层窗口，
+            # Windows 在换页后处理 deleteLater 前可能因此闪出小弹窗。
             widget.deleteLater()
         if item.layout() is not None:
             _clear_layout(item.layout())
@@ -46,12 +42,9 @@ def _clear_layout(layout) -> None:
 
 
 def _mark_dirty(window, character_id: int) -> None:
+    # 脏状态按正式角色 ID 隔离，中文名和别名不参与保存对象选择。
     window._official_role_dirty_ids.add(int(character_id))
     window._my_role_dirty = True
-
-
-def _selected_combo_data(combo: QComboBox):
-    return combo.currentData()
 
 
 def _selected_growth(editor: dict) -> tuple[int, int] | None:
@@ -115,6 +108,7 @@ def _selected_fork_stage(editor: dict) -> int | None:
 def _calculation_detail(detail: dict, editor: dict) -> dict:
     """Project the unsaved editor state into a temporary calculation-only detail."""
 
+    # 只复制当前草稿为本次展示输入，不原地改冻结 detail，也不发起保存。
     profile = dict(detail["profile"])
     growth = _selected_growth(editor)
     if growth is not None:
@@ -153,8 +147,6 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
         ),
         "calculation_context_key": str(editor.get("equipment_context_key") or "current"),
     }
-
-
 
 
 def _register_calculation_refresh(editor: dict, callback) -> None:
@@ -371,4 +363,110 @@ def _build_damage_formula_group(detail: dict, editor: dict) -> QGroupBox:
 
     _register_calculation_refresh(editor, refresh)
     refresh()
+    return group
+
+
+# 权重表与直伤边际展示共用同一投影，不再维护独立只读转发模块。
+_WEIGHT_PROPERTY_CHOICES = (
+    ("暴击率%", "CritBase"),
+    ("暴击伤害%", "CritDamageBase"),
+    ("伤害增加%", "DamageUpGeneralBase"),
+    ("攻击力%", "AtkUp"),
+    ("攻击力", "AtkAdd"),
+    ("防御力", "DefAdd"),
+    ("防御力%", "DefUp"),
+    ("生命值%", "HPMaxUp"),
+    ("生命值", "HPMaxAdd"),
+    ("环合强度", "MagBase"),
+    ("倾陷强度", "UnbalIntensityBase"),
+)
+
+_WEIGHT_LABEL_BY_PROPERTY = {
+    property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
+}
+
+
+def _build_weight_group(
+    window, character_id: int, detail: dict, editor: dict,
+) -> QGroupBox:
+    group = QGroupBox("词条权重（只读）")
+    group.setObjectName("officialRoleWeightGroup")
+    layout = QVBoxLayout(group)
+    layout.setSpacing(8)
+    top = QHBoxLayout()
+    top.addWidget(QLabel("当前面板权重:"))
+    source_label = QLabel(
+        "直伤公式词条按当前边际收益归一化；未参与直伤公式的词条保留基础权重"
+    )
+    source_label.setStyleSheet("color:#8b949e;font-size:11px;")
+    top.addWidget(source_label)
+    top.addStretch()
+    layout.addLayout(top)
+
+    table_host = QWidget()
+    table_layout = QVBoxLayout(table_host)
+    table_layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(table_host, 1)
+
+    def _format_weight(value: float) -> str:
+        return f"{float(value):.4f}".rstrip("0").rstrip(".")
+
+    def rebuild() -> None:
+        _clear_layout(table_layout)
+        base_weights = {
+            str(property_id): float(value)
+            for property_id, value in (detail.get("property_weights") or {}).items()
+        }
+        final_weights = dict(
+            editor.get("marginal_property_weights")
+            or base_weights
+            or {}
+        )
+        # 只有正式直伤公式参与项显示直伤权重；其它项保留基础口径，中文词条名只作标签。
+        formula_ids = set(editor.get("formula_property_ids") or ())
+        property_ids = set(base_weights) | set(final_weights) | formula_ids
+        ordered_ids = sorted(
+            property_ids,
+            key=lambda property_id: (
+                -float(final_weights.get(property_id, 0.0)),
+                _WEIGHT_LABEL_BY_PROPERTY.get(
+                    property_id, _attribute_name(detail, property_id)
+                ),
+                property_id,
+            ),
+        )
+        table = QTableWidget(len(ordered_ids), 4)
+        table.setObjectName("officialRoleWeightTable")
+        table.setHorizontalHeaderLabels(["词条", "基础权重", "直伤权重", "最终权重"])
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.verticalHeader().setVisible(False)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        for row_index, property_id in enumerate(ordered_ids):
+            base_weight = float(base_weights.get(property_id, 0.0))
+            final_weight = float(final_weights.get(property_id, base_weight))
+            direct_weight = final_weight if property_id in formula_ids else 0.0
+            table.setItem(
+                row_index,
+                0,
+                QTableWidgetItem(
+                    _WEIGHT_LABEL_BY_PROPERTY.get(
+                        property_id, _attribute_name(detail, property_id)
+                    )
+                ),
+            )
+            table.setItem(row_index, 1, QTableWidgetItem(_format_weight(base_weight)))
+            table.setItem(row_index, 2, QTableWidgetItem(_format_weight(direct_weight)))
+            table.setItem(row_index, 3, QTableWidgetItem(_format_weight(final_weight)))
+        for column in range(4):
+            table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
+        table.setFixedHeight(
+            table.horizontalHeader().height()
+            + table.verticalHeader().defaultSectionSize() * len(ordered_ids)
+            + table.frameWidth() * 2
+        )
+        table_layout.addWidget(table)
+    editor["refresh_weights"] = rebuild
+    rebuild()
     return group

@@ -6,6 +6,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from src.storage.sqlite.user_data_dao import (
@@ -74,6 +75,17 @@ class UserDataV35MigrationTests(unittest.TestCase):
         )
         connection.close()
 
+    def _assert_verified_history_backup(self) -> None:
+        backups = list((self.database.parent / ".migration-backups").glob("*.sqlite3"))
+        self.assertEqual(1, len(backups))
+        with closing(sqlite3.connect(backups[0])) as backup:
+            # 已发布旧迁移先完成修复；完整性备份仍先于养成历史 v45，而不是跳过门禁。
+            self.assertEqual(44, backup.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0])
+            self.assertEqual([("ok",)], backup.execute("PRAGMA quick_check").fetchall())
+            self.assertIsNone(backup.execute(
+                "SELECT name FROM sqlite_master WHERE name = 'cultivation_history'"
+            ).fetchone())
+
     def test_v35_materializes_virtual_default_before_adding_profile_snapshot(self) -> None:
         self._create_v34_with_virtual_normal_resistance()
 
@@ -96,6 +108,7 @@ class UserDataV35MigrationTests(unittest.TestCase):
                 ["ok"],
                 [item[0] for item in migrated._db().execute("PRAGMA quick_check")],
             )
+        self._assert_verified_history_backup()
 
     def test_failed_v35_rolls_back_repair_and_can_retry(self) -> None:
         self._create_v34_with_virtual_normal_resistance()
@@ -111,10 +124,14 @@ class UserDataV35MigrationTests(unittest.TestCase):
         original_migration = USER_MIGRATIONS[35]
         USER_MIGRATIONS[35] = invalid_migration
         try:
-            with self.assertRaises(UserDataError):
+            with self.assertRaises(UserDataError) as failed:
                 UserDataDao(self.database)
         finally:
             USER_MIGRATIONS[35] = original_migration
+        # 必须抵达注入的 v35 SQL 失败，不能因更早的备份失败而虚假通过回滚断言。
+        self.assertIsInstance(failed.exception.__cause__, sqlite3.OperationalError)
+        self.assertIn("syntax error", str(failed.exception.__cause__))
+        self.assertFalse((self.database.parent / ".migration-backups").exists())
 
         connection = sqlite3.connect(self.database)
         self.assertEqual(
@@ -139,6 +156,7 @@ class UserDataV35MigrationTests(unittest.TestCase):
                 ["ok"],
                 [item[0] for item in retried._db().execute("PRAGMA quick_check")],
             )
+        self._assert_verified_history_backup()
 
 
 if __name__ == "__main__":

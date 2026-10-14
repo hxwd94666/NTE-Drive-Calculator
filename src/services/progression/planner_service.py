@@ -8,8 +8,8 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Callable
 
-from src.domain.progression_material_conversion import allocate_owned, lower_tier_ids
-from src.domain.progression_stamina import (
+from src.domain.progression.materials import allocate_owned, lower_tier_ids
+from src.domain.progression.stamina import (
     FarmingStage,
     project_identification_level,
 )
@@ -112,7 +112,7 @@ class CultivationPlannerService:
 
     def validate_history_configuration(self, configuration: dict[str, object]) -> None:
         """恢复前核对所有模块的正式身份和范围，不以账号当前状态替换历史。"""
-        from src.domain.cultivation_history import normalize_configuration
+        from src.domain.progression.history import normalize_configuration
 
         draft = normalize_configuration(configuration)
         project_identification_level(draft["hunter_level"], effective_level=draft["identification_level"])

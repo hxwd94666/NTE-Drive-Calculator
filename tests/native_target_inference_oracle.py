@@ -120,7 +120,7 @@ def generate(output: Path):
                 getattr(confirmation_tests, name)()
 
     # Explicitly cover wire-handle alias precedence and incoming GE disagreement.
-    from src.domain.battle_encounter import BattleObservedTarget
+    from src.domain.battle_report.targets.encounter import BattleObservedTarget
     from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
     observed = (BattleObservedTarget("", "synthetic-target", "", 100.0, 0),)
     with StaticGameDataDao(ROOT / "data/game_static.sqlite3") as dao:

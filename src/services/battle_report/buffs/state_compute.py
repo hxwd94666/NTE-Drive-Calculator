@@ -5,11 +5,10 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from src.services.battle_report.native.state_payload import HIT_FIELDS, ACTION_FIELDS, RULE_FIELDS, state_rows, finalize_rows
-from src.domain.battle_buff_rule import BattleStaticBuffRule
-from src.domain.battle_report import (
-    BattleAnalysisHit, BattleInferredAction, BattleInferredBuffInterval,
-)
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.buffs.models import BattleStaticBuffRule
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.buffs.interval_support import (
     BattleBuffIntervalSupportMixin, BuffOccurrence,
 )

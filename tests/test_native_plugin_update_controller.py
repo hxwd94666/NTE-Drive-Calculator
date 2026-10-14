@@ -284,3 +284,49 @@ def test_window_account_precheck_preserves_index_and_owners_then_retries(retirin
     s.reconnect.assert_not_called()
     QMessageBox.information.assert_not_called()
     QMessageBox.warning.assert_not_called()
+
+
+@pytest.mark.parametrize('change', ['accepted', 'cancel', 'account_aba', 'closing', 'pid_changed', 'loader_retarget'])
+def test_confirmation_keeps_original_identity_before_maintenance(scenario, tmp_path, monkeypatch, change):
+    s = scenario
+    controller = s.controller
+    controller.context.paths.root = tmp_path
+    s.policy.settings = SimpleNamespace(game_executable=str(tmp_path / 'HTGame.exe'))
+    pid = [123]
+    if change == 'loader_retarget':
+        s.policy.deployment_record = {'loading_method': 'loader', 'native_workspace_root': str(tmp_path)}
+        controller.loader.native_workspace_record = SimpleNamespace(directory=tmp_path)
+    def run(**kwargs):
+        kwargs['operation_guard']('native_load')
+        return NativePluginUpdateResult('current', 'synthetic', {})
+    s.maintenance.run.side_effect = run
+    monkeypatch.setattr('src.features.settings.native_plugin_update_controller.native_game_pid', lambda: pid[0])
+
+    def confirm(*_a, **_kw):
+        if change == 'account_aba':
+            controller.stop_for_account()
+            s.generation[0] += 2
+        elif change == 'closing':
+            controller.begin_close()
+        elif change == 'pid_changed':
+            pid[0] = 456
+        elif change == 'loader_retarget':
+            controller.loader.native_workspace_record = SimpleNamespace(directory=tmp_path / 'new')
+        return QMessageBox.No if change == 'cancel' else QMessageBox.Yes
+
+    monkeypatch.setattr(QMessageBox, 'question', confirm)
+    try:
+        controller.request()
+        _retirement.spin_until(lambda: controller.worker is None)
+        if change == 'accepted':
+            s.maintenance.begin.assert_called_once()
+            s.maintenance.run.assert_called_once()
+            assert s.maintenance.run.call_args.kwargs['game_pid'] == 123
+            assert s.maintenance.run.call_args.kwargs['directory'] == tmp_path
+            assert s.events == [('finish', True)]
+        else:
+            s.maintenance.begin.assert_not_called()
+            s.maintenance.run.assert_not_called()
+    finally:
+        controller.begin_close()
+        _retirement.spin_until(lambda: controller.worker is None)

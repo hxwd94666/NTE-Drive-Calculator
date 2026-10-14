@@ -10,11 +10,12 @@ from dataclasses import replace
 import re
 from statistics import median
 from typing import Literal
-from src.domain.native_analysis import BattleComputeBackend, available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend, available_battle_compute
 
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
 from src.services.battle_report.actions.normalization import (
     ZANKOU_DUAL_FORM_MAX_GAP_US,
+    dual_form_pause_matches,
     merge_zankou_dual_form_actions,
 )
 
@@ -349,14 +350,6 @@ def _continues_action(
         return False
     previous = current[-1]
     kind = key[2]
-    if kind == "Q" and any(
-        start_us is not None
-        and end_us is not None
-        and int(start_us) <= previous.relative_time_us <= int(end_us)
-        and int(start_us) <= hit.relative_time_us <= int(end_us)
-        for start_us, end_us in time_stop_intervals
-    ):
-        return True
     if (
         kind == "Q"
         and hit.ability_id.casefold() == "ga_zankou_ultraskill"
@@ -365,8 +358,20 @@ def _continues_action(
             for row in current
         )
         and "forceultraskill" in hit.gameplay_effect_id.casefold()
-        and hit.relative_time_us - previous.relative_time_us
-        <= ZANKOU_DUAL_FORM_MAX_GAP_US
+    ):
+        # 两形态身份一旦匹配，暂停覆盖优先于邻接窗和下方通用 Q 捷径。
+        if not dual_form_pause_matches(
+            current[0].relative_time_us, hit.relative_time_us, time_stop_intervals,
+        ):
+            return False
+        if hit.relative_time_us - previous.relative_time_us <= ZANKOU_DUAL_FORM_MAX_GAP_US:
+            return True
+    if kind == "Q" and any(
+        start_us is not None
+        and end_us is not None
+        and int(start_us) <= previous.relative_time_us <= int(end_us)
+        and int(start_us) <= hit.relative_time_us <= int(end_us)
+        for start_us, end_us in time_stop_intervals
     ):
         return True
     gap_limit = _GAP_LIMITS_US.get(key[2], 900_000)
@@ -758,7 +763,7 @@ class BattleActionInferenceService:
                 action_hits[action.action_id] = tuple(current)
                 ordinal += 1
 
-        normalized_actions = merge_zankou_dual_form_actions(actions, action_hits)
+        normalized_actions = merge_zankou_dual_form_actions(actions, action_hits, time_stop_intervals)
         anchored = _anchor_q_actions_to_time_stops(
             normalized_actions,
             time_stop_intervals,

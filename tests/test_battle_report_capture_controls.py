@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QMessageBox
 
-from src.domain.battle_report import BattleCaptureState
-from src.features.battle_report.capture_controls import (
+from src.domain.battle_report.capture.state import BattleCaptureState
+from src.features.battle_report.capture.controls import (
     BattleCaptureControlsMixin,
 )
 
@@ -59,7 +59,7 @@ def test_double_hotkey_requires_second_press_inside_confirmation_window() -> Non
     )
 
     with patch(
-        "src.features.battle_report.capture_controls.monotonic",
+        "src.features.battle_report.capture.controls.monotonic",
         side_effect=(10.0, 10.8),
     ):
         BattleCaptureControlsMixin._handle_capture_hotkey(

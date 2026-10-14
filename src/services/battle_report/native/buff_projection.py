@@ -5,10 +5,12 @@ from collections.abc import Callable, Sequence
 from dataclasses import fields, is_dataclass
 from typing import Any
 
-from src.domain.native_analysis import BuffProjectionBackend, BuffProjectionBatchTooLarge, BuffProjectionPlanBackend
-from src.domain.battle_report import (
-    BattleAnalysisHit, BattleInferredBuffInterval, BattleHitBuffProjection,
-    BattleProjectedBuffModifier, BattleBuffProjectionDecision,
+from src.domain.battle_report.analysis.backend_contracts import (
+    BuffProjectionBackend, BuffProjectionBatchTooLarge, BuffProjectionPlanBackend,
+)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import (
+    BattleInferredBuffInterval, BattleHitBuffProjection, BattleProjectedBuffModifier, BattleBuffProjectionDecision,
 )
 
 

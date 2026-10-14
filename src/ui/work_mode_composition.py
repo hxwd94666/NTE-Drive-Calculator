@@ -15,7 +15,13 @@ def initialize_mode_policy(window):
     path = window.app_context.paths.config_dir / "work_mode.json"
     window._migrate_legacy_component_facts = not path.exists()
     window.work_mode_service = WorkModeService(path)
-    window.operation_guard = window.work_mode_service.require
+    def require_operation(capability, *, automatic=False):
+        # 模式暂停只限制自动服务；账号补偿失败则同时拒绝新的手动指令。
+        # 停止/清理沿用会话的原 owner 出口，不经过新操作授权。
+        window.app_context.require_account_ready()
+        window.work_mode_service.require(capability, automatic=automatic)
+
+    window.operation_guard = require_operation
     window.operation_generation = lambda: (window.work_mode_service.operation_revision, window.app_context.generation)
     window.native_game_session = NativeGameSession(
         factory=lambda: NteCoreClient(
@@ -31,10 +37,10 @@ def initialize_mode_policy(window):
 
 def initialize_mode_runtime(window):
     from src.app.context import CallbackAccountLifecycle
-    from src.features.settings.performance_controller import PerformanceController
+    from src.features.settings.performance.controller import PerformanceController
     from src.features.settings.native_plugin_update_controller import NativePluginUpdateController
     from src.services.components.maintenance import NativePluginMaintenance, active_feature_update_hint
-    from src.integrations.presentmon_metrics import PresentMon
+    from src.integrations.performance.presentmon import PresentMon
     from src.integrations.native_capture_process import native_capture_game_pid
 
     window.performance_controller = PerformanceController(

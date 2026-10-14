@@ -4,9 +4,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-)
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio
 from src.services.battle_report.buffs.counterfactual_projection import (
     HitProjection,
     vital_projections,

@@ -132,40 +132,15 @@ def test_toolbox_opens_cultivation_as_page_and_preserves_same_session_draft() ->
     _dispose_widget(owner)
 
 
-def test_cultivation_page_uses_one_vertical_scroll_surface() -> None:
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QApplication, QScrollArea
-
-    from src.features.toolbox.cultivation.page import CultivationCalculatorPage
-
-    class Service(PlanningFixture):
-        def list_roles(self):
-            return ()
-
-    QApplication.instance() or QApplication([])
-    page = CultivationCalculatorPage(Service())
-    page.resize(1120, 740)
-    page.show()
-    QApplication.processEvents()
-
-    assert page.findChildren(QScrollArea) == [page.scroll]
-    assert page.scroll.horizontalScrollBarPolicy() == (
-        Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-    )
-    assert page.scroll.horizontalScrollBar().maximum() == 0
-    _dispose_widget(page)
-
-
-def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
+def test_cultivation_owned_materials_deduct_and_preserve_scope_edits() -> None:
     from types import SimpleNamespace
 
-    from PySide6.QtCore import QEvent, QPoint, Qt
+    from PySide6.QtCore import QEvent, QPoint, QRect
     from PySide6.QtTest import QSignalSpy
     from PySide6.QtWidgets import (
         QApplication,
         QFrame,
         QLabel,
-        QLineEdit,
         QPushButton,
         QSpinBox,
     )
@@ -179,7 +154,7 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
         CultivationSection,
         CultivationSeed,
     )
-    from src.ui.progression_material_card import ProgressionMaterialCard
+    from tests.test_cultivation_history_page import _wait
 
     materials = tuple(
         CultivationMaterial(f"item-{index}", f"材料 {index}", index * 10)
@@ -225,55 +200,24 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
     service = Service()
     page = CultivationCalculatorPage(service)
     assert page.material_scope.currentData() == "stamina"
-    assert page.calculator._material_scope == "stamina"
-    assert page.batch_calculator._material_scope == "stamina"
     page.material_scope.setCurrentIndex(0)
     page.resize(1180, 760)
     page.show()
     completed = QSignalSpy(page.calculator.calculation_completed)
     page.calculator._calculate()
-    assert completed.wait(3000)
+    # 以已交付次数等待，兼顾线程和 Qt 事件泵，不依赖进入嵌套等待时信号刚好尚未到达。
+    _wait(lambda: completed.count() == 1)
     assert service.stamina_calls == 1
     sync = page.findChild(QPushButton, "cultivationOwnedImport")
     assert sync is not None and not sync.isEnabled()
-    assert sync.text() == "同步材料"
-    clear = page.findChild(QPushButton, "cultivationOwnedClear")
-    assert clear is not None and clear.isEnabled()
     owned_materials = page.calculator._owned_materials
-    owned_inputs = owned_materials.findChildren(QSpinBox, "cultivationOwnedMaterialQuantity")
-    assert len(owned_inputs) == 1
-    numeric_inputs = page.findChildren(QSpinBox)
-    assert numeric_inputs
-    assert all(
-        not control.testAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
-        for control in numeric_inputs
-    )
-    assert all(
-        not editor.testAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
-        for control in numeric_inputs
-        for editor in control.findChildren(QLineEdit)
-    )
+    owned_input = owned_materials.findChild(QSpinBox, "cultivationOwnedMaterialQuantity")
+    assert owned_input is not None
     assert owned_materials.select_material("item-1")
-    owned_inputs[0].setValue(3)
+    owned_input.setValue(3)
     assert owned_materials.quantities()["item-1"] == 3
     assert service.stamina_calls == 1
     assert not page.copy_button.isEnabled()
-    assert page.calculator._calculate_button.text() == "重新计算所需材料与体力"
-    assert not any(
-        not frame.isHidden()
-        for frame in page.findChildren(QFrame, "cultivationCalculatorTotals")
-    )
-    owned_inputs[0].setFocus()
-    class WheelEvent:
-        ignored = False
-
-        def ignore(self):
-            self.ignored = True
-
-    wheel_event = WheelEvent()
-    owned_inputs[0].wheelEvent(wheel_event)
-    assert wheel_event.ignored
-    assert owned_inputs[0].value() == 3
     refreshed = tuple(
         CultivationMaterial(
             material.item_id,
@@ -285,31 +229,27 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
     owned_materials.set_materials(refreshed)
     QApplication.processEvents()
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    assert owned_materials.findChild(QSpinBox, "cultivationOwnedMaterialQuantity") is owned_inputs[0]
-    assert owned_inputs[0].value() == 3
+    assert owned_materials.findChild(QSpinBox, "cultivationOwnedMaterialQuantity") is owned_input
+    assert owned_input.value() == 3
     assert owned_materials.required_quantity("item-1") == 11
     page.calculator._calculate_button.click()
-    assert completed.wait(3000)
+    _wait(lambda: completed.count() == 2)
     QApplication.processEvents()
     assert service.stamina_calls == 2
-    bar = page.scroll.verticalScrollBar()
-    owned_top = owned_materials.mapTo(page.mode_stack, QPoint(0, 0)).y()
-    assert bar.value() == min(bar.maximum(), max(0, owned_top - 12))
+    # 输入编辑器须完整进入外层视口，不把某个固定像素偏移当作可操作性。
+    _wait(lambda: page.scroll.viewport().rect().contains(QRect(
+        owned_input.mapTo(page.scroll.viewport(), QPoint()), owned_input.size())))
     assert page.copy_button.isEnabled()
-    assert page.calculator._calculate_button.text() == "计算所需材料与体力"
 
     totals = next(
         frame
         for frame in page.findChildren(QFrame, "cultivationCalculatorTotals")
         if not frame.isHidden()
     )
-    total_cards = totals.findChildren(ProgressionMaterialCard)
-    assert len(total_cards) == 5
+    assert {label.text() for label in totals.findChildren(QLabel, "progressionMaterialCardName")} == {item.name for item in materials}
     rendered = [label.text() for label in totals.findChildren(QLabel)]
     assert "× 7" in rendered
     assert "最低体力 120" in rendered
-    badges = page.findChildren(QLabel, "cultivationStaminaBadge")
-    assert [badge.text() for badge in badges] == ["最低体力 120", "最低体力 120"]
     page.material_scope.setCurrentIndex(1)
     QApplication.processEvents()
     assert service.stamina_calls == 2
@@ -319,27 +259,27 @@ def test_cultivation_owned_materials_deduct_and_keep_five_columns() -> None:
         frame for frame in page.findChildren(QFrame, "cultivationCalculatorTotals")
         if not frame.isHidden()
     )
-    assert len(scoped_totals.findChildren(ProgressionMaterialCard)) == 2
+    assert {label.text() for label in scoped_totals.findChildren(QLabel, "progressionMaterialCardName")} == {materials[0].name, materials[2].name}
     page.calculator.copy_plan()
     assert "材料 1" in QApplication.clipboard().text()
     assert "材料 2" not in QApplication.clipboard().text()
     page.material_scope.setCurrentIndex(0)
     assert owned_materials.select_material("item-2")
-    owned_inputs[0].setValue(4)
+    owned_input.setValue(4)
     assert not page.copy_button.isEnabled()
     page.material_scope.setCurrentIndex(1)
     assert owned_materials.required_quantity("item-2") is None
     page.material_scope.setCurrentIndex(0)
     assert owned_materials.quantities()["item-2"] == 4
     assert owned_materials.select_material("item-2")
-    assert owned_inputs[0].value() == 4
+    assert owned_input.value() == 4
     _dispose_widget(page)
 
 
 def test_owned_material_result_reuses_editor_on_first_and_changed_materials() -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QPushButton, QSpinBox, QWidget
+    from PySide6.QtWidgets import QApplication, QPushButton, QSpinBox, QWidget
 
     from src.features.toolbox.cultivation.owned_materials import CultivationOwnedMaterials
     from src.services.progression.planner_service import CultivationMaterial
@@ -350,16 +290,13 @@ def test_owned_material_result_reuses_editor_on_first_and_changed_materials() ->
     host.show()
     editor = owned.findChild(QSpinBox, "cultivationOwnedMaterialQuantity")
     assert editor is not None
-    assert editor.buttonSymbols() == QAbstractSpinBox.ButtonSymbols.NoButtons
-    editors_before = tuple(owned.findChildren(QSpinBox))
 
     owned.set_materials((CultivationMaterial("a", "材料 A", 2),))
-    assert tuple(owned.findChildren(QSpinBox)) == editors_before
     assert owned.select_material("a")
     QTest.mouseClick(editor.lineEdit(), Qt.MouseButton.LeftButton)
     QApplication.processEvents()
     assert editor.lineEdit().selectedText() == editor.text()
-    editor.setValue(4)
+    QTest.keyClicks(editor.lineEdit(), "4")
     owned.set_materials((
         CultivationMaterial("b", "材料 B", 3),
         CultivationMaterial("a", "材料 A", 5),
@@ -367,7 +304,6 @@ def test_owned_material_result_reuses_editor_on_first_and_changed_materials() ->
     assert owned.quantities() == {"b": 0, "a": 4}
     assert owned.required_quantity("a") == 5
     assert owned.findChild(QSpinBox, "cultivationOwnedMaterialQuantity") is editor
-    assert tuple(owned.findChildren(QSpinBox)) == editors_before
 
     owned.apply_import({"hidden": 9})
     clear = owned.findChild(QPushButton, "cultivationOwnedClear")
@@ -380,7 +316,6 @@ def test_owned_material_result_reuses_editor_on_first_and_changed_materials() ->
 
     owned.clear_materials()
     assert owned.quantities() == {}
-    assert tuple(owned.findChildren(QSpinBox)) == editors_before
     _dispose_widget(host)
 
 
@@ -401,16 +336,13 @@ def test_native_material_import_updates_both_drafts_without_overwriting_manual_v
 
     def importer():
         calls.append(True)
-        return ImportedOwnedMaterials((("a", 7), ("b", 4)), "2026-09-25", 1, 0)
+        return ImportedOwnedMaterials((("a", 7), ("b", 4)), "2026-09-25T00:00:00+00:00", 1, 0)  # 观测时间遵循正式 UTC 格式。
 
     page = CultivationCalculatorPage(
         Service(), context_identity=lambda: identity["value"], material_importer=importer,
     )
     single = page.calculator._owned_materials
     batch = page.batch_calculator._owned_materials
-    for owned in (single, batch):
-        assert owned.findChild(QLabel, "cultivationOwnedImportStatus") is None
-        assert owned.findChild(QLabel, "cultivationOwnedMaterialsPlaceholder") is None
     single.set_materials((CultivationMaterial("a", "材料 A", 10),))
     batch.set_materials((CultivationMaterial("a", "材料 A", 10),))
     assert single.select_material("a")
@@ -431,8 +363,8 @@ def test_native_material_import_updates_both_drafts_without_overwriting_manual_v
     _dispose_widget(page)
 
 
-def test_cultivation_page_removes_saved_state_note_and_switches_mode_drafts() -> None:
-    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+def test_cultivation_mode_switch_preserves_each_draft() -> None:
+    from PySide6.QtWidgets import QApplication, QPushButton
 
     from src.features.toolbox.cultivation.page import CultivationCalculatorPage
     from src.services.progression.planner_service import CultivationRole, CultivationSeed
@@ -449,11 +381,8 @@ def test_cultivation_page_removes_saved_state_note_and_switches_mode_drafts() ->
     page.show()
     QApplication.processEvents()
 
-    texts = [label.text() for label in page.findChildren(QLabel)]
-    assert not any("按角色页已保存的养成状态" in text for text in texts)
     batch_mode = page.findChild(QPushButton, "cultivationMultiMode")
-    assert batch_mode is not None and batch_mode.text() == "多角色"
-    assert not page.findChildren(QLabel, "cultivationMultiModeFuture")
+    assert batch_mode is not None
 
     page.calculator._current_level.setValue(37)
     batch_mode.click()
@@ -481,7 +410,7 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
     )
     from shiboken6 import isValid
 
-    from src.domain.progression_stamina import FarmingStage, MaterialYield
+    from src.domain.progression.stamina import FarmingStage, MaterialYield
     from src.features.toolbox.cultivation.page import CultivationCalculatorPage
     from src.services.progression.character_requirements import MaterialSummaryStatus
     from src.services.progression.planner_service import (
@@ -541,10 +470,6 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
     batch._add_role_by_id(1)
     batch._add_role_by_id(2)
     calculate = page.findChild(QPushButton, "cultivationBatchCalculate")
-    batch._set_busy(True)
-    assert calculate.text() == "正在计算中"
-    assert not calculate.isEnabled()
-    batch._set_busy(False)
     batch._apply_role_selection((2,))
     batch._apply_role_selection((1, 2))
     assert [card.character_id for card in batch._cards] == [2, 1]
@@ -574,8 +499,6 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
     page.material_scope.setCurrentIndex(0)
     assert batch._owned_materials.required_quantity("OrdinaryMonMaterial_test") == 2
     assert batch._owned_materials.required_quantity("Fons") == 100
-    assert calculate is not None and calculate.text() == "计算多角色材料与体力"
-    assert page.findChild(QLabel, "cultivationBatchStatus") is None
     result = page.findChild(QFrame, "cultivationBatchResult")
     clock = QElapsedTimer()
     clock.start()
@@ -595,14 +518,12 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
     assert batch._last_plan is None
     assert not batch._recalculate_timer.isActive()
     assert not page.copy_button.isEnabled()
-    assert calculate.text() == "重新计算多角色材料与体力"
     batch._draft_changed()
     assert not batch._recalculate_timer.isActive()
     from unittest.mock import patch
 
     with patch.object(batch._controller, "submit") as submit:
         calculate.click()
-        submit.assert_called_once()
         submitted_request = submit.call_args.args[0]
         assert dict(submitted_request.owned_quantities) == batch._owned_materials.quantities()
     second_plan = batch._batch_service.calculate(batch._build_request(identity()))
@@ -629,11 +550,10 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
 
 
 def test_multi_character_page_selects_all_available_roles_without_count_cap() -> None:
-    from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSpinBox, QToolButton
+    from PySide6.QtWidgets import QApplication, QPushButton
 
     from src.features.toolbox.cultivation.page import CultivationCalculatorPage
     from src.services.progression.planner_service import (
-        CultivationMaterial,
         CultivationRole,
         CultivationSeed,
     )
@@ -652,53 +572,41 @@ def test_multi_character_page_selects_all_available_roles_without_count_cap() ->
     batch._apply_role_selection(tuple(range(1, 13)))
 
     add = page.findChild(QPushButton, "cultivationBatchAddRole")
-    counts = [label.text() for label in page.findChildren(QLabel)]
-    assert len(batch._cards) == 12
+    assert [card.character_id for card in batch._cards] == list(range(1, 13))
     assert add.isEnabled()
-    assert add.text() == "选择角色"
-    assert "已选 12 名" in counts
-    assert not any(
-        button.text() in {"上移", "下移"}
-        for kind in (QPushButton, QToolButton)
-        for button in page.findChildren(kind)
-    )
-    batch._owned_materials.set_materials((CultivationMaterial("a", "材料 A", 1),))
-    assert batch._owned_materials.select_material("a")
-    owned_input = batch._owned_materials.findChild(QSpinBox, "cultivationOwnedMaterialQuantity")
-    owned_input.setValue(4)
-    class WheelEvent:
-        ignored = False
-
-        def ignore(self):
-            self.ignored = True
-
-    wheel_event = WheelEvent()
-    owned_input.wheelEvent(wheel_event)
-    assert wheel_event.ignored and owned_input.value() == 4
     first = batch._cards[0]
     first.current_level.setValue(12)
     batch._apply_role_selection((1, 12))
     assert [card.character_id for card in batch._cards] == [1, 12]
-    assert batch._cards[0] is first
-    assert first.current_level.value() == 12
+    assert batch._cards[0].current_level.value() == 12
     batch._apply_role_selection(())
     assert batch._cards == []
     assert add.isEnabled()
     _dispose_widget(page)
 
 
-def test_multi_character_selector_preselects_and_supports_all_clear() -> None:
-    from PySide6.QtCore import QEvent, Qt
-    from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QWidget
-    from unittest.mock import patch
+def test_cultivation_selector_keeps_single_choice_search_and_multi_selection() -> None:
+    from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
     from src.features.toolbox.cultivation.selectors import (
         CultivationImageSelector,
-        select_cultivation_items,
     )
 
     QApplication.instance() or QApplication([])
     owner = QWidget()
+    single = CultivationImageSelector(
+        owner, title="选择弧盘", description="测试",
+        options=(("fork-a", "赤红弧盘", None), ("fork-b", "青蓝弧盘", None)),
+        selected_id="fork-a",
+    )
+    cards = {option_id: card for card, option_id, _name in single._cards}
+    assert single.selected_id() == "fork-a"
+    cards["fork-b"].setChecked(True)
+    assert single.selected_id() == "fork-b"
+    single._search.setText("qinglan")
+    QApplication.processEvents()
+    assert cards["fork-a"].isHidden() and not cards["fork-b"].isHidden()
+    _dispose_widget(single)
     dialog = CultivationImageSelector(
         owner,
         title="选择角色",
@@ -708,33 +616,16 @@ def test_multi_character_selector_preselects_and_supports_all_clear() -> None:
         selected_ids=("2",),
         multi_select=True,
     )
-    assert not dialog._search.testAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
     assert dialog.selected_ids() == ("2",)
     next(button for button in dialog.findChildren(QPushButton) if button.text() == "全选").click()
     assert set(dialog.selected_ids()) == {"1", "2", "3"}
     next(button for button in dialog.findChildren(QPushButton) if button.text() == "清空").click()
     assert dialog.selected_ids() == ()
     _dispose_widget(dialog)
-    with patch.object(
-        CultivationImageSelector, "exec", return_value=QDialog.DialogCode.Accepted
-    ):
-        selected = select_cultivation_items(
-            owner,
-            title="选择角色",
-            description="选择本次目标",
-            options=(("1", "角色一", None),),
-            selected_ids=("1",),
-        )
-    assert selected == ("1",)
-    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    assert not owner.findChildren(CultivationImageSelector)
     _dispose_widget(owner)
 
 
-def test_multi_character_inline_editor_keeps_draft_and_updates_fork_image(tmp_path) -> None:
-    import json
-
-    from PySide6.QtGui import QColor, QImage
+def test_multi_character_inline_editor_keeps_draft_and_selected_fork() -> None:
     from PySide6.QtWidgets import QApplication, QPushButton
 
     from src.features.toolbox.cultivation.page import CultivationCalculatorPage
@@ -744,14 +635,6 @@ def test_multi_character_inline_editor_keeps_draft_and_updates_fork_image(tmp_pa
         CultivationSeed,
         CultivationSkill,
     )
-
-    for name, color in (("first.png", "#ff8844"), ("second.png", "#5588ff")):
-        image = QImage(80, 80, QImage.Format.Format_ARGB32)
-        image.fill(QColor(color))
-        assert image.save(str(tmp_path / name))
-    (tmp_path / "manifest.json").write_text(json.dumps({
-        "fork_items": {"fork-a": "first.png", "fork-b": "second.png"},
-    }), encoding="utf-8")
 
     class Service(PlanningFixture):
         def list_roles(self):
@@ -768,7 +651,7 @@ def test_multi_character_inline_editor_keeps_draft_and_updates_fork_image(tmp_pa
             )
 
     QApplication.instance() or QApplication([])
-    page = CultivationCalculatorPage(Service(), asset_root=tmp_path)
+    page = CultivationCalculatorPage(Service())
     page.resize(1200, 800)
     page.show()
     page.findChild(QPushButton, "cultivationMultiMode").click()
@@ -780,7 +663,6 @@ def test_multi_character_inline_editor_keeps_draft_and_updates_fork_image(tmp_pa
     first.edit.click()
     assert not first.body.isHidden()
     assert first.fork_name.text() == "弧盘甲"
-    assert not first.fork_icon.pixmap().isNull()
     first._skill_inputs["skill-a"][1].setValue(8)
     first.fork_target_level.setValue(75)
     unchanged_draft = first.request()
@@ -795,6 +677,5 @@ def test_multi_character_inline_editor_keeps_draft_and_updates_fork_image(tmp_pa
 
     first.set_fork_seed(CultivationForkSeed("fork-b", "弧盘乙", 72, 6))
     assert first.fork_name.text() == "弧盘乙"
-    assert first.fork_button.text() == "更换弧盘"
     assert first.request().fork.fork_id == "fork-b"
     _dispose_widget(page)

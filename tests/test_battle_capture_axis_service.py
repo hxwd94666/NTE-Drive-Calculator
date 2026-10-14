@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from src.domain.battle_report import BattleSummaryPersistenceOutcome
+from src.domain.battle_report.history.records import BattleSummaryPersistenceOutcome
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService
 

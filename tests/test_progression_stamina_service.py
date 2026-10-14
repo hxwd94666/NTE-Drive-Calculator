@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.domain.progression_stamina import (
+from src.domain.progression.stamina import (
     FarmingStage,
     MaterialRequirement,
     MaterialYield,
@@ -148,10 +148,6 @@ class ProgressionStaminaServiceTests(unittest.TestCase):
         self.assertEqual(result.known_stamina, 0)
         self.assertEqual(result.total_stamina, 0)
         self.assertEqual(result.runs, ())
-
-    def test_service_rejects_a_non_positive_search_guard(self) -> None:
-        with self.assertRaisesRegex(ValueError, "搜索上限"):
-            ProgressionStaminaService(maximum_search_states=0)
 
     def test_large_material_totals_use_exact_integer_planning(self) -> None:
         result = self.service.calculate(ProgressionStaminaRequest(

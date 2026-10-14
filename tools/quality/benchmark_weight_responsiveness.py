@@ -150,7 +150,8 @@ def worker(args):
     isolate_source(source)
     affinity = restrict_cpu(args.one_cpu)
     inputs = fixture_inputs(fixture)
-    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+    # 平台显式固定；真实窗口与离屏证据分开，调用方环境不改变测量口径。
+    os.environ['QT_QPA_PLATFORM'] = args.qt_platform
     os.environ['NTE_GAME_STATIC_DB'] = str(fixture / 'game_static.sqlite3')
     os.environ['NTE_WORKSHOP_WEIGHT_TEMPLATE_FILE'] = str(fixture / 'config/workshop_weight_template.json')
     started = time.perf_counter()
@@ -161,13 +162,15 @@ def worker(args):
     from src.domain.recommended_weights import base_weight_character_id
     from src.features.configuration.controller import BasicWeightController
     from src.features.configuration.page_owner import BasicWeightPage
-    from src.services.characters.basic_weight_service import BasicWeightService
+    from src.services.characters.basic_weight.service import BasicWeightService
     from src.services.characters import workshop_weight_template_service as workshop
     from src.storage.sqlite.user_data_dao import UserDataDao
     from src.utils.logger import logger
     import_ms = (time.perf_counter() - started) * 1000
     logger.remove()
     app = QApplication.instance() or QApplication([])
+    if app.platformName() != args.qt_platform:
+        raise RuntimeError('实际 Qt 平台与本次请求不一致')
     failures, changes, heartbeat = [], [], []
     originals = {name: getattr(QMessageBox, name) for name in ('information', 'question', 'warning')}
     QMessageBox.information = lambda *_args: None
@@ -217,14 +220,20 @@ def worker(args):
     wait_for(lambda: len(heartbeat) >= 2)
     shell, page = None, None
     output = {'status': 'running', 'mode': args.worker_mode, 'import_ms': import_ms,
-              'affinity': affinity, 'samples': {}, 'baseline_resources': resources()}
+              'affinity': affinity, 'samples': {}, 'baseline_resources': resources(),
+              'qt_platform': app.platformName(), 'screens': [
+                  {'width': screen.availableGeometry().width(), 'height': screen.availableGeometry().height(),
+                   'logical_dpi': screen.logicalDotsPerInch(), 'device_pixel_ratio': screen.devicePixelRatio()}
+                  for screen in app.screens()]}
     def idle():
         owner = page.task_owner
         return owner is not None and all(not lane.is_running() for lane in [*owner.findChildren(PageTaskLane), *owner.findChildren(PageCommitLane)])
     def ready():
         if '失败' in page.config_load_status.text():
             raise RuntimeError(page.config_load_status.text())
-        return idle() and page._config_form_data is not None and page.config_form_area.isEnabled()
+        exposed = args.qt_platform != 'windows' or (shell.isVisible()
+            and shell.windowHandle() is not None and shell.windowHandle().isExposed())
+        return exposed and idle() and page._config_form_data is not None and page.config_form_area.isEnabled()
     def measure(kind, action, complete):
         output['phase'] = kind
         # 事件循环先启动再调动作；收到动作完成后的下一心跳才结束采样，不漏末段阻塞。
@@ -280,6 +289,7 @@ def worker(args):
             shell.show()
             page.refresh()
         measure('first_enter', open_page, ready)
+        output['window_exposed'] = bool(shell.windowHandle() and shell.windowHandle().isExposed())
         assert '1051' in page._config_form_data and '1003' in page._config_form_data
         output['initial_model_digest'] = hashlib.sha256(json.dumps(page._config_form_data, sort_keys=True, default=str).encode()).hexdigest()
         def select_role():
@@ -408,8 +418,10 @@ def run_child(command, cwd, output, timeout=180):
         if sys.platform == 'win32':
             query = f"Get-CimInstance Win32_Process -Filter 'ProcessId={process.pid}' | Select-Object ProcessId,@{{Name='CreationUtcTicks';Expression={{$_.CreationDate.ToUniversalTime().Ticks}}}} | ConvertTo-Json -Compress"
             try:
+                # 系统诊断可能使用本地代码页；保留失败状态，避免解码错误先杀掉管道读取线程。
                 queried = subprocess.run(['powershell', '-NoProfile', '-Command', query], capture_output=True,
-                                         text=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+                                         text=True, encoding='utf-8', errors='replace', timeout=20,
+                                         creationflags=subprocess.CREATE_NO_WINDOW)
                 if queried.returncode == 0 and queried.stdout.strip():
                     identity = json.loads(queried.stdout)
             except (subprocess.TimeoutExpired, ValueError, OSError):
@@ -447,7 +459,8 @@ if ($root.Count -eq 1) {
 """.replace('__PID__', str(identity['ProcessId'])).replace('__TICKS__', str(identity['CreationUtcTicks']))
                 try:
                     stopped = subprocess.run(['powershell', '-NoProfile', '-Command', script],
-                        capture_output=True, text=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+                        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+                        creationflags=subprocess.CREATE_NO_WINDOW)
                     cleanup = {'exit_status': stopped.returncode, 'stdout': stopped.stdout, 'stderr': stopped.stderr}
                     process.wait(timeout=10)
                 except BaseException as error:
@@ -473,8 +486,12 @@ def main():
     parser.add_argument('--iterations', type=int, default=30)
     parser.add_argument('--cold-iterations', type=int, default=30)
     parser.add_argument('--one-cpu', action='store_true')
+    parser.add_argument('--qt-platform', choices=('offscreen', 'windows'), default='offscreen',
+                        help='默认离屏；windows 为当前桌面的真实窗口，须独立记录验收范围')
     parser.add_argument('--worker-mode', choices=('cold', 'hot'))
     args = parser.parse_args()
+    if args.qt_platform == 'windows' and sys.platform != 'win32':
+        parser.error('windows 窗口平台只用于 Windows 主机')
     if args.iterations < 1 or args.cold_iterations < 1 or args.output.exists():
         parser.error('样本数须为正，输出须为新路径，保留已有测量')
     args.source_root, args.fixture = args.source_root.resolve(), args.fixture.resolve()
@@ -485,14 +502,15 @@ def main():
     hashes = {path.relative_to(args.source_root).as_posix(): sha256(path)
               for area in ('src', 'tools', 'tests') for path in sorted((args.source_root / area).rglob('*.py'))}
     output = {'schema': 'calc.weight-responsiveness/2', 'status': 'running',
-              'scope': 'process-cold and hot real BasicWeightPage/Controller/DAO; offscreen proxy, no game/full-app/low-end-machine claim',
+              'scope': f'process-cold and hot real BasicWeightPage/Controller/DAO; {args.qt_platform}; no game/full-app claim',
               'cold_definition': 'fresh process/owner/clone, OS disk cache not cleared',
               'percentile_definition': 'nearest-rank; n=30 P99 near max',
               'read_counter_definition': 'wrappers execute originals; _read_template calls, not proven physical disk reads',
               'memory_definition': 'native current working set and lifetime peak including imports; not per-action peak or leak proof',
               'heartbeat_definition': 'real QEventLoop, interval10ms; operation starts after heartbeat; completion plus next tick',
               'fixture_hashes': inputs, 'source_hashes': hashes,
-              'environment': {'python': sys.version, 'platform': sys.platform}, 'workers': []}
+              'environment': {'python': sys.version, 'platform': sys.platform,
+                              'qt_platform': args.qt_platform}, 'workers': []}
     folder = args.output.parent / (args.output.stem + '-workers')
     folder.mkdir(exist_ok=False)
     for mode, count in [('cold', args.cold_iterations), ('hot', 1)]:
@@ -500,7 +518,8 @@ def main():
             target = folder / f'{mode}-{index + 1}.json'
             command = [sys.executable, str(Path(__file__).resolve()), '--source-root', str(args.source_root),
                        '--fixture', str(args.fixture), '--output', str(target), '--iterations', str(args.iterations),
-                       '--worker-mode', mode, *(['--one-cpu'] if args.one_cpu else [])]
+                       '--worker-mode', mode, '--qt-platform', args.qt_platform,
+                       *(['--one-cpu'] if args.one_cpu else [])]
             start = time.perf_counter()
             record = run_child(command, args.source_root, target)
             record['elapsed_seconds'] = time.perf_counter() - start

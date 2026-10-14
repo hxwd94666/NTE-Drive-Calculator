@@ -5,12 +5,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleMaxHpReductionEvent,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent
 from src.services.battle_report.buffs.counterfactual_projection import VitalProjection
 from src.services.battle_report.marginal.calculation_support import topple_character_contribution
 

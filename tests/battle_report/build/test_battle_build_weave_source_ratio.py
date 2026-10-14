@@ -4,15 +4,11 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleRangeRoleSummary,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.services.battle_report.build.counterfactual import (
     BattleBuildCounterfactualService,
 )

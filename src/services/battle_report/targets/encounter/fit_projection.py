@@ -6,9 +6,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from src.domain.battle_encounter import BattleEncounterCandidate
-from src.domain.native_analysis import BattleComputeBackend
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report.targets.encounter import BattleEncounterCandidate
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.services.battle_report.targets.encounter.fit import (
     BattleEncounterFitCandidate,
     BattleEncounterFitPrediction,
@@ -18,7 +18,7 @@ from src.services.battle_report.targets.encounter.fit import (
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.replay.buff_cache import BattleHitBuffProjectionCache
-from src.domain.battle_page_models import BattleInferredEncounter
+from src.domain.battle_report.targets.encounter import BattleInferredEncounter
 from src.services.battle_report.targets.inferred_condition import BattleInferredTargetConditionService
 from src.services.battle_report.replay.audit import (
     BattleHitReplayAuditService,

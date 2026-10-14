@@ -22,8 +22,12 @@ def selector():
     widget._render_priority_row()
     widget.show()
     app.processEvents()
+    # 首轮重排留下待删除旧按钮；夹具只把当前控件交给手势测试，不保留悬空 C++ 句柄。
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     yield widget
     widget.close()
+    widget.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
 
 
@@ -37,7 +41,7 @@ def avatar_position(button):
     return avatar.mapTo(button, avatar.rect().center())
 
 
-def capture_drag(monkeypatch, execute=None):
+def capture_drag(monkeypatch):
     calls = []
 
     class Drag:
@@ -55,8 +59,6 @@ def capture_drag(monkeypatch, execute=None):
 
         def exec(self, action):
             calls.append((self.source.role, self.mime.text(), action))
-            if execute:
-                execute(self)
             return Qt.IgnoreAction
 
     monkeypatch.setattr(drag_module, "QDrag", Drag)

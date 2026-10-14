@@ -46,7 +46,9 @@ class AllocationPlanBatchDaoMixin(UserDataDaoMixinHost):
             raise UserDataError("创建目标配装槽位后未返回 slot_id")
         return int(cursor.lastrowid)
 
-    def save_calculated_loadout_plans(self, plans, *, checkpoint, validate=None, commit_context=None):
+    def save_calculated_loadout_plans(
+        self, plans, *, checkpoint, validate=None, commit_context=None, activate_primary=True,
+    ):
         """Persist targets and release other current owners in one transaction."""
         if not plans:
             raise UserDataValidationError("至少需要保存一个计算方案")
@@ -163,7 +165,8 @@ class AllocationPlanBatchDaoMixin(UserDataDaoMixinHost):
                     "name", "character_id", "assignments", "source_snapshot_id", "status", "score", "payload",
                 )}
                 plan_id = self.save_loadout_plan(**arguments, slot_id=slot_id, is_active=False)
-                if slots[slot_id]["slot_key"] == "primary" or slot_id in created_slots:
+                # 显式加权槽位沿用仅推进 current_plan 的语义；其他正式入口默认仍激活主槽。
+                if activate_primary and (slots[slot_id]["slot_key"] == "primary" or slot_id in created_slots):
                     connection.execute("UPDATE loadout_plan SET is_active = 0 WHERE character_id = ?", (row["character_id"],))
                     connection.execute("UPDATE loadout_plan SET is_active = 1 WHERE plan_id = ?", (plan_id,))
                 result.append(plan_id)

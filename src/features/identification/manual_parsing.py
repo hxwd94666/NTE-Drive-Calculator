@@ -5,10 +5,7 @@ from __future__ import annotations
 
 import re
 
-from src.features.identification.dependencies import (
-    task_identification_dependencies,
-)
-from src.optimizer.scoring import ScoringEngine
+from src.domain.stat_catalog import StatCatalog
 from src.utils.name_resolver import resolve_name
 
 
@@ -83,7 +80,7 @@ class IdentificationManualParsingMixin:
                 return token.split(separator, 1)[1].strip()
         return token.strip()
 
-    def _resolve_stat_name(self, name, percent=False):
+    def _resolve_stat_name(self, name, percent=False, *, stat_catalog: StatCatalog):
         clean = name.strip().strip("：:= ")
         for prefix in ("副词条", "词条", "主词条", "主属性"):
             clean = clean.replace(prefix, "")
@@ -127,15 +124,11 @@ class IdentificationManualParsingMixin:
             return manual_aliases[compact]
         if percent and not clean.endswith("%") and not clean.endswith("百分比"):
             clean = f"{clean}%"
-        scoring_engine = getattr(self, "scoring_engine", None)
-        if scoring_engine is None:
-            dependencies = task_identification_dependencies(self)
-            scoring_engine = ScoringEngine(str(dependencies.config_dir))
-        aliases = scoring_engine.stat_alias_mapping
+        aliases = stat_catalog.stat_alias_mapping
         if clean in aliases:
             return aliases[clean]
         choices = [
-            *scoring_engine.gold_base_values,
+            *stat_catalog.gold_base_values,
             *aliases,
             *aliases.values(),
         ]
@@ -161,12 +154,11 @@ class IdentificationManualParsingMixin:
         text,
         quality="Gold",
         grid_equivalent=1,
+        *,
+        stat_catalog: StatCatalog,
     ):
         stats = {}
-        scoring_engine = getattr(self, "scoring_engine", None)
-        if scoring_engine is None:
-            dependencies = task_identification_dependencies(self)
-            scoring_engine = ScoringEngine(str(dependencies.config_dir))
+        # 页面评分器可能早于资料更新；本批别名和每格基础值只取任务冻结的同一目录。
         quality_coefficient = {
             "Gold": 1.0,
             "Purple": 0.8,
@@ -189,11 +181,12 @@ class IdentificationManualParsingMixin:
             stat_name = self._resolve_stat_name(
                 token,
                 percent="%" in token,
+                stat_catalog=stat_catalog,
             )
-            if stat_name not in scoring_engine.gold_base_values:
+            if stat_name not in stat_catalog.gold_base_values:
                 continue
             stats[stat_name] = round(
-                float(scoring_engine.gold_base_values[stat_name])
+                float(stat_catalog.gold_base_values[stat_name])
                 * grid_count
                 * quality_coefficient,
                 2,

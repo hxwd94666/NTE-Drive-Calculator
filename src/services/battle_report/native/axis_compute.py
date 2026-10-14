@@ -1,7 +1,7 @@
 # 传递冻结轴与动画事实，并恢复原生推断的动作和伤害分组展示字段。
 from __future__ import annotations
 
-from src.domain.battle_report import BattleInferredAction, BattleTimelineDamageGroup
+from src.domain.battle_report.timeline.events import BattleInferredAction, BattleTimelineDamageGroup
 from src.services.battle_report.damage.composition import classify_battle_hit_channel
 from src.services.official_role.skill_names import preferred_battle_damage_name
 

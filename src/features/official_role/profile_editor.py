@@ -18,16 +18,14 @@ from PySide6.QtWidgets import (
 from .role_calculation import (
     _build_damage_formula_group,
     _build_margin_group,
+    _build_weight_group,
     _calculation_detail,
 )
 from .role_equipment import _build_drive_summary_group
 from .role_awakening import _build_awakening_group
-from .role_growth import (
-    _build_base_group,
-    _build_fork_group,
-    _build_skill_group,
-)
-from .role_weights import _build_weight_group
+from .editing.growth_fields import _build_base_group
+from .editing.skill_fields import _build_skill_group
+from .editing.fork_fields import _build_fork_group
 
 __all__ = ["OfficialRoleProfileEditor"]
 

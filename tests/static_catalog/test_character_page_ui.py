@@ -12,9 +12,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QTableWidget
 
-from src.features.static_catalog.domain_pages.character_card import CharacterGalleryCard
-from src.features.static_catalog.domain_pages.character_page import (
-    CharacterCatalogPage,
+from src.features.static_catalog.domain_pages.characters.card import CharacterGalleryCard
+from src.features.static_catalog.domain_pages.characters.page import (
     build_character_catalog_page,
 )
 from src.services.progression.character_requirements import (
@@ -23,7 +22,7 @@ from src.services.progression.character_requirements import (
 from src.services.static_catalog.characters.release_metadata import (
     CharacterReleaseMetadataService,
 )
-from src.features.static_catalog.domain_pages.character_skills import SkillActionCard
+from src.features.static_catalog.domain_pages.characters.skills import SkillActionCard
 from src.services.static_catalog.characters.service import StaticCatalogCharacterService
 from src.services.static_catalog.characters.models import CostItem
 from src.services.static_catalog.common.terminology import (
@@ -649,9 +648,6 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
             drawer = a_card.drawer
             self.assertTrue(drawer.isVisibleTo(detail.skill_view))
             self.assertLessEqual(drawer.width(), a_card.width())
-
-    def test_factory_returns_public_character_page(self) -> None:
-        self.assertIsInstance(self.page, CharacterCatalogPage)
 
 
 if __name__ == "__main__":

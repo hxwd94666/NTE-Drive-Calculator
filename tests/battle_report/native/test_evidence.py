@@ -4,9 +4,10 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from src.domain.battle_native_evidence import BattleHitFieldEvidence
-from src.domain.battle_report import BattleAnalysisHit, BattleHitReplayResult
-from src.integrations.native_battle_page_wire import decode
+from src.domain.battle_report.timeline.events import BattleHitFieldEvidence
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.integrations.battle_analysis.page_wire import decode
 from src.services.battle_report.native.evidence_rendering import render_native_evidence
 from tests.battle_report.buffs.test_hit_explanation import _hit
 from tests.native_execution_fixture import execution_evidence
@@ -53,7 +54,7 @@ class NativeHitEvidenceTests(unittest.TestCase):
 
     def test_log_uses_core_field_evidence_before_fit_even_without_replay(self):
         from PySide6.QtWidgets import QApplication
-        from src.features.battle_report.analysis_view import BattleLongAnalysisView
+        from src.features.battle_report.analysis.view import BattleLongAnalysisView
         app = QApplication.instance() or QApplication([])
         view = BattleLongAnalysisView()
         evidence = BattleHitFieldEvidence(
@@ -170,7 +171,7 @@ class NativeHitEvidenceTests(unittest.TestCase):
     def test_dialog_shows_native_and_inferred_sections_without_recalculating(self):
         from unittest.mock import patch
         from PySide6.QtWidgets import QApplication
-        from src.features.battle_report.hit_buff_dialog import BattleHitBuffDialog
+        from src.features.battle_report.hits.buff_dialog import BattleHitBuffDialog
         app = QApplication.instance() or QApplication([])
         dialog = BattleHitBuffDialog()
         try:

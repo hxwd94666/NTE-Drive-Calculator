@@ -6,18 +6,13 @@ from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.domain.battle_counterfactual_quantification import BattleCounterfactualRatio
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitBuffProjection,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-    BattleInferredBuffInterval,
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import (
+    BattleBuffModifierEvidence, BattleHitBuffProjection, BattleInferredBuffInterval,
 )
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm
 from src.services.battle_report.buffs.counterfactual_plan import (
     battle_buff_applied_hits,
     battle_buff_counterfactual_key,

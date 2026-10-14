@@ -5,14 +5,12 @@ from dataclasses import replace
 
 import pytest
 
-from src.domain.cultivation_history import HistoryContextExpired
+from src.domain.progression.history import HistoryContextExpired
 from src.services.progression.history_service import CultivationHistoryService
 from tests.test_cultivation_history import history_payload
 
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def _service(tmp_path):

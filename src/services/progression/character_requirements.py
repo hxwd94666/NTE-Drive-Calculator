@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from src.domain.progression_materials import (
+from src.domain.progression.materials import (
     ExperienceMaterial,
     least_waste_experience_materials,
 )

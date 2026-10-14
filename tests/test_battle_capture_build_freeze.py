@@ -55,6 +55,7 @@ def finish(service, record=None):
 
 
 def native_snapshot():
+    # 旧版已保存范围证据仍可携带 inventory 投影；当前采集的三域在装子集由 shared baseline 实读保护。
     domains = {domain: {"providerId": "fixture", "domainKey": domain, "snapshotId": domain + "-1",
                         "revision": "1", "dirty": False, "complete": False, "sourceCoverage": "unknown", "records": []}
                for domain in ("character", "inventory", "team", "environment")}
@@ -178,6 +179,7 @@ def test_binding_is_idempotent_but_replacing_snapshot_is_rejected(capture):
     with pytest.raises(UserDataError, match="不能覆盖"):
         service.bind_runtime_snapshot(capture_operation_id="capture", snapshot=changed)
     with UserDataDao(deps.user_database_path) as dao:
+        # 未结算暂存须保留接收时的完整输入；结算后才改为单份装备快照与范围引用。
         assert dao.load_battle_capture_build("capture")["native_runtime_snapshot"] == scoped(native)
     service.discard_capture(capture_operation_id="capture")
     with UserDataDao(deps.user_database_path) as dao:

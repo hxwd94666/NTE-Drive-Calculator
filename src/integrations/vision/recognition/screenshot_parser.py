@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import CancelledError
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 import time
 
 from src.integrations.vision.recognition.equipment_classifier import classify_item, locate_selected_reward_shape
@@ -40,7 +40,7 @@ def process_single_image(processor, image_path: str):
     logger.debug(
         f"截图坐标方案: {profile_name} | 尺寸: {width}x{height} | "
         f"类型: {item_type} | 形状: {shape_res['shape_id']}({shape_res['confidence']}) | "
-        f"身份文本: {hub_joined_text}"
+        f"身份文本长度: {len(hub_joined_text)}"
     )
 
     if item_type == "drive":

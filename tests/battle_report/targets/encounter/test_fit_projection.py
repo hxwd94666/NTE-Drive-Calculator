@@ -4,16 +4,14 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from src.domain.battle_encounter import (
-    BattleEncounterCandidate,
-    BattleEncounterCandidateMatch,
-    BattleEncounterTargetPreset,
+from src.domain.battle_report.targets.encounter import (
+    BattleEncounterCandidate, BattleEncounterCandidateMatch, BattleEncounterTargetPreset,
 )
-from src.domain.battle_target import BattleTargetInstanceResolution
+from src.domain.battle_report.targets.profiles import BattleTargetInstanceResolution
 from src.services.battle_report.targets.encounter.fit_projection import (
     BattleEncounterFitProjectionService,
 )
-from src.domain.battle_page_models import BattleInferredEncounter
+from src.domain.battle_report.targets.encounter import BattleInferredEncounter
 from src.services.battle_report.targets.inferred_condition import BattleInferredTargetConditionService
 
 

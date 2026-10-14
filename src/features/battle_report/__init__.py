@@ -1,6 +1,1 @@
-# 汇总战报功能包的公开入口。
-"""Battle report feature package."""
-
-from src.features.battle_report.controller import BattleReportController
-
-__all__ = ["BattleReportController"]
+# 战报功能的组合入口位于 dependencies、controller 与 page；包导入不加载整套页面。

@@ -354,6 +354,10 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             current_snapshot_ids = {
                 int(row["snapshot_id"]) for row in current_rows
             }
+            # 无标记的兼容库仍可能有公开读取入口选出的稳定当前库存；清理沿用同一判词。
+            current_snapshot_id = self.current_inventory_snapshot_id()
+            if current_snapshot_id is not None:
+                current_snapshot_ids.add(current_snapshot_id)
             referenced_rows = connection.execute(
                 """
                 SELECT DISTINCT source_snapshot_id AS snapshot_id
@@ -393,11 +397,14 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                 if int(row["snapshot_id"]) not in protected_ids
             )
             if deleted_snapshot_ids:
-                placeholders = ", ".join("?" for _ in deleted_snapshot_ids)
-                connection.execute(
-                    f"DELETE FROM inventory_snapshot WHERE snapshot_id IN ({placeholders})",
-                    deleted_snapshot_ids,
-                )
+                # 旧库积累可超过 SQLite 绑定上限；分批语句但同一事务，后批失败也全回滚。
+                for start in range(0, len(deleted_snapshot_ids), _SQLITE_QUERY_PARAMETER_BUDGET):
+                    batch = deleted_snapshot_ids[start:start + _SQLITE_QUERY_PARAMETER_BUDGET]
+                    placeholders = ", ".join("?" for _ in batch)
+                    connection.execute(
+                        f"DELETE FROM inventory_snapshot WHERE snapshot_id IN ({placeholders})",
+                        batch,
+                    )
             connection.commit()
         except sqlite3.Error as exc:
             connection.rollback()

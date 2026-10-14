@@ -14,7 +14,7 @@ from src.features.drive_assembly.input_backends import PyAutoGuiMouseBackend
 from src.features.drive_assembly.randomization import RandomizationContext
 from src.integrations.operation_guard import GuardedGuiInput
 from src.integrations.vision import window_capture
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from src.features.drive_assembly.page_navigation_mapping import map_rewind_controls
 from src.features.drive_assembly.rewind.execution import (
     RewindExecutionRequest,

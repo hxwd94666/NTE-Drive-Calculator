@@ -1,7 +1,7 @@
 # 共享半场角色证据与区间夹具，保持未知归属和原有边界输入。
 from __future__ import annotations
 
-from src.domain.battle_report import BattleInferredBuffInterval
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 
 
 def _interval(

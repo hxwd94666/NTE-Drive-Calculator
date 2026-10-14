@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.domain.battle_report import BattleCaptureState
+from src.domain.battle_report.capture.state import BattleCaptureState
 from src.features.battle_report.controller import BattleReportController
-from src.services.work_mode_service import WorkModeService
+from src.services.work_modes.service import WorkModeService
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ def session(tmp_path, monkeypatch):
             overlay_toggle=SimpleNamespace(isChecked=lambda: False)),
         _client_factory=lambda path, check: object())
     owner._restore_inventory_sync = lambda: BattleReportController._restore_inventory_sync(owner)
-    monkeypatch.setattr("src.features.battle_report.capture_controls.BattleCaptureService", Capture)
+    monkeypatch.setattr("src.features.battle_report.capture.controls.BattleCaptureService", Capture)
     monkeypatch.setattr("src.features.battle_report.controller.show_capture_connection_failure", lambda *_: None)
     return owner, policy, inventory, captures
 
@@ -121,6 +121,8 @@ def test_packet_battle_manual_stop_only_stops_its_own_service(session):
 def test_native_handoff_restores_only_current_authorized_inventory(session, changed):
     owner, policy, inventory, _captures = session
     policy.select_mode("medium", risk_confirmed=True)
+    # 运行中的自动同步与已确认偏好一致，后续才分别验证暂停/撤销/代次变化。
+    policy.set_auto_sync_enabled(True)
     BattleReportController.start(owner)
     assert inventory.stops == 1
     assert not inventory.running

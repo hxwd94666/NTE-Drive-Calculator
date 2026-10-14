@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from src.domain.battle_report import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.targets.inferred_condition import (
     BattleInferredTargetConditionService,
 )

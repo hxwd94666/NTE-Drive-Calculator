@@ -100,7 +100,7 @@ def test_actual_window_exit_revokes_visual_submit_before_wait_gate(tmp_path, mon
         return VisionCommitResult(2, {})
     with patch.object(AutoSyncController, "start"), patch.object(WorkModeController, "start"), \
          patch.object(WorkModeController, "start_upgrade_guidance"), \
-         patch.object(MainWindow, "_maybe_check_updates_on_startup"), \
+         patch("src.features.settings.updates.controller.CalcUpdateController.startup"), \
          patch.object(OnboardingGuide, "maybe_show"), \
          patch("src.ui.controllers.workshop_refresh_controller.start_workshop_weight_template_refresh", return_value=None), \
          patch("urllib.request.urlopen", forbidden), patch("subprocess.Popen", forbidden):

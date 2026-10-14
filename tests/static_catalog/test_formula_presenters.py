@@ -6,7 +6,7 @@ import unittest
 from src.features.static_catalog.counterfactual_model_matrix import (
     build_counterfactual_model_matrix,
 )
-from src.features.static_catalog.formula_detail import build_formula_detail_sections
+from src.services.static_catalog.formulas.presenters import build_formula_detail_sections
 from src.services.static_catalog.formulas.service import StaticCatalogFormulaService
 from src.storage.sqlite.catalog.static_catalog_formula_queries import (
     StaticFormulaEvidenceSnapshot,

@@ -30,7 +30,7 @@ from src.app.version import __version__
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.nte_core import NteCoreClient
-from src.integrations.vision.recognition.model_resources import validate_packaged_ocr_models
+from src.integrations.vision.recognition.ocr.model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.native_component_bundle_build import native_component_build_inputs
 
@@ -379,8 +379,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.local_config,
         )
         validate_components()
-        if not args.skip_tests:
-            run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"])
+        if args.skip_tests:
+            print("[警告] 已显式跳过测试；仅用于本地调试，不构成发布测试通过证据。")
+        else:
+            # 统一真实收集 pytest 函数与 TestCase；失败由 run 阻断后续编译、构建和产物宣告。
+            run([
+                sys.executable, "-X", "utf8",
+                str(ROOT / "tools" / "quality" / "run_tests.py"),
+                "full", "--jobs", "1",
+            ])
         run(
             [
                 sys.executable,

@@ -7,12 +7,8 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from src.domain.battle_report import (
-    BattleAbyssHalfSummary,
-    BattleAbyssSummary,
-    BattleCharacterSummary,
-    BattleQualitySummary,
-    BattleSkillSummary,
+from src.domain.battle_report.capture.summary import (
+    BattleAbyssHalfSummary, BattleAbyssSummary, BattleCharacterSummary, BattleQualitySummary, BattleSkillSummary,
     BattleSummary,
 )
 from src.integrations.nte_core import NteCoreProtocolError

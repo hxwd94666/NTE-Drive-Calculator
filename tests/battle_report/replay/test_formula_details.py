@@ -5,15 +5,12 @@ import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 
-from src.domain.battle_report import (
-    BattleCharacterBaseline,
-    BattleCharacterSourceStat,
-    BattleCharacterStat,
-    BattleHitBuffProjection,
-    BattleProjectedBuffModifier,
-    BattleSkillDamageEvidence,
-    BattleTargetCondition,
+from src.domain.battle_report.build.inputs import (
+    BattleCharacterBaseline, BattleCharacterSourceStat, BattleCharacterStat,
 )
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection, BattleProjectedBuffModifier
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )

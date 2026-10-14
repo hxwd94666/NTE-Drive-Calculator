@@ -1,7 +1,9 @@
 # 验证开启同步的只读决策、进程等待和来源分支。
 from dataclasses import replace
 
-from src.domain.work_mode import NativeFeatureProbe, WorkMode, WorkModeProbe, WorkModeSettings
+import pytest
+
+from src.domain.work_mode import CheckState, NativeFeatureProbe, WorkMode, WorkModeProbe, WorkModeSettings
 from src.services.work_modes.sync_preflight import decide_sync_enable
 
 
@@ -45,23 +47,19 @@ def test_pending_cleanup_waits_for_game_even_when_files_match():
     assert not decision.ready and decision.action_label == "前往清理游戏目录"
 
 
-def test_missing_native_component_precedes_paused_mode_guidance():
+@pytest.mark.parametrize("changed, target", [
+    ({"core_available": False}, "deployment"), ({"core_available": None}, "deployment"),
+    ({"game_path_valid": False}, "game_path"), ({"game_path_valid": None}, "game_path"),
+    ({"component_update_state": CheckState.MISSING}, "deployment"),
+    ({"native_load": NativeFeatureProbe(files=False)}, "deployment"),
+    ({"native_load": NativeFeatureProbe(files=None)}, "deployment"),
+])
+def test_native_preflight_requires_all_facts_even_when_files_remain_or_paused(changed, target):
     settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
                                 paused=True, pending_cleanup=False)
     probe = WorkModeProbe(game_path_valid=True, core_available=True,
-                          native_load=NativeFeatureProbe(files=False))
-    missing = decide_sync_enable(settings, {}, probe)
-    assert not missing.ready and missing.target == "deployment"
-    assert missing.action_label == "前往部署组件"
-    deployed = decide_sync_enable(settings, {}, replace(probe, native_load=NativeFeatureProbe(files=True)))
-    assert deployed.ready and deployed.action_label is None
-    assert "恢复" in deployed.detail
-
-
-def test_unconfirmed_native_files_wait_without_deploy_guidance():
-    settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
-                                pending_cleanup=False)
-    probe = WorkModeProbe(game_path_valid=True, core_available=True,
-                          native_load=NativeFeatureProbe(files=None))
-    decision = decide_sync_enable(settings, {}, probe)
-    assert not decision.ready and decision.action_label is None
+                          native_load=NativeFeatureProbe(files=True))
+    waiting = decide_sync_enable(settings, {}, replace(probe, **changed))
+    assert not waiting.ready and waiting.target == target
+    ready = decide_sync_enable(settings, {}, probe)
+    assert ready.ready and "恢复" in ready.detail

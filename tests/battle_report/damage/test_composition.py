@@ -4,15 +4,11 @@ NTE_TEST_TIER = "core"
 
 import unittest
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleCharacterSummary,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleMaxHpReductionEvent,
-    BattleRangeRoleSummary,
-    BattleSkillSummary,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.capture.summary import BattleCharacterSummary, BattleSkillSummary
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.services.battle_report.damage.composition import (
     BattleDamageCompositionService,
     classify_battle_hit_channel,

@@ -8,7 +8,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from src.domain.battle_report_transfer import portable_battle_evidence
+from src.domain.battle_report.history.transfer import portable_battle_evidence
 
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.user_data_support import (

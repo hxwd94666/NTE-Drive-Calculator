@@ -7,8 +7,8 @@ from tempfile import TemporaryDirectory
 
 from PySide6.QtWidgets import QApplication, QPushButton
 
-from src.domain.battle_report import BattleReportHistoryEntry
-from src.features.battle_report.history_dialog import BattleReportHistoryDialog, _scene_label
+from src.domain.battle_report.history.records import BattleReportHistoryEntry
+from src.features.battle_report.history.dialog import BattleReportHistoryDialog, _scene_label
 
 
 def _entry(**changes) -> BattleReportHistoryEntry:

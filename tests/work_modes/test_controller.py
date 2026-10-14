@@ -1,6 +1,7 @@
 # 在离屏界面和测试替身中验证工作模式意图、过期结果及观察者收尾。
 import os
 from types import SimpleNamespace
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,10 +11,11 @@ from PySide6.QtWidgets import QApplication, QDialog, QLabel, QWidget, QPushButto
 
 from auto_sync_ui_fixture import application, dispose
 
-from src.domain.work_mode import NativeFeatureProbe, WorkModeProbe
+from src.domain.work_mode import CheckState, NativeFeatureProbe, WorkModeProbe
 from src.services.work_modes.observation import ObservationResult
 from src.services.work_modes.service import WorkModeService
 from src.ui.controllers import work_mode_controller as module
+from src.ui.controllers import work_mode_report_actions as report_actions
 
 
 class QueuedObserver:
@@ -55,11 +57,11 @@ def qt_app():
 def controller(tmp_path, monkeypatch, qt_app):
     monkeypatch.setattr(module, "GameObservationService", QueuedObserver)
     popups, events = [], []
-    original_report = module.ModeReportDialog.set_report
-    original_error = module.ModeReportDialog.set_error
-    monkeypatch.setattr(module.ModeReportDialog, "set_report",
+    original_report = report_actions.ModeReportDialog.set_report
+    original_error = report_actions.ModeReportDialog.set_error
+    monkeypatch.setattr(report_actions.ModeReportDialog, "set_report",
                         lambda self, report: (popups.append("report"), original_report(self, report)))
-    monkeypatch.setattr(module.ModeReportDialog, "set_error",
+    monkeypatch.setattr(report_actions.ModeReportDialog, "set_error",
                         lambda self, detail: (popups.append("warning"), original_error(self, detail)))
     monkeypatch.setattr(module.QMessageBox, "warning", lambda *args: popups.append("warning"))
     monkeypatch.setattr(module.QMessageBox, "information", lambda *args: popups.append("info"))
@@ -190,27 +192,42 @@ def test_offline_sync_shows_only_compact_guidance(controller, monkeypatch, actio
     assert not policy.settings.auto_sync_enabled
 
 
-def test_sync_preflight_close_and_failed_apply_keep_preference_off(controller):
+@pytest.mark.parametrize("mode, changed", [
+    ("low", "core"), ("medium", "core"), ("medium", "path"),
+    ("medium", "bundle"), ("developer", "files"),
+])
+def test_sync_preflight_close_and_failed_apply_keep_preference_off(controller, mode, changed):
     c, _window, policy, _events, _popups, _probe = controller
-    called = []
-    c.runtime.tick = lambda **_kwargs: WorkModeProbe(core_available=True, npcap_available=False)
-    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    policy.select_mode(mode, risk_confirmed=True)
+    policy.set_cleanup_pending(False)
+    ready = WorkModeProbe(game_running=True, core_available=True, npcap_available=True,
+                          game_path_valid=True, native_load=NativeFeatureProbe(files=True))
+    called, plugins = [], []
+    c._observe_plugins = plugins.append
+    c.runtime.tick = lambda **_kwargs: ready
+    def enable():
+        called.append(True)
+        policy.enable_auto_sync_after_preflight()
+        return True
+    c.begin_sync_enable(enable)
+    c._report_dialog.reject()  # 排队的只读预检即使晚到，也不应用插件或保存开启偏好。
     c._observer.run_jobs()
-    c._report_dialog.reject()
-    assert not policy.settings.auto_sync_enabled
-    assert not policy.settings.component_auto_ready
-    assert called == []
+    assert not policy.settings.auto_sync_enabled and not policy.settings.component_auto_ready
+    assert called == [] and plugins == []
 
+    facts = {"core": {"core_available": False}, "path": {"game_path_valid": False},
+             "bundle": {"component_update_state": CheckState.MISSING},
+             "files": {"native_load": NativeFeatureProbe(files=False)}}
     calls = []
     def changing_probe(**_kwargs):
         calls.append(True)
-        return WorkModeProbe(core_available=len(calls) == 1, npcap_available=len(calls) == 1)
+        return ready if len(calls) == 1 else replace(ready, **facts[changed])
     c.runtime.tick = changing_probe
-    c.begin_sync_enable(lambda: (called.append(True), True)[1])
+    c.begin_sync_enable(enable)
     c._observer.run_jobs()
-    assert not policy.settings.auto_sync_enabled
-    assert not policy.settings.component_auto_ready
-    assert called == []
+    assert not policy.settings.auto_sync_enabled and not policy.settings.component_auto_ready
+    assert called == [] and len(calls) == 3
+    assert len(plugins) == 1  # 中间的非 preview 激活保留原观察行为，末轮只读核对不重复应用。
 
 
 def test_closing_report_during_auto_activation_keeps_sync_off(controller):

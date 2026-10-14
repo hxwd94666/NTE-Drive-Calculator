@@ -7,14 +7,11 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from src.services.battle_report.native.team_state import compute_team_state
-from src.domain.native_analysis import available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleInferredBuffInterval,
-    BattleTargetCondition,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     project_timeline_time_us,

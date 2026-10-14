@@ -8,7 +8,8 @@ from PySide6.QtWidgets import QWidget
 from src.app.context import AppContext
 from .controller import BasicWeightController
 from .dependencies import freeze_basic_weight_dependencies
-from . import page as view
+from .editing import form as view
+from .editing.commit import confirm_pending_config_changes
 
 
 class BasicWeightPage(QWidget):
@@ -91,7 +92,7 @@ class BasicWeightPage(QWidget):
             self.task_owner.cancel_reads()
 
     def confirm_leave(self, completion: Callable[[bool], None]) -> bool:
-        return view.confirm_pending_config_changes(self, completion=completion)
+        return confirm_pending_config_changes(self, completion=completion)
 
     def close_tasks(self) -> None:
         if self.task_owner is not None:

@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from src.domain.battle_report import BattleHitReplayFactor, BattleHitReplayResult
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.targets.encounter.fit import (
     BattleEncounterFitCandidate,

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 from concurrent.futures import CancelledError
-from src.integrations.vision.recognition.task_session import OcrTaskSession, use_ocr_session
+from src.integrations.vision.recognition.ocr.task_session import OcrTaskSession, use_ocr_session
 
 from src.utils.logger import logger
 

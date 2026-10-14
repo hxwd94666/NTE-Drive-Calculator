@@ -8,19 +8,16 @@ from unittest.mock import patch
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-)
-from src.domain.battle_buff_counterfactual import BattleDamageCoverage
-from src.domain.battle_report import BattleCharacterBaseline, BattleCharacterStat
-from src.features.battle_report.build_change_summary import (
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
+from src.domain.battle_report.counterfactual.results import BattleDamageCoverage
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.features.battle_report.editing.change_summary import (
     character_level_summary,
     fork_level_summary,
 )
-from src.features.battle_report.marginal_page import BattleMarginalPage
-from src.domain.battle_page_models import BattleMarginalPanelResult
-from src.features.battle_report.marginal_result_table_view import (
+from src.features.battle_report.marginal.page import BattleMarginalPage
+from src.domain.battle_report.counterfactual.results import BattleMarginalPanelResult
+from src.features.battle_report.marginal.results import (
     render_attribute_results,
     render_buff_benefit_results,
 )
@@ -128,7 +125,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             }
 
         with patch(
-            "src.features.battle_report.marginal_page.OfficialRoleProfileEditor",
+            "src.features.battle_report.marginal.page.OfficialRoleProfileEditor",
             FakeEditor,
         ):
             page = BattleMarginalPage()
@@ -180,9 +177,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             buff_counterfactuals=(),
         )
 
-        with patch.object(page, "_render_attributes"), patch.object(
-            page, "_render_buff_benefits"
-        ):
+        with patch.object(page, "_render_attributes"):
             page._render_selected_role()
 
         self.assertEqual("1,100", page.metric_labels["role"].text())
@@ -331,7 +326,11 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             unattributed_damage_gain=0.0,
         )
 
-        page._render_buff_benefits((buff, other_source))
+        render_buff_benefit_results(
+            page.buff_benefit_table,
+            (buff, other_source),
+            source_character_id=page.character_combo.currentData(),
+        )
 
         self.assertEqual(2, page.buff_benefit_table.rowCount())
         self.assertEqual("角色1", page.buff_benefit_table.item(0, 0).text())

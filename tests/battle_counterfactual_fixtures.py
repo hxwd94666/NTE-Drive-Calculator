@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from src.domain.battle_report import BattleBuffModifierEvidence
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
 from src.services.battle_report.buffs.inference import BattleStaticBuffRule
 
 

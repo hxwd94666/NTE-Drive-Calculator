@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
 from src.services.battle_report.damage.composition import classify_battle_hit_channel
 from src.services.battle_report.damage.weave_source import (
     BattleWeaveSourceLookup, find_paired_weave_source_hit,

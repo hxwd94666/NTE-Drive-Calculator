@@ -6,7 +6,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from src.domain.battle_report import BattleReportHistoryEntry, StoredBattleSummary
+from src.domain.battle_report.history.records import BattleReportHistoryEntry, StoredBattleSummary
 from src.services.battle_report.environment.conditions import (
     display_battle_environment_name,
     resolve_battle_target_condition,

@@ -5,18 +5,12 @@ NTE_TEST_TIER = "core"
 from concurrent.futures import CancelledError
 import unittest
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-)
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
-    BattleTargetCondition,
-)
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.damage.direct_formula_batch import (
     BattleDirectFormulaBatchService,
 )

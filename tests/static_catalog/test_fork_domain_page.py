@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from src.app.theme import apply_app_theme
 from src.domain.static_catalog import CatalogLink
 from src.domain.static_catalog_terminology import LocalizedForkCampaign, LocalizedTerm
-from src.features.static_catalog.domain_pages.fork_page import (
+from src.features.static_catalog.domain_pages.forks.page import (
     ForkCatalogPage,
     ForkOwnedResources,
     build_fork_catalog_page,

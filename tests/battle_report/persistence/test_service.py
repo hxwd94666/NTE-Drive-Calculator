@@ -6,11 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.domain.battle_report import (
-    BattleAbyssSummary,
-    BattleCharacterSummary,
-    BattleQualitySummary,
-    BattleSummary,
+from src.domain.battle_report.capture.summary import (
+    BattleAbyssSummary, BattleCharacterSummary, BattleQualitySummary, BattleSummary,
 )
 from src.observability import OperationContext
 from src.services.battle_report.persistence import (
@@ -21,9 +18,7 @@ from src.services.battle_report.history.service import (
     BattleReportHistoryService,
     StaleBattleReportContextError,
 )
-from src.domain.battle_page_models import (
-    INFERRED_ENCOUNTER_ALGORITHM_VERSION,
-)
+from src.domain.battle_report.targets.encounter import INFERRED_ENCOUNTER_ALGORITHM_VERSION
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 

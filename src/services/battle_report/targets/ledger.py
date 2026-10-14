@@ -6,11 +6,8 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleMaxHpReductionEvent,
-    BattleTargetSummary,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent, BattleTargetSummary
 
 
 _TargetKey = tuple[str, str]

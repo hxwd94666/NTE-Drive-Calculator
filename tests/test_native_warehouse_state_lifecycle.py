@@ -5,7 +5,8 @@ import pytest
 
 from src.integrations.nte_core_protocol import NteCoreRpcError
 from src.integrations.inventory.warehouse_state_writer import WarehouseStateWriteError, WarehouseStateWriter
-from src.services.native_game_session import NativeGameSession
+from src.services.inventory.sync.service import InventorySyncService
+from src.services.native_session.session import NativeGameSession
 from tests.test_native_equipment_session import EquipmentCore
 
 
@@ -181,7 +182,7 @@ def test_large_batch_submits_each_target_once_without_per_item_checks():
         session.close()
 
 
-def test_apply_many_submits_one_group_at_a_time_and_preserves_item_order():
+def test_apply_many_submits_one_group_at_a_time_and_preserves_item_order(tmp_path):
     core = EquipmentCore()
     calls = []
 
@@ -194,15 +195,24 @@ def test_apply_many_submits_one_group_at_a_time_and_preserves_item_order():
     session = NativeGameSession(lambda: core, lambda _cap: None)
     lease = session.inventory_client()
     lease.start_capture(profile="inventory")
-    writer = WarehouseStateWriter(lease)
+    sync = InventorySyncService(
+        tmp_path / "unused.sqlite3", capture_source="native", client_factory=lambda: lease,
+        operation_guard=lambda _cap: None,
+    )
+    writer = WarehouseStateWriter(sync)
+    worker = Mock()
+    worker.is_alive.return_value = True
     try:
         assert lease.status()["native_snapshot_ready"]
         core.calls.clear()
-        metrics = writer.apply_many([
-            ({"discarded": True}, "locked", {"slot": 8, "serial": 1}),
-            ({}, "discarded", {"slot": 8, "serial": 2}),
-            ({}, "locked", {"slot": 8, "serial": 3}),
-        ])
+        # apply_many 消费同步服务的能力投影，不把底层租约误当完整 sync 接口。
+        # 仅固定已启动的 owner 前置；实际能力读取和写转发仍经过正式 adapter。
+        with patch.object(sync, "_client", lease), patch.object(sync, "_thread", worker):
+            metrics = writer.apply_many([
+                ({"discarded": True}, "locked", {"slot": 8, "serial": 1}),
+                ({}, "discarded", {"slot": 8, "serial": 2}),
+                ({}, "locked", {"slot": 8, "serial": 3}),
+            ])
         assert metrics.group_count == 3
         assert metrics.rpc_count == 4
         assert metrics.retry_count == 0
@@ -210,6 +220,7 @@ def test_apply_many_submits_one_group_at_a_time_and_preserves_item_order():
         serial_one = [(method, state) for serial, method, state in calls if serial == 1]
         assert serial_one == [("discarded", {"discarded": False}), ("locked", {"locked": True})]
         assert sum(method == "equipment.status" for method, _ in core.calls) == 1
+        assert not sync.database_path.exists()
     finally:
         lease.close()
         session.close()

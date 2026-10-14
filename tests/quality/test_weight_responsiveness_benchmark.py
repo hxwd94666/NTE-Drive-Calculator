@@ -64,12 +64,12 @@ from types import SimpleNamespace
 from tools.quality import benchmark_weight_responsiveness as benchmark
 root, fixture, output = map(Path, sys.argv[1:])
 benchmark.isolate_source(root)
-from src.services.characters.basic_weight_service import BasicWeightService
+from src.services.characters.basic_weight.service import BasicWeightService
 def failed_save(*_args, **_kwargs):
     raise RuntimeError('controlled commit failure')
 BasicWeightService.save_changes = failed_save
 args = SimpleNamespace(source_root=root, fixture=fixture, output=output,
-                       iterations=1, worker_mode='cold', one_cpu=False)
+                       iterations=1, worker_mode='cold', one_cpu=False, qt_platform='offscreen')
 raise SystemExit(benchmark.worker(args))
 """
     execution = benchmark.run_child([sys.executable, '-c', code, str(ROOT), str(fixture), str(output)],

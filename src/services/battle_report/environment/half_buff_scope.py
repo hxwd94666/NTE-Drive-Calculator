@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
-from src.domain.battle_report import BattleInferredBuffInterval
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 
 
 _KNOWN_HALVES = ("upper", "lower")

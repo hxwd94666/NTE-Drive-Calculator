@@ -11,10 +11,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QPushButton, QScrollArea, QTableView, QTableWidget
 
 from src.features.static_catalog.dependencies import build_static_catalog_domain_pages
-from src.features.static_catalog.domain_pages.equipment_page import (
+from src.features.static_catalog.domain_pages.equipment.catalog_model import ReleaseEquipmentCatalogSource
+from src.features.static_catalog.domain_pages.equipment.page import (
     EquipmentCatalogPage,
     EquipmentGalleryCard,
-    ReleaseEquipmentCatalogSource,
     build_equipment_catalog_page,
 )
 from src.integrations.game_assets.catalog import GameUiAssetCatalog

@@ -5,7 +5,7 @@ import unittest
 
 from tests.test_native_direct_replay import frozen_fixture
 from tests.battle_report.buffs.test_attribute_projection import _interval
-from src.domain.battle_report import BattleCharacterStat
+from src.domain.battle_report.build.inputs import BattleCharacterStat
 from src.services.battle_report.replay.preparation import BattleHitProjectionPreparationService
 from src.services.battle_report.replay.service import BattleHitReplayService
 from src.services.battle_report.buffs.candidate_projection import PreparedBuffCandidateProjection

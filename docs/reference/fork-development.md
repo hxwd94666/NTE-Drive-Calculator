@@ -10,7 +10,7 @@
 
 | 输入 | 来源与用途 |
 | --- | --- |
-| 合成静态库及匹配清单 | [共享夹具](../../tests/characters/basic_weight_fixture.py)复用正式 `SCHEMA_PATHS`，生成临时 SQLite 和 `manifest.json`；不复制发行库 |
+| 合成静态库及匹配清单 | [共享夹具](../../tests/characters/configuration/fixture.py)复用正式 `SCHEMA_PATHS`，生成临时 SQLite 和 `manifest.json`；不复制发行库 |
 | 临时账号库 | `UserDataDao` 按正式 schema/追加迁移新建；不读取真实账号或账号索引 |
 | 词条标签与规则 | 公开 [config/stats.json](../../config/stats.json)；正式属性 ID 与显示标签分离 |
 | 公开 Python/Qt 依赖 | 按 README 与锁文件准备；本例不安装驱动、不加载 OCR 或独立游戏组件 |
@@ -33,11 +33,11 @@
 
 | 环节 | 实际入口与本层负责的内容 |
 | --- | --- |
-| 读取 | [page_owner.py](../../src/features/configuration/page_owner.py)的 `refresh/controller` → [page.py](../../src/features/configuration/page.py)的 `switch_config_form` → [controller.py](../../src/features/configuration/controller.py)的 `request_form_data`；读取后台执行，缓存按来源身份失效 |
+| 读取 | [page_owner.py](../../src/features/configuration/page_owner.py)的 `refresh/controller` → [editing/form.py](../../src/features/configuration/editing/form.py)的 `switch_config_form` → [controller.py](../../src/features/configuration/controller.py)的 `request_form_data`；读取后台执行，缓存按来源身份失效 |
 | 冻结 | [dependencies.py](../../src/features/configuration/dependencies.py)一次取得账号、generation、用户库、配置及静态/共享路径，生成 Domain 的 [BasicWeightDependencies](../../src/domain/basic_weight.py)；不是读取时再找当前账号 |
-| 组装目录 | [basic_weight_service.py](../../src/services/characters/basic_weight_service.py)的 `load_form_data` 解析官方/自建角色、有效权重及属性选择；官方目录经[正式静态读取单元](../../src/integrations/static_catalog_release.py)校验清单、字节与 dataset；开页不种账号默认记录 |
-| 编辑 | `page.py` 的 `save_role_weight_value` 等只改变本页草稿和 dirty ID 集合；key 为正式 `character_id`，同名角色不合并，同账号刷新不覆盖草稿 |
-| 保存 | [commit_actions.py](../../src/features/configuration/commit_actions.py)的 `save_config_form` 深拷贝草稿及脏字段集合；Controller 的提交通道接受一次工作，忙时不再排一个重复保存 |
+| 组装目录 | [basic_weight/service.py](../../src/services/characters/basic_weight/service.py)的 `load_form_data` 解析官方/自建角色、有效权重及属性选择；官方目录经[正式静态读取单元](../../src/integrations/static_catalog_release.py)校验清单、字节与 dataset；开页不种账号默认记录 |
+| 编辑 | `editing/form.py` 的 `save_role_weight_value` 等只改变本页草稿和 dirty ID 集合；key 为正式 `character_id`，同名角色不合并，同账号刷新不覆盖草稿 |
+| 保存 | [editing/commit.py](../../src/features/configuration/editing/commit.py)的 `save_config_form` 深拷贝草稿及脏字段集合；Controller 的提交通道接受一次工作，忙时不再排一个重复保存 |
 | 业务校验与持久化 | `BasicWeightService.save_changes` 校验全部角色、形状、底盘和套装后才开始业务写入；[character_weight_service.py](../../src/services/characters/character_weight_service.py)生成 Domain 的 `AccountWeightChange`；[UserDataDao](../../src/storage/sqlite/user_data_dao.py)在唯一连接的 `write_transaction` 中整批提交，内层保存点不提前提交 |
 | 重置 | `reset_current_config_weights/reset_all_config_weights` → `reset_weights` → 同一账号事务恢复指定官方角色默认权重；主角共享来源去重，自建角色没有发行默认值；额外形状、底盘、套装不因重置权重改变 |
 | 失败 | 事务/校验失败保留已保存事实；提交失败保留页面草稿并停止待处理导航。已经提交而投影失败是另一终态，只重载展示，不自动重新保存 |
@@ -63,9 +63,9 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 
 | 用例 | 输入、处理与可检查结果 |
 | --- | --- |
-| [真实页面读/编辑/保存](../../tests/characters/test_basic_weight_page.py) | 创建与 `1051` 同名的自建角色；通过实际权重控件输入 `CritBase=1.55` 并点击保存；用真实 DAO 确认仅该自建 ID 写入 `1.55`，官方共享来源没有新增覆盖；同模块还验证官方重置及自建角色创建/删除 |
-| [整批成功与数据库回退](../../tests/characters/test_basic_weight_commit_service.py) | 输入角色 A 的 `CritBase=2.25` 与角色 B 的形状/底盘/套装；正常分支确认同批字段提交。失败分支在临时库创建 `RAISE(ABORT, 'fixture SQL failure')` 触发器，确认较早写入的 A 权重也回退；多角色重置的后段 SQL 失败保留全部原覆盖 |
-| [冻结、失败保草稿与离页](../../tests/characters/test_configuration_async.py) | 受控 worker 延迟/失败响应验证保存冻结副本、重复保存拒绝、失败保留权重草稿并不导航、Save 只继续一次、Cancel/Discard 及账号换代丢弃旧展示确认；这里的延迟/失败响应是测试注入，不称为真实组件或游戏验收 |
+| [真实页面读/编辑/保存](../../tests/characters/configuration/test_basic_weight_page.py) | 创建与 `1051` 同名的自建角色；通过实际权重控件输入 `CritBase=1.55` 并点击保存；用真实 DAO 确认仅该自建 ID 写入 `1.55`，官方共享来源没有新增覆盖；同模块还验证官方重置及自建角色创建/删除 |
+| [整批成功与数据库回退](../../tests/characters/configuration/test_basic_weight_commit_service.py) | 输入角色 A 的 `CritBase=2.25` 与角色 B 的形状/底盘/套装；正常分支确认同批字段提交。失败分支在临时库创建 `RAISE(ABORT, 'fixture SQL failure')` 触发器，确认较早写入的 A 权重也回退；多角色重置的后段 SQL 失败保留全部原覆盖 |
+| [冻结、失败保草稿与离页](../../tests/characters/configuration/test_configuration_async.py) | 受控 worker 延迟/失败响应验证保存冻结副本、重复保存拒绝、失败保留权重草稿并不导航、Save 只继续一次、Cancel/Discard 及账号换代丢弃旧展示确认；这里的延迟/失败响应是测试注入，不称为真实组件或游戏验收 |
 
 第一项最小修改可以直接把页面用例中的输入和对应 DAO 断言 `1.55` 同时改为 `1.75`，再运行同一模块；
 保留同名正式 ID 分离与官方来源未写入的断言。它验证实际页面到持久化，不靠打印预期值通过。
@@ -76,6 +76,8 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 安装的新虚拟环境，而不是旧 editable 安装、另一工作区或复用的 site-packages。最小参考依赖的安装方式
 只在 README 维护；参考环境不是完整产品环境，基线 ref 与未提交工作树 overlay 分开记录。
 公开 ref 的全新 checkout、完整应用和资源前置仍各自验收。
+现有质量入口的源码卫生检查直接询问 Git：运行数据须被忽略，`src/`、`tools/`、`tests/` 中现存 Python 源码不得被规则隐藏。
+它同时覆盖已跟踪文件和新文件；导出的无 Git 副本跳过该项。此检查不代替资源清单、动态入口或干净 checkout 的运行验收。
 离屏专项、core/full、真实 Windows 窗口、真实组件及发行构建分别计证据，不互相替代。
 
 ## 4. 五类常见修改配方
@@ -128,8 +130,8 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
   页面草稿不是数据库事实，账号换代前停止旧 owner，迟到结果不写新账号。自建 Page 不读取其他 Feature 私有控件，
   不给 MainWindow 动态挂草稿字段，不把现有 Service 包一层再保留旧入口。
 - **关键检查：** 本页三组用例，另看
-  [公开账号生命周期](../../tests/characters/test_configuration_account_lifecycle.py)与
-  [owner 物理寿命](../../tests/characters/test_basic_weight_owner_lifetime.py)；Qt 离屏通过仍需真实窗口的键盘/DPI 验收。
+  [公开账号生命周期](../../tests/characters/configuration/test_configuration_account_lifecycle.py)与
+  [owner 物理寿命](../../tests/characters/configuration/test_basic_weight_owner_lifetime.py)；Qt 离屏通过仍需真实窗口的键盘/DPI 验收。
 
 ### 4.4 界面语言补丁
 
@@ -167,7 +169,7 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 ## 5. 未来接入与本次证据的限制
 
 新语种 OCR 仍需对应识别模型/字典、别名到正式 ID、布局模板、冻结/缓存身份及真实样本；
-职责见[功能内语言预备](../roadmap/architecture-renewal.md#62-鉴定与扫描的功能内语言预备)，
+职责见[功能内语言预备](../roadmap/architecture-post-refactor-review.md#鉴定与扫描的功能内语言预备)，
 不由界面补丁推断支持。新伤害分配沿[伤害备忘](../roadmap/damage-allocation.md)后续开发，
 本例不启用搜索器、不提供假伤害结果。
 
@@ -175,3 +177,21 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 以及只覆盖本批确切文件的回退；不要用清空工作区恢复，也不把其他未提交工作当原件。
 已有公开 ref 未完成全新 checkout/锁定安装/完整资源验收时，继续保留明确待验收状态；维护者确认 ref 后，
 在该干净检出与 README 所述环境中运行第 3 节现有质量命令，再按实际结果记录。
+由未参与重构的开发者按文档完成约定修改，核对其能找到实际入口和验证结果，作者自测不替代这项验收。
+
+## 6. 接口关键说明模板
+
+新增、迁移与保留实现只解释接口确有的业务责任，不给每个短函数粘贴整块模板：
+
+```text
+模块摘要：本模块负责什么；哪些责任交给其他层。
+接口约定：输入/输出、单位、正式身份与未知值；调用线程和副作用。
+关键原因：这个约束或分支为何存在；删除会破坏什么行为。
+生命周期：状态如何推进；取消、失效、关闭时由谁收尾。
+一致性：事务范围、缓存失效、失败保留什么；为何允许或禁止重试。
+验证依据：对应公共行为用例，必要时链接权威领域文档。
+```
+
+例如本页保存接口需解释“先校验全部角色再提交；事务失败保留草稿；提交后投影失败只重载，不再写入”；
+异步回调需解释“账号代次失效即丢弃结果，不用新账号补齐旧请求”。已有说明准确时保留，失效说明删除，
+不从函数名猜测并发或失败策略。技术标识、协议与第三方许可保持原名。

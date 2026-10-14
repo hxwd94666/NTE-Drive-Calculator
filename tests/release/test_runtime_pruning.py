@@ -198,7 +198,7 @@ def test_io_failure_reports_exact_partial_progress_without_claiming_rollback(tmp
 
 @pytest.mark.parametrize('profile', ['openvino', 'onnx_cpu', 'onnx_directml'])
 def test_single_library_pruning_keeps_selected_runtime_and_rejects_selected_missing(tmp_path, profile):
-    from src.integrations.vision.recognition.backend_support import OcrBackendSupport
+    from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport
     support = OcrBackendSupport(profile)
     internal = _bundle(tmp_path)
     # 仅在本次合成候选删除已知夹具成员，不枚举或改动真实依赖环境。
@@ -218,7 +218,7 @@ def test_single_library_pruning_keeps_selected_runtime_and_rejects_selected_miss
 
 
 def test_excluded_runtime_mixed_in_fails_before_any_pruning(tmp_path):
-    from src.integrations.vision.recognition.backend_support import OcrBackendSupport
+    from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport
     internal = _bundle(tmp_path)
     with pytest.raises(RuntimeError):
         prune_unused_runtime_binaries(internal, support=OcrBackendSupport('openvino'))

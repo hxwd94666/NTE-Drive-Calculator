@@ -5,13 +5,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from src.domain.battle_counterfactual import BattleBuildCounterfactual
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleRangeRoleSummary,
-    BattleTimelineDamageGroup,
-)
+from src.domain.battle_report.counterfactual.results import BattleBuildCounterfactual
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleTimelineDamageGroup
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.services.battle_report.characters.daffodill_marginal import (
     DAFFODILL_EFFECT_FIVE_METHOD,
     BattleDaffodillMarginalService,

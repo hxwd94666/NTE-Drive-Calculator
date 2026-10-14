@@ -20,11 +20,7 @@ from src.app.theme import (
 
 
 class MainWindowThemeMixin:
-    def _load_update_config(self):
-        return self._account_settings.load("update")
 
-    def _save_update_config(self):
-        self._update_config = self._account_settings.save("update", self._update_config)
 
     def _load_ui_preferences(self):
         return self._account_settings.load("ui")

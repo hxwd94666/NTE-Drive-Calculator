@@ -49,15 +49,23 @@ class NativePluginUpdateController(QObject):
         if self._closing or self.running:
             return
         owner = self.parent()
+        context, expected = self.context, self.generation()
+        root = context.paths.root
+        worker = None
+        # 确认框会运行嵌套事件循环；权限绑定必须属于打开确认前的代次，不能事后收编。
+        guard = bind_execution_guard(self.policy.require,
+            should_stop=lambda: self._closing or self.context is not context
+            or (worker is not None and worker.isInterruptionRequested()), generation=self.generation)
         try:
-            self.policy.require('native_load')
+            guard('native_load')
             pid = native_game_pid()
             if pid is None:
                 raise RuntimeError('游戏尚未启动，当前没有运行中的插件可热更新。\n'
                                    '要在启动游戏前更新组件，请点击“部署原生组件”；'
                                    '要热更新，请先启动游戏后再点击本按钮。')
             settings = self.policy.settings
-            if self.policy.deployment_record.get('loading_method') == 'loader':
+            deployment = self.policy.deployment_record
+            if deployment.get('loading_method') == 'loader':
                 workspace = self.loader.native_workspace_record
                 if workspace is None:
                     raise RuntimeError('缺少 Loader 运行目录记录。')
@@ -74,10 +82,22 @@ class NativePluginUpdateController(QObject):
             '\n战报录制或游戏写操作进行中时不会强行更新；D3D 宿主变化仍需退出游戏。',
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
+        if self._closing or self.running or self.context is not context or self.generation() != expected:
+            return
+        try:
+            guard('native_load')
+            # 账号、模式之外，游戏进程和本机部署目标也可能在确认期间变化。
+            workspace = self.loader.native_workspace_record if deployment.get('loading_method') == 'loader' else None
+            if (native_game_pid() != pid or self.policy.deployment_record != deployment
+                    or self.policy.settings.game_executable != settings.game_executable
+                    or (deployment.get('loading_method') == 'loader'
+                        and (workspace is None or workspace.directory != directory))):
+                raise RuntimeError('游戏进程或组件目录已改变，请重新发起更新。')
+        except Exception as error:
+            if not self._closing and self.generation() == expected:
+                QMessageBox.warning(owner, '更新本方插件', str(error))
+            return
         worker = _UpdateWorker(None, self)
-        guard = bind_execution_guard(self.policy.require, should_stop=worker.isInterruptionRequested,
-                                     generation=self.generation)
-        root = self.context.paths.root
         try:
             self.maintenance.begin()
         except Exception as error:
@@ -94,7 +114,7 @@ class NativePluginUpdateController(QObject):
         self._stopping = False
         self._result_handled = False
         self._target_directory = directory
-        self._request_generation = self.generation()
+        self._request_generation = expected
         worker.result_ready.connect(self._result)
         worker.finished.connect(self._finished)
         worker.start()

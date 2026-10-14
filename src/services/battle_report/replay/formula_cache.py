@@ -5,13 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 
 
 _CACHEABLE_CHANNELS = frozenset({"direct", "direct_follow_up"})

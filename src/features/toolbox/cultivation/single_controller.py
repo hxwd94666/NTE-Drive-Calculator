@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from functools import partial
 
 from src.features.toolbox.cultivation.calculation_controller import CultivationCalculationController
-from src.domain.cultivation_history import HistoryCalculationEnvelope
+from src.domain.progression.history import HistoryCalculationEnvelope
 from src.services.progression.planner_service import (
     CultivationPlan, CultivationPlannerService, CultivationRequest, CultivationStaminaPlan,
 )

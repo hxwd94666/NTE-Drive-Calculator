@@ -18,12 +18,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import apply_app_theme
-from src.features.static_catalog.domain_pages.combat_mechanics_page import (
+from src.features.static_catalog.domain_pages.mechanics.page import (
     build_combat_mechanics_catalog_page,
 )
-from src.features.static_catalog.domain_pages.mechanics_widgets import (
-    CollapsiblePanel,
-    LinkButton,
+from src.features.static_catalog.domain_pages.mechanics.widgets import (
     MechanicsGalleryCard,
 )
 from src.services.static_catalog.mechanics.service import CatalogLink, encode_record
@@ -93,8 +91,6 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
             "/Game/", "GA_", "GE_",
         ):
             self.assertNotIn(token, visible)
-        self.assertEqual([], self.page.detail_host.findChildren(CollapsiblePanel))
-        self.assertEqual([], self.page.detail_host.findChildren(LinkButton))
 
     def test_ring_tier_detail_renders_large_source_rows(self) -> None:
         self.assertTrue(self.page.open_record(
@@ -127,7 +123,6 @@ class StaticCatalogCombatMechanicsPageUiTests(unittest.TestCase):
             label.text() for label in self.page.detail_host.findChildren(QLabel)
         )
         self.assertIn("所属对象", visible)
-        self.assertEqual([], self.page.detail_host.findChildren(LinkButton))
         self.assertFalse(any(
             "前往" in button.text()
             for button in self.page.detail_host.findChildren(QPushButton)

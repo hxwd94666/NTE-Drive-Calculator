@@ -4,8 +4,8 @@ from dataclasses import replace
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from src.domain.battle_report import BattleAbyssHalfSummary, BattleAbyssSummary
-from src.features.battle_report.overlay import BattleReportOverlay
+from src.domain.battle_report.capture.summary import BattleAbyssHalfSummary, BattleAbyssSummary
+from src.features.battle_report.capture.overlay import BattleReportOverlay
 from src.integrations.nte_core_battle import parse_battle_summary
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService
@@ -80,3 +80,42 @@ def test_failed_start_is_not_logged_as_ready(monkeypatch):
     assert events[0][0] == "battle_report.capture_starting"
     assert events[0][1]["source"] == "native"
     assert not any(event == "battle_report.capture_started" for event, _ in events)
+
+
+@pytest.mark.parametrize("active_half", [None, "", "future_stage"])
+def test_unconfirmed_abyss_half_waits_without_reusing_total_observation(overlay, active_half):
+    # 正式摘要回调仍保留累计事实；活动半场未知时只撤下实时展示，不停止采集。
+    service = BattleCaptureService(
+        client_factory=lambda: pytest.fail("summary callback must not start a client"),
+        operation_context=OperationContext.create("battle_report"),
+    )
+    service.add_state_handler(lambda state: overlay.update_summary(state.summary))
+    upper = {"half": "first", "duration_seconds": 10, "total_damage": 100, "total_dps": 10}
+    payload = {"total_hits": 5, "total_damage": 100, "total_dps": 10,
+               "abyss": {"detected": True, "active_half": "first", "first_half": upper}}
+    service._on_summary_event({"method": "event.battle.summary", "params": {**payload, "sequence": 1}})
+    frozen = service.state.summary
+    assert tuple(overlay._history) == (10.0,)
+
+    payload["abyss"] = {**payload["abyss"], "active_half": active_half}
+    service._on_summary_event({"method": "event.battle.summary", "params": {**payload, "sequence": 2}})
+
+    assert service.state.phase == "running"
+    assert "等待战斗数据" in service.state.message
+    assert service.state.summary.abyss.active_half == active_half
+    assert service.state.summary.total_damage == 100.0
+    assert service.state.summary.abyss.first_half.total_damage == 100.0
+    assert frozen.abyss.active_half == "first" and frozen.total_damage == 100.0
+    assert not service._stop_event.is_set()
+    assert overlay._summary is None
+    assert not overlay._history
+
+    # 下半场已确认的真实零伤命中仍可见，不把本次等待解释为整个报告无伤害。
+    payload["abyss"] = {**payload["abyss"], "active_half": "second", "second_half": {
+        "half": "second", "characters": [{"char_id": 1001, "name": "角色", "hits": 1}],
+    }}
+    service._on_summary_event({"method": "event.battle.summary", "params": {**payload, "sequence": 3}})
+    assert "已收到实时战斗数据" in service.state.message
+    assert overlay._summary is service.state.summary
+    assert tuple(overlay._history) == (0.0,)
+    assert service.state.summary.total_damage == 100.0

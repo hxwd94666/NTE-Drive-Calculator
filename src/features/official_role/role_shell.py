@@ -40,36 +40,18 @@ from src.ui.widgets import (
 from .role_calculation import (
     _build_damage_formula_group,
     _build_margin_group,
+    _build_weight_group,
     _clear_layout,
-    _selected_combo_data,
     _selected_fork_stage,
     _selected_growth,
 )
 from .role_equipment import _build_drive_summary_group
 from .role_awakening import _build_awakening_group
-from .role_growth import (
-    _build_base_group,
-    _build_fork_group,
-    _build_skill_group,
-)
-from .role_weights import _build_weight_group
+from .editing.growth_fields import _build_base_group
+from .editing.skill_fields import _build_skill_group
+from .editing.fork_fields import _build_fork_group
 
 __all__ = ["_page_my_role", "_refresh_my_role", "confirm_pending_my_role_changes"]
-
-_WEIGHT_PROPERTY_CHOICES = (
-    ("暴击率%", "CritBase"),
-    ("暴击伤害%", "CritDamageBase"),
-    ("伤害增加%", "DamageUpGeneralBase"),
-    ("攻击力%", "AtkUp"),
-    ("攻击力", "AtkAdd"),
-    ("防御力", "DefAdd"),
-    ("防御力%", "DefUp"),
-    ("生命值%", "HPMaxUp"),
-    ("生命值", "HPMaxAdd"),
-    ("环合强度", "MagBase"),
-    ("倾陷强度", "UnbalIntensityBase"),
-)
-_WEIGHT_LABEL_BY_PROPERTY = {property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES}
 
 
 def _mark_world_bonus_dirty(window) -> None:
@@ -337,7 +319,7 @@ def _save_profiles(window, *, show_message: bool = True, completion=None) -> boo
             growth = _selected_growth(editor)
             if growth is None:
                 raise ValueError("角色等级不在官方成长数据范围内")
-            fork_id = _selected_combo_data(editor["fork"])
+            fork_id = editor["fork"].currentData()
             selected_awaken_effect_ids = tuple(
                 effect_id
                 for effect_id, check in editor["awakening_checks"].items()

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.theme import themed_style
-from src.domain.cultivation_history import HistoryPage, HistoryRecord, HistorySelection, HistorySummary
+from src.domain.progression.history import HistoryPage, HistoryRecord, HistorySelection, HistorySummary
 from src.features.toolbox.cultivation.history_controller import CultivationHistoryController, HistoryOperationResult
 from src.features.toolbox.cultivation.history_detail import CultivationHistoryDetail
 from src.features.toolbox.cultivation.history_display import local_history_time, summary_text

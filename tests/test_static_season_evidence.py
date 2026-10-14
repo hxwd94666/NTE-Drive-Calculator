@@ -1,18 +1,78 @@
 # 验证赛季排期补注、静态迁移和新模型证据边界。
 import re
 import sqlite3
+import tempfile
 import unittest
+from contextlib import closing
 from datetime import date
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
 from tools.game_data.static_database_encounter_imports import EncounterImportMixin
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.services.battle_report.environment.outer_realm_buffs import (
     BattleOuterRealmBuffComponent, BattleOuterRealmBuffConfig, BattleOuterRealmBuffService,
 )
 
 
 class StaticSeasonEvidenceTests(unittest.TestCase):
+    def test_dao_and_loader_preserve_component_source_and_legacy_unknown(self):
+        schema = Path(__file__).resolve().parents[1] / "src/storage/sqlite/schema"
+        effect = "/Game/Fixture/SeasonEffect"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "static.sqlite3"
+            # 仅构造正式读取链所需关系；赛季表和新增来源列直接使用已发布迁移。
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("""
+                    CREATE TABLE schema_migration(version INTEGER PRIMARY KEY);
+                    INSERT INTO schema_migration VALUES(36);
+                    CREATE TABLE source_row(source_row_id INTEGER PRIMARY KEY);
+                    INSERT INTO source_row VALUES(1);
+                    CREATE TABLE outer_realm_rotation(level_config_id TEXT PRIMARY KEY);
+                    INSERT INTO outer_realm_rotation VALUES('Abyss_10');
+                    CREATE TABLE abyss_level_monster_spawn(
+                        level_config_id TEXT, level_id INTEGER, fight_stage TEXT, monster_pool_id TEXT);
+                    CREATE TABLE abyss_monster_pool_entry(
+                        monster_pool_id TEXT, attribute_profile_set TEXT, attribute_pack_id TEXT);
+                    CREATE TABLE enemy_combat_profile(
+                        profile_set TEXT, pack_id TEXT, topple_limit REAL, topple_reduce_reset REAL);
+                """)
+                db.executescript((schema / "026_game_static_outer_realm_buff.sql").read_text(encoding="utf-8"))
+                db.execute("INSERT INTO outer_realm_season_buff VALUES(?,?,?,?,?,?,?,?,?)",
+                           ("Abyss_10", "测试赛季", "season", "测试", "测试", "/Game/Fixture/Season", 1, 1, 1))
+                db.executemany("INSERT INTO outer_realm_season_buff_component VALUES(?,?,?,?,?,?,?,?,?,?)", [
+                    ("Abyss_10", 0, "whole_battle", "DamageUpGeneralBase", .3, None, None, 1, "base", 1),
+                    ("Abyss_10", 1, "while_target_toppled", "AtkUp", .25, None, None, 1, "attack", 1),
+                ])
+                db.commit()
+            for version in (36, 37):
+                if version == 37:
+                    with closing(sqlite3.connect(path)) as db:
+                        db.executescript((schema / "037_game_static_season_evidence.sql").read_text(encoding="utf-8"))
+                        db.execute("INSERT INTO schema_migration VALUES(37)")
+                        db.execute("UPDATE outer_realm_season_buff_component SET trigger_kind='whole_battle_qte' WHERE component_ordinal=0")
+                        db.execute("UPDATE outer_realm_season_buff_component SET trigger_kind='observed_recipient_effect', effect_asset_path=? WHERE component_ordinal=1", (effect,))
+                        db.commit()
+                expected = [None, effect if version == 37 else None]
+                before = sha256(path.read_bytes()).hexdigest()
+                try:
+                    with StaticGameDataDao(path) as dao:
+                        self.assertEqual(version, dao.schema_version)
+                        row = dao.get_outer_realm_season_buff("Abyss_10")
+                    with self.subTest(version=version, projection="dao"):
+                        self.assertEqual(expected, [item.get("effect_asset_path") for item in row["components"]])
+                    config = BattleOuterRealmBuffService.load(path, "Abyss_10|1|EAbyssFightStage::Up")
+                    with self.subTest(version=version, projection="load"):
+                        self.assertEqual(expected, [item.effect_asset_path for item in config.components])
+                        self.assertEqual([(0, "DamageUpGeneralBase", .3), (1, "AtkUp", .25)],
+                                         [(item.component_ordinal, item.property_id, item.value) for item in config.components])
+                        self.assertIsNone(config.topple_limit)
+                        self.assertIsNone(config.topple_recovery_speed)
+                finally:
+                    # 旧 schema/新 schema 的未知来源都不猜测，正式只读入口也不晋升或回写静态库。
+                    self.assertEqual(before, sha256(path.read_bytes()).hexdigest())
+
     def test_v37_preserves_old_components_and_rejects_unknown_trigger(self):
         db = sqlite3.connect(":memory:")
         db.execute("CREATE TABLE source_row(source_row_id INTEGER PRIMARY KEY)")

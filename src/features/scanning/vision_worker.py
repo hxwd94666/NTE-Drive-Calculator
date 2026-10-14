@@ -19,8 +19,8 @@ from PySide6.QtCore import QThread, Signal
 from src.integrations.bundled_resources import bundled_config_dir
 from src.integrations.vision.capture_files import CaptureStage, check_capture_stage
 from src.integrations.vision.recognition.resources import RecognitionResources
-from src.integrations.vision.recognition.backend_runtime import check_cancel
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.backend_runtime import check_cancel
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from src.integrations.vision.recognition.batch_processor import BatchProcessor
 from src.services.recognition.resources import load_recognition_resources, check_recognition_resources
 from src.integrations.vision.recognition.duplicate_filter import RecoverableParseError, filename_sequence_key

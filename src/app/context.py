@@ -71,10 +71,10 @@ class ApplicationPaths:
 
     @property
     def equipment_allocation_database_path(self) -> Path:
-        """Freeze the complete game dataset for scoring and native allocation.
+        """默认消费组合根已选定的静态库，供基础评分与装备分配使用。
 
-        The optional reference catalog lacks verified fork permanent properties
-        and graduation benchmarks, so it cannot supply calculation inputs.
+        经正式校验的 reference 可显式注入此路径；不自动继承 role_catalog，
+        也不因该选择提升战报分析能力。
         """
 
         return self.static_database_path
@@ -146,6 +146,15 @@ class AccountChangedEvent:
     previous: AccountContext
     current: AccountContext
     generation: int
+
+
+class AccountSwitchError(RuntimeError):
+    """切换失败区分提交前补偿、已提交但自动服务失败与恢复受阻。"""
+
+    def __init__(self, message: str, *, committed: bool = False, recovery_failed: bool = False):
+        super().__init__(message)
+        self.committed = committed
+        self.recovery_failed = recovery_failed
 
 
 class AccountLifecycle(Protocol):
@@ -225,6 +234,8 @@ class AppContext:
         self._account_changed_handlers: list[AccountChangedHandler] = []
         self._account_lifecycles: list[AccountLifecycle] = []
         self._nte_core_lifecycle: AccountLifecycle | None = None
+        self._switching = False
+        self._account_recovery_failed = False
 
     @property
     def account(self) -> AccountContext:
@@ -243,12 +254,18 @@ class AppContext:
         return self._nte_core_lifecycle
 
     def create_user_dao(self) -> UserDataDao:
+        self.require_account_ready()
         account = self._account
         return self._user_dao_factory(
             account.user_database_path,
             account_id=account.active_account_id,
             account_name=account.active_account_name,
         )
+
+    def require_account_ready(self) -> None:
+        """补偿受阻后不再开放新写入；停止、清理和退出不走此入口。"""
+        if self._account_recovery_failed:
+            raise AccountSwitchError("账号恢复未完成，新的账号访问已暂停", recovery_failed=True)
 
     def create_static_dao(self) -> StaticGameDataDao:
         return self._static_dao_factory(self.paths.static_database_path)
@@ -292,38 +309,84 @@ class AppContext:
 
         return unregister
 
-    def switch_account(self, account: AccountContext) -> AccountChangedEvent | None:
-        """Stop, switch, rebuild, notify and then resume account-bound services."""
+    def switch_account(self, account: AccountContext, *,
+                       publish: Callable[[], None] | None = None) -> AccountChangedEvent | None:
+        """设置先准备；owner/页面/索引全部完成才恢复自动服务，失败只恢复旧身份。"""
+        if self._switching or self._account_recovery_failed:
+            raise AccountSwitchError("账号切换或恢复尚未结束", recovery_failed=self._account_recovery_failed)
+        self._switching = True
+        try:
+            if account.active_account_id == self._account.active_account_id:
+                if publish is not None:
+                    publish()
+                return None
+            # 构造失败尚未停止旧 owner，也没有推进 ID/代次/设置路径。
+            settings = self._build_account_settings(account)
+            previous, previous_settings = self._account, self._account_settings
+            lifecycles = tuple(self._account_lifecycles)
+            handlers = tuple(self._account_changed_handlers)
+            running = tuple(item for item in lifecycles if item.is_running())
+            for lifecycle in lifecycles:
+                lifecycle.stop()
+            self._account, self._account_settings = account, settings
+            self._generation += 1
+            event = AccountChangedEvent(previous, account, self._generation)
+            try:
+                for lifecycle in lifecycles:
+                    lifecycle.rebuild(account)
+                for handler in handlers:
+                    handler(event)
+                if publish is not None:
+                    publish()
+            except Exception as error:
+                self._restore_account(previous, previous_settings, account, lifecycles, handlers, running)
+                raise AccountSwitchError("账号切换未完成，原账号已恢复") from error
+            # 发布之后的启动失败不把已提交账号误报为未切换，更不重放已发出的启动。
+            started = []
+            try:
+                for lifecycle in running:
+                    started.append(lifecycle)
+                    lifecycle.start()
+            except Exception as error:
+                failures = self._stop_lifecycles(started)
+                self._account_recovery_failed = bool(failures)
+                raise AccountSwitchError("账号已切换，自动服务恢复未完成", committed=True,
+                                         recovery_failed=bool(failures)) from error
+            return event
+        finally:
+            self._switching = False
 
-        if account.active_account_id == self._account.active_account_id:
-            return None
-
-        previous = self._account
-        lifecycles = tuple(self._account_lifecycles)
-        running_before = {id(item): bool(item.is_running()) for item in lifecycles}
-
+    @staticmethod
+    def _stop_lifecycles(lifecycles) -> list[Exception]:
+        failures = []
         for lifecycle in lifecycles:
-            lifecycle.stop()
+            try:
+                lifecycle.stop()
+            except Exception as error:
+                failures.append(error)
+        return failures
 
-        self._account = account
+    def _restore_account(self, previous, settings, attempted, lifecycles, handlers, running) -> None:
+        failures = self._stop_lifecycles(lifecycles)
+        self._account, self._account_settings = previous, settings
+        # 回退不是代次回退：目标与原代次结果都已过期，旧 token 永远不复活。
         self._generation += 1
-        self._account_settings = self._build_account_settings(account)
-
-        for lifecycle in lifecycles:
-            lifecycle.rebuild(account)
-
-        event = AccountChangedEvent(
-            previous=previous,
-            current=account,
-            generation=self._generation,
-        )
-        for handler in tuple(self._account_changed_handlers):
-            handler(event)
-
-        for lifecycle in lifecycles:
-            if running_before[id(lifecycle)]:
-                lifecycle.start()
-        return event
+        restored = AccountChangedEvent(attempted, previous, self._generation)
+        if not failures:
+            try:
+                for lifecycle in lifecycles:
+                    lifecycle.rebuild(previous)
+                for handler in handlers:
+                    handler(restored)
+                for lifecycle in running:
+                    lifecycle.start()
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            self._stop_lifecycles(lifecycles)
+            self._account_recovery_failed = True
+            raise AccountSwitchError("账号恢复尚未完成，请关闭后重新启动；原账号数据已保留",
+                                     recovery_failed=True) from failures[0]
 
     def _build_account_settings(
         self,

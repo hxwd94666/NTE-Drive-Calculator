@@ -43,11 +43,15 @@ def test_risk_confirmation_only_accepts_explicit_consent(monkeypatch, mode, acti
         if mode == "offline":
             assert "停止采集与同步" in text and "清理已部署组件" in text
             assert "工作台开关控制" not in text
-        else:
+        elif mode == "low":
             assert "自动同步仍由工作台开关控制" in text and "后续版本更新继续沿用" in text
+        else:
+            # 确认模式不等于授权首次同步/组件准备；提示必须保留这两个独立动作。
+            assert "确认模式不等于开启自动同步" in text and "工作台首次开启会先显示环境检测" in text
+            assert "模式选择会保存" in text
         assert "推荐使用" not in text and "暂未发现" not in text and "极低" not in text
         assert "暂停自动管理" not in text
-        assert ("自动部署或更新" in text) == (mode in {"medium", "developer"})
+        assert ("开启同步并确认准备后" in text) == (mode in {"medium", "developer"})
         assert "双线战报对比" in text if mode == "developer" else True
         if action == "consent":
             consent.click()
@@ -76,7 +80,7 @@ def test_low_mode_report_offers_download_only_for_confirmed_missing_npcap(tmp_pa
     from unittest.mock import Mock
     from PySide6.QtWidgets import QWidget
     from src.domain.work_mode import WorkModeProbe
-    from src.services.work_mode_service import WorkModeService
+    from src.services.work_modes.service import WorkModeService
     from src.features.settings.work_mode_card import ModeReportDialog
     application()
     parent = QWidget()
@@ -101,6 +105,6 @@ def test_low_mode_report_offers_download_only_for_confirmed_missing_npcap(tmp_pa
     dialog.set_report(report)
     assert dialog.footer.indexOf(dialog.retry_button) < dialog.footer.indexOf(dialog.close_button)
     dialog.retry_button.click()
-    controller.check.assert_called_once_with(show=True)
+    controller.check.assert_called_once_with(show=True, retry_deployment=True)
     interact(dialog)
     dispose(parent)

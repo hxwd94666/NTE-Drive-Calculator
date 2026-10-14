@@ -1,19 +1,15 @@
-# 验证游戏资料库弧盘域的只读、投影与界面契约。
+# 验证弧盘正式 Service 与 DAO 的只读、分页和来源投影边界。
 """Public behavior contract for the read-only fork catalog domain."""
 
 from __future__ import annotations
 
-import os
 import sqlite3
-import subprocess
-import sys
 import unittest
 from pathlib import Path
 from typing import Any
 
 from src.services.static_catalog.forks.service import (
     CatalogOrigin,
-    CatalogRelation,
     StaticCatalogForkService,
 )
 from src.storage.sqlite.catalog.static_catalog_fork_queries import StaticCatalogForkDao
@@ -22,7 +18,6 @@ from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DATABASE = PROJECT_ROOT / "data" / "game_static.sqlite3"
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 class StaticCatalogForkServiceTests(unittest.TestCase):
@@ -132,7 +127,7 @@ class StaticCatalogForkDaoTests(unittest.TestCase):
         dao = StaticCatalogForkDao(STATIC_DATABASE)
         self.addCleanup(dao.close)
 
-        connection = dao._connection  # The test verifies the storage boundary itself.
+        connection = dao._connection  # 直接检查存储边界：真实只读连接必须拒绝 SQL 写入。
         self.assertIsNotNone(connection)
         assert connection is not None
         with self.assertRaises(sqlite3.OperationalError):
@@ -147,98 +142,6 @@ class StaticCatalogForkDaoTests(unittest.TestCase):
         self.assertEqual(
             dao.count_fork_catalog_items(query="%_\\"),
             0,
-        )
-
-
-def _run_ui_contract() -> None:
-    """Exercise QWidget behavior in an isolated QApplication process."""
-
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QApplication
-
-    from src.features.static_catalog.fork_detail import ForkCatalogWidget
-
-    app = QApplication.instance() or QApplication([])
-    service = StaticCatalogForkService.from_database(STATIC_DATABASE)
-    widget = ForkCatalogWidget(service)
-    try:
-        assert widget.catalog_list.count() == min(widget._page_size, 51)
-        assert "51 条" in widget.page_label.text()
-        assert "dataset" in widget.metadata_label.text()
-        assert widget.detail_tree.topLevelItemCount() > 0
-
-        copied_item = widget.detail_tree.topLevelItem(0).child(0)
-        widget.detail_tree.setCurrentItem(copied_item)
-        widget.copy_button.click()
-        assert QApplication.clipboard().text().startswith("fork_")
-
-        relations = widget.detail_tree.topLevelItem(1)
-        relation_item = next(
-            relations.child(index)
-            for index in range(relations.childCount())
-            if relations.child(index).data(1, Qt.UserRole + 1)
-        )
-        jumps: list[tuple[str, str]] = []
-        widget.relation_jump_requested.connect(
-            lambda kind, target_id: jumps.append((kind, target_id))
-        )
-        widget.detail_tree.itemDoubleClicked.emit(relation_item, 1)
-        assert jumps[0][0] == relation_item.data(1, Qt.UserRole + 1)[0]
-        unavailable = CatalogRelation(
-            kind="buff",
-            target_id="/Game/Missing",
-            label="未解析 Buff",
-            copy_value="/Game/Missing",
-            origin=CatalogOrigin.PROJECT_PROJECTION,
-            available=False,
-        )
-        unavailable_item = widget._add(
-            relations, "buff", unavailable.label, unavailable.origin, relation=unavailable
-        )
-        assert unavailable_item.data(1, Qt.UserRole) == unavailable.copy_value
-        assert unavailable_item.data(1, Qt.UserRole + 1) is None
-        jump_count = len(jumps)
-        widget.detail_tree.itemDoubleClicked.emit(unavailable_item, 1)
-        assert len(jumps) == jump_count
-
-        widget._page_size = 7
-        widget.refresh()
-        assert widget.catalog_list.count() == 7
-        assert widget.next_button.isEnabled()
-        widget.next_button.click()
-        assert "第 2 /" in widget.page_label.text()
-    finally:
-        widget.deleteLater()
-        service.close()
-        app.processEvents()
-
-
-class StaticCatalogForkUiTests(unittest.TestCase):
-    def test_widget_copy_jump_lazy_detail_and_pagination_contract(self) -> None:
-        environment = os.environ.copy()
-        environment["QT_QPA_PLATFORM"] = "offscreen"
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                "-c",
-                (
-                    "from tests.static_catalog.test_fork_service "
-                    "import _run_ui_contract; _run_ui_contract()"
-                ),
-            ],
-            cwd=PROJECT_ROOT,
-            env=environment,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=30,
-            check=False,
-        )
-        self.assertEqual(
-            completed.returncode,
-            0,
-            msg=f"stdout={completed.stdout}\nstderr={completed.stderr}",
         )
 
 

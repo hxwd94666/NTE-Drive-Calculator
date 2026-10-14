@@ -9,8 +9,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.domain.battle_report import BattleAnalysisHit, BattleBuffModifierEvidence, BattleInferredBuffInterval
-from src.domain.native_analysis import BuffProjectionBatchTooLarge
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBatchTooLarge
 from src.integrations.analysis_core_release import create_bundled_analysis_client
 from src.integrations.nte_analysis_core import ENGINE_VERSION, NativeAnalysisCancelled, NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService

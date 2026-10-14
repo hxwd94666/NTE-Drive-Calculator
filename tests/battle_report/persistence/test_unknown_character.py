@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.domain.battle_report import BattleAbyssHalfSummary, BattleAbyssSummary
+from src.domain.battle_report.capture.summary import BattleAbyssHalfSummary, BattleAbyssSummary
 from src.observability import OperationContext
 from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies, BattleReportPersistenceService,

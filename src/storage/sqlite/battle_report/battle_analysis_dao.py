@@ -7,7 +7,7 @@ from collections.abc import Mapping
 
 from typing import Any
 
-from src.domain.battle_build_assumption import assumed_graduation_equipment
+from src.domain.battle_report.build.inputs import assumed_graduation_equipment
 
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.user_data_support import (

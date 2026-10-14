@@ -8,21 +8,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from statistics import median
 
-from src.domain.battle_counterfactual import (
-    BattleBuildCounterfactual,
-    BattleBuildHitCounterfactual,
-    BattleBuildVitalCounterfactual,
+from src.domain.battle_report.counterfactual.results import (
+    BattleBuildCounterfactual, BattleBuildHitCounterfactual, BattleBuildVitalCounterfactual,
 )
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleRangeRoleSummary,
-)
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.services.battle_report.damage.composition import (
     BattleDamageCompositionService,
 )

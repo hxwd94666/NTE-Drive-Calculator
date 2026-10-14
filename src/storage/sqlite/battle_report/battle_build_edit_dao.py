@@ -8,9 +8,9 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from src.domain.battle_report_transfer import battle_equipment_sha256
-from src.domain.battle_build_assumption import has_graduation_assumption
-from src.domain.battle_world_bonus_edit import world_bonus_edit_stats
+from src.domain.battle_report.history.transfer import battle_equipment_sha256
+from src.domain.battle_report.build.inputs import has_graduation_assumption
+from src.domain.battle_report.build.inputs import world_bonus_edit_stats
 
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.user_data_support import (

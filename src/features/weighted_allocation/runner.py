@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, TYPE_CHECKING
 
@@ -18,12 +19,13 @@ from src.services.allocation_solver import (
     AllocationAssignment,
     AllocationSolveResult,
     RoleAllocationOption,
+    UnifiedAllocation,
     solve_allocation_context,
 )
 from src.services.allocation.weighted_save import (
     save_weighted_preview_records, freeze_weighted_allocation_locks,
 )
-from src.services.allocation.locks import AllocationLockSnapshot
+from src.services.allocation.locks import AllocationLockSnapshot, verify_allocation_lock_snapshot
 
 if TYPE_CHECKING:
     from .save_owner import WeightedOperation
@@ -153,44 +155,64 @@ def restore_weighted_allocation_preview(
         raise TypeError("restoring requires WeightedAllocationPersistence")
     if persistence.restore_request is None:
         return None
-    ownership.checkpoint()
-    with UserDataDao(persistence.user_database_path) as dao, dao.read_consistent_state():
-        assert_slot_bindings_current(dao, persistence.slot_bindings)
-    preview = run_weighted_allocation(replace(persistence.restore_request, ownership=ownership))
-    assert_binding_comparisons(persistence.slot_bindings, preview.loadout_comparisons)
-    if preview.static_dataset != persistence.static_dataset:
+    request = replace(persistence.restore_request, ownership=ownership)
+    _validate_weighted_request(request)
+    if Path(persistence.user_database_path).resolve() != ownership.identity.user_database_path:
+        raise RuntimeError("恢复请求与冻结账号数据库不一致")
+    operation = request.operation_context or OperationContext.create(
+        "allocation", snapshot_id=request.snapshot_id,
+    )
+    with operation_scope(operation, started_event="allocation.restore_started",
+                         succeeded_event="allocation.restore_succeeded",
+                         failed_event="allocation.restore_failed", message="恢复保存配装方案"):
+        return _run_weighted_allocation(request, operation, persistence=persistence)
+
+
+def _restore_saved_result(context, persistence, checkpoint):
+    """恢复是验证历史事实，不搜索新最优解，也不继承新求解器的约束说明。"""
+    if context.static_dataset != persistence.static_dataset:
         raise RuntimeError("已保存方案的数据集已更新，请重新计算。")
     expected = {plan.character_id: plan for plan in persistence.saved_plans}
-    selected = {option.character_id: option for option in preview.result.unified.selected}
-    if set(selected) != set(expected):
+    bindings = {row.character_id: row for row in persistence.slot_bindings}
+    if (not expected or len(expected) != len(persistence.saved_plans)
+            or set(expected) != {role.character_id for role in context.roles}
+            or len(bindings) != len(persistence.slot_bindings) or set(bindings) != set(expected)
+            or (context.profile_id, context.profile_version)
+            != (persistence.profile_id, persistence.profile_version)):
         raise RuntimeError("已保存方案与当前固定快照的可用角色不一致。")
+    if (persistence.selected_slots is not None
+            and dict(persistence.selected_slots) != {cid: row.slot_id for cid, row in bindings.items()}):
+        raise RuntimeError("已保存方案与冻结槽位选择不一致。")
     updated_options = []
-    for option in preview.result.unified.selected:
-        ownership.checkpoint()
-        character_id = option.character_id
-        signature = expected[character_id]
-        updated_options.append(_restore_saved_option(preview.context, option, signature))
-    unified = replace(
-        preview.result.unified,
-        total_score=sum(float(option.score) for option in updated_options),
-        selected=tuple(updated_options),
-        explanation=tuple(preview.result.unified.explanation) + ("已按当前官方蓝图恢复保存方案",),
-    )
-    ownership.checkpoint()
-    with UserDataDao(persistence.user_database_path) as dao, dao.read_consistent_state():
-        assert_slot_bindings_current(dao, persistence.slot_bindings)
-    return replace(
-        preview,
-        slot_bindings=persistence.slot_bindings,
-        explicit_slots=persistence.selected_slots is not None,
-        result=replace(preview.result, unified=unified),
-        loadout_comparisons=refresh_weighted_loadout_comparisons(
-            preview.loadout_comparisons, preview.context, updated_options,
-        ),
+    claimed = set()
+    for role in context.roles:
+        checkpoint()
+        signature = expected[role.character_id]
+        binding = bindings[role.character_id]
+        if (binding.plan_id != signature.plan_id or binding.source_snapshot_id != context.snapshot.snapshot_id
+                or binding.profile_id != context.profile_id or binding.profile_version != context.profile_version):
+            raise RuntimeError("已保存方案的来源、偏好或槽位绑定不一致。")
+        option = _restore_saved_option(context, signature)
+        real_uids = {assignment.uid for assignment in option.assignments if not assignment.virtual}
+        if claimed.intersection(real_uids):
+            raise RuntimeError("已保存方案重复使用真实装备 UID。")
+        claimed.update(real_uids)
+        updated_options.append(option)
+    # 手动替换可以偏离选优偏好；只承诺冻结来源、历史分数和合法布局，不宣称重新选优。
+    return AllocationSolveResult(
+        context.snapshot.snapshot_id, context.profile_id, context.profile_version,
+        context.solver_version, 1, (),
+        UnifiedAllocation(context.allocation_strategy, sum(option.score for option in updated_options),
+                          tuple(updated_options), (), ("已验证保存布局；历史评分未重算",)),
     )
 
 
-def _restore_saved_option(context, option, signature: WeightedSavedPlanSignature):
+def _restore_saved_option(context, signature: WeightedSavedPlanSignature):
+    uids = [saved.uid for saved in signature.assignments]
+    if (len(uids) != len(set(uids)) or frozenset(uids) != signature.uids
+            or not isfinite(signature.score)
+            or sum(saved.kind == "core" for saved in signature.assignments) > 1):
+        raise RuntimeError("已保存方案的装备 UID、卡带数量或历史评分无效。")
     candidates = {candidate.uid: candidate for candidate in context.candidates}
     shapes = {
         str(shape.shape_id).removeprefix("EquipmentGeometry_").casefold(): shape
@@ -212,9 +234,14 @@ def _restore_saved_option(context, option, signature: WeightedSavedPlanSignature
     for saved in signature.assignments:
         candidate = candidates.get(saved.uid)
         if (
-            (candidate is None and not saved.virtual)
+            saved.kind not in {"core", "module"}
+            or (candidate is None and not saved.virtual)
             or (candidate is not None and candidate.kind != saved.kind)
             or saved.score is None
+            or not isfinite(saved.score)
+            or saved.uid[1] <= 0
+            or (saved.virtual and (saved.uid[0] != 0 or candidate is not None or saved.score != 0))
+            or (not saved.virtual and saved.uid[0] <= 0)
         ):
             raise RuntimeError(
                 f"角色 {signature.character_id} 的手动替换方案缺少可验证的装备或评分。"
@@ -273,11 +300,15 @@ def _restore_saved_option(context, option, signature: WeightedSavedPlanSignature
     for label, board_cells in board_labels:
         for row, column in board_cells:
             generated_board[row - 1][column - 1] = label
-    return replace(
-        option,
+    return RoleAllocationOption(
+        character_id=signature.character_id,
+        rank=1,
         score=signature.score,
+        priority_values=(),
         assignments=tuple(restored),
         generated_board=tuple(tuple(row) for row in generated_board),
+        satisfied_constraints=("已保存装备身份与历史评分", "当前官方蓝图完整覆盖"),
+        missing_core_reason=(None if any(item.kind == "core" for item in restored) else "保存方案未包含卡带"),
     )
 
 
@@ -287,16 +318,7 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
     装备转换、评分与求解仍属于既有领域模块；账号owner只约束任务权限。
     """
 
-    if not isinstance(request, WeightedAllocationRequest):
-        raise TypeError("weighted allocation requires a WeightedAllocationRequest")
-    if request.ownership is not None:
-        request.ownership.checkpoint()
-        if Path(request.user_database_path).resolve() != request.ownership.identity.user_database_path:
-            raise RuntimeError("计算请求与冻结账号数据库不一致")
-    if not request.user_database_path.is_file():
-        raise RuntimeError("没有可用的账号背包数据库，请先完成背包同步。")
-    if not 1 <= int(request.top_k) <= 20:
-        raise ValueError("Top-K 必须在 1 到 20 之间。")
+    _validate_weighted_request(request)
 
     operation = request.operation_context or OperationContext.create(
         "allocation",
@@ -324,9 +346,24 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
         return preview
 
 
+def _validate_weighted_request(request):
+    """计算与恢复共用请求门禁；每次仍读取 owner 的账号和代次，不缓存授权。"""
+    if not isinstance(request, WeightedAllocationRequest):
+        raise TypeError("weighted allocation requires a WeightedAllocationRequest")
+    if request.ownership is not None:
+        request.ownership.checkpoint()
+        if Path(request.user_database_path).resolve() != request.ownership.identity.user_database_path:
+            raise RuntimeError("计算请求与冻结账号数据库不一致")
+    if not request.user_database_path.is_file():
+        raise RuntimeError("没有可用的账号背包数据库，请先完成背包同步。")
+    if not 1 <= int(request.top_k) <= 20:
+        raise ValueError("Top-K 必须在 1 到 20 之间。")
+
+
 def _run_weighted_allocation(
     request: WeightedAllocationRequest,
     operation: OperationContext,
+    *, persistence: WeightedAllocationPersistence | None = None,
 ) -> WeightedAllocationPreview:
     def cancel_check():
         if request.ownership is not None:
@@ -337,7 +374,7 @@ def _run_weighted_allocation(
     rules = read_allocation_scoring_rules(request.scoring_rules_path or bundled_config_dir() / "stats.json")
     cancel_check()
     reader = StaticCatalogReleaseReader()
-    # 从物化到纯solve结束持续持有同一拒写pin；角色详情和比较借用同一DAO。
+    # 从物化到求解或历史布局恢复结束持有同一拒写 pin；两条路径不复制冻结流程。
     with reader.read_unit(request.static_database_path) as unit:
         static_dao = unit.dao
         release = require_allocation_release(unit.release, request.static_database_path)
@@ -369,13 +406,23 @@ def _run_weighted_allocation(
                                        if request.slot_bindings else None))
             assert_binding_comparisons(request.slot_bindings, baselines)
         cancel_check()
-        result = solve_allocation_context(
-            context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
-            allow_missing_core=True, cancel_check=cancel_check,
-        )
+        if persistence is None:
+            result = solve_allocation_context(
+                context, top_k=int(request.top_k), include_role_top_k=request.include_role_top_k,
+                allow_missing_core=True, cancel_check=cancel_check,
+            )
+        else:
+            if request.slot_bindings != persistence.slot_bindings:
+                raise RuntimeError("恢复请求与冻结槽位绑定不一致。")
+            result = _restore_saved_result(context, persistence, cancel_check)
         loadout_comparisons = refresh_weighted_loadout_comparisons(baselines, context, result.unified.selected)
         cancel_check()
+        if persistence is not None:
+            with UserDataDao(request.user_database_path) as dao, dao.read_consistent_state():
+                assert_slot_bindings_current(dao, persistence.slot_bindings)
+                verify_allocation_lock_snapshot(dao, lock_snapshot)
         reader.ensure_unchanged(release)
+        cancel_check()
         return WeightedAllocationPreview(
             result=result, static_dataset=context.static_dataset, account_id=context.account_id,
             user_database_path=request.user_database_path, context=context,
@@ -383,6 +430,8 @@ def _run_weighted_allocation(
             operation_context=operation, shared_database_path=request.shared_database_path,
             static_database_path=static_database_path, equipment_only=request.equipment_only,
             static_release=release, ownership=request.ownership, lock_snapshot=lock_snapshot,
+            slot_bindings=persistence.slot_bindings if persistence is not None else (),
+            explicit_slots=persistence is not None and persistence.selected_slots is not None,
         )
 
 

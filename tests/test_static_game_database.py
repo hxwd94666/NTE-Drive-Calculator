@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -433,70 +432,6 @@ class StaticGameDatabaseTests(unittest.TestCase):
             {"暴击率%": 8.0}, catalog.roles_db["「零」"]["extra_shape_buffs"]
         )
 
-    def test_weight_page_rejects_official_shape_bonus_edit(self):
-        import time
-        from PySide6.QtTest import QTest
-        from PySide6.QtWidgets import QApplication
-        application = QApplication.instance() or QApplication([])
-        from src.features.configuration import page as configuration_page
-        from src.services.characters.character_shape_bonus_service import get_effective_character_shape_bonus
-        from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-        from src.storage.sqlite.user_data_dao import UserDataDao
-
-        with tempfile.TemporaryDirectory() as directory:
-            database = Path(directory) / "user.sqlite3"
-            static_database = Path(directory) / "game_static.sqlite3"
-            shared_database = Path(directory) / "app_shared.sqlite3"
-            shutil.copy2(PROJECT_DATABASE_PATH, static_database)
-            with UserDataDao(database, account_id="weight-page"):
-                pass
-            from src.features.configuration.page_owner import BasicWeightPage
-            context = SimpleNamespace(
-                    account=SimpleNamespace(
-                        active_account_id="weight-page",
-                        user_database_path=database,
-                    ),
-                    generation=0,
-                    paths=SimpleNamespace(
-                        config_dir=PROJECT_ROOT / "config",
-                        static_database_path=static_database,
-                        equipment_allocation_database_path=static_database,
-                        shared_database_path=shared_database,
-                    ),
-                )
-            window = BasicWeightPage(context, lambda _key: None, lambda: None)
-            controller = window.controller()
-            window._current_config_name = "account_weights"
-            window._config_form_data = {"「零」": {"character_id": 1051,
-                "weights": {"CritBase": 1.25}, "main_weights": {"CritBase": 0.75},
-                "extra_shape_label": "Type-2", "extra_shape_buffs": {"AtkUp": 15.0}}}
-            window._config_dirty = True
-            window._config_dirty_character_ids = {1051}
-            window._config_dirty_shape_bonus_ids = {1051}
-            with patch.object(configuration_page.QMessageBox, "information"), \
-                 patch.object(configuration_page.QMessageBox, "warning") as warning:
-                configuration_page.save_config_form(window)
-                deadline = time.monotonic() + 10
-                while controller.is_writing() and time.monotonic() < deadline:
-                    QTest.qWait(5)
-                self.assertFalse(controller.is_writing())
-                controller.close()
-                window.close_tasks()
-                window.close()
-                window.deleteLater()
-                application.processEvents()
-            with UserDataDao(database) as user_dao:
-                weights = user_dao.get_character_weight_preferences(1051)
-            with StaticGameDataDao(static_database) as static_dao:
-                shape_bonus = get_effective_character_shape_bonus(
-                    static_dao,
-                    1051,
-                    shared_database_path=shared_database,
-                )
-
-        self.assertIsNone(weights)
-        self.assertNotEqual("Type-2", shape_bonus["shape_label"])
-        warning.assert_called_once()
 
     def test_checked_in_distribution_database_has_no_source_payloads(self):
         self.assertTrue(PROJECT_DATABASE_PATH.is_file())

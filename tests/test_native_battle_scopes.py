@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.services.native_battle_scopes import select_scope_builds, validate_first_hit
-from src.services.native_battle_world_bonus import native_world_bonus
+from src.services.battle_report.inputs.scopes import select_scope_builds, validate_first_hit
+from src.services.battle_report.inputs.settlement import native_world_bonus
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.test_battle_capture_build_freeze import capture, native_snapshot, finish  # noqa: F401
 
@@ -96,14 +96,23 @@ def test_save_after_lower_switch_only_persists_halves_with_hits(capture, lower_h
     outcome = finish(service, record)
     assert outcome.warning_message is None
     with UserDataDao(deps.user_database_path) as dao:
-        assert dao.load_battle_build_snapshot(outcome.battle_record_id) is not None
+        build = dao.load_battle_build_snapshot(outcome.battle_record_id)
+        assert build["characters"][0]["equipment"][0]["uid_serial"] == 202
         saved = dao.load_battle_capture_build("capture")
         assert set(saved["native_scope_builds"]) == set(attempts)
-        assert set(saved["native_runtime_snapshot"]["scopes"]) == set(attempts)
+        # 保留每个有击中半场的角色/队伍/环境证据，装备只通过冻结引用保存，不复制整背包。
+        for half, entry in saved["native_scope_builds"].items():
+            expected = snapshots[half]["snapshot"]
+            assert entry["attempt_id"] == attempts[half]["attemptId"]
+            assert entry["snapshot"]["domains"] == {
+                domain: row for domain, row in expected["domains"].items() if domain != "inventory"
+            }
+            assert [(ref["uid_slot"], ref["uid_serial"]) for ref in entry["equipment_refs"]] == [(22, 202)]
+            assert "inventory_projection" not in entry["snapshot"]
 
 
 def test_lease_waits_for_first_hit_and_reads_once_per_surviving_attempt():
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
     core = FakeNativeCore()
     session = NativeGameSession(lambda: core, lambda _cap: None)
@@ -129,14 +138,14 @@ def test_lease_waits_for_first_hit_and_reads_once_per_surviving_attempt():
 
 
 def test_permanent_unsaved_card_is_not_misclassified_as_trial():
-    from src.services.battle_capture_build_context import native_build_unavailable_reason
+    from src.services.battle_report.capture.build_context import native_build_unavailable_reason
     snapshot = native_snapshot()
     snapshot["domains"]["character"]["records"] = [{"bIsTemporary": False, "bUnSaved": True, "source": "CharacterItems"}]
     assert native_build_unavailable_reason(snapshot) is None
 
 
 def test_ordinary_clone_restart_drops_temporary_build_until_next_attempt_hit():
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
     core = FakeNativeCore()
     session = NativeGameSession(lambda: core, lambda _cap: None)

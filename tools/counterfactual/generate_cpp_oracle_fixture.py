@@ -12,19 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayResult,
-    BattleInferredBuffInterval,
-    BattleSkillDamageEvidence,
-    BattleTargetCondition,
-)
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio
 from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )

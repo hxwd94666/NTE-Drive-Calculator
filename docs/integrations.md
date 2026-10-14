@@ -312,13 +312,14 @@ Rust 不写账号库；自动目标推断以完整版本化 `derived_snapshot` �
 
 ## 2. 视觉、OCR 与游戏输入
 
-库支持声明位于 `src/integrations/vision/recognition/backend_support.py`，与设备偏好分离。
+库支持声明位于 `src/integrations/vision/recognition/ocr/backend_support.py`，与设备偏好分离。
 源码开发通过 `NTE_OCR_PROFILE` 选择 `default`（OpenVINO + ORT DirectML）、`openvino`、
 `onnx_cpu` 或 `onnx_directml`，未设置时保留原双库行为。既有 `NTE_OCR_BACKEND` 的
 OpenVINO、CPU、DirectML、自动与低负载等偏好仍保留，只在本次支持集合内产生候选。
 例如 ONNX 单库收到扫描现有的 OpenVINO/低负载偏好仍能执行 CPU；DirectML 设备失败只可
 退到同一 ORT 分发的 CPU，不引入第二份 CPU 分发。排除库不做 provider/显卡探测、导入或
 安装模型校验。每次初始化冻结一个支持对象，失败期间更改环境不扩展本次集合。
+桌面入口不预先注册 OpenVINO DLL 目录；后端加载及句柄归首次 OCR 初始化所有，非识别启动不再因这一步预注册而被未选库或残留库目录阻断。
 
 构建沿用同一源码声明，收集输入由 `tools/release/ocr_build_inputs.py` 统一产生：选中库的
 hidden imports、配置、原生库与 metadata，排除库的模块 exclusion，一份共享模型和字典。
@@ -326,6 +327,9 @@ hidden imports、配置、原生库与 metadata，排除库的模块 exclusion�
 `assets/ocr/backend_support.json`；冻结程序仅使用随包声明，缺失/格式错误不回落源码默认，
 环境不能把单库发行扩展为双库。裁剪与校验接收同一支持对象，仅处理所选 OpenVINO 精确清单；
 同时核对所选 ORT 共同原生成员及 DirectML 插件，排除库混入在任何删除前拒绝。
+根构建入口 [build_exe.py](../build_exe.py) 只在显式运行 `main()` 时准备和构建，普通导入没有这些副作用；
+PyInstaller 的 dist/work/spec 与 UPX 搜索根显式绑定仓库目录，不随调用者工作目录变化。
+安装器入口 [build_installer.py](../build_installer.py) 消费同一正式 OCR 资源校验模块。输入专项与冻结入口探针不替代实际 EXE 或安装器验收。
 
 ### OCR 独立依赖环境
 
@@ -460,6 +464,11 @@ close API、不将清引用当作强制中断，也不据此承诺全部旧截�
 此契约覆盖本进程受控失败与恢复尝试；目录/叶文件检查不等于文件系统原子安全证明，
 未实现进程崩溃后的完整自动恢复或 GUI 文件专用重试，不改变游戏输入与扫描后状态管理顺序。
 
+设置页普通截图清理与发布共用输出租约，只处理根图片、直接 `failed` 图片和正式剪贴板临时图片，
+保留对比首图；不递归进入 `.capture-*`、`.previous-*` 或未知子目录。确认计划冻结普通目录及文件身份，
+执行前整体复核、逐删再次核对；确认期间被替换的新成员不沿用旧授权删除，未完成成员保留。
+确认同时冻结账号及 generation；弹窗期间发生切换或同账号重载时撤销旧清理，不删除旧账号文件或刷新新账号页面。
+
 鼠标与虚拟手柄全量扫描最终都提交为统一 `vision` 快照。游戏界面自动装配使用普通鼠标输入 contract；
 页面不创建鼠标后端或虚拟手柄。
 
@@ -586,6 +595,16 @@ Integration 从所选 `HTGame.exe` 的安装根定位官方启动器，明确传
 `capture_wait_v1` 或 `buff_snapshot_v1` 的候选。原生能力由配套 DLL 的隔离握手另行核对；抓包握手
 不能代替原生业务验证，角色资源及库存投影仍需对应的专项用例与真实游戏验收。
 
+### Calc 更新与安装器派发
+
+`features/settings/updates/` 拥有更新界面、请求与计时器，`integrations/updates/mirror.py` 拥有 HTTPS、
+私有暂存目录及文件凭据；群聊和外部下载入口归 `features/settings/support.py`，不混入账号生命周期。
+请求冻结账号及代次，切换和退出先撤销，再等已有线程物理退场；旧请求不写新账号偏好或派发安装器。
+流读取包括 EOF、文件发布以及最终逐块校验均检查取消。文件凭据冻结本次安装包的路径、文件身份与摘要，
+派发前复核；这是防下载后替换的本地一致性检查，不是发行签名或远端可信校验和。
+完整性校验与单次派发共用后台任务，不在界面线程全量读取安装包；派发权限消费后不自动重发。
+失败或取消只清理本次仍归己的临时文件，不覆盖可运行旧版本。下载完成、安装器进程启动和安装完成是不同状态。
+
 ## 4. 静态数据与资源
 
 官方数据只通过 `tools/game_data` 生成候选静态库。完整游戏库保存培养指南、推荐弧盘/属性/阶段、
@@ -607,6 +626,7 @@ Integration 从所选 `HTGame.exe` 的安装根定位官方启动器，明确传
 版本更新先在 `build/` 完成候选构建和毕业模板重算，再由
 `tools/game_data/promote_static_release.py` 显式读取仓库外本机配置，核对配置/数据库/manifest dataset、
 当前 schema/importer、全部来源 SHA-256、payload 省略、外键、SQLite 完整性及最终报告后带回滚地晋升。
+主库安装失败时，数据库与 manifest 分别尝试恢复；任一恢复受阻，保留全部旧成员的恢复副本，并在原始错误后报告副本路径、SHA-256 与原不存在的成员。维护者先按这些身份完成恢复，再重试晋升；不得清理仅存恢复副本。正常成功或完整恢复后才清理临时备份，这不代表两个文件具备进程崩溃时的原子提交能力。
 仅对已发行库执行无语义变化的物理压缩时，`tools/game_data/storage_repack.py` 在独立候选目录执行两次
 `VACUUM`，记录原库、原 manifest 和候选哈希，并逐表比较 schema、索引、全部行的多重集、外键与完整性；
 正式晋升入口使用独立的物理压缩 provenance 验证，而不把旧版本 Content 误作本次新增来源。

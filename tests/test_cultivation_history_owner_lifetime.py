@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QStackedWidget
 from shiboken6 import isValid
 
 from src.app.page_tasks import close_page_tasks, delete_when_page_tasks_finish
-from src.domain.cultivation_history import HistoryConflict, HistoryContextExpired, HistorySelection
+from src.domain.progression.history import HistoryConflict, HistoryContextExpired, HistorySelection
 from src.features.toolbox.cultivation.history_controller import CultivationHistoryController
 from src.features.toolbox.page import ToolboxPage
 from src.features.toolbox.toolbox_navigation import CultivationToolboxNavigation

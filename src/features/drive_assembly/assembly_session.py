@@ -38,7 +38,7 @@ from src.features.drive_assembly.role_flow import (
 )
 from src.features.drive_assembly.tape_plan import tape_install_sequence
 from concurrent.futures import CancelledError
-from src.integrations.vision.recognition.task_session import use_ocr_session
+from src.integrations.vision.recognition.ocr.task_session import use_ocr_session
 from src.integrations.vision.window_capture import capture_foreground_window, game_content_rect
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao, StaticGameDataError
 from src.utils.logger import logger

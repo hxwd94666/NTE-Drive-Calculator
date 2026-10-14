@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.domain.progression_stamina import FarmingStage, MaterialYield, StaminaPlanStatus
+from src.domain.progression.stamina import FarmingStage, MaterialYield, StaminaPlanStatus
 from src.features.toolbox.cultivation.owned_materials import visible_materials
 from src.services.progression.character_requirements import MaterialSummaryStatus
 from src.services.progression.batch_planner import (

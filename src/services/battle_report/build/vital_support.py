@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report.counterfactual.results import BattleBuildHitCounterfactual
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
 
 _LACRIMOSA_NIGHTMARE_EFFECTS = frozenset({
     "ge_player_lacrimosa_blood_damage",

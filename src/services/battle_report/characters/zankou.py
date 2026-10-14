@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from src.services.battle_report.native.state_payload import HIT_FIELDS, ACTION_FIELDS, state_rows, ZANKOU_CONFIG_FIELDS, state_row
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.native.hit_state import compute_hit_state, restore_q_final_states
 from typing import Any
-from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot, BattleInferredAction, BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.damage.composition import explicit_reaction_channel_for_hit
 from src.services.battle_report.characters.state_compute import compute_character_state, state_ids, state_ranges
 from src.services.battle_report.timeline.clock import ACTIVE_TIME_MODE, project_timeline_time_us, unproject_timeline_time_us

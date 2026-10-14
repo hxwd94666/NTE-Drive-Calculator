@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from src.domain.battle_report import BattleBuffModifierEvidence
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
 
 
 EQUIPMENT_SUIT_MODEL_VERSION = "battle-equipment-suit-v2"

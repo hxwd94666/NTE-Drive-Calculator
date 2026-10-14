@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from copy import deepcopy
 
-from src.domain.battle_report import BattleInferredCharacterFact
+from src.domain.battle_report.build.inputs import BattleInferredCharacterFact
 from src.services.battle_report.marginal.candidates import (
     BattleMarginalCandidateService,
 )

@@ -156,6 +156,7 @@ class StaticDataManifestTests(unittest.TestCase):
             bundled_database.touch()
 
             replacements = {
+                "APP_INTERNAL": root / "internal",
                 "STATIC_MANIFEST": source_static_manifest,
                 "BUNDLED_STATIC_DATABASE": bundled_database,
                 "BUNDLED_STATIC_MANIFEST": bundled_static_manifest,
@@ -168,14 +169,22 @@ class StaticDataManifestTests(unittest.TestCase):
                 patch.multiple(prepare_release, **replacements),
                 patch.object(prepare_release, "validate_static_database"),
                 patch.object(prepare_release, "validate_static_manifest"),
+                # 本例只核对 manifest 身份；OCR 独立门禁使用隔离边界，不读取维护者的旧 dist。
+                patch.object(prepare_release, "validate_packaged_ocr_models") as ocr_validator,
             ):
                 prepare_release.validate_packaged_release_artifacts()
+                ocr_validator.assert_called_once_with(root / "internal")
+                ocr_validator.side_effect = RuntimeError("OCR校验夹具失败")
+                with self.assertRaisesRegex(RuntimeError, "OCR校验夹具失败"):
+                    prepare_release.validate_packaged_release_artifacts()
+                ocr_validator.side_effect = None
                 bundled_asset_manifest.write_text(
                     manifest_text + "\n",
                     encoding="utf-8",
                 )
                 with self.assertRaisesRegex(RuntimeError, "游戏 UI 资源 manifest"):
                     prepare_release.validate_packaged_release_artifacts()
+                self.assertEqual(2, ocr_validator.call_count)
 
     def test_replaced_database_without_manifest_update_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

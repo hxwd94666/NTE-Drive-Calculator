@@ -6,17 +6,45 @@ from __future__ import annotations
 import unittest
 from contextlib import nullcontext
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import src.features.inventory.equipment.assembly_controller as page_module
 import src.features.inventory.equipment.automatic_assembly_controller as automatic_module
+from src.services.equipment.apply import EquipmentApplyService
+from src.services.equipment.bulk_apply import BulkEquipmentApplyService
 
 
 class _EquipmentBatchSync:
     """Provide the native session scope required by bulk-apply fixtures."""
 
+    elapsed = 0.0
+
+    @staticmethod
+    def equipment_identity(*, timeout):
+        return ("fixture-provider", "fixture-domain")
+
     @staticmethod
     def equipment_batch():
         return nullcontext()
+
+
+class _RouteApplyService(EquipmentApplyService):
+    """仅替代方案就绪检查和实际派发，继续走正式深拷贝冻结与 UID 冲突校验。"""
+
+    def validate_plan_for_fast_apply(self, plan_id, *, stable_snapshot_id=None):
+        return next(row["plan"] for row in self.user_dao.list_current_loadout_slot_plans()
+                    if row["plan"]["plan_id"] == plan_id)
+
+
+def _run_bulk_route(dao, apply_factory, sync, roles):
+    # Controller 当前只接收已注入的服务，不再从旧 Window 字段创建依赖。
+    service = BulkEquipmentApplyService(
+        "unused.sqlite3", sync, dao_factory=lambda _path: dao,
+        apply_service_factory=apply_factory, operation_guard=lambda _capability: None,
+    )
+    # 等待夹具按每次传入的分片预算推进时钟，保留超时/不重发语义且不忙等。
+    with patch("src.services.equipment.bulk_postcheck.time.monotonic", side_effect=lambda: sync.elapsed):
+        return page_module._run_nte_core_equipment_apply(service, roles)
 
 
 def _current_slot_plan(role_name: str, plan: dict) -> dict:
@@ -67,7 +95,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "plan_id": character_id,
                     "character_id": character_id,
                     "source_snapshot_id": 10,
-                    "assignments": [{"kind": "module"}],
+                    "assignments": [{"kind": "module", "uid_slot": 1, "uid_serial": character_id}],
                 }
 
             def list_current_loadout_slot_plans(self):
@@ -86,7 +114,8 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 return []
 
             def list_inventory_items(self, _snapshot_id):
-                return [{"uid_slot": 1, "uid_serial": 1}]
+                return [{"uid_slot": 1, "uid_serial": row["plan"]["character_id"]}
+                        for row in self.list_current_loadout_slot_plans()]
 
             def inventory_snapshot_summary(self, _snapshot_id):
                 return {"source": "nte_core", "complete": True}
@@ -107,18 +136,13 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             def get_sync_settings(self):
                 return {"inventory_settle_seconds": 5.0}
 
-        class ApplyService:
+        class ApplyService(_RouteApplyService):
             last_instance = None
 
             def __init__(self, *_args, **_kwargs):
+                super().__init__(*_args, **_kwargs)
                 self.apply_calls = []
                 ApplyService.last_instance = self
-
-            def validate_plan_for_fast_apply(self, *_args, **_kwargs):
-                pass
-
-            def validate_bulk_plans_for_fast_apply(self, *_args, **_kwargs):
-                pass
 
             def resolve_fast_apply_character_ids(self, character_id, *_args, **_kwargs):
                 return (character_id,)
@@ -142,26 +166,12 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 )
 
         class Sync(_EquipmentBatchSync):
-            def wait_for_snapshot(self, **_kwargs):
+            def wait_for_snapshot(self, *, timeout, **_kwargs):
+                self.elapsed += timeout
                 raise TimeoutError("测试中未产生新快照")
 
         dao = Dao()
-        old_dao = page_module.UserDataDao
-        old_service = page_module.EquipmentApplyService
-        try:
-            page_module.UserDataDao = lambda *_args, **_kwargs: dao
-            page_module.EquipmentApplyService = ApplyService
-            report = page_module._run_nte_core_equipment_apply(
-                SimpleNamespace(
-                    _inventory_sync_service=Sync(),
-                    user_database_path="unused.sqlite3",
-                    operation_guard=lambda _capability: None,
-                ),
-                ["可装配", "实例缺失"],
-            )
-        finally:
-            page_module.UserDataDao = old_dao
-            page_module.EquipmentApplyService = old_service
+        report = _run_bulk_route(dao, ApplyService, Sync(), ["可装配", "实例缺失"])
 
         self.assertEqual(["可装配"], [row["role_name"] for row in report["applied"]])
         self.assertEqual(["实例缺失"], [row["role_name"] for row in report["identity_requests"]])
@@ -199,7 +209,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "plan_id": character_id,
                     "character_id": character_id,
                     "source_snapshot_id": 10,
-                    "assignments": [{"kind": "module"}],
+                    "assignments": [{"kind": "module", "uid_slot": 1, "uid_serial": character_id}],
                 }
 
             def list_current_loadout_slot_plans(self):
@@ -218,7 +228,8 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 return []
 
             def list_inventory_items(self, _snapshot_id):
-                return [{"uid_slot": 1, "uid_serial": 1}]
+                return [{"uid_slot": 1, "uid_serial": row["plan"]["character_id"]}
+                        for row in self.list_current_loadout_slot_plans()]
 
             def inventory_snapshot_summary(self, _snapshot_id):
                 return {"source": "nte_core", "complete": True}
@@ -239,15 +250,9 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             def complete_equipment_apply_job_if_done(self, _job_id):
                 return True
 
-        class ApplyService:
+        class ApplyService(_RouteApplyService):
             def __init__(self, *_args, **_kwargs):
-                pass
-
-            def validate_plan_for_fast_apply(self, *_args, **_kwargs):
-                pass
-
-            def validate_bulk_plans_for_fast_apply(self, *_args, **_kwargs):
-                pass
+                super().__init__(*_args, **_kwargs)
 
             def resolve_fast_apply_character_ids(self, character_id, *_args, **_kwargs):
                 return (character_id,)
@@ -287,26 +292,13 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
 
         dao = Dao()
         sync = Sync()
-        old_dao = page_module.UserDataDao
-        old_service = page_module.EquipmentApplyService
-        try:
-            page_module.UserDataDao = lambda *_args, **_kwargs: dao
-            page_module.EquipmentApplyService = ApplyService
-            report = page_module._run_nte_core_equipment_apply(
-                SimpleNamespace(
-                    _inventory_sync_service=sync,
-                    user_database_path="unused.sqlite3",
-                    operation_guard=lambda _capability: None,
-                ),
-                ["甲", "乙"],
-            )
-        finally:
-            page_module.UserDataDao = old_dao
-            page_module.EquipmentApplyService = old_service
+        report = _run_bulk_route(dao, ApplyService, sync, ["甲", "乙"])
 
         self.assertEqual(11, report["postcheck_snapshot_id"])
         self.assertEqual(12, report["postrepair_snapshot_id"])
-        self.assertEqual([10.0, 10.0], [call["timeout"] for call in sync.wait_calls])
+        self.assertEqual([10, 11], [call["after_snapshot_id"] for call in sync.wait_calls])
+        self.assertEqual(2, len(sync.wait_calls))
+        self.assertTrue(all(0 < call["timeout"] <= 0.25 for call in sync.wait_calls))
         self.assertEqual(
             ["乙"],
             [row["role_name"] for row in report["applied"] if row.get("repaired")],
@@ -337,7 +329,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "plan_id": 1001,
                     "character_id": 1001,
                     "source_snapshot_id": 20,
-                    "assignments": [{"kind": "module"}],
+                    "assignments": [{"kind": "module", "uid_slot": 1, "uid_serial": 1001}],
                 }
 
             def list_current_loadout_slot_plans(self):
@@ -353,7 +345,8 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 return []
 
             def list_inventory_items(self, _snapshot_id):
-                return [{"uid_slot": 1, "uid_serial": 1}]
+                return [{"uid_slot": 1, "uid_serial": row["plan"]["character_id"]}
+                        for row in self.list_current_loadout_slot_plans()]
 
             def inventory_snapshot_summary(self, _snapshot_id):
                 return {"source": "nte_core", "complete": True}
@@ -374,18 +367,13 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             def complete_equipment_apply_job_if_done(self, _job_id):
                 return True
 
-        class ApplyService:
+        class ApplyService(_RouteApplyService):
             last_instance = None
 
             def __init__(self, *_args, **_kwargs):
+                super().__init__(*_args, **_kwargs)
                 self.apply_calls = []
                 ApplyService.last_instance = self
-
-            def validate_plan_for_fast_apply(self, *_args, **_kwargs):
-                pass
-
-            def validate_bulk_plans_for_fast_apply(self, *_args, **_kwargs):
-                pass
 
             def resolve_fast_apply_character_ids(self, character_id, *_args, **_kwargs):
                 return (character_id,)
@@ -423,22 +411,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
 
         dao = Dao()
         sync = Sync()
-        old_dao = page_module.UserDataDao
-        old_service = page_module.EquipmentApplyService
-        try:
-            page_module.UserDataDao = lambda *_args, **_kwargs: dao
-            page_module.EquipmentApplyService = ApplyService
-            report = page_module._run_nte_core_equipment_apply(
-                SimpleNamespace(
-                    _inventory_sync_service=sync,
-                    user_database_path="unused.sqlite3",
-                    operation_guard=lambda _capability: None,
-                ),
-                ["甲"],
-            )
-        finally:
-            page_module.UserDataDao = old_dao
-            page_module.EquipmentApplyService = old_service
+        report = _run_bulk_route(dao, ApplyService, sync, ["甲"])
 
         self.assertEqual(3, len(ApplyService.last_instance.apply_calls))
         self.assertEqual([20, 21, 22], [snapshot for _, snapshot in ApplyService.last_instance.apply_calls])
@@ -466,7 +439,7 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                     "plan_id": 1001,
                     "character_id": 1001,
                     "source_snapshot_id": 30,
-                    "assignments": [{"kind": "module"}],
+                    "assignments": [{"kind": "module", "uid_slot": 1, "uid_serial": 1001}],
                 }
 
             def list_current_loadout_slot_plans(self):
@@ -482,7 +455,8 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 return []
 
             def list_inventory_items(self, _snapshot_id):
-                return [{"uid_slot": 1, "uid_serial": 1}]
+                return [{"uid_slot": 1, "uid_serial": row["plan"]["character_id"]}
+                        for row in self.list_current_loadout_slot_plans()]
 
             def inventory_snapshot_summary(self, _snapshot_id):
                 return {"source": "nte_core", "complete": True}
@@ -503,18 +477,13 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
             def complete_equipment_apply_job_if_done(self, _job_id):
                 return True
 
-        class ApplyService:
+        class ApplyService(_RouteApplyService):
             last_instance = None
 
             def __init__(self, *_args, **_kwargs):
+                super().__init__(*_args, **_kwargs)
                 self.apply_calls = 0
                 ApplyService.last_instance = self
-
-            def validate_plan_for_fast_apply(self, *_args, **_kwargs):
-                pass
-
-            def validate_bulk_plans_for_fast_apply(self, *_args, **_kwargs):
-                pass
 
             def resolve_fast_apply_character_ids(self, character_id, *_args, **_kwargs):
                 return (character_id,)
@@ -536,26 +505,12 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
                 )
 
         class Sync(_EquipmentBatchSync):
-            def wait_for_snapshot(self, **_kwargs):
+            def wait_for_snapshot(self, *, timeout, **_kwargs):
+                self.elapsed += timeout
                 raise TimeoutError("等待新的稳定背包快照超时")
 
         dao = Dao()
-        old_dao = page_module.UserDataDao
-        old_service = page_module.EquipmentApplyService
-        try:
-            page_module.UserDataDao = lambda *_args, **_kwargs: dao
-            page_module.EquipmentApplyService = ApplyService
-            report = page_module._run_nte_core_equipment_apply(
-                SimpleNamespace(
-                    _inventory_sync_service=Sync(),
-                    user_database_path="unused.sqlite3",
-                    operation_guard=lambda _capability: None,
-                ),
-                ["甲"],
-            )
-        finally:
-            page_module.UserDataDao = old_dao
-            page_module.EquipmentApplyService = old_service
+        report = _run_bulk_route(dao, ApplyService, Sync(), ["甲"])
 
         self.assertEqual(1, ApplyService.last_instance.apply_calls)
         self.assertTrue(report["full_snapshot_wait_timed_out"])

@@ -6,10 +6,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
-from src.domain.battle_report import (
-    BattleReportHistoryEntry,
-    BattleRetentionMutation,
-    StoredBattleSummary,
+from src.domain.battle_report.history.records import (
+    BattleReportHistoryEntry, BattleRetentionMutation, StoredBattleSummary,
 )
 from src.integrations.nte_core_battle import parse_battle_summary
 

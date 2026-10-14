@@ -161,6 +161,9 @@
 
 项目使用 Python 3.11、SQLite 与 PySide6。详细设计见 [系统架构](docs/architecture.md) 与 [外部集成](docs/integrations.md)；开发文档从 [开发文档入口](docs/README.md) 进入。
 
+完整开发依赖中的 `vgamepad` 源分发在 Windows 构建时会检查 ViGEmBus，缺失时可能启动系统驱动安装器；
+虚拟环境不隔离此类系统改动。仅开发基础权重参考时使用下方最小环境，不为环境验证重复安装或复测已正常工作的驱动。
+
 安装 [uv](https://docs.astral.sh/uv/) 后，在仓库根目录执行：
 
 ```powershell

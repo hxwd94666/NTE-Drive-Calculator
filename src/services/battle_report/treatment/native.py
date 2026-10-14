@@ -3,12 +3,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
-from src.domain.battle_report import (
-    BattleBuffModifierEvidence,
-    BattleInferredBuffInterval,
-    BattleTreatmentEvent,
-)
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.timeline.events import BattleTreatmentEvent
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
 
 TREATMENT_TEXT = {'oneiroi_awaken2_team': {'target_scope': 'team',

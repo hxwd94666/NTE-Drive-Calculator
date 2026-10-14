@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import zipfile
 
-from src.features.accounts.manager import AccountManager, export_account_data, import_account_data
+from src.features.accounts.manager import AccountManager
+from src.services.accounts.transfer import export_account_data, import_account_data
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.cultivation_history_test_support import module_load_tests
 from tests.test_cultivation_history import history_payload
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def _manager(root):
@@ -43,15 +42,15 @@ def test_history_export_uses_live_database_backup_and_excludes_migration_copies(
         assert dao.get_cultivation_history(account_id, "history-entry").payload == payload
 
     target = _manager(tmp_path / "target")
-    # Occupy the original ID under another name, forcing import to choose a new account ID.
-    target.seed_account_data(account_id)
+    # 同正式 ID 即同一账号；显示名变化不派生新身份或割断历史记录归属。
     index = target.read_index()
     index["accounts"].append({"id": account_id, "name": "另一个账号"})
     target.write_index(index)
+    target.seed_account_data(account_id)
+    untouched = (target.account_dir("default") / "user_data.sqlite3").read_bytes()
     imported_id = import_account_data(target, archive)
-    assert imported_id != account_id
+    assert imported_id == account_id
     with UserDataDao(target.account_dir(imported_id) / "user_data.sqlite3") as dao:
         assert dao.profile()["account_id"] == imported_id
         assert dao.get_cultivation_history(imported_id, "history-entry").payload == payload
-    with UserDataDao(target.account_dir(account_id) / "user_data.sqlite3") as dao:
-        assert dao.list_cultivation_histories(account_id).total == 0
+    assert (target.account_dir("default") / "user_data.sqlite3").read_bytes() == untouched

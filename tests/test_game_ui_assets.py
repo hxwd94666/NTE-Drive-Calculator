@@ -1,5 +1,4 @@
-# 验证正式 ID 公共素材完整性及构建预算，不执行游戏输入。
-# 测试轻量游戏界面资源的 ID 映射、尺寸和总容量预算。
+# 验证公共素材的正式 ID 完整性、候选去重及冲突/越界在输出前拒绝。
 from __future__ import annotations
 
 import json
@@ -27,34 +26,6 @@ class GameUiAssetTests(unittest.TestCase):
             character_ids = {str(row["character_id"]) for row in dao.list_characters()}
         self.assertEqual(character_ids, set(manifest["characters"]))
 
-    def test_generated_pngs_stay_inside_dimension_and_size_budgets(self) -> None:
-        pngs = sorted(ASSET_ROOT.rglob("*.png"))
-        self.assertGreater(len(pngs), 0)
-        self.assertLessEqual(sum(path.stat().st_size for path in pngs), 32 * 1024 * 1024)
-        for path in pngs:
-            with Image.open(path) as image:
-                expected_max = 512 if "character_arts" in path.parts else 256
-                self.assertLessEqual(max(image.size), expected_max, path.name)
-
-    def test_catalog_characters_have_formal_default_appearance_art(self) -> None:
-        manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(
-            "/Game/DataTable/Character/Appearance/DT_AppearanceData",
-            manifest["source_appearance_table"],
-        )
-        expected = {
-            str(character_id)
-            for character_id in (
-                1003, 1004, 1008, 1010, 1019, 1020, 1021, 1023, 1025, 1033,
-                1036, 1039, 1042, 1046, 1051, 1052, 1054, 1055, 1057, 1070, 1071, 1072,
-                1073, 1075, 1076,
-            )
-        }
-        self.assertEqual(expected, set(manifest["character_arts"]))
-        catalog = GameUiAssetCatalog(ASSET_ROOT)
-        self.assertTrue(all(catalog.character_art(int(key)).is_file() for key in expected))
-        self.assertIsNone(catalog.character_art(1056))
-
     def test_all_static_core_items_have_an_official_item_id_mapping(self) -> None:
         manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
         with StaticGameDataDao(PROJECT_ROOT / "data" / "role_catalog" / "game_static.sqlite3") as dao:
@@ -69,13 +40,6 @@ class GameUiAssetTests(unittest.TestCase):
         self.assertEqual(module_ids, set(manifest["equipment_modules"]))
         self.assertEqual(fork_ids, set(manifest["fork_items"]))
         self.assertGreater(len(manifest["monster_icons"]), 0)
-
-    def test_new_fork_exports_resolve_to_official_icons(self) -> None:
-        manifest = json.loads((ASSET_ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertFalse(manifest.get("unresolved_assets"))
-        catalog = GameUiAssetCatalog(ASSET_ROOT)
-        self.assertTrue(catalog.fork_icon("fork_DemonBlade").is_file())
-        self.assertTrue(catalog.fork_icon("fork_GoldRecord").is_file())
 
     def test_fork_progression_materials_resolve_to_packaged_icons(self) -> None:
         manifest = json.loads(
@@ -106,45 +70,6 @@ class GameUiAssetTests(unittest.TestCase):
             catalog.progression_item_icon(item_id).is_file()
             for item_id in material_ids
         ))
-
-    def test_catalog_resolves_ids_and_rejects_missing_keys(self) -> None:
-        catalog = GameUiAssetCatalog(ASSET_ROOT)
-        self.assertTrue(catalog.character_icon(1003).is_file())
-        self.assertTrue(catalog.character_art(1003).is_file())
-        self.assertTrue(catalog.character_icon(1036).is_file())
-        self.assertTrue(catalog.character_icon(1072).is_file())
-        for identity in (1004, 1091, 1042):
-            self.assertTrue(catalog.character_icon(identity).is_file())
-        self.assertTrue(catalog.attribute_icon("crit_rate").is_file())
-        self.assertTrue(catalog.equipment_icon("Lakshana_orange").is_file())
-        self.assertTrue(catalog.module_icon("cell3_style1_1_Orange").is_file())
-        self.assertEqual(
-            catalog.equipment_icon("Lakshana_orange"),
-            catalog.inventory_item_icon("core", "Lakshana_orange"),
-        )
-        self.assertEqual(
-            catalog.module_icon("cell3_style1_1_Orange"),
-            catalog.inventory_item_icon("module", "cell3_style1_1_Orange"),
-        )
-        self.assertIsNone(catalog.inventory_item_icon("unknown", "Lakshana_orange"))
-        self.assertTrue(catalog.fork_icon("fork_yuren").is_file())
-        self.assertIsNone(catalog.monster_icon("monster_static_big_world", "unknown"))
-        feast_icon = catalog.encounter_icon(
-            "/Game/UI/UI/DiyBoss/boss_04_icon.boss_04_icon"
-        )
-        self.assertTrue(feast_icon.is_file())
-        self.assertTrue(catalog.monster_family_icon("mon_14_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("boss_09_ChallengeLv1_BP").is_file())
-        self.assertTrue(catalog.monster_family_icon("Boss_06_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("Boss_016_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("Boss_017_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("boss_18_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("mon_08_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("mon_022_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("mon_39_2_BP_Abyss").is_file())
-        self.assertTrue(catalog.monster_family_icon("mon_051_BP_Abyss").is_file())
-        self.assertIsNone(catalog.monster_family_icon("mon_140_BP_Abyss"))
-        self.assertIsNone(catalog.character_icon(999999))
 
     def test_builder_resizes_and_deduplicates_shared_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

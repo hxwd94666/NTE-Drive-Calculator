@@ -5,8 +5,8 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from src.services.battle_report.native.state_payload import HIT_FIELDS, ACTION_FIELDS, RULE_FIELDS, EVENT_FIELDS, state_rows
-from src.domain.battle_report import BattleInferredBuffInterval
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
 
 _BASIS = {

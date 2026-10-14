@@ -4,11 +4,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from src.domain.battle_report import (
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-)
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm
 from src.services.battle_report.marginal.calculation import (
     BattleMarginalCalculationService,
 )

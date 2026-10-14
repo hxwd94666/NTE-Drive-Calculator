@@ -6,8 +6,8 @@ import unittest
 
 from PySide6.QtWidgets import QApplication
 
-from src.domain.battle_report_transfer import BattleReportTransferEntry
-from src.features.battle_report.transfer_dialog import BattleReportTransferDialog
+from src.domain.battle_report.history.transfer import BattleReportTransferEntry
+from src.features.battle_report.history.transfer_dialog import BattleReportTransferDialog
 
 
 class BattleReportTransferDialogTests(unittest.TestCase):

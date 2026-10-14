@@ -6,11 +6,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleHitBuffProjection,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection, BattleInferredBuffInterval
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex
 
 

@@ -6,12 +6,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report.counterfactual.results import BattleBuildHitCounterfactual
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.services.battle_report.damage.weave_source import BattleWeaveSourceIndex
 
 

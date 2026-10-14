@@ -3,19 +3,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleQuantificationGap,
-    DependencyScope,
+from src.domain.battle_report.counterfactual.quantification import (
+    BattleCounterfactualRatio, BattleQuantificationGap, DependencyScope,
 )
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
-    BattleTargetCondition,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.damage.composition import (
     classify_battle_hit_channel,
 )

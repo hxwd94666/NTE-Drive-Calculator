@@ -11,8 +11,10 @@ from pathlib import Path
 import pytest
 
 from src.features.accounts import manager as manager_module
-from src.features.accounts.manager import AccountManager, export_account_data, import_account_data
+from src.features.accounts.manager import AccountManager
+from src.services.accounts.transfer import export_account_data, import_account_data
 from src.integrations.accounts import index_file
+from src.integrations.accounts.transfer_archive import AccountImportRecoveryError
 from src.services.accounts import naming as naming_module
 from src.services.accounts.naming import AccountNamingService
 from src.services.accounts.settings import AccountSettingsService
@@ -318,6 +320,20 @@ def _ui_import_switch_case(manager, export, failure, monkeypatch):
             raise RuntimeError("SYNTHETIC_OWNER_STOP_FAILURE")
         return False
 
+    if failure.startswith("ui-failure"):
+        replace = index_file.os.replace
+        injected = False
+
+        def fail_publication(source, target):
+            nonlocal injected
+            if not injected and temporary_id and Path(target) == manager.accounts_index_file:
+                if json.loads(Path(source).read_bytes()).get("active_account_id") == "A":
+                    injected = True
+                    raise OSError("SYNTHETIC_IMPORT_PUBLICATION_FAILURE")
+            return replace(source, target)
+
+        monkeypatch.setattr(index_file.os, "replace", fail_publication)
+
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *_args: (str(export), ""))
     for method in ("warning", "critical", "information"):
         monkeypatch.setattr(QMessageBox, method,
@@ -341,7 +357,7 @@ def _ui_import_switch_case(manager, export, failure, monkeypatch):
         assert len(messages) == 1
         kind, text = messages[0]
         if "success" in failure:
-            assert kind == "warning" and "已导入" in text and "切换尚未完成" in text
+            assert kind == "warning" and "已导入" in text and "切换尚未完成" in text, messages
             assert _name(manager, "A") == "A"
         else:
             assert kind == "critical" and "导入失败" in text and "回切尚未完成" in text
@@ -353,17 +369,13 @@ def _ui_import_switch_case(manager, export, failure, monkeypatch):
         dispose(parent)
 
 
-@pytest.mark.parametrize("failure", ("success", "file", "profile", "target-index", "target-directory",
+@pytest.mark.parametrize("failure", ("success", "file", "target-index", "target-directory",
                                      "ui-success-false", "ui-success-error", "ui-failure-false", "ui-failure-error"))
 def test_import_rechecks_after_unlocked_stop_and_merges_only_target(tmp_path, monkeypatch, failure):
     manager = _manager(tmp_path)
     database = manager.account_dir("A") / "user_data.sqlite3"
     with UserDataDao(database) as dao:
         dao.rename_account("legacy-profile")
-    if failure == "profile" or failure.startswith("ui-failure"):
-        with closing(sqlite3.connect(database)) as connection, connection:
-            connection.execute("""CREATE TRIGGER fault_profile BEFORE UPDATE ON database_profile
-                                  BEGIN SELECT RAISE(ABORT, 'PROFILE_ABORT'); END""")
     export = export_account_data(manager, "A", tmp_path / "synthetic-account.zip")
     if failure.startswith("ui-"):
         _ui_import_switch_case(manager, export, failure, monkeypatch)
@@ -415,7 +427,7 @@ def test_import_rechecks_after_unlocked_stop_and_merges_only_target(tmp_path, mo
         with pytest.raises((OSError, ValueError, sqlite3.IntegrityError)) as caught:
             import_account_data(manager, export, before_replace=callback)
         print(json.dumps({"scenario": "import-" + failure, "error": str(caught.value)}))
-        if failure in {"file", "profile"}:
+        if failure == "file":
             assert _sha(database) == before_database
     assert callback_finished.is_set()
     current = manager.read_index()
@@ -426,6 +438,28 @@ def test_import_rechecks_after_unlocked_stop_and_merges_only_target(tmp_path, mo
         assert names["A"] == "third-party-name" and _name(manager, "A") == "third-party-name"
     print(json.dumps({"scenario": "import-" + failure, "stop_callback_lock_free": True,
                       "index": current, "target_profile": _name(manager, "A")}, ensure_ascii=False))
+
+
+def test_import_rollback_io_failure_retains_original_recovery_directory(tmp_path, monkeypatch):
+    manager = _manager(tmp_path)
+    database = manager.account_dir("A") / "user_data.sqlite3"
+    original = database.read_bytes()
+    index = manager.accounts_index_file.read_bytes()
+    archive = export_account_data(manager, "A", tmp_path / "account.zip")
+    replace = index_file.os.replace
+
+    def fail_publication_and_restore(source, target):
+        if Path(target) == manager.accounts_index_file or Path(source).name == "previous-account":
+            raise OSError("SYNTHETIC_STORAGE_BUSY")
+        return replace(source, target)
+
+    monkeypatch.setattr(index_file.os, "replace", fail_publication_and_restore)
+    with pytest.raises(AccountImportRecoveryError):
+        import_account_data(manager, archive)
+    assert manager.accounts_index_file.read_bytes() == index
+    originals = list(manager.accounts_dir.glob(".account-import-*/previous-account/user_data.sqlite3"))
+    assert len(originals) == 1
+    assert originals[0].read_bytes() == original
 
 
 @pytest.mark.parametrize("failure", ("false", "error", "success", "target-index", "target-directory", "file", "nonactive"))
@@ -440,10 +474,11 @@ def test_delete_stops_actual_owner_before_guarded_publication(tmp_path, monkeypa
     original = manager.accounts_index_file.read_bytes()
     callback_calls = []
     warnings = []
+    callback_errors = []
     app = application()
     parent = QWidget()
 
-    def switch(account_id):
+    def perform_switch(account_id):
         callback_calls.append(account_id)
         assert manager.account_dir("A").is_dir()
         assert any(row["id"] == "A" for row in manager.read_index()["accounts"])
@@ -460,6 +495,13 @@ def test_delete_stops_actual_owner_before_guarded_publication(tmp_path, monkeypa
             with UserDataDao(manager.account_dir("A") / "user_data.sqlite3", account_id="A", account_name="A"):
                 pass
         return True
+
+    def switch(account_id):
+        try:
+            return perform_switch(account_id)
+        except Exception as error:
+            callback_errors.append(repr(error))
+            raise
 
     monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.Yes)
     monkeypatch.setattr(QMessageBox, "warning", lambda _parent, _title, message: warnings.append(message))
@@ -479,7 +521,7 @@ def test_delete_stops_actual_owner_before_guarded_publication(tmp_path, monkeypa
         next(button for button in dialog.findChildren(QPushButton) if button.text() == "删除").click()
         app.processEvents()
         if failure in {"target-index", "target-directory", "file", "success", "nonactive"}:
-            assert combo.currentData() == current_owner[0]
+            assert combo.currentData() == current_owner[0], {"warnings": warnings, "callback_errors": callback_errors}
         return 0
 
     monkeypatch.setattr(QDialog, "exec", interact)

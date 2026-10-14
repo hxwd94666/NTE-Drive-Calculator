@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -12,7 +14,7 @@ import threading
 import time
 from typing import Any
 from src.integrations.native_buff_projection_wire import expand_projection_tables
-from src.domain.native_analysis import BuffProjectionBatchTooLarge
+from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBatchTooLarge
 
 
 REQUEST_SCHEMA = "nte-analysis-request-v1"
@@ -29,6 +31,33 @@ class NativeAnalysisError(RuntimeError):
 
 class NativeAnalysisCancelled(NativeAnalysisError):
     """The frozen analysis request is no longer wanted."""
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisComponentIdentity:
+    """发行绑定只认可创建时核验的执行物和能力清单，不接纳会话中途替换。"""
+
+    executable: Path
+    manifest_path: Path
+    executable_sha256: str
+    manifest_sha256: str
+
+    def verify(self, checkpoint: Callable[[], None]) -> None:
+        # 每次派发前按块核对字节并响应取消；路径检查不声称消除检查至 Popen 的竞态。
+        for path, expected in ((self.manifest_path, self.manifest_sha256),
+                               (self.executable, self.executable_sha256)):
+            checkpoint()
+            digest = hashlib.sha256()
+            try:
+                with path.open('rb') as stream:
+                    while chunk := stream.read(1024 * 1024):
+                        digest.update(chunk)
+                        checkpoint()
+            except OSError as error:
+                raise NativeAnalysisError('独立分析组件读取失败，请重新部署完整组件并重启应用') from error
+            if digest.hexdigest() != expected:
+                raise NativeAnalysisError('独立分析组件版本或哈希已变更，请核对完整组件并重启应用')
+            checkpoint()
 
 
 def _reject_constant(_value: str) -> None:
@@ -65,6 +94,7 @@ class NteAnalysisCoreClient:
         *,
         engine_version: str = ENGINE_VERSION,
         capabilities: frozenset[str] | None = None,
+        component_identity: AnalysisComponentIdentity | None = None,
     ) -> None:
         self.executable = Path(executable).resolve()
         if self.executable.name.casefold() != "nte-analysis-core.exe":
@@ -113,6 +143,7 @@ class NteAnalysisCoreClient:
         )
         self.timeout = timeout
         self.cancelled = cancelled
+        self._component_identity = component_identity
         self._lock = threading.Lock()
         self._stats: dict[str, int | float] = {
             "jobs": 0, "batch_calls": 0, "duration_seconds": 0.0,
@@ -159,11 +190,20 @@ class NteAnalysisCoreClient:
         if checkpoint is not None:
             checkpoint()
 
+    def _verify_component(self, checkpoint: Callable[[], None] | None) -> None:
+        # 正式 factory 始终传入冻结身份；显式诊断构造仍只绑定调用方选定的程序。
+        identity = self._component_identity
+        if identity is not None:
+            if self.executable != identity.executable:
+                raise NativeAnalysisError('独立分析组件路径已变更，请重启应用')
+            identity.verify(lambda: self._checkpoint(checkpoint))
+
     def _run(
         self, payload: bytes | None, *, version: bool = False,
         checkpoint: Callable[[], None] | None = None,
     ) -> bytes:
         self._checkpoint(checkpoint)
+        self._verify_component(checkpoint)
         args = [str(self.executable)]
         if version:
             args.append("--version-json")
@@ -224,6 +264,7 @@ class NteAnalysisCoreClient:
             NativeStreamError, communicate_progress,
         )
         self._checkpoint(checkpoint)
+        self._verify_component(checkpoint)
         try:
             process = subprocess.Popen(
                 [str(self.executable), "--progress"], stdin=subprocess.PIPE,

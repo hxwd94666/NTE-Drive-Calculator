@@ -16,6 +16,7 @@ from src.models.equipment import BaseEquipment, Drive, Tape
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.characters.character_weight_service import resolve_character_base_weights
+from src.services.characters.workshop_weight_template_service import load_workshop_weight_snapshot
 
 
 # 旧评分器仍以这些显示名匹配 OCR 装备；角色和权重本身已迁到 SQLite。
@@ -107,9 +108,13 @@ class ScoringEngine:
                     str(attribute["attribute_id"]): self._scoring_property_name(attribute)
                     for attribute in static_dao.list_equipment_attributes()
                 }
+                # 后台刷新可在角色遍历期间原子换版；整批复用一个快照，避免混版与逐角色读文件。
+                workshop_snapshot = load_workshop_weight_snapshot()
                 for character in static_dao.list_role_template_characters(preferred_ids):
                     character_id = int(character["character_id"])
-                    record = resolve_character_base_weights(user_dao, static_dao, character_id)
+                    record = resolve_character_base_weights(
+                        user_dao, static_dao, character_id, workshop_snapshot=workshop_snapshot,
+                    )
                     if record is None:
                         continue
                     weights = {

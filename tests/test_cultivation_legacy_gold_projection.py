@@ -1,7 +1,7 @@
 # 验证已核对旧发行数据集的甲硬币投影不会扩散到其他数据集。
 from __future__ import annotations
 
-from src.domain.progression_stamina import FarmingStage, MaterialYield
+from src.domain.progression.stamina import FarmingStage, MaterialYield
 from src.services.progression.character_requirements import CharacterMaterialRequirement
 from src.services.progression.legacy_currency import (
     correct_legacy_costs,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from src.domain.battle_page_models import INFERRED_ENCOUNTER_ALGORITHM_VERSION
+from src.domain.battle_report.targets.encounter import INFERRED_ENCOUNTER_ALGORITHM_VERSION
 from src.services.battle_report.targets.inferred_condition import BattleInferredTargetConditionService
 from src.services.battle_report.targets.inferred_snapshot import (
     INFERRED_TARGET_SNAPSHOT_SCHEMA_VERSION,

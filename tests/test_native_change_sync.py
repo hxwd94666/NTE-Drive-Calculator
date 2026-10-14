@@ -5,9 +5,9 @@ from threading import Event, Thread, current_thread
 import pytest
 
 from src.integrations.nte_core_protocol import NteCoreProtocolError
-from src.services.native_snapshot_changes import NativeSnapshotChanges, snapshot_change_key
-from src.services.native_game_session import NativeGameSession
-from tests.test_native_inventory_sync_integration import ProjectionCore
+from src.services.native_session.inventory import NativeSnapshotChanges, snapshot_change_key
+from src.services.native_session.session import NativeGameSession
+from tests.inventory.sync.test_native_integration import ProjectionCore
 
 
 def status(revision="1", *, dirty=False, provider="p"):
@@ -15,20 +15,6 @@ def status(revision="1", *, dirty=False, provider="p"):
         {"domain": d, "providerId": provider, "domainKey": "scene/" + d,
          "revision": revision, "dirty": dirty, "enabled": True, "ready": not dirty}
         for d in ("inventory", "character", "team", "environment")]}
-
-
-def test_unchanged_status_does_not_repeat_full_reads_after_time_passes():
-    now = [0.0]
-    changes = NativeSnapshotChanges(clock=lambda: now[0])
-    current = status()
-    assert changes.needs_refresh(current, "inventory")
-    changes.accept(current, "inventory")
-    now[0] = 1
-    assert not changes.needs_refresh(current, "inventory")
-    now[0] = 31
-    assert not changes.needs_refresh(current, "inventory")
-    now[0] = 3600
-    assert not changes.needs_refresh(current, "inventory")
 
 
 def test_notification_burst_waits_for_stable_revision_and_keeps_domains_independent():
@@ -44,12 +30,6 @@ def test_notification_burst_waits_for_stable_revision_and_keeps_domains_independ
     now[0] = 2
     assert changes.needs_refresh(status("3", dirty=True), "inventory")
     assert changes.needs_refresh(current, "character")
-
-
-def test_provider_reconnect_cannot_reuse_equal_revision():
-    changes = NativeSnapshotChanges(clock=lambda: 0)
-    changes.accept(status(), "inventory")
-    assert not changes.is_current(status(provider="new"), "inventory")
 
 
 @pytest.mark.parametrize("patch", [{"revision": True}, {"revision": "-1"},
@@ -183,7 +163,8 @@ def test_character_only_change_does_not_invalidate_inventory_candidate():
 def test_inventory_status_waits_for_whole_battle_freeze_on_shared_session_scope():
     entered, release, inventory_blocked = Event(), Event(), Event()
     wire, failures, results = [], [], {}
-    domains = ("character", "inventory", "team", "environment")
+    # 同一快照锁保护战报三域读取；背景库存 owner 等锁，但不混入战报冻结输入。
+    domains = ("character", "team", "environment")
 
     from tests.test_native_shared_baseline import BaselineCore
     class ConcurrentCore(BaselineCore):

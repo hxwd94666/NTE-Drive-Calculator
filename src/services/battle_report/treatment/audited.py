@@ -7,12 +7,8 @@ from collections.abc import Mapping, Sequence
 from math import floor
 from typing import Any
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleInferredAction,
-    BattleInferredBuffInterval,
-    BattleTreatmentEvent,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTreatmentEvent
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     project_timeline_time_us,

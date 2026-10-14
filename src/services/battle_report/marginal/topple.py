@@ -1,7 +1,7 @@
 # 按冻结逐角色倾陷贡献批量计算单项强度变化，不重建整场公式。
 from __future__ import annotations
 
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
 
 def topple_ratio(replay, *, character_id: int, unit: float) -> float | None:

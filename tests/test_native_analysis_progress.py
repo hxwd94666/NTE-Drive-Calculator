@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-from src.domain.native_analysis import BuffProjectionBatchTooLarge
+from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBatchTooLarge
 from src.integrations.native_analysis_stream import (
     NativeStreamError, PROGRESS_PHASES, decode_progress,
 )

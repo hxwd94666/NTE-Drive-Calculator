@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
-from src.features.battle_report.comparison_capture import ComparisonCapture
+from src.features.battle_report.capture.comparison import ComparisonCapture
 from src.features.battle_report.controller import BattleReportController
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService

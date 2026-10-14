@@ -297,6 +297,7 @@ def test_root_switch_failure_restores_real_context_owner_and_discards_old_projec
     host._account_manager = SimpleNamespace(read_index=lambda: {"accounts": [{"id": "new"}]},
         activate=lambda _key: new, set_active_account_id=lambda _key: None)
     host._equipment_assembly_is_running = lambda: False
+    host.toolbox_page = SimpleNamespace(is_rewind_running=lambda: False)
     idle = SimpleNamespace(is_running=lambda: False)
     host.scanning_controller = host.identification_controller = host.battle_report_controller = idle
     # 正式维护 owner 保持 idle，让失败分支继续验证真实账号生命周期。
@@ -322,11 +323,12 @@ def test_root_switch_failure_restores_real_context_owner_and_discards_old_projec
 
     context.register_account_lifecycle(CallbackAccountLifecycle(
         is_running=lambda: False, stop=lambda: None if advanced else fail(),
-        rebuild=lambda _account: fail() if advanced else None, start=lambda: None))
+        rebuild=lambda current: fail() if advanced and current == new else None, start=lambda: None))
+    context.subscribe_account_changed(lambda _event: host.reset_equipment_account_state())
     monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
-    assert MainWindow._switch_account(host, "new") is advanced
-    assert context.account == (new if advanced else old)
-    assert context.generation == (1 if advanced else 0)
+    assert MainWindow._switch_account(host, "new") is False
+    assert context.account == old
+    assert context.generation == (2 if advanced else 0)
     if advanced:
         assert host._saved_equipment_states == host._equip_role_states == {}
         assert not host.equip_role_strip.isEnabled() and not host.equip_content.isEnabled()

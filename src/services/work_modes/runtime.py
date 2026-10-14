@@ -683,9 +683,11 @@ class WorkModeRuntime:
                 path_valid=path_valid, running=running,
                 launcher_running=launcher_running, launcher_error=launcher_error,
             )
+            # 文件预检到此结束；inspect 即使不刷新也可能创建 Core 连接，留给显式激活。
+            if preview:
+                return probe
             if running is False:
-                if not preview:
-                    self.native_session.close()
+                self.native_session.close()
                 return probe
             if (not self.policy.allowed("native_sync") or settings.pending_cleanup or settings.paused
                     or not (allow_connect or self.policy.allowed("native_sync", automatic=True)

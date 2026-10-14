@@ -9,7 +9,8 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from src.domain.battle_report import BattleBuffModifierEvidence, BattleTreatmentEvent
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
+from src.domain.battle_report.timeline.events import BattleTreatmentEvent
 from src.integrations.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.buffs.inference import BattleBuffInferenceService
 from src.services.battle_report.buffs.interval_support import BattleBuffIntervalSupportMixin

@@ -1,12 +1,5 @@
-# 保留帮助入口的正式导航目标与分配上限选择，不锁定步骤文案和私有结构。
-from src.features.home.feature_guide import FEATURE_GUIDES
+# 验证分配上限默认值及已有配置选择的兼容读取。
 from src.services.allocation.filter_settings import AllocationFilterSettings
-
-
-def test_feature_guides_have_correct_entry_and_navigation():
-    assert {key for guide in FEATURE_GUIDES for _, key in guide.destinations} == {
-        'execute', 'equipment', 'warehouse', 'identify', 'toolbox', 'battle_report',
-    }
 
 
 def test_new_allocation_limit_is_2000_but_saved_choice_survives():

@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 import logging
 from typing import Any, Callable
 
-from src.domain.progression_stamina import (
+from src.domain.progression.stamina import (
     IdentificationLevelProjection,
     MaterialRequirement,
     ProgressionStaminaRequest,

@@ -8,7 +8,7 @@ import pytest
 from src.domain.work_mode import (
     Capability, CheckState, NativeFeatureProbe, WorkMode, WorkModeProbe,
 )
-from src.services.work_mode_service import WorkModeDenied, WorkModeService
+from src.services.work_modes.service import WorkModeDenied, WorkModeService
 
 
 def test_first_install_and_legacy_plugin_risk_do_not_grant_mode(tmp_path):
@@ -326,7 +326,9 @@ def test_manual_components_and_independent_feature_states(tmp_path):
     checks = {item.feature: item for item in service.build_report(probe).features}
     assert checks["native_inventory"].state == CheckState.AVAILABLE
     assert checks["native_battle"].state == CheckState.MISSING
-    assert checks["native_equipment"].state == CheckState.WAITING
+    # 全局 logged_in 不替代本项完整业务快照证明；该等待不影响其他独立能力。
+    assert checks["native_equipment"].state == CheckState.WAITING_LOGIN
+    assert "等待完整业务快照" in checks["native_equipment"].detail
     assert "component_update" in checks
     assert all("enable_auto_manage" not in item.actions for item in checks.values())
     assert "packet_capture" not in checks

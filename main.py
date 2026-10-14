@@ -1,26 +1,11 @@
-# 图形程序入口，负责运行时 DLL 准备和桌面界面启动。
-"""桌面程序显式启动入口；普通导入不注册 DLL 或创建账号。"""
+# 图形程序入口，按显式启动选择进入桌面界面。
+"""桌面程序显式启动入口；普通导入不准备后端或创建账号。"""
 
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
-
-
-# 保留 DLL 目录句柄直至进程结束，避免函数返回后路径注册被回收。
-_runtime_dll_handles: list[object] = []
-
-
-def _prepare_runtime_dlls() -> None:
-    """只在正式启动时注册打包 DLL，且先于 OpenVINO/桌面模块导入。"""
-    if not getattr(sys, "frozen", False) or sys.platform != "win32":
-        return
-    libraries = Path(sys._MEIPASS) / "openvino" / "libs"
-    if libraries.is_dir():
-        _runtime_dll_handles.append(os.add_dll_directory(str(libraries)))
-        os.environ["OPENVINO_LIB_PATHS"] = str(libraries)
 
 
 ROOT_DIR = Path(__file__).parent.resolve()
@@ -41,7 +26,7 @@ def main() -> None:
     if args.cli:
         parser.error("旧 JSON 命令行分配器已移除，请直接启动桌面 GUI。")
 
-    _prepare_runtime_dlls()
+    # 后端 DLL 及句柄归 OCR 首次初始化；非识别启动不受未选库或残留目录影响。
     if args.ime_compat and sys.platform == "win32":
         _enable_ime_compatibility()
     from src.ui.app import run_gui

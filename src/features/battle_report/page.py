@@ -19,20 +19,18 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.app.dialogs import show_help
-from src.domain.battle_report import (
-    BattleAnalysisSnapshot,
-    BattleCaptureState,
-    BattleSummary,
-)
-from src.domain.battle_capture_comparison import BattleCaptureComparisonState
-from src.features.battle_report.comparison_panel import BattleCaptureComparisonPanel
-from src.features.battle_report.analysis_view import BattleLongAnalysisView
-from src.features.battle_report.analysis_progress_bar import (
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.capture.state import BattleCaptureState
+from src.domain.battle_report.capture.summary import BattleSummary
+from src.domain.battle_report.capture.state import BattleCaptureComparisonState
+from src.features.battle_report.capture.comparison_panel import BattleCaptureComparisonPanel
+from src.features.battle_report.analysis.view import BattleLongAnalysisView
+from src.features.battle_report.analysis.progress import (
     BattleAnalysisProgressBar,
 )
 from src.services.battle_report.analysis.progress import BattleAnalysisProgress
-from src.features.battle_report.marginal_page import BattleMarginalPage
-from src.features.battle_report.summary_clock import summary_clock_label
+from src.features.battle_report.marginal.page import BattleMarginalPage
+from src.features.battle_report.capture.summary_clock import summary_clock_label
 from src.services.battle_report.buffs.counterfactual import (
     BUFF_COUNTERFACTUAL_MODEL_VERSION,
 )

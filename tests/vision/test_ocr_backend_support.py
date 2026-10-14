@@ -11,12 +11,12 @@ from unittest.mock import Mock
 import pytest
 
 from src.integrations import bundled_resources
-from src.integrations.vision.recognition import backend_runtime as runtime
-from src.integrations.vision.recognition import model_resources as models
-from src.integrations.vision.recognition.backend_support import (
+from src.integrations.vision.recognition.ocr import backend_runtime as runtime
+from src.integrations.vision.recognition.ocr import model_resources as models
+from src.integrations.vision.recognition.ocr.backend_support import (
     OcrBackendSupport, OcrBackendSupportError, load_backend_support, load_packaged_backend_support,
 )
-from src.integrations.vision.recognition.ocr_engine import OCREngine
+from src.integrations.vision.recognition.ocr.ocr_engine import OCREngine
 from tests.vision.test_ocr_runtime import NativeOCR, create_micro_resources, model_fixture
 
 NTE_TEST_TIER = 'core'
@@ -118,6 +118,15 @@ def test_frozen_support_ignores_environment_and_rejects_missing_or_invalid_manif
     for value in ({'schema': True, 'profile': 'openvino'}, {'schema': 1, 'profile': 'other'},
                   {'schema': 1, 'profile': 'openvino', 'libraries': ['onnxruntime']}, []):
         path.write_text(json.dumps(value), encoding='utf-8')
+        with pytest.raises(OcrBackendSupportError):
+            load_backend_support()
+    # 短文件也可能递归过深；重复 profile 不按最后一项扩展发行库集合。
+    for payload in (
+        b'{"schema":1,"profile":"onnx_cpu","profile":"default"}',
+        b'{"schema":1,"profile":' + b'[' * 1100 + b'0' + b']' * 1100 + b'}',
+        b'{"schema":1,"profile":"openvino"}' + b' ' * 5000,
+    ):
+        path.write_bytes(payload)
         with pytest.raises(OcrBackendSupportError):
             load_backend_support()
     path.write_text(json.dumps({'schema': 1, 'profile': 'openvino'}), encoding='utf-8')

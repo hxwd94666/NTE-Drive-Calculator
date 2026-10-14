@@ -4,9 +4,9 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
-from src.features.battle_report.timeline_layout import TimelineSelection
-from src.features.battle_report.timeline_tooltip import build_timeline_tooltip
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
+from src.features.battle_report.timeline.layout import TimelineSelection
+from src.features.battle_report.timeline.tooltip import build_timeline_tooltip
 from src.services.battle_report.timeline.projection import (
     BattleTimelineProjectionService,
 )

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.domain.progression_stamina import FarmingStage, MaterialYield
+from src.domain.progression.stamina import FarmingStage, MaterialYield
 
 from src.storage.sqlite.protocols import StaticDataDaoMixinHost
 

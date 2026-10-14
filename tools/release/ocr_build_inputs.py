@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from src.integrations.vision.recognition.backend_support import OcrBackendSupport
+from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport
 
 
 @dataclass(frozen=True, slots=True)

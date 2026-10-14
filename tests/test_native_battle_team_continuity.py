@@ -1,10 +1,12 @@
 # 验证出场切换不丢失本场配装，真实队伍及配置变化仍拒绝。
 from copy import deepcopy
+import hashlib
+import json
 from unittest.mock import patch
 
 import pytest
 
-from src.services.native_battle_scopes import select_scope_builds, validate_first_hit
+from src.services.battle_report.inputs.scopes import select_scope_builds, validate_first_hit
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.test_battle_capture_build_freeze import capture, finish, native_snapshot, scoped  # noqa: F401
 
@@ -46,7 +48,7 @@ def test_on_field_switch_preserves_first_hit_and_final_build():
 
 
 def test_live_lease_passes_context_evidence_to_first_hit_validation():
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
 
     snapshot, _, record = observed_team()
@@ -108,7 +110,7 @@ def refreshed_character():
 
 
 def test_entry_refresh_accepts_identical_observed_character_configuration():
-    from src.services.native_battle_scopes import scope_changed
+    from src.services.battle_report.inputs.scopes import scope_changed
     snapshot, attempt, record = refreshed_character()
     assert scope_changed(snapshot, attempt, record) is None
 
@@ -136,7 +138,7 @@ def test_entry_refresh_requires_matching_configuration_evidence(change):
 
 @pytest.mark.parametrize("domain", ["character"])
 def test_midbattle_other_domain_change_still_invalidates_build(domain):
-    from src.services.native_battle_scopes import scope_changed
+    from src.services.battle_report.inputs.scopes import scope_changed
 
     snapshot, attempt, record = observed_team()
     attempt["changes"][0][domain] = {"revision": "2", "dirty": True}
@@ -151,7 +153,7 @@ def test_selected_roster_and_runtime_roster_must_agree():
 
 @pytest.mark.parametrize("domain", ["inventory", "environment"])
 def test_non_panel_domain_changes_do_not_discard_frozen_role_build(domain):
-    from src.services.native_battle_scopes import scope_changed
+    from src.services.battle_report.inputs.scopes import scope_changed
     snapshot, attempt, record = observed_team()
     snapshot["domains"][domain]["revision"] = "9"
     attempt["changes"][0][domain] = {"revision": "10", "dirty": True}
@@ -159,17 +161,30 @@ def test_non_panel_domain_changes_do_not_discard_frozen_role_build(domain):
     assert scope_changed(snapshot, attempt, record) is None
 
 
-def test_restore_empty_calculation_copy_uses_saved_equipment_and_is_idempotent(capture):
+def test_only_legacy_copy_can_be_restored_from_retained_evidence(capture):
     service, deps, _, _ = capture
     snapshot, _, record = observed_team()
     with patch.object(service, "_resolve_character_stat_snapshots", return_value={}):
         service.bind_runtime_snapshot(capture_operation_id="capture", snapshot=scoped(snapshot))
+    with UserDataDao(deps.user_database_path) as dao:
+        legacy_context = dao.load_battle_capture_build("capture")
     outcome = finish(service, record)
     with UserDataDao(deps.user_database_path) as dao:
-        # Model an old report whose raw scope evidence survived but whose
-        # materialized calculation copy is missing, independent of save policy.
+        # 新记录的唯一装备快照即使受损，也不从当前账号或范围证据重新解释。
         dao._db().execute("DELETE FROM battle_character_build_snapshot WHERE battle_record_id=?",
                           (outcome.battle_record_id,))
+        dao._db().commit()
+        modern = dao.load_finalized_battle_capture_record(outcome.battle_record_id)
+    assert not service.restore_missing_native_build(outcome.battle_record_id)
+    with UserDataDao(deps.user_database_path) as dao:
+        assert dao.load_finalized_battle_capture_record(outcome.battle_record_id) == modern
+        # 明确构造旧版未压缩的冻结格式；旧恢复只消费当场证据，不把新格式伪装成旧格式。
+        legacy = {**modern, "calc_capture_context": legacy_context}
+        raw = json.dumps(legacy, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        dao._db().execute(
+            "UPDATE battle_axis_capture SET raw_record_json=?, raw_record_sha256=? WHERE battle_record_id=?",
+            (raw, hashlib.sha256(raw.encode()).hexdigest(), outcome.battle_record_id),
+        )
         dao._db().commit()
         before = dao.load_finalized_battle_capture_record(outcome.battle_record_id)
     assert service.restore_missing_native_build(outcome.battle_record_id)
@@ -209,7 +224,7 @@ def pending_refresh():
 
 
 def test_first_poll_missing_context_does_not_permanently_reject_saved_build(capture):
-    from src.services.native_game_session import NativeGameSession
+    from src.services.native_session.session import NativeGameSession
     from tests.test_native_game_session import FakeNativeCore
 
     service, deps, _, _ = capture
@@ -240,7 +255,7 @@ def test_first_poll_missing_context_does_not_permanently_reject_saved_build(capt
 
 @pytest.mark.parametrize("condition", ["same_epoch", "new_epoch", "after_read", "missing_time", "missing_context", "provider"])
 def test_dirty_cache_is_only_resolved_by_same_epoch_later_read(condition):
-    from src.services.native_battle_scopes import scope_changed
+    from src.services.battle_report.inputs.scopes import scope_changed
     snapshot, attempt, record = pending_refresh()
     snapshot["domains"]["character"].update(domainKey="world-1:1/controller-2:2/ps-3:3/clone-fixture", observedUnixUs="2500000")
     attempt["changes"][0]["character"]["dirty"] = True

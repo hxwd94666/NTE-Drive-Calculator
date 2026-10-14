@@ -7,10 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from src.domain.battle_report import (
-    BattleInferredAction,
-    BattleObservedTimeStopInterval,
-)
+from src.domain.battle_report.timeline.events import BattleInferredAction, BattleObservedTimeStopInterval
 from src.services.battle_report.timeline.clock import merge_time_stop_intervals
 
 

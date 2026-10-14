@@ -4,8 +4,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 from src.services.battle_report.native.team_state import compute_team_state
-from src.domain.native_analysis import available_battle_compute
-from src.domain.battle_report import BattleAnalysisHit, BattleBuffModifierEvidence, BattleInferredAction, BattleInferredBuffInterval
+from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.damage.composition import classify_battle_hit_channel
 from src.services.battle_report.timeline.clock import ACTIVE_TIME_MODE, project_timeline_time_us, unproject_timeline_time_us
 

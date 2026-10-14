@@ -8,22 +8,15 @@ from src.services.battle_report.damage.weave_source import BattleWeaveSourceInde
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
 
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleQuantificationGap,
-)
-from src.domain.native_analysis import DirectFormulaBackend, available_battle_compute
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
+from src.domain.battle_report.analysis.backend_contracts import DirectFormulaBackend, available_battle_compute
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.buffs.candidate_projection import PreparedBuffCandidateProjection
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleInferredBuffInterval,
-    BattleSkillDamageEvidence,
-    BattleTargetCondition,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection, BattleInferredBuffInterval
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.buffs.interval_index import (
     BattleBuffIntervalIndex,
     BattleBuffIntervalQuery,

@@ -21,6 +21,7 @@ from src.app.page_tasks import close_page_tasks
 from src.features.official_role.controller import OfficialRoleController
 from src.features.official_role import role_shell
 from src.domain.official_role.models import WorldBonusSettings
+from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 def detail(character_id):
@@ -131,6 +132,57 @@ class OfficialRoleAsyncLoadingTests(unittest.TestCase):
             tabs.setCurrentIndex(1)
             self.wait(self.ready)
         self.assertIn(1002, self.window._official_role_editors)
+
+    def test_parallel_read_empty_account_wal_keeps_detail_but_committed_write_invalidates(self) -> None:
+        database = self.root / "actual-user.sqlite3"
+        with UserDataDao(database, account_id="synthetic"):
+            pass
+        self.window.app_context.account.user_database_path = database
+        controller = role_shell._role_controller(self.window)
+        before = controller.source_key()
+        entered, release = threading.Event(), threading.Event()
+        calls, results, errors = [], [], []
+
+        def read(character_id, **_kwargs):
+            calls.append(character_id)
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return detail(character_id)
+
+        def request():
+            controller.request_detail(1001, results.append, errors.append)
+            self.wait(lambda: not controller.is_loading())
+            self.assertEqual([], errors)
+
+        with patch.object(OfficialRoleController, "load_detail", side_effect=read):
+            controller.request_detail(1001, results.append, errors.append)
+            try:
+                self.wait(entered.is_set)
+                # 另一正式 DAO 只读连接会建立零字节 WAL；它没有提交新的账号事实。
+                with UserDataDao(database) as peer:
+                    self.assertEqual(0, database.with_name(database.name + "-wal").stat().st_size)
+                    release.set()
+                    self.wait(lambda: not controller.is_loading())
+                    self.assertEqual([], errors)
+                    self.assertEqual([1001], calls)
+                    self.assertEqual(before, results[-1][1])
+                    request()
+                    self.assertEqual([1001], calls)
+                    peer.replace_ui_item_order("official_roles", [1001])
+                    self.assertNotEqual(before, controller.source_key())
+                    request()
+                    self.assertEqual([1001, 1001], calls)
+            finally:
+                release.set()
+        # 检查点后主库变化仍失效；静态/共享来源的 sidecar 不享有账号的空 WAL 规则。
+        self.assertNotEqual(before, controller.source_key())
+        stable = controller.source_key()
+        for name in ("static.sqlite3", "shared.sqlite3"):
+            sidecar = self.root / (name + "-wal")
+            sidecar.write_bytes(b"")
+            self.assertNotEqual(stable, controller.source_key())
+            sidecar.unlink()
+            self.assertEqual(stable, controller.source_key())
 
 
 

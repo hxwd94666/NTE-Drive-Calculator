@@ -5,13 +5,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from typing import Any
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.damage.weave_source import weave_source_key
 
-from src.domain.battle_report import (
-    BattleAnalysisSnapshot,
-    BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 from src.services.damage_calculation_service import (
     reaction_tier_for_character_level,
     skill_tier_for_effective_level,

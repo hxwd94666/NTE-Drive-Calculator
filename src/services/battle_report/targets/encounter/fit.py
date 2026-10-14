@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from math import exp, isclose, isfinite, log, log1p
 from typing import Final
 
-from src.domain.native_analysis import BattleComputeBackend
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
 
 BATTLE_ENCOUNTER_FIT_ALGORITHM_VERSION: Final = "battle-encounter-robust-fit-v1"

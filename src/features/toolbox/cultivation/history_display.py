@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from src.domain.cultivation_history import HistorySummary, decode_summary
+from src.domain.progression.history import HistorySummary, decode_summary
 
 
 def summary_text(summary: HistorySummary) -> tuple[str, str]:

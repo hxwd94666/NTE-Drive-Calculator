@@ -4,8 +4,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from src.services.bulk_equipment_apply_service import BulkEquipmentApplyService
+from src.services.equipment.bulk_apply import BulkEquipmentApplyService
+
+
+def _allow_native_equipment(capability: str) -> None:
+    # 仅给合成装配夹具显式授权；缺省拒绝行为由执行门禁测试覆盖。
+    assert capability == "native_equipment"
 
 
 def _applied() -> list[dict]:
@@ -59,7 +65,7 @@ def test_scoped_equipment_event_confirms_role_without_global_snapshot() -> None:
     sync = Sync()
     apply_service = ApplyService()
     applied = _applied()
-    result = BulkEquipmentApplyService("unused.sqlite3", sync)._postcheck_and_repair(
+    result = BulkEquipmentApplyService("unused.sqlite3", sync, operation_guard=_allow_native_equipment)._postcheck_and_repair(
         dao, apply_service, [{"plan_id": 10}], applied, 7, None,
     )
 
@@ -81,9 +87,11 @@ def test_missing_scoped_event_keeps_dispatch_result_without_global_snapshot_wait
         def __init__(self) -> None:
             self.global_waits = 0
             self.scoped_waits = 0
+            self.elapsed = 0.0
 
-        def wait_for_equipment_snapshot(self, *_args, **_kwargs):
+        def wait_for_equipment_snapshot(self, *_args, timeout, **_kwargs):
             self.scoped_waits += 1
+            self.elapsed += timeout
             raise TimeoutError
 
         def wait_for_snapshot(self, *_args, **_kwargs):
@@ -93,13 +101,16 @@ def test_missing_scoped_event_keeps_dispatch_result_without_global_snapshot_wait
     dao = _Dao()
     sync = Sync()
     applied = _applied()
-    result = BulkEquipmentApplyService("unused.sqlite3", sync)._postcheck_and_repair(
-        dao, ApplyService(), [{"plan_id": 10}], applied, 7, None,
-    )
+    # 分片等待要持续复核取消/权限；虚拟时钟走完预算，不用真实等待或忙轮询。
+    with patch("src.services.equipment.bulk_postcheck.time.monotonic", side_effect=lambda: sync.elapsed):
+        result = BulkEquipmentApplyService("unused.sqlite3", sync, operation_guard=_allow_native_equipment)._postcheck_and_repair(
+            dao, ApplyService(), [{"plan_id": 10}], applied, 7, None,
+        )
 
     assert result["scoped_snapshot_wait_timed_out"] is True
     assert result["scoped_unverified_count"] == 1
-    assert sync.scoped_waits == 1
+    assert sync.scoped_waits > 1
+    assert sync.elapsed == 10.0
     assert sync.global_waits == 0
 
 
@@ -136,7 +147,7 @@ def test_scoped_mismatch_retries_only_that_role_and_confirms_without_global_snap
     sync = Sync()
     apply_service = ApplyService()
     applied = _applied()
-    result = BulkEquipmentApplyService("unused.sqlite3", sync)._postcheck_and_repair(
+    result = BulkEquipmentApplyService("unused.sqlite3", sync, operation_guard=_allow_native_equipment)._postcheck_and_repair(
         dao, apply_service, [{"plan_id": 10}], applied, 7, None,
     )
 
@@ -180,7 +191,7 @@ def test_dispatched_role_keeps_job_item_id_for_later_scoped_confirmation() -> No
         "core_count": 0,
     }]
     applied: list[dict] = []
-    service = BulkEquipmentApplyService("unused.sqlite3", Sync())
+    service = BulkEquipmentApplyService("unused.sqlite3", Sync(), operation_guard=_allow_native_equipment)
 
     assert service._execute_prepared(
         Dao(), ApplyService(), prepared, 7, applied, [], 99, None

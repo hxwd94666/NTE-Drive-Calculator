@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.domain.stat_catalog import StatCatalog
 from src.integrations.vision.recognition.resources import RecognitionResources
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 
 def _stat_pool(config_dir: Path, resources=None) -> list[str]:
     catalog = resources.stat_catalog() if resources is not None else StatCatalog.from_config_dir(config_dir)

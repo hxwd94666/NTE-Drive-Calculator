@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.workers import WorkerThread
-from src.domain.progression_stamina import ProgressionStaminaResult, StaminaPlanStatus
+from src.domain.progression.stamina import ProgressionStaminaResult, StaminaPlanStatus
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
 from src.features.static_catalog.progression_calculator_models import (
     ProgressionCalculatorOrchestrator,

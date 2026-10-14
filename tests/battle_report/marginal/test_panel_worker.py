@@ -6,13 +6,15 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from src.domain.battle_report import BattleAnalysisHit, BattleCharacterBaseline, BattleHitReplayResult
-from src.features.battle_report.marginal_character_panel import render_character_panel_and_margins
-from src.features.battle_report.marginal_page import BattleMarginalPage
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.features.battle_report.marginal.character_panel import render_character_panel_and_margins
+from src.features.battle_report.marginal.page import BattleMarginalPage
 from src.features.battle_report.page import BattleReportPage, BUFF_COUNTERFACTUAL_MODEL_VERSION, PASSIVE_COUNTERFACTUAL_MODEL_VERSION
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.marginal.formula_scope import prepare_marginal_formula_scope
-from src.domain.battle_page_models import BattleMarginalPanelResult
+from src.domain.battle_report.counterfactual.results import BattleMarginalPanelResult
 from src.services.battle_report.marginal.panel import BattleMarginalPanelService
 
 
@@ -60,7 +62,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
         analysis = SimpleNamespace(hits=(), hit_replays=())
         panel, table = Mock(), Mock()
         wrong_role = BattleMarginalPanelResult(2, (object(),), ("CritBase",))
-        with (patch("src.features.battle_report.marginal_character_panel.render_attribute_results") as render,
+        with (patch("src.features.battle_report.marginal.character_panel.render_attribute_results") as render,
               patch("src.services.battle_report.marginal.calculation.BattleMarginalCalculationService.calculate") as calculate):
             render_character_panel_and_margins(panel, table, analysis=analysis, baseline=baseline, marginal_panel=wrong_role)
         calculate.assert_not_called()
@@ -74,7 +76,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
         drive = SimpleNamespace(property_id="CritBase")
         result = BattleMarginalPanelResult(1, (dynamic, drive), ("CritBase",))
         panel, table = Mock(), Mock()
-        with patch("src.features.battle_report.marginal_character_panel.render_attribute_results") as render:
+        with patch("src.features.battle_report.marginal.character_panel.render_attribute_results") as render:
             render_character_panel_and_margins(panel, table, analysis=analysis, baseline=baseline, marginal_panel=result)
         panel.render.assert_called_once_with(baseline, result.results, current_element_property=None)
         render.assert_called_once_with(table, (drive,))

@@ -13,8 +13,7 @@
 | 刷新／重启同步及跨组件迁移目标 | [同步生命周期设计](roadmap/sync-lifecycle.md) |
 | 分层、数据域、快照、方案和副作用 | [系统架构](architecture.md) |
 | Fork 环境入口、基础权重完整流程与五类修改配方 | [Fork 开发路线](reference/fork-development.md) |
-| 成熟功能框架补足、修复代码合并、中文关键注释与低配优化 | [架构重构开发方案](roadmap/architecture-renewal.md) |
-| 四日开发步骤、阶段验收、模型与额度安排 | [四日开发与验收计划](roadmap/four-day-development-plan.md) |
+| 全项目重构、遗漏补做、模块与测试精简、低配及语言预备 | [当前架构复审方案](roadmap/architecture-post-refactor-review.md) |
 | 新版解包驱动数据、素材与新角色逐功能接入 | [版本更新 skill](../skills/nte-game-update/SKILL.md) |
 | 伤害分配占位、组合搜索与最优证明边界 | [伤害分配算法备忘](roadmap/damage-allocation.md) |
 | 已交付的页面、计算、同步、配装和设置 | [功能原理](features.md) |
@@ -58,6 +57,7 @@
   `roadmap/` 只写未完成能力。首页文档保留稳定入口，细节在对应专题维护。
 - `reference/` 放公式、字段、格式与只读资料域；`reference/damage-calculation.md` 是公式权威索引，
   `reference/damage/` 承载各公式专题；`reference/counterfactual/` 放反事实目录，`reviews/` 按角色保存人工审计。
-- `integrations.md` 是第三方组件、插件、输入与静态构建的唯一集成说明；`validation/` 只保存真实环境验收。
+- `integrations.md` 是第三方组件、插件、输入与静态构建的唯一集成说明；`validation/` 保留必要验收依据与未覆盖范围，
+  隔离运行、真实 Windows、组件和发行证据分别记录。
 - 一个事实只保留一个权威位置。更新时覆盖相关章节并删除失效内容，不在文末追加补丁式说明。
 - 修改后检查相对链接、UTF-8、敏感信息边界和 `git diff --check`。

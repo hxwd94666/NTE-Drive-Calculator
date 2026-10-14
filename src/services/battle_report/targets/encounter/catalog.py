@@ -9,10 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
-from src.domain.battle_encounter import (
-    BattleEncounterCandidate,
-    BattleEncounterTargetPreset,
-)
+from src.domain.battle_report.targets.encounter import BattleEncounterCandidate, BattleEncounterTargetPreset
 from src.services.battle_report.targets.observation import observed_number
 from src.services.battle_report.environment.outer_realm_period import period_label_for_config
 from src.services.battle_report.targets.candidate_graph import normalized_monster_key

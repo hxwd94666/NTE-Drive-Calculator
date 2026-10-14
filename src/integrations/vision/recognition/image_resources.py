@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from src.integrations.vision.recognition.config import RecognitionLayout
-from src.integrations.vision.recognition.language_resources import OcrRuntimeResources
+from src.integrations.vision.recognition.ocr.language_resources import OcrRuntimeResources
 from src.integrations.vision.recognition.resources import RecognitionResourceError
 
 

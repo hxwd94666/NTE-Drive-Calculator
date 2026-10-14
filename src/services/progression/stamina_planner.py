@@ -6,12 +6,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Protocol
 
-from src.domain.progression_material_conversion import (
+from src.domain.progression.materials import (
     conversion_edges,
     lower_tier_ids,
     material_tier,
 )
-from src.domain.progression_stamina import (
+from src.domain.progression.stamina import (
     FarmingStage,
     MaterialRequirement,
     ProgressionStaminaRequest,

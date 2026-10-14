@@ -4,7 +4,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, Protocol
 
-from src.domain.battle_report import BattleCaptureState, BattleSummary, BattleSummaryPersistenceOutcome
+from src.domain.battle_report.capture.state import BattleCaptureState
+from src.domain.battle_report.capture.summary import BattleSummary
+from src.domain.battle_report.history.records import BattleSummaryPersistenceOutcome
 
 
 BattleStateHandler = Callable[[BattleCaptureState], None]

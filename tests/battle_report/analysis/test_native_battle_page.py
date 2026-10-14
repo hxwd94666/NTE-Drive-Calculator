@@ -10,8 +10,10 @@ import traceback
 import unittest
 from unittest.mock import Mock, patch
 
-from src.domain.battle_report import BattleAnalysisHit, BattleAnalysisSnapshot, BattleInferredBuffInterval
-from src.integrations.native_battle_page_wire import _decode_snapshot, decode, decode_derived_snapshot, decode_page
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
+from src.integrations.battle_analysis.page_wire import _decode_snapshot, decode, decode_derived_snapshot, decode_page
 from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_report.analysis.native_page import BattleNativePageService
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest
@@ -82,7 +84,7 @@ class NativeBattlePageTests(unittest.TestCase):
             decode(raw, BattleAnalysisSnapshot)
 
     def test_native_algorithm_revision_is_preserved_without_matching_legacy_python(self):
-        from src.domain.battle_page_models import BattleInferredEncounter
+        from src.domain.battle_report.targets.encounter import BattleInferredEncounter
         inferred = BattleInferredEncounter(
             environment_kind='feast', environment_ref='stage', environment_name='场景',
             source_kind='native_environment_with_static_candidates', confidence='高',

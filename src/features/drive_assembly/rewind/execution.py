@@ -9,7 +9,7 @@ from typing import Any, Callable, cast
 
 import numpy as np
 from concurrent.futures import CancelledError
-from src.integrations.vision.recognition.task_session import OcrTaskSession, use_ocr_session
+from src.integrations.vision.recognition.ocr.task_session import OcrTaskSession, use_ocr_session
 
 from src.features.drive_assembly.input_backends import (
     MouseBackend,

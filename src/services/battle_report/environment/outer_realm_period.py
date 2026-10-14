@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from src.domain.battle_encounter import BattleEncounterCandidate
+from src.domain.battle_report.targets.encounter import BattleEncounterCandidate
 
 
 _MAINLAND_TIMEZONE = timezone(timedelta(hours=8))

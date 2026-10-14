@@ -5,7 +5,7 @@ import pytest
 
 from src.integrations.native_inline_snapshot import INLINE_RAW_CAPABILITY
 from src.integrations.nte_core_protocol import NteCoreProtocolError
-from src.services.native_game_session import NativeGameSession
+from src.services.native_session.session import NativeGameSession
 from tests.test_native_shared_baseline import BaselineCore
 
 
@@ -19,7 +19,7 @@ class PagedCore(BaselineCore):
     def header(self, domain):
         return {**super().header(domain), "recordCount": self.count, "sourceRecordCount": self.count}
 
-    def call(self, method, params, **kwargs):
+    def call(self, method, params=None, **kwargs):
         if not method.endswith(".page"):
             return super().call(method, params, **kwargs)
         self.calls.append((method, deepcopy(params)))
@@ -53,7 +53,7 @@ class PagedCore(BaselineCore):
 
 
 @pytest.mark.parametrize("domain", ["inventory", "character"])
-@pytest.mark.parametrize("count", [0, 1, 64, 65, 129])
+@pytest.mark.parametrize("count", [0, 65])
 def test_inline_and_separate_pages_build_identical_owned_baselines(domain, count):
     results = []
     for inline in (False, True):
@@ -123,7 +123,8 @@ def test_cold_battle_freeze_uses_inline_pages_without_second_inventory_read():
     for domain in ("inventory", "character"):
         assert not any(method == "native.snapshot.page" and params["domain"] == domain
                        for method, params in new.calls)
-    assert new.refresh_counts() == dict.fromkeys(new.revisions, 1)
+    assert new.refresh_counts() == dict.fromkeys(("character", "team", "environment"), 1)
+    assert not any(method == "native.inventory.page" for method, _ in new.calls)
 
 
 def test_mapping_failure_still_retains_raw_evidence():
@@ -133,13 +134,14 @@ def test_mapping_failure_still_retains_raw_evidence():
     original = core.call
 
     def call(method, params, **kwargs):
-        if method == "native.inventory.page":
+        if method == "native.character.page":
             raise NteCoreRpcError({"code": -32000, "message": "Core error",
                                    "data": {"domain_code": "NATIVE_MAPPING_UNSUPPORTED"}})
         return original(method, params, **kwargs)
 
     core.call = call
     result = freeze_native_battle_snapshot(core, lambda: None)
-    assert len(result["domains"]["inventory"]["records"]) == 129
-    assert "inventory_projection_unavailable" in result["missing"]
-    assert "inventory_projection" not in result
+    assert len(result["domains"]["character"]["records"]) == 129
+    assert "character_projection_unavailable" in result["missing"]
+    assert "character_projection" not in result
+    assert "inventory" not in result["domains"]

@@ -5,10 +5,10 @@ from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from shiboken6 import isValid
 
-from src.features.battle_report.buff_evidence_view import BattleBuffEvidencePanel
-from src.features.battle_report.build_snapshot_control import BattleBuildSnapshotControl
-from src.features.battle_report.marginal_page import BattleMarginalPage
-from src.features.battle_report.overlay import BattleReportOverlay
+from src.features.battle_report.analysis.buff_evidence import BattleBuffEvidencePanel
+from src.features.battle_report.editing.control import BattleBuildSnapshotControl
+from src.features.battle_report.marginal.page import BattleMarginalPage
+from src.features.battle_report.capture.overlay import BattleReportOverlay
 
 
 _APP = QApplication.instance() or QApplication([])

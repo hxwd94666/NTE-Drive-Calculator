@@ -7,11 +7,12 @@ from unittest.mock import Mock
 import pytest
 
 from src.integrations.native_host_control import NativeHostError, NativeHostOutcomeUnknown
-from src.integrations.nte_core_protocol import NteCoreError
+from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError
 from src.services.native_session.session import NativeGameSession
 from src.services.native_session.inventory import NativeInventoryLease
 from src.services.components.maintenance import NativePluginMaintenance, active_feature_update_hint
-from src.services.performance_monitor import PerformanceMonitor
+from src.services.performance.monitor import PerformanceMonitor
+from tests.test_native_equipment_session import EquipmentCore
 
 
 def setup():
@@ -111,17 +112,55 @@ def test_inventory_lease_must_finish_before_disconnect():
     owner.finish(restore=True)
 
 
-@pytest.mark.parametrize('field,value', [('_equipment_context', ('provider', 'domain')),
-                                       ('_write_outcome_unknown', True)])
-def test_active_or_unknown_equipment_write_blocks_maintenance(field, value):
+def test_active_equipment_write_blocks_maintenance():
     owner, session, core, *_ = setup()
     inventory = NativeInventoryLease(session, core)
-    setattr(inventory, field, value)
+    inventory._equipment_context = ('provider', 'domain')
     session._inventory_lease = inventory
     with pytest.raises(NteCoreError, match='游戏配装'):
         owner.begin()
     core.close.assert_not_called()
     assert not session.maintenance_active
+
+
+@pytest.mark.parametrize('message,domain,unknown', [
+    ('fixture', 'EQUIPMENT_OUTCOME_UNKNOWN', True),
+    ('control_timeout', None, True),
+    ('source_changed', 'EQUIPMENT_REQUEST_REJECTED', False),
+    ('fixture', 'EQUIPMENT_PLUGIN_BUSY', False),
+])
+def test_equipment_rpc_result_keeps_only_unknown_maintenance_occupancy(message, domain, unknown):
+    core = EquipmentCore()
+    error = NteCoreRpcError({'code': -32001, 'message': message, 'data': {'domain_code': domain}})
+    core.equip_core.side_effect = error
+    session = NativeGameSession(lambda: core, lambda _cap: None)
+    inventory = session.inventory_client()
+    sync, performance = Mock(), Mock()
+    owner = NativePluginMaintenance(session=session, sync=sync, performance=performance,
+                                    check_blockers=lambda: None, reconnect=Mock())
+    try:
+        # 不直接置私有标志：正式租约写入口必须把 RPC 未知结果留下，批次清理后也有效。
+        with pytest.raises(NteCoreRpcError) as caught:
+            inventory.equip_core(character={'slot': 700, 'serial': 701}, equipment={'slot': 8, 'serial': 1})
+        assert caught.value is error
+        core.equip_core.assert_called_once()
+        assert inventory._equipment_context is None
+        assert inventory.maintenance_blocked is unknown
+        if unknown:
+            with pytest.raises(NteCoreError, match='执行结果未确认'):
+                owner.begin()
+            sync.suspend_for_plugin_update.assert_not_called()
+            performance.suspend_for_plugin_update.assert_not_called()
+            assert not session.maintenance_active and not core.closed
+        else:
+            # 明确拒绝或尚未派发的忙碌不制造永久占用；维护可按原生命周期继续。
+            owner.begin()
+            sync.suspend_for_plugin_update.assert_called_once()
+            assert session.maintenance_active
+    finally:
+        owner.finish(restore=False)
+        inventory.close()
+        session.close()
 
 
 @pytest.mark.parametrize('owner,label', [('battle_report', '战报'), ('automatic_equipment_apply', '自动装配'),

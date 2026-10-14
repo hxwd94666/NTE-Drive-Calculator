@@ -9,12 +9,9 @@ from types import SimpleNamespace
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleInferredBuffInterval,
-)
-from src.features.battle_report.analysis_view import BattleLongAnalysisView
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.features.battle_report.analysis.view import BattleLongAnalysisView
 from src.services.battle_report.buffs.hit_explanation import (
     BattleHitBuffExplanationService,
 )

@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleHitBuffProjection,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-    BattleSkillDamageEvidence,
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import (
+    BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm, BattleSkillDamageEvidence,
 )
 from src.services.battle_report.replay.support import (
     dot_final_replay_factors,
@@ -140,14 +137,17 @@ class BattleSpecialHitReplayService:
             and "PASSIVE-1072-GA_Radio072_Passive_1"
             in baseline.enabled_team_passive_ids
         )
+        # 低层协议消费显式比例，不接收被动布尔值；.20 为基础，.13 仅属已确认被动扩展。
+        # 本入口采用正式现有模型 F=1；原伤已消费通伤，不再叠加父击增伤或猜测额外修正。
         numbers = yield ("special_weave_v1", {
             "ring_strength": float(values.get("MagBase", 0.0)),
-            "lingke_passive": lingke_passive, "source_damage": triggering_hit.damage,
+            "base_ratio": 0.20, "extra_ratio": 0.13 if lingke_passive else 0.0,
+            "final_multiplier": 1.0, "source_damage": triggering_hit.damage,
             "observed": hit.damage,
         })
         ring_strength = numbers["ring_strength"]
         strength_multiplier = numbers["strength_multiplier"]
-        base_extra_ratio = numbers["extra_ratio"]
+        copy_ratio = numbers["copy_ratio"]
         followup_multiplier = numbers["followup_multiplier"]
         predicted = numbers["selected"]
         signed_error, absolute_error = numbers["signed_error"], numbers["absolute_error"]
@@ -186,7 +186,8 @@ class BattleSpecialHitReplayService:
                     if lingke_passive
                     else "基础覆纹规则"
                 ),
-                f"(1 + {base_extra_ratio:.0%}) × 覆纹环合强度区 - 1",
+                f"({copy_ratio:.0%} × 覆纹环合强度区 + clamp(覆纹环合强度区 - 1, 0, 100))"
+                f" × {numbers['final_multiplier']:g}；逐区与最终系数按单精度结算",
             ),
         )
         return BattleHitReplayResult(

@@ -82,6 +82,7 @@ class OfficialRoleController(QObject):
             paths, self.dependencies.asset_root,
             template_path=configured_workshop_weight_template_file(),
             semantics_path=bundled_config_dir() / "gameplay_effect_semantics.json",
+            account_database_path=self.dependencies.user_database_path,
         ))
 
     def _prepare_cache(self) -> None:

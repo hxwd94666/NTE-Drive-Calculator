@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.domain.progression_stamina import FarmingStage, MaterialYield
+from src.domain.progression.stamina import FarmingStage, MaterialYield
 from src.services.progression.character_requirements import MaterialSummaryStatus
 from src.services.progression.planner_service import (
     CultivationForkTarget,

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
 
 
 _MITSUKI_LEVEL6 = "con_mitsuki_lv6"

@@ -10,17 +10,12 @@ from math import isclose
 from pathlib import Path
 from typing import Any
 
-from src.domain.battle_counterfactual import BattleBuildCounterfactual
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
+from src.domain.battle_report.counterfactual.results import BattleBuildCounterfactual
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification
+from src.domain.battle_report.counterfactual.results import (
+    BattleCoreMainStatMarginal, BattleForkMarginal, BattleMarginalBenefits, BattleMarginalDelta,
 )
-from src.domain.battle_marginal_benefit import (
-    BattleCoreMainStatMarginal,
-    BattleForkMarginal,
-    BattleMarginalBenefits,
-    BattleMarginalDelta,
-)
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.services.battle_report.analysis.progress import (
     BattleAnalysisProgressCallback,
     report_battle_analysis_progress,
@@ -39,7 +34,7 @@ from src.services.battle_report.build.quantification import (
 from src.services.battle_report.build.timeline_projection import (
     BattleBuildTimelineProjectionService,
 )
-from src.domain.battle_page_models import BattleMarginalCandidate
+from src.domain.battle_report.counterfactual.results import BattleMarginalCandidate
 from src.services.battle_report.marginal.candidates import BattleMarginalCandidateService
 from src.services.battle_report.marginal.benefit_scope import (
     BattleMarginalBenefitRoleScope,

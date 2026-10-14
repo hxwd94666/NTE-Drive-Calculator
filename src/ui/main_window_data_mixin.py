@@ -167,7 +167,6 @@ class MainWindowDataMixin:
             )
             self.identification_controller.update_catalog(
                 shape_areas=shape_areas, set_names=self.all_set_names,
-                scoring_engine=self.scoring_engine,
             )
         self._allocation_catalog_loaded_key = source_key
         if hasattr(self, "btn_run"):
@@ -291,7 +290,14 @@ class MainWindowDataMixin:
         self._ss_info.setText(f"当前截图: {usage.count} 个 · {usage.size_mb:.1f} MB")
 
     def _clear_ss(self):
-        account = self.app_context.account
+        context = self.app_context
+        account, generation = context.account, context.generation
+
+        def is_current():
+            # 确认框会运行账号切换续体；同账号往返也须由代次撤销旧计划授权。
+            return (self.app_context is context and context.account == account
+                    and context.generation == generation)
+
         plan = build_screenshot_cleanup_plan(
             account.screenshot_dir,
             account.account_data_root,
@@ -305,12 +311,17 @@ class MainWindowDataMixin:
             )
             == QMessageBox.Yes
         ):
+            if not is_current():
+                return
             result = execute_screenshot_cleanup(plan)
+            # 文件结果只属于冻结账号，收尾时不刷新或提示另一个账号。
+            if not is_current():
+                return
             self._refresh_ss()
             logger.success(f"已清理 {result.deleted} 个截图")
             if result.failed_files:
                 QMessageBox.warning(self, "清理完成", f"有 {len(result.failed_files)} 个文件删除失败，可能正在被占用。")
-            if plan.baseline_missing:
+            if plan.baseline_missing and is_current():
                 QMessageBox.warning(
                     self, "清理完成", "注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"
                 )

@@ -2,17 +2,20 @@
 from threading import Event
 from time import monotonic
 
-from src.services.inventory_sync_service import InventorySyncService
+from src.services.inventory.sync.service import InventorySyncService
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_inventory_sync_service import item, snapshot
-from tests.test_native_inventory_sync_runtime import NativeLease
+from tests.inventory.sync.test_service import item, snapshot
+from tests.inventory.sync.test_native_runtime import NativeLease
 
 
 def test_native_default_commits_after_short_quiet_window_and_prunes_unreferenced(tmp_path):
     path = tmp_path / "inventory.sqlite3"
     with UserDataDao(path, account_id="test") as dao:
-        for serial in (2, 3, 4):
-            snapshot_id = dao.import_inventory_snapshot(snapshot(item(serial), sequence=serial))
+        for serial in range(2, 7):
+            older = snapshot(item(serial), sequence=serial)
+            # 保留顺序按来源观测时间，不是递增数据库 ID；夹具中的旧观测必须早于新采集。
+            older["params"]["observed_at_unix_ms"] -= 1000
+            snapshot_id = dao.import_inventory_snapshot(older)
             if serial == 2:
                 protected_id = snapshot_id
                 dao.save_loadout_plan(name="冻结方案", character_id=1003, source_snapshot_id=protected_id,
@@ -32,7 +35,10 @@ def test_native_default_commits_after_short_quiet_window_and_prunes_unreferenced
         assert result.last_item_count == 1
         assert 0.19 <= saved[0] - collected[0] < 2
         with UserDataDao(path, account_id="test") as dao:
-            assert {row["snapshot_id"] for row in dao.list_inventory_snapshots()} == {protected_id, result.last_snapshot_id}
+            # 原生同步保留最近三份并独立保护方案来源；不按旧的“仅留当前”策略断言。
+            assert {row["snapshot_id"] for row in dao.list_inventory_snapshots()} == {
+                protected_id, previous_id - 1, previous_id, result.last_snapshot_id,
+            }
             assert dao.list_loadout_plans(1003)[0]["source_snapshot_id"] == protected_id
             assert dao.current_inventory_snapshot_id() == result.last_snapshot_id
             assert dao.get_sync_settings()["inventory_settle_seconds"] == 15

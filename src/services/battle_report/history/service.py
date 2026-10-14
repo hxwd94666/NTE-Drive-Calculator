@@ -9,12 +9,11 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from src.domain.native_analysis import DirectFormulaBackend, available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import DirectFormulaBackend, available_battle_compute
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
-from src.domain.battle_report import BattleAnalysisSnapshot, BattleRetentionMutation
-from src.domain.battle_build_assumption import (
-    has_graduation_assumption,
-)
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.history.records import BattleRetentionMutation
+from src.domain.battle_report.build.inputs import has_graduation_assumption
 from src.services.battle_report.build.offline_analysis import (
     BattleCounterfactualAnalysisService,
 )
@@ -31,7 +30,7 @@ from src.services.battle_report.build.inventory_pool import (
     current_inventory_replacement_items,
 )
 from src.services.battle_report.build.edit_projection import apply_battle_build_edit
-from src.domain.battle_page_models import BattleMarginalCandidate
+from src.domain.battle_report.counterfactual.results import BattleMarginalCandidate
 from src.services.battle_report.marginal.candidates import BattleMarginalCandidateService
 from src.services.battle_report.characters.inferred_facts import (
     BattleInferredCharacterFactService,

@@ -5,7 +5,8 @@ NTE_TEST_TIER = "core"
 
 import unittest
 
-from src.domain.battle_report import BattleInferredAction, BattleBuffModifierEvidence
+from src.domain.battle_report.timeline.events import BattleInferredAction
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
 from src.services.battle_report.buffs.inference import (
     BattleBuffInferenceService,
     BattleStaticBuffRule,

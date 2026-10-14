@@ -7,12 +7,8 @@ import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleInferredAction,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
 from src.services.battle_report.mechanics.dot_state import reconstruct_dot_stack_states
 from src.services.battle_report.replay.audit import BattleHitReplayAuditService
 from src.services.battle_report.characters.zankou import (

@@ -8,10 +8,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from src.domain.battle_report import (
-    BattleInferredAction,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.timeline.events import BattleInferredAction
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.services.battle_report.timeline.clock import ACTIVE_TIME_MODE, unproject_timeline_time_us
 
 

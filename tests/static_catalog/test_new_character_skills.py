@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import unittest
 
-from src.features.static_catalog.domain_pages.character_skills import build_action_cards
+from src.features.static_catalog.domain_pages.characters.skills import build_action_cards
 from src.services.static_catalog.characters.service import StaticCatalogCharacterService
 from src.storage.sqlite.catalog.static_catalog_character_queries import StaticCatalogCharacterQueries
 

@@ -57,6 +57,7 @@ class ToolboxPage:
         self._stack: QStackedWidget | None = None
         self._home: QWidget | None = None
         self._cultivation_navigation: CultivationToolboxNavigation | None = None
+        self._rewind_dialog: _RewindRecommendationDialog | None = None
 
     def build(self) -> QWidget:
         if self._page is not None:
@@ -137,22 +138,40 @@ class ToolboxPage:
             self._cultivation_navigation.refresh()
 
     def shutdown(self) -> None:
-        """撤销养成草稿与排队动作；退场页仍由父对象保留到后台终态。"""
+        """撤销工具草稿与输入；原 Qt 父树保留倒带通道到物理终态。"""
+        if self._rewind_dialog is not None:
+            self._rewind_dialog.shutdown()
         if self._cultivation_navigation is not None:
             self._cultivation_navigation.discard()
+
+    def is_rewind_running(self) -> bool:
+        """取消不是结束：账号入口等待已接收的输入通道物理退场。"""
+        return self._rewind_dialog is not None and self._rewind_dialog.is_rewind_running()
 
     def _open_cultivation_calculator(self) -> None:
         if self._cultivation_navigation is not None:
             self._cultivation_navigation.open()
 
     def _show_rewind_recommendation(self) -> None:
+        if self._rewind_dialog is not None:
+            return
         try:
             service = self._dependencies.rewind_service()
         except Exception as exc:
             QMessageBox.warning(self._dialog_parent, "倒带推荐", f"读取倒带分析数据失败：{exc}")
             return
         dialog = _RewindRecommendationDialog(service, self._dialog_parent, operation_guard=self._dependencies.operation_guard, operation_generation=self._dependencies.operation_generation, operation_entry=self._dependencies.operation_entry, operation_unavailable=self._dependencies.operation_unavailable)
+        self._rewind_dialog = dialog
+        # 为游戏让出前台的 hide 会退出 exec，但不是关闭或物理结束。
+        dialog.finished.connect(lambda _code: self._release_rewind_dialog(dialog))
         dialog.exec()
+
+    def _release_rewind_dialog(self, dialog) -> None:
+        if dialog.is_rewind_running():
+            return
+        if self._rewind_dialog is dialog:
+            self._rewind_dialog = None
+        dialog.deleteLater()
 class _RewindRecommendationDialog(RewindSelectionUiMixin, RewindExecutionUiMixin, RewindSlotUiMixin, QDialog):
     """Immediate shell for the rewind advisor; data work stays off the UI thread."""
 
@@ -198,7 +217,10 @@ class _RewindRecommendationDialog(RewindSelectionUiMixin, RewindExecutionUiMixin
         )
         self._saved_rewind_shape_ids = tuple(str(value) for value in preferences.get("saved_rewind_shape_ids", ()))
         self._saved_rewind_slots = tuple(preferences.get("saved_rewind_slots", ()))
-        self._rewind_worker: WorkerThread | None = None
+        self._rewind_lane = None
+        self._rewind_stop_requested = None
+        self._rewind_pending_done = None
+        self._rewind_restore_on_close = True
 
         self.setWindowTitle("倒带推荐")
         self.resize(900, 700)

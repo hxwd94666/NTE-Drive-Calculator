@@ -9,7 +9,7 @@ from pathlib import Path
 import random
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from src.integrations.nte_analysis_core import (
     ENGINE_VERSION, NativeAnalysisCancelled, NativeAnalysisError, NteAnalysisCoreClient,
@@ -142,6 +142,76 @@ class NativeAnalysisLifecycleTests(unittest.TestCase):
             # The root file here has no manifest and is intentionally an incomplete bundle.
             self.path.unlink()
             self.assertIsNone(create_bundled_analysis_client(static_database_path=Path("unused.sqlite3")))
+
+    def test_bound_release_dispatch_rejects_component_drift_and_keeps_cancellation(self):
+        root = Path(self.directory.name)
+        metadata = root / 'analysis-core-meta'
+        metadata.mkdir()
+        manifest_path = metadata / 'component.json'
+        data = root / 'data'
+        data.mkdir()
+        (data / 'manifest.json').write_text(json.dumps({'database': {'dataset_id': 'fixture'}}), encoding='utf-8')
+        original = b'synthetic component; no process is executed'
+        manifest = {
+            'engine': 'nte-analysis-core', 'engine_version': ENGINE_VERSION,
+            'sha256': hashlib.sha256(original).hexdigest(),
+            'capabilities': ['battle_page_v1', 'battle_progress_v1'],
+        }
+        request = {'account_id': 'fixture', 'generation': 8, 'battle_record_id': 7}
+        response = json.dumps({
+            'schema_version': 'nte-analysis-response-v1', 'engine_version': ENGINE_VERSION,
+            'batch_kind': 'battle_page_v1', 'dataset_version': 'fixture', **request,
+            'compute_elapsed_ns': 0, 'result': {},
+        }).encode()
+        for progress in (False, True):
+            for mutation in ('none', 'executable', 'manifest', 'cancel_during_check'):
+                with self.subTest(progress=progress, mutation=mutation):
+                    self.path.write_bytes(original)
+                    manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+                    with patch('src.integrations.analysis_core_release.bundled_root', return_value=root):
+                        client = create_bundled_analysis_client(static_database_path=data / 'game_static.sqlite3')
+                    if mutation == 'executable':
+                        self.path.write_bytes(b'replaced component')
+                    elif mutation == 'manifest':
+                        manifest_path.write_text(json.dumps({**manifest, 'capabilities': []}), encoding='utf-8')
+                    child = Mock(returncode=0)
+                    child.poll.return_value = 0
+                    child.communicate.return_value = (response, b'')
+                    read_started = False
+                    original_open = Path.open
+
+                    def open_for_check(path, *args, **kwargs):
+                        stream = original_open(path, *args, **kwargs)
+                        if path == self.path and mutation == 'cancel_during_check':
+                            read = stream.read
+
+                            def cancelling_read(*read_args):
+                                nonlocal read_started
+                                chunk = read(*read_args)
+                                read_started = True
+                                return chunk
+
+                            stream.read = cancelling_read
+                        return stream
+
+                    with patch('src.integrations.nte_analysis_core.subprocess.Popen', return_value=child) as spawn, \
+                            patch('src.integrations.native_analysis_stream.communicate_progress', return_value=(response, 0)), \
+                            patch.object(Path, 'open', open_for_check):
+                        kwargs = {'progress_callback': (lambda _: None) if progress else None}
+                        if mutation == 'cancel_during_check':
+                            # 实际读到执行物分块后才撤销，避免只测到派发前的第一道取消检查。
+                            client.cancelled = lambda: read_started
+                            with self.assertRaises(NativeAnalysisCancelled):
+                                client.load_battle_page(request, **kwargs)
+                            spawn.assert_not_called()
+                        elif mutation != 'none':
+                            with self.assertRaisesRegex(NativeAnalysisError, '组件'):
+                                client.load_battle_page(request, **kwargs)
+                            spawn.assert_not_called()
+                        else:
+                            self.assertEqual(client.load_battle_page(request, **kwargs), {})
+                            spawn.assert_called_once()
+                            self.assertEqual('--progress' in spawn.call_args.args[0], progress)
 
 
 @unittest.skipUnless(EXE.is_file(), "build and package independent analysis-core first")

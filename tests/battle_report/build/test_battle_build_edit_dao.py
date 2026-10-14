@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.domain.battle_report_transfer import battle_equipment_sha256
+from src.domain.battle_report.history.transfer import battle_equipment_sha256
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 

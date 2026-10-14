@@ -6,12 +6,9 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Mapping, Sequence
 
-from src.domain.battle_counterfactual import BattleBuildRoleCounterfactual
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import BattleCharacterBaseline
+from src.domain.battle_report.counterfactual.results import BattleBuildRoleCounterfactual
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
 
 
 _LINKO_UNGENERATED_BOUNDARIES = {

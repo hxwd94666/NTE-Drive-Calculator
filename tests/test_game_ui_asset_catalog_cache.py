@@ -1,5 +1,4 @@
-# 验证公共素材清单缓存替换、受限路径与缺项行为。
-# 验证图片目录缓存跨实例复用、清单更换失效及路径边界。
+# 验证清单替换使素材缓存失效，缓存仍拒绝根目录外路径。
 """Immutable bundle cache behavior, without image decoding or UI state."""
 
 from __future__ import annotations
@@ -8,7 +7,6 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 
@@ -21,20 +19,6 @@ class GameUiAssetCatalogCacheTests(unittest.TestCase):
         (self.root / "one.png").write_bytes(b"fixture")
         self.manifest = self.root / "manifest.json"
         self.manifest.write_text(json.dumps({"characters": {"1": "one.png"}}), encoding="utf-8")
-
-    def test_manifest_is_read_once_for_unchanged_instances(self):
-        original = Path.read_text
-        reads = []
-
-        def read(path, *args, **kwargs):
-            reads.append(path)
-            return original(path, *args, **kwargs)
-
-        with patch.object(Path, "read_text", read):
-            first = GameUiAssetCatalog(self.root)
-            second = GameUiAssetCatalog(self.root)
-            self.assertEqual(first.character_icon(1), second.character_icon(1))
-        self.assertEqual([self.manifest], reads)
 
     def test_atomic_manifest_replacement_invalidates_cached_paths(self):
         first = GameUiAssetCatalog(self.root)

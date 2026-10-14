@@ -8,20 +8,20 @@ from pathlib import Path
 from typing import Any
 
 from src.features.static_catalog.contracts import StaticCatalogProvider
-from src.features.static_catalog.domain_pages import build_character_catalog_page
-from src.features.static_catalog.domain_pages.combat_mechanics_page import (
+from src.features.static_catalog.domain_pages.characters.page import build_character_catalog_page
+from src.features.static_catalog.domain_pages.mechanics.page import (
     CombatMechanicsCatalogPage,
     build_combat_mechanics_catalog_page,
 )
-from src.features.static_catalog.domain_pages.equipment_page import (
+from src.features.static_catalog.domain_pages.equipment.page import (
     EquipmentCatalogPage,
     build_equipment_catalog_page,
 )
-from src.features.static_catalog.domain_pages.fork_page import (
+from src.features.static_catalog.domain_pages.forks.page import (
     ForkCatalogPage,
     build_fork_catalog_page,
 )
-from src.features.static_catalog.domain_pages.monster_page import (
+from src.features.static_catalog.domain_pages.monsters.page import (
     build_monster_catalog_page,
 )
 from src.features.static_catalog.page import StaticCatalogDomainPageSpec

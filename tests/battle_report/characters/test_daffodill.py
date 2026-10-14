@@ -7,15 +7,11 @@ import unittest
 from dataclasses import replace
 from typing import Any
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleInferredAction,
-    BattleRangeRoleSummary,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )

@@ -1,16 +1,18 @@
-# 验证中风险自动接管已核实旧组件，并拒绝未知文件和检查后的目标变化。
+# 验证已准备的中风险按固定组件名升级，并拒绝未准备或检查后的目标变化。
 import hashlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from src.services.deployed_plugin_inspection import inspect_deployed_native_plugin
-from src.services.work_mode_runtime import WorkModeRuntime
-from src.services.work_mode_service import WorkModeService
+import pytest
+
+from src.integrations.components.inspection import inspect_deployed_native_plugin
+from src.services.work_modes.runtime import WorkModeRuntime
+from src.services.work_modes.service import WorkModeService
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from tests.test_native_plugin_bundle import make_bundle, game_files, write_manifest
 
 
-def setup_upgrade(tmp_path, *, predecessor=True, running=False):
+def setup_upgrade(tmp_path, *, predecessor=True, running=False, prepared=True):
     root, payload = make_bundle(tmp_path)
     game = game_files(tmp_path, root, payload)
     old = b'previous audited capture entry'
@@ -23,6 +25,9 @@ def setup_upgrade(tmp_path, *, predecessor=True, running=False):
     policy.set_cleanup_pending(False)
     policy.set_game_executable(str(game))
     policy.update_deployment({'loading_method': 'proxy'})
+    if prepared:
+        # 模拟用户此前完成可见准备后保留的自动管理许可，不启动真实同步。
+        policy.enable_auto_sync_after_preflight()
     native = SimpleNamespace(battle_active=False, close=MagicMock())
     runtime = WorkModeRuntime(
         policy=policy, native_session=native,
@@ -35,19 +40,25 @@ def setup_upgrade(tmp_path, *, predecessor=True, running=False):
     return runtime, policy, game, payload, old
 
 
-def test_medium_upgrades_audited_predecessor_without_deployment_record(tmp_path):
-    runtime, policy, game, payload, old = setup_upgrade(tmp_path)
+@pytest.mark.parametrize('predecessor', [True, False])
+def test_prepared_medium_upgrades_fixed_components_without_deployment_record(tmp_path, predecessor):
+    runtime, policy, game, payload, old = setup_upgrade(tmp_path, predecessor=predecessor)
     runtime._automatic_deploy(False)
     assert (game.parent / 'd3d12.dll').read_bytes() != old
     assert policy.deployment_record['managed_files']['d3d12.dll'] == payload['files'][payload['roles']['host']]
     assert policy.deployment_record['loading_method'] == 'native-capture'
+    assert set(policy.deployment_record['managed_files']) == {'d3d12.dll', 'NTE_Capture.dll'}
+    assert (game.parent / 'NTE_Capture.dll').read_bytes() == (runtime.root / payload['roles']['capture_plugin']).read_bytes()
 
 
-def test_unknown_predecessor_is_not_taken_over(tmp_path):
-    runtime, policy, game, _, old = setup_upgrade(tmp_path, predecessor=False)
+def test_unprepared_medium_never_deploys_or_closes_native_session(tmp_path):
+    runtime, policy, game, _, old = setup_upgrade(tmp_path, predecessor=False, prepared=False)
+    capture = (game.parent / 'NTE_Capture.dll').read_bytes()
     runtime._automatic_deploy(False)
     assert (game.parent / 'd3d12.dll').read_bytes() == old
+    assert (game.parent / 'NTE_Capture.dll').read_bytes() == capture
     assert 'managed_files' not in policy.deployment_record
+    runtime.native_session.close.assert_not_called()
 
 
 def test_audited_upgrade_waits_for_game_exit(tmp_path):

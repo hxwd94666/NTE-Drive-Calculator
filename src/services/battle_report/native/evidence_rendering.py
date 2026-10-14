@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import math
 
-from src.domain.battle_native_evidence import BattleHitFieldEvidence, BattleNativeHitEvidence
+from src.domain.battle_report.timeline.events import BattleHitFieldEvidence, BattleNativeHitEvidence
 
 
 def field_critical_label(evidence: BattleHitFieldEvidence) -> str:

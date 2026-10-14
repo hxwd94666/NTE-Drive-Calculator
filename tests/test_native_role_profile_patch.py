@@ -1,15 +1,17 @@
 # 以临时账号数据库验证角色稀疏同步、字段来源、事务回滚与升级重试。
 from pathlib import Path
+from contextlib import closing
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from src.services.official_role_profile_service import OfficialRoleProfileService
-from src.services.native_role_profile_projection import project_native_role_profile
-from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
+from src.services.official_role.profiles import OfficialRoleProfileService
+from src.services.official_role.native_profiles import project_native_role_profile
+from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao, UserDataError
 from src.storage.sqlite import user_data_base
+from tests.user_data_migration_helpers import create_user_database_at_version
 
 
 def defaults(ids):
@@ -144,33 +146,42 @@ def test_invalid_formal_fields_are_reported_without_writing_them(tmp_path, profi
 def test_new_database_and_v40_upgrade_preserve_existing_profiles(tmp_path):
     database, _service = setup(tmp_path)
     with UserDataDao(database) as dao:
-        assert dao.summary()["schema_version"] == 42
+        assert dao.summary()["schema_version"] == SCHEMA_VERSION
         before = seed(dao)
-    with sqlite3.connect(database) as connection:
-        connection.execute("DROP TABLE character_profile_observation")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 41")
-    with UserDataDao(database) as dao:
-        assert dao.summary()["schema_version"] == 42
+    legacy = tmp_path / "legacy-v40.sqlite3"
+    create_user_database_at_version(legacy, 40)
+    with closing(sqlite3.connect(legacy)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("ATTACH DATABASE ? AS seeded", (str(database),))
+        # 只复制 v40 已有的档案行；保留真实旧结构，不通过删版本标记伪造旧库。
+        for table in ("character_profile", "character_profile_skill", "character_profile_awaken_effect"):
+            columns = ", ".join(row[1] for row in connection.execute(f"PRAGMA table_info({table})"))
+            connection.execute(f"INSERT INTO {table}({columns}) SELECT {columns} FROM seeded.{table}")
+        connection.commit()
+        assert connection.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == 40
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    with UserDataDao(legacy) as dao:
+        assert dao.summary()["schema_version"] == SCHEMA_VERSION
         assert dao.get_character_profile(1003) == before
         assert dao.get_native_character_profile_observation(1003) is None
 
 
 def test_v41_migration_failure_rolls_back_and_retries(tmp_path):
-    database, _service = setup(tmp_path)
-    with sqlite3.connect(database) as connection:
-        connection.execute("DROP TABLE character_profile_observation")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 41")
+    database = tmp_path / "legacy-v40.sqlite3"
+    create_user_database_at_version(database, 40)
     migration = Path(user_data_base.USER_MIGRATIONS[41])
     broken = tmp_path / "broken.sql"
     broken.write_text(migration.read_text(encoding="utf-8") + "\nSELECT missing_fixture_column;\n", encoding="utf-8")
     with patch.dict(user_data_base.USER_MIGRATIONS, {41: broken}):
-        with pytest.raises(UserDataError):
+        with pytest.raises(UserDataError) as failed:
             UserDataDao(database)
+    assert isinstance(failed.value.__cause__, sqlite3.OperationalError)
+    assert "missing_fixture_column" in str(failed.value.__cause__)
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == 40
         assert connection.execute("SELECT name FROM sqlite_master WHERE name='character_profile_observation'").fetchone() is None
     with UserDataDao(database) as dao:
-        assert dao.summary()["schema_version"] == 42
+        assert dao.summary()["schema_version"] == SCHEMA_VERSION
 
 
 def test_cultivation_seed_uses_sparse_growth_without_inventing_skills_or_fork(tmp_path):
@@ -191,7 +202,7 @@ def test_cultivation_seed_uses_sparse_growth_without_inventing_skills_or_fork(tm
 
 
 def test_future_battle_freeze_uses_sparse_growth_and_does_not_change_prior_projection(tmp_path):
-    from src.services.battle_report_persistence_service import BattleReportPersistenceService
+    from src.services.battle_report.persistence import BattleReportPersistenceService
 
     database, service = setup(tmp_path)
     service.patch_native_profiles([{"character_id": 1003, "character_level": 70}], check=lambda: None)
@@ -201,7 +212,7 @@ def test_future_battle_freeze_uses_sparse_growth_and_does_not_change_prior_proje
             "character_level": 80, "breakthrough_stage": 6, "skill_levels": {"fixture": 9},
         }}],
     )
-    with patch("src.services.battle_report_persistence_service.static_character_shape_profile_fields", return_value={}):
+    with patch("src.services.battle_report.persistence.static_character_shape_profile_fields", return_value={}):
         with UserDataDao(database) as dao:
             first = BattleReportPersistenceService._load_effective_profiles(static_dao=static, user_dao=dao)
         service.patch_native_profiles([{"character_id": 1003, "character_level": 71}], check=lambda: None)

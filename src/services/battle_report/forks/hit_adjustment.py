@@ -6,11 +6,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleHitBuffProjection,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection, BattleInferredBuffInterval
 
 
 FORK_HIT_ADJUSTMENT_MODEL_VERSION = "battle-fork-hit-adjustment-v1"

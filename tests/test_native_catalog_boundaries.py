@@ -5,13 +5,15 @@ import os
 import subprocess
 import unittest
 
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
+from src.integrations.battle_analysis.page_wire import decode
 from tests.test_native_catalog_states import normalize
 from tests.battle_report.environment.half_fixtures import _hit, _interval
 from tests.battle_report.forks.test_critical_inference import _hit as critical_hit, _replay
 from src.services.battle_report.environment.half_buff_scope import BattleHalfBuffScopeService
 from src.services.battle_report.forks.critical_inference import BattleForkCriticalInferenceService
 from src.services.battle_report.environment.conditions import battle_witch_buff_interval
-from src.domain.battle_report import BattleTargetCondition
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 
 
 @unittest.skipUnless(os.environ.get("NTE_CATALOG_PROBE"), "independent catalog probe required")
@@ -29,7 +31,8 @@ class CatalogBoundaries(unittest.TestCase):
             expected = BattleHalfBuffScopeService.scope(intervals, raw_hits=raw, battle_end_us=100_000_000)
             actual = self.invoke({"operation": "half_scope", "intervals": intervals,
                                   "raw_hits": raw, "battle_end_us": 100_000_000})
-            self.assertEqual(normalize(expected), actual["intervals"])
+            projected = decode(actual["intervals"], tuple[BattleInferredBuffInterval, ...])
+            self.assertEqual(normalize(expected), normalize(projected))
 
     def test_witch_unknown_and_zero_value(self):
         empty = BattleTargetCondition("public-target", 80, "unknown", 0.0, 0.0, ())
@@ -37,7 +40,8 @@ class CatalogBoundaries(unittest.TestCase):
                 witch_buff_id="public-witch", witch_buff_property_id="AtkUp", witch_buff_value=0.0)):
             expected = battle_witch_buff_interval(condition, 15_000_000)
             actual = self.invoke({"operation": "witch", "condition": condition, "battle_end_us": 15_000_000})
-            self.assertEqual(normalize(asdict(expected)) if expected else None, actual["interval"])
+            projected = decode(actual["interval"], BattleInferredBuffInterval | None)
+            self.assertEqual(normalize(asdict(expected)) if expected else None, normalize(projected))
 
     def test_critical_identity_missing_hit_and_duplicate_order(self):
         hits = (critical_hit("crit", 1076), critical_hit("normal", 1003), critical_hit("unknown", None))

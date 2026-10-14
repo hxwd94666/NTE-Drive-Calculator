@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.services.native_game_session import NativeGameSession
+from src.services.native_session.session import NativeGameSession
 from tests.test_battle_capture_build_freeze import native_snapshot
 from tests.test_native_battle_preparation import waiting
 from tests.test_native_battle_scopes import attempt
@@ -45,7 +45,7 @@ def test_stop_during_read_has_bounded_grace(capture_lease, expired):
         check()
         return native_snapshot()
     with patch("src.integrations.native_battle_snapshot.freeze_native_battle_snapshot", side_effect=read), patch(
-            "src.services.native_game_session.monotonic", side_effect=lambda: now):
+            "src.services.native_session.session.monotonic", side_effect=lambda: now):
         result = lease._read_battle_snapshot(lambda: stopped)
     assert result["state"] == ("unavailable" if expired else "observed")
 
@@ -111,7 +111,12 @@ def test_lower_read_never_replaces_upper_pending_configuration(capture_lease):
     lower = native_snapshot()
     for row in lower["domains"].values():
         row["revision"] = "3"
+    for key in ("character_projection", "inventory_projection"):
+        lower[key]["revision"] = "3"
     lower["domains"]["team"]["records"] = [{"CharacterItems": [{"ItemID": "1004"}]}]
+    lower["selection"]["character_ids"] = [1004]
+    lower["character_projection"]["profiles"][0]["character_id"] = 1004
+    lower["inventory_projection"]["items"][0]["equipped_character_id"] = 1004
     later = deepcopy(record["native_capture"]["contextEvents"][-1])
     later["observedUnixUs"] = "4000000"
     later["snapshotChanges"] = {d: {"revision": "3", "dirty": False} for d in lower["domains"]}
@@ -128,8 +133,8 @@ def test_lower_read_never_replaces_upper_pending_configuration(capture_lease):
 
 
 def test_late_context_cannot_discard_first_hit_matching_pending_snapshot():
-    from src.services.native_battle_preparation import retain_scope_pending_snapshot
-    from src.services.native_battle_scopes import validate_first_hit
+    from src.services.battle_report.inputs.preparation import retain_scope_pending_snapshot
+    from src.services.battle_report.inputs.scopes import validate_first_hit
     from tests.test_native_battle_team_continuity import observed_team
 
     upper, attempt, record = observed_team()
@@ -145,9 +150,9 @@ def test_late_context_cannot_discard_first_hit_matching_pending_snapshot():
     assert validate_first_hit(retained, attempt, record) is None
 
 
-@pytest.mark.parametrize("changed_domain", ["character", "inventory", "team"])
+@pytest.mark.parametrize("changed_domain", ["character", "team"])
 def test_pending_first_hit_domain_cannot_be_replaced_during_context_lag(changed_domain):
-    from src.services.native_battle_preparation import retain_scope_pending_snapshot
+    from src.services.battle_report.inputs.preparation import retain_scope_pending_snapshot
     previous = native_snapshot()
     candidate = deepcopy(previous)
     candidate["domains"][changed_domain]["revision"] = "2"
@@ -167,6 +172,9 @@ def test_context_arriving_after_lower_read_still_recovers_upper(capture_lease):
     lower = native_snapshot()
     for row in lower["domains"].values():
         row["revision"] = "3"
+    # 同一冻结副本的原始页与投影页须同修订；旧夹具混用会被正式完整性门禁拒绝。
+    for key in ("character_projection", "inventory_projection"):
+        lower[key]["revision"] = "3"
     delayed["native_capture"]["scopeAttempts"]["lower"] = attempt("2", "3")
     context = deepcopy(delayed["native_capture"]["contextEvents"][-1])
     context["observedUnixUs"] = "4000000"

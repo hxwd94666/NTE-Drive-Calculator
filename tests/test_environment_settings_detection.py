@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from src.features.settings.page import _build_environment_card
-from src.services.work_mode_service import WorkModeService
+from src.services.work_modes.service import WorkModeService
 from src.ui.controllers import environment_controller as environment
 from tests.test_native_plugin_bundle import make_bundle
 
@@ -58,7 +58,7 @@ def test_existing_proxy_preference_refreshes_actual_native_controls(settings_car
     assert not hasattr(window, "_equipment_plugin_bundle_label")
     labels = {label.text() for label in window.findChildren(QLabel)}
     assert {
-        "Npcap · 数据同步、战报采集",
+        "Npcap · 背包同步、基础战报",
         "游戏内组件 · 极速装配、弃置锁定、插件、功能强化",
     } <= labels
     assert not any("用于抓包同步" in text or "用于原生同步" in text for text in labels)

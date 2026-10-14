@@ -6,18 +6,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from src.domain.battle_counterfactual import BattleMarginalResult
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleHitReplayResult,
-)
+from src.domain.battle_report.counterfactual.results import BattleMarginalResult
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.services.battle_report.buffs.counterfactual_projection import (
     HitProjection,
     VitalProjection,
@@ -32,7 +26,7 @@ from src.services.battle_report.damage.fixed_critical import (
 )
 from src.services.battle_report.native.counterfactual import compare_counterfactual_batch
 from src.services.battle_report.damage.counterfactual import BattleHitCounterfactualRatioService
-from src.domain.native_analysis import available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 from src.services.battle_report.marginal.calculation_support import (
     ATTRIBUTE_ELEMENT_PROPERTY as _ATTRIBUTE_ELEMENT_PROPERTY,
     DAMAGE_PENETRATION_PROPERTY as _DAMAGE_PENETRATION_PROPERTY,

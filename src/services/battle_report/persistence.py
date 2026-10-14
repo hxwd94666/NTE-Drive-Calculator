@@ -11,15 +11,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from src.domain.battle_report import (
-    BattleCharacterSummary,
-    BattleSummary,
-    BattleSummaryPersistenceOutcome,
-)
-from src.domain.battle_build_assumption import (
-    GRADUATION_ASSUMPTION_WARNING,
-    assumed_graduation_equipment,
-    has_graduation_assumption,
+from src.domain.battle_report.capture.summary import BattleCharacterSummary, BattleSummary
+from src.domain.battle_report.history.records import BattleSummaryPersistenceOutcome
+from src.domain.battle_report.build.inputs import (
+    GRADUATION_ASSUMPTION_WARNING, assumed_graduation_equipment, has_graduation_assumption,
 )
 from src.services.battle_report.build.equipment import battle_equipment_items
 from src.services.battle_report.build.graduation_assumptions import freeze_graduation_assumptions

@@ -7,6 +7,12 @@ from pathlib import Path
 import subprocess
 import unittest
 
+from src.domain.official_role.advancement import fork_active_panel_stats
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
+from src.domain.battle_report.timeline.events import BattleTreatmentEvent
+from src.integrations.battle_analysis.page_wire import decode
+from tests.test_native_catalog_states import normalize
 from src.services.battle_report.build.stat_reconstruction import BattleBuildStatReconstructionService
 from src.services.battle_report.buffs.inference import BattleBuffInferenceService
 from src.services.battle_report.build.offline_analysis import _baselines
@@ -28,7 +34,6 @@ class NativeCatalogPreparationTests(unittest.TestCase):
         from src.services.battle_report.treatment.replay import BattleTreatmentReplayService
         from src.services.battle_report.environment.half_buff_scope import BattleHalfBuffScopeService
         from tests.battle_report.characters.test_zankou_form import _action
-        from tests.test_native_catalog_states import normalize
         static_path = Path("data/game_static.sqlite3").resolve()
         build = {"characters": [{"character_id": cid, "observed_name": str(cid), "breakthrough_stage": 6,
                   "awakening_level": 6, "profile": {}, "stats": [{"source_group": "resolved",
@@ -67,8 +72,11 @@ class NativeCatalogPreparationTests(unittest.TestCase):
                         "condition": None, "critical": [], "infer_buffs": infer_buffs}
             completed = subprocess.run([os.environ["NTE_CATALOG_PROBE"]], input=json.dumps(normalize(request)),
                                        text=True, encoding="utf-8", capture_output=True, check=True)
-            self.assert_json_equal(normalize({"buff_intervals": intervals, "treatment_events": treatment.events}),
-                                   json.loads(completed.stdout))
+            actual = json.loads(completed.stdout)
+            # 只投影两类已声明的展示 DTO；外层集合、顺序和全部声明字段仍交原比较器核对。
+            actual["buff_intervals"] = normalize(decode(actual["buff_intervals"], tuple[BattleInferredBuffInterval, ...]))
+            actual["treatment_events"] = normalize(decode(actual["treatment_events"], tuple[BattleTreatmentEvent, ...]))
+            self.assert_json_equal(normalize({"buff_intervals": intervals, "treatment_events": treatment.events}), actual)
 
     def test_static_character_configs_and_each_season_recovery(self):
         from src.services.battle_report.characters.zankou import BattleZankouFormBuffService
@@ -98,8 +106,9 @@ class NativeCatalogPreparationTests(unittest.TestCase):
                      "profile": {"awakening_selection_initialized": True,
                                  "selected_awaken_effect_ids": [f"Effect{i}" for i in range(1, 7)]}}
                     for row in dao.list_characters()]}
-            hits = tuple(_hit(f"static-{i}", i * 2_000_000, damage_id,
-                         next(iter(dao.list_skill_damage_owner_character_ids(damage_id)), 1003))
+            # 本例核静态 GE 与冻结 owner；通用 dot 夹具的默认普攻 ability 并非这些 GE 的观测证据。
+            hits = tuple(replace(_hit(f"static-{i}", i * 2_000_000, damage_id,
+                         next(iter(dao.list_skill_damage_owner_character_ids(damage_id)), 1003)), ability_id="")
                          for i, damage_id in enumerate(damage_ids))
             analysis = SimpleNamespace(hits=hits, timeline_hits=hits, inferred_actions=(),
                                        time_stop_intervals=(), axis_complete=True, linko_coattack_inferences=())
@@ -109,7 +118,8 @@ class NativeCatalogPreparationTests(unittest.TestCase):
                                 "timeline_hits": [asdict(h) for h in hits]}}
         completed = subprocess.run([os.environ["NTE_CATALOG_PROBE"]], input=json.dumps(request, ensure_ascii=False),
                                    text=True, encoding="utf-8", capture_output=True, check=True)
-        self.assert_json_equal(json.loads(json.dumps(expected)), json.loads(completed.stdout)["evidence"])
+        actual = decode(json.loads(completed.stdout)["evidence"], tuple[BattleSkillDamageEvidence, ...])
+        self.assert_json_equal(json.loads(json.dumps(expected)), normalize(actual))
 
     def test_skill_query_cache_keeps_observed_ability_and_each_frozen_build(self):
         static_path = Path("data/game_static.sqlite3").resolve()
@@ -141,7 +151,8 @@ class NativeCatalogPreparationTests(unittest.TestCase):
                                         "timeline_hits": [asdict(h) for h in hits]}}
                 completed = subprocess.run([os.environ["NTE_CATALOG_PROBE"]],
                     input=json.dumps(request), text=True, encoding="utf8", capture_output=True, check=True)
-                self.assert_json_equal(json.loads(json.dumps(expected)), json.loads(completed.stdout)["evidence"])
+                actual = decode(json.loads(completed.stdout)["evidence"], tuple[BattleSkillDamageEvidence, ...])
+                self.assert_json_equal(json.loads(json.dumps(expected)), normalize(actual))
 
     def test_all_static_forks_suits_and_character_rule_declarations(self):
         static_path = Path("data/game_static.sqlite3").resolve()
@@ -207,18 +218,29 @@ class NativeCatalogPreparationTests(unittest.TestCase):
             BattleBuildStatReconstructionService.enrich(expected,
                 BattleReportPersistenceDependencies("fixture", Path("unused-fixture.sqlite3"), 0, static_path))
         for build in (None, {}, {"characters": None}, unknown):
+            input_before = deepcopy(build)
             request = {"static_path": str(static_path), "build": build, "world_bonus": {}}
             completed = subprocess.run([os.environ["NTE_CATALOG_PROBE"]], input=json.dumps(request),
                                        text=True, encoding="utf-8", capture_output=True, check=True)
             actual = json.loads(completed.stdout)
             wanted = expected if build is unknown else build
-            self.assertEqual(actual["build"], wanted)
+            projected = deepcopy(actual)
+            if build is unknown:
+                character = projected["build"]["characters"][0]
+                # 空 profile 的未知角色没有正式名或已包含弧盘常驻证据；显式 null 不能被默认事实替代。
+                self.assertIsNone(character["character_name"])
+                self.assertIsNone(character["included_fork_permanent"])
+                self.assertEqual(character["observed_name"], unknown["characters"][0]["observed_name"])
+                character.pop("character_name")
+                character.pop("included_fork_permanent")
+            self.assertEqual(projected["build"], wanted)
+            self.assertEqual(build, input_before)
             self.assert_json_equal(json.loads(json.dumps([asdict(row) for row in _baselines(wanted)])), actual["baselines"])
 
     def test_all_static_characters_frozen_panels_and_sources(self):
         static_path = Path("data/game_static.sqlite3").resolve()
         world = {"yaodao_attack_add": 13.0, "quantao_crit_damage": 0.025}
-        details, characters = {}, []
+        details, characters, metadata = {}, [], {}
         with StaticGameDataDao(static_path) as dao:
             forks = dao.list_fork_templates()
             attributes = {row["attribute_id"]: row for row in dao.list_equipment_attributes()}
@@ -230,6 +252,15 @@ class NativeCatalogPreparationTests(unittest.TestCase):
                 best = max(growth, key=lambda row: (row["level"], row["breakthrough_stage"]))
                 fork = forks[index % len(forks)]
                 level = max((row["level"] for row in fork["upgrade_levels"]), default=1)
+                active = fork_active_panel_stats(fork, level, refinement_level=3)
+                metadata[identity] = {
+                    "character_name": raw["name_zh"],
+                    "fork_values": {key: value for key, value in active.items() if value != 0},
+                    "permanent_rows": dao._rows(
+                        "SELECT * FROM fork_permanent_property WHERE fork_id=? AND refinement_level=?",
+                        (fork["fork_id"], 3),
+                    ),
+                }
                 details[identity] = {
                     "growth_rows": growth, "forks": forks, "attributes": attributes,
                     "likeability_bonus": dao.get_character_likeability_bonus(identity),
@@ -252,6 +283,7 @@ class NativeCatalogPreparationTests(unittest.TestCase):
                     },
                 })
         build = {"characters": characters}
+        input_before = deepcopy(build)
         expected = deepcopy(build)
         BattleBuildStatReconstructionService.enrich(
             expected, BattleReportPersistenceDependencies("fixture", Path("unused-fixture.sqlite3"), 0, static_path),
@@ -261,8 +293,26 @@ class NativeCatalogPreparationTests(unittest.TestCase):
         completed = subprocess.run([os.environ["NTE_CATALOG_PROBE"]], input=json.dumps(request, ensure_ascii=False),
                                    text=True, encoding="utf-8", capture_output=True, check=True)
         actual = json.loads(completed.stdout)
+        projected = deepcopy(actual)
+        self.assertEqual(len(projected["build"]["characters"]), len(characters))
+        for index, (character, original) in enumerate(zip(projected["build"]["characters"], characters, strict=True)):
+            evidence = metadata[original["character_id"]]
+            self.assertEqual(character["character_name"], evidence["character_name"])
+            self.assertEqual(character["observed_name"], original["observed_name"])
+            fork_rows = [row for row in character["stats"] if row["source_group"] == "fork" and row["value"] != 0]
+            self.assertEqual(len({row["property_id"] for row in fork_rows}), len(fork_rows))
+            values = {row["property_id"]: row["value"] for row in fork_rows}
+            marker = character["included_fork_permanent"]
+            # 只有整组非零来源与正式完整弧盘面板相等才认定 marker；多行常驻绝不取 first 作期望。
+            if evidence["permanent_rows"] and values == evidence["fork_values"]:
+                self.assertIn(marker, evidence["permanent_rows"])
+            else:
+                self.assertIsNone(marker, f"characters[{index}] complete fork={evidence['fork_values']}; actual fork={values}")
+            character.pop("character_name")
+            character.pop("included_fork_permanent")
+        self.assertEqual(build, input_before)
         expected_result = {"build": expected, "baselines": [asdict(row) for row in _baselines(expected)]}
-        self.assert_json_equal(json.loads(json.dumps(expected_result)), actual)
+        self.assert_json_equal(json.loads(json.dumps(expected_result)), projected)
 
     def assert_json_equal(self, expected, actual, path="result"):
         if isinstance(expected, dict):

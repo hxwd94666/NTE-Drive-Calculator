@@ -5,7 +5,7 @@ NTE_TEST_TIER = "core"
 import unittest
 from dataclasses import replace
 
-from src.domain.battle_report import BattleHitReplayResult
+from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.services.battle_report.damage.replay_ratio import (
     paired_replay_formula,
 )

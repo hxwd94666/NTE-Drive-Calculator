@@ -4,17 +4,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleCharacterSummary,
-    BattleDamageComposition,
-    BattleHitReplayResult,
-    BattleMaxHpReductionEvent,
-    BattleRangeRoleSummary,
-    BattleSkillSummary,
-    DamageCompositionEntry,
-    RoleDamageComposition,
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.capture.summary import BattleCharacterSummary, BattleSkillSummary
+from src.domain.battle_report.analysis.composition import (
+    BattleDamageComposition, BattleRangeRoleSummary, DamageCompositionEntry, RoleDamageComposition,
 )
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent
 
 
 _REACTION_LABELS = {

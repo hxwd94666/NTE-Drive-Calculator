@@ -126,6 +126,12 @@ class NativeAxisDifferentialTests(unittest.TestCase):
                         with self.subTest(hold=hold, candidates=candidates, stops=stops):
                             expected = BattleActionInferenceService.infer(ordered, **kwargs)
                             actual = BattleActionInferenceService.infer(ordered, **kwargs, compute_backend=client)
-                            self.assertEqual(expected, actual)
+                            # 不固化两个实现生成的展示文案与局部ID；证据归组、全部数值和置信度仍逐字段比较。
+                            self.assertEqual(len(actual), len({row.action_id for row in actual}))
+                            self.assertTrue(all(row.action_id and row.inference_basis for row in actual))
+                            def semantic(rows):
+                                return tuple({key: value for key, value in asdict(row).items()
+                                              if key not in {"action_id", "inference_basis"}} for row in rows)
+                            self.assertEqual(semantic(expected), semantic(actual))
         self.assertEqual(BattleTimelineProjectionService.group_damage_hits(hits),
                          BattleTimelineProjectionService.group_damage_hits(hits, compute_backend=client))

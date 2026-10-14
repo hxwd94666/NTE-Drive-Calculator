@@ -70,18 +70,3 @@ def decide_sync_enable(
         ("当前组件文件已核对；开启同步时恢复此前清理留下的暂停，业务数据仍需等待游戏就绪。"
          if settings.paused else "当前组件文件已核对；业务数据仍需等待游戏就绪。"),
     )
-
-
-def decide_sync_activation(settings: WorkModeSettings, probe: WorkModeProbe) -> SyncEnableDecision:
-    """Confirm the post-action result before persisting synchronization on."""
-    if settings.mode == WorkMode.LOW:
-        if probe.core_available is True and probe.npcap_available is True:
-            return SyncEnableDecision(True, "抓包条件已就绪；开启后等待游戏和登录数据。")
-        return SyncEnableDecision(False, "抓包条件尚未就绪，请重新检测。", "npcap")
-    if settings.pending_cleanup:
-        return SyncEnableDecision(False, "组件清理尚未完成；请查看检测详情。")
-    if probe.component_update_state == CheckState.FAULT:
-        return SyncEnableDecision(False, "组件核对中断；请查看检测详情。")
-    if probe.native_load.files is not True:
-        return SyncEnableDecision(False, "组件尚未部署完成；请重新检测。")
-    return SyncEnableDecision(True, "组件文件已核对；开启后仍需等待游戏连接及完整业务数据。")

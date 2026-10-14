@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 from src.services.battle_report.native.state_payload import HIT_FIELDS, ACTION_FIELDS, state_rows
-from src.domain.battle_report import BattleBuffModifierEvidence
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
 
 _RULE_FIELDS = (
     "event_type", "source_character_id", "target_asset_path", "duration_seconds",

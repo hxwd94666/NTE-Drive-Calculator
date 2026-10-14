@@ -6,16 +6,11 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence, Set
 
-from src.domain.battle_counterfactual import (
-    BattleBuildHitCounterfactual,
-    BattleBuildRoleCounterfactual,
-    BattleBuildVitalCounterfactual,
+from src.domain.battle_report.counterfactual.results import (
+    BattleBuildHitCounterfactual, BattleBuildRoleCounterfactual, BattleBuildVitalCounterfactual,
 )
-from src.domain.battle_counterfactual_quantification import (
-    BattleDamageQuantification,
-    BattleQuantificationGap,
-)
-from src.domain.battle_report import BattleAnalysisSnapshot
+from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 
 
 BuildCounterfactualRow = (

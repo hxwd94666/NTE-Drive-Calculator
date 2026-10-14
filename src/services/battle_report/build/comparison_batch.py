@@ -1,7 +1,7 @@
 # 为整场配装比较准备冻结逐击输入，统一批量执行正式公式与缺口比较。
 from __future__ import annotations
 
-from src.domain.native_analysis import available_battle_compute
+from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 from src.services.battle_report.analysis.progress import report_battle_analysis_progress
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo

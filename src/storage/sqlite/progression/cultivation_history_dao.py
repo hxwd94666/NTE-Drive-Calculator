@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from functools import lru_cache
 from typing import Any
 
-from src.domain.cultivation_history import (
+from src.domain.progression.history import (
     PAYLOAD_VERSION, HistoryConflict, HistoryPage, HistoryPayload, HistoryRecord,
     HistorySelection, HistorySummary, integer, text_value,
     MAX_PAYLOAD_BYTES, MAX_COLLECTION_SIZE, configuration_character_labels, configuration_search_names,

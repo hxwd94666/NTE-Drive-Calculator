@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from copy import deepcopy
 
-from src.domain.battle_world_bonus_edit import world_bonus_edit_stats
+from src.domain.battle_report.build.inputs import world_bonus_edit_stats
 
 from src.services.battle_report.build.edit_projection import (
     apply_battle_build_edit,

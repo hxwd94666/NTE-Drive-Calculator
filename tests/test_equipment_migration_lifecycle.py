@@ -5,9 +5,9 @@ from unittest.mock import Mock, patch
 import pytest
 
 from src.integrations.nte_core_protocol import NteCoreRpcError, NteCoreTimeoutError
-from src.services.bulk_equipment_apply_service import BulkEquipmentApplyService
-from src.services.equipment_apply_service import EquipmentApplyService
-from src.services.native_game_session import NativeGameSession
+from src.services.equipment.bulk_apply import BulkEquipmentApplyService
+from src.services.equipment.apply import EquipmentApplyService
+from src.services.native_session.session import NativeGameSession
 from tests.test_native_equipment_session import EquipmentCore
 
 
@@ -19,7 +19,7 @@ def rpc(code, message="fixture"):
 def test_not_dispatched_busy_retries_through_existing_service(error):
     service = EquipmentApplyService(Mock(), Mock(), operation_guard=lambda _caps: None)
     dispatch = Mock(side_effect=[error, {"status": "rpc_dispatched"}])
-    with patch("src.services.equipment_apply_service.time.sleep"):
+    with patch("src.services.equipment.apply.time.sleep"):
         assert service._dispatch_with_busy_retry(dispatch, operation="test")["status"] == "rpc_dispatched"
     assert dispatch.call_count == 2
 
@@ -159,11 +159,18 @@ def test_batch_aborts_when_equipment_session_changes_after_first_command(changed
                     result[changed_field] = "different-session"
                 return result
             core.call = changed
-            with pytest.raises(NteCoreRpcError, match="source_changed"):
+            error = None
+            try:
                 lease.move_core_to_character(**command)
+            except NteCoreRpcError as caught:
+                error = caught
         core.equip_core.assert_called_once()
-        core.move_core_to_character.assert_not_called()
+        # 检查真实租约到 fake Core 的派发次数，不只要求上层碰巧抛异常。
+        assert core.move_core_to_character.call_count == 0
+        assert error is not None and error.message == "source_changed"
+        assert error.domain_code == "EQUIPMENT_REQUEST_REJECTED"
         assert lease._equipment_context is None
+        assert not lease.maintenance_blocked  # 已知未派发，不遗留未知写占用。
     finally:
         lease.close()
         session.close()

@@ -141,13 +141,16 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                 check()
                 character_id = patch["character_id"]
                 existing = self._one(
-                    "SELECT character_level, breakthrough_stage FROM character_profile WHERE character_id = ?",
+                    """SELECT character_level, breakthrough_stage, awakening_selection_initialized,
+                              (SELECT COUNT(*) FROM character_profile_awaken_effect
+                               WHERE character_id = character_profile.character_id) AS awaken_effect_count
+                       FROM character_profile WHERE character_id = ?""",
                     (character_id,),
                 )
                 observation = self.get_native_character_profile_observation(character_id) or {}
                 baseline = dict(growth_defaults[character_id])
                 if existing:
-                    baseline.update(existing)
+                    baseline.update({name: existing[name] for name in GROWTH_FIELDS})
                 baseline.update({name: observation[name] for name in GROWTH_FIELDS if observation.get(name) is not None})
                 baseline.update({name: patch[name] for name in GROWTH_FIELDS if name in patch})
                 level, stage = baseline.get("character_level"), baseline.get("breakthrough_stage")
@@ -155,10 +158,17 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                     warnings.append(f"角色 {character_id} · 等级与突破：最终组合不匹配，保留原成长；未知阶段不会根据等级推测。")
                     for name in GROWTH_FIELDS:
                         patch.pop(name, None)
-                if (observation.get("awakening_selection_initialized") is True
-                        and "awakening_level" in patch
+                # 与页面投影同序：已知原生选择覆盖账号选择；缺失选择保留账号值。
+                # 只拒绝与保留选择冲突的稀疏等级，不截断效果，也不影响其他合法字段。
+                selected_count = (
+                    len(observation["selected_awaken_effect_ids"])
+                    if observation.get("awakening_selection_initialized") is True
+                    else existing["awaken_effect_count"]
+                    if existing and existing["awakening_selection_initialized"] else 0
+                )
+                if ("awakening_level" in patch
                         and "selected_awaken_effect_ids" not in patch
-                        and len(observation["selected_awaken_effect_ids"]) > patch["awakening_level"]):
+                        and selected_count > patch["awakening_level"]):
                     warnings.append(f"角色 {character_id} · 觉醒等级：与已保存选择冲突，保留原觉醒配置。")
                     patch.pop("awakening_level")
                 if len(patch) == 1:

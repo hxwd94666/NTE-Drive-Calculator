@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from math import floor
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -28,7 +29,7 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
             Path(os.environ["NTE_ANALYSIS_CORE_TEST_EXE"]), "buff-remove-application-test",
         )
 
-    def compare(self, analysis, evidence, configs=None, *, prepared=False):
+    def compare(self, analysis, evidence, configs=None, *, prepared=False, contracts=()):
         projections = (BattleHitProjectionPreparationService.prepare(analysis, evidence)
                        if prepared else None)
         expected = BattleBuffCounterfactualService.calculate(
@@ -40,8 +41,44 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
             "topple_configs": replay_contract.wire(configs or {}),
             "prepared_beneficiaries": prepared,
         },))
-        self.equivalent(replay_contract.wire(expected), actual["results"])
+        expected_rows = replay_contract.wire(expected)
+        for index, contract in enumerate(contracts):
+            self.apply_partial_contract(expected_rows[index], **contract)
+        self.equivalent(expected_rows, actual["results"])
         return expected
+
+    def apply_partial_contract(self, row, *, without, buckets, property_id, scopes):
+        # 旧 Python 的 structured-return 漏过推断状态门槛；只替换已审差异的期望字段。
+        # 数值来自各夹具下方的正式公式手算，绝不从原生响应回填期望；其余字段继续全量比较。
+        baseline = row["baseline_damage"]
+        full, partial, unchanged = buckets
+        self.assertEqual(baseline, full + partial + unchanged)
+        gain = baseline - without
+        percent = gain / without * 100
+        quantification = {
+            "status": "partial", "basis_damage": baseline,
+            "fully_quantified_damage": full, "partially_quantified_damage": partial,
+            "unavailable_damage": 0.0, "proven_unchanged_damage": unchanged,
+            "quantified_increment": gain,
+            "gaps": [{"code": "buff_state_inferred", "dimension_id": "buff_state_evidence",
+                      "dependency_scope": scope, "property_ids": [property_id],
+                      "explanation": "相关乘区公式已经计算，但其中包含非高置信 Buff/目标状态；"
+                                     "数值仅代表该推断状态成立时的条件结果。"} for scope in scopes],
+        }
+        row.update(confidence="低", method="component_ratio_partial",
+                   explanation="以真实逐击为锚，只缩放可安全相消或公式已完整的变化；"
+                               "已量化分量不代表完整 Buff 收益或收益下限。",
+                   quantified_gain_percent=percent, gain_percent=None,
+                   unattributed_damage_gain=None)
+        self.assertEqual(1, len(row["beneficiaries"]))
+        beneficiary = row["beneficiaries"][0]
+        self.assertEqual(baseline, beneficiary["baseline_damage"])
+        beneficiary.update(quantified_recipient_gain_percent=percent,
+                           quantified_team_contribution_percent=percent,
+                           recipient_gain_percent=None, team_contribution_percent=None)
+        for result in (row, beneficiary):
+            result.update(without_quantified_effect_damage=without, quantified_damage_gain=gain,
+                          without_buff_damage=None, damage_gain=None, quantification=quantification)
 
     def test_page_prepared_formula_attribute_controls_coverage(self):
         raw, evidence = frozen_fixture()
@@ -51,7 +88,10 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
         analysis = replace(analysis, target_condition=raw.target_condition)
         evidence = tuple(replace(row, damage_attribute="nature") for row in evidence)
         unprepared = self.compare(analysis, evidence)
-        prepared = self.compare(analysis, evidence, prepared=True)
+        prepared = self.compare(analysis, evidence, prepared=True, contracts=({
+            "without": 300 / 1.2, "buckets": (0.0, 300.0, 0.0),
+            "property_id": "DamageUpNatureBase", "scopes": ("target_sensitive",),
+        },))
         self.assertEqual(0, unprepared[0].affected_hits)
         self.assertEqual(2, prepared[0].affected_hits)
 
@@ -66,7 +106,12 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
                         _interval("buff", target_scope=scope, modifiers=modifiers),
                     ), replays=(), baselines=raw.baselines)
                     analysis = replace(analysis, target_condition=raw.target_condition)
-                    self.compare(analysis, evidence)
+                    contracts = ()
+                    if scope in {"self", "team"} and modifiers == (_modifier(0.15),):
+                        contracts = ({"without": 300 / 1.15, "buckets": (0.0, 300.0, 0.0),
+                                      "property_id": "DamageUpGeneralBase",
+                                      "scopes": ("target_sensitive",)},)
+                    self.compare(analysis, evidence, contracts=contracts)
 
     def test_stateful_mixed_axis_and_overlapping_group_intervals(self):
         raw, evidence, configs = _fixture()
@@ -84,7 +129,16 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
                     analysis, evidence, topple_character_configs=configs,
                 ))
             with self.subTest(cached=cached):
-                self.compare(analysis, evidence, configs)
+                # 刷新同组不重复叠加；直伤300及缺公式公共乘区100为部分，浊燃100公式比值完整为1，倾陷100不变。
+                # 倾陷在总伤害取整后求比：等级3603×上限50/3×抗性0.8，强度区1+6/300。
+                base_topple = 3603 * (50 / 3) * 0.8
+                self.compare(analysis, evidence, configs, contracts=(
+                    {"without": 200 + 400 / 1.15, "buckets": (100.0, 400.0, 100.0),
+                     "property_id": "DamageUpGeneralBase", "scopes": ("target_sensitive", "character_only")},
+                    {"without": 500 + 100 * floor(base_topple) / floor(base_topple * 1.02),
+                     "buckets": (0.0, 100.0, 500.0), "property_id": "UnbalIntensityBase",
+                     "scopes": ("target_sensitive",)},
+                ))
 
     def test_public_unknown_and_partial_fixtures_match_native(self):
         original = BattleBuffCounterfactualService.calculate
@@ -130,7 +184,14 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
                              baselines=(_baseline(),), max_hp_events=(
                                  _vital(evidence_event_ids=(hit.event_id,)),
                              ))
-        self.compare(replace(analysis, target_condition=raw.target_condition), (nightmare_evidence,))
+        # 五觉不是冻结HP比例同比：先扣候选噩梦，再按新最大生命扣减结算（机制文档固定轴公式）。
+        ratio = 1 / 1.2
+        candidate_hit = 1000 * ratio
+        candidate_hp = 4000 - (candidate_hit - 1000)
+        without = candidate_hit + candidate_hp * (2000 * ratio) / 10000
+        self.compare(replace(analysis, target_condition=raw.target_condition), (nightmare_evidence,),
+                     contracts=({"without": without, "buckets": (0.0, 1800.0, 0.0),
+                                 "property_id": "AtkUp", "scopes": ("target_sensitive",)},))
         analysis = _snapshot(hits=raw.hits, intervals=(
             _interval("direct", modifiers=(_modifier(0.15),)),
         ), replays=(), baselines=raw.baselines)
@@ -141,7 +202,10 @@ class NativeBattleBuffRemoveApplicationTests(unittest.TestCase):
                 self.compare(replace(analysis, hit_replays=tuple(
                     replace(row, critical_state="ambiguous", critical_policy=policy)
                     for row in replays
-                )), evidence)
+                )), evidence, contracts=() if policy == "unknown" else ({
+                    "without": 300 / 1.15, "buckets": (0.0, 300.0, 0.0),
+                    "property_id": "DamageUpGeneralBase", "scopes": ("target_sensitive",),
+                },))
 
 
 if __name__ == "__main__":

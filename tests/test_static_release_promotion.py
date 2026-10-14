@@ -13,7 +13,6 @@ from contextlib import closing
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 from tools.game_data import promote_static_release as promotion
@@ -37,6 +36,8 @@ from tools.game_data.promote_static_release import (
     validate_database_size,
     verify_candidate,
 )
+
+NTE_TEST_TIER = "core"
 
 
 class StaticReleasePromotionTests(unittest.TestCase):
@@ -418,112 +419,117 @@ class StaticReleasePromotionTests(unittest.TestCase):
             self.assertFalse(list(candidate_dir.glob("*.pending.*")))
             self.assertFalse(list(candidate_dir.glob("*.rollback.*")))
 
-    def test_manifest_replace_failure_restores_existing_database_and_manifest(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            candidate_dir, config_path = self._create_candidate(root, "fixture-v1")
-            target_dir = root / "release"
-            target_dir.mkdir()
-            target_database = target_dir / DATABASE_FILENAME
-            target_manifest = target_dir / MANIFEST_FILENAME
-            old_database = b"old-database"
-            old_manifest = b'{"old": true}\n'
-            target_database.write_bytes(old_database)
-            target_manifest.write_bytes(old_manifest)
-            original_replace = os.replace
-            database_was_replaced = False
+    def test_manifest_replace_failure_restores_previous_presence_and_cleans_temporary_files(self) -> None:
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                candidate_dir, config_path = self._create_candidate(root, "fixture-v1")
+                target_dir = root / "release"
+                target_dir.mkdir()
+                target_database = target_dir / DATABASE_FILENAME
+                target_manifest = target_dir / MANIFEST_FILENAME
+                old = {target_database: b"old-database", target_manifest: b'{"old": true}\n'}
+                if existing:
+                    for path, content in old.items():
+                        path.write_bytes(content)
+                original_replace = os.replace
+                failure = PermissionError("injected manifest replace failure")
 
-            def fail_pending_manifest_replace(
-                source: str | os.PathLike[str],
-                destination: str | os.PathLike[str],
-            ) -> None:
-                nonlocal database_was_replaced
-                source_path = Path(source)
-                destination_path = Path(destination)
-                if (
-                    source_path.name.startswith(f".{DATABASE_FILENAME}.pending.")
-                    and destination_path == target_database
-                ):
-                    database_was_replaced = True
-                if (
-                    source_path.name.startswith(f".{MANIFEST_FILENAME}.pending.")
-                    and destination_path == target_manifest
-                ):
-                    self.assertTrue(database_was_replaced)
-                    self.assertNotEqual(old_database, target_database.read_bytes())
-                    raise PermissionError("injected manifest replace failure")
-                original_replace(source, destination)
+                def fail_pending_manifest_replace(source, destination) -> None:
+                    if Path(source).name.startswith(f".{MANIFEST_FILENAME}.pending."):
+                        self.assertNotEqual(old[target_database], target_database.read_bytes())
+                        raise failure
+                    original_replace(source, destination)
 
-            with (
-                patch.object(
-                    promotion.os,
-                    "replace",
-                    side_effect=fail_pending_manifest_replace,
-                ),
-                self.assertRaisesRegex(
-                    PermissionError,
-                    "injected manifest replace failure",
-                ),
-            ):
-                promote_candidate(candidate_dir, config_path, target_dir)
-
-            self.assertEqual(old_database, target_database.read_bytes())
-            self.assertEqual(old_manifest, target_manifest.read_bytes())
-            self.assertFalse(list(target_dir.glob("*.pending.*")))
-            self.assertFalse(list(target_dir.glob("*.rollback.*")))
-
-    def test_final_validation_failure_restores_existing_database_and_manifest(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            candidate_dir, config_path = self._create_candidate(root, "fixture-v1")
-            target_dir = root / "release"
-            target_dir.mkdir()
-            target_database = target_dir / DATABASE_FILENAME
-            target_manifest = target_dir / MANIFEST_FILENAME
-            old_database = b"old-database"
-            old_manifest = b'{"old": true}\n'
-            target_database.write_bytes(old_database)
-            target_manifest.write_bytes(old_manifest)
-            original_validate_manifest = promotion.validate_manifest
-
-            def fail_target_validation(
-                database_path: Path,
-                manifest_path: Path,
-                summary: dict[str, Any],
-            ) -> dict[str, Any]:
-                if database_path.resolve() == target_database.resolve():
-                    self.assertNotEqual(old_database, target_database.read_bytes())
-                    self.assertNotEqual(old_manifest, target_manifest.read_bytes())
-                    raise StaticReleasePromotionError(
-                        "injected final validation failure"
-                    )
-                return original_validate_manifest(
-                    database_path,
-                    manifest_path,
-                    summary,
+                with patch.object(promotion.os, "replace", side_effect=fail_pending_manifest_replace):
+                    with self.assertRaises(PermissionError) as caught:
+                        promote_candidate(candidate_dir, config_path, target_dir)
+                self.assertIs(failure, caught.exception)
+                self.assertEqual(
+                    {path: path.read_bytes() for path in target_dir.iterdir()},
+                    old if existing else {},
                 )
 
-            with (
-                patch.object(
-                    promotion,
-                    "validate_manifest",
-                    side_effect=fail_target_validation,
-                ),
-                self.assertRaisesRegex(
-                    StaticReleasePromotionError,
-                    "injected final validation failure",
-                ),
-            ):
-                promote_candidate(candidate_dir, config_path, target_dir)
+    def test_final_validation_failure_restores_members_independently_and_keeps_recovery_pair(self) -> None:
+        # 后验失败已经替换两成员：分别覆盖完整回滚、任一恢复失败和全部恢复失败。
+        for failed_names in ((), (DATABASE_FILENAME,), (MANIFEST_FILENAME,), (DATABASE_FILENAME, MANIFEST_FILENAME)):
+            with self.subTest(failed_names=failed_names), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                candidate_dir, config_path = self._create_candidate(root, "fixture-v1")
+                target_dir = root / "release"
+                target_dir.mkdir()
+                old = {DATABASE_FILENAME: b"old-database", MANIFEST_FILENAME: b'{"old": true}\n'}
+                for name, content in old.items():
+                    (target_dir / name).write_bytes(content)
+                original_validate = promotion.validate_manifest
+                original_replace = os.replace
+                failure = StaticReleasePromotionError("injected final validation failure")
+                attempted = []
 
-            self.assertEqual(old_database, target_database.read_bytes())
-            self.assertEqual(old_manifest, target_manifest.read_bytes())
-            self.assertFalse(list(target_dir.glob("*.pending.*")))
-            self.assertFalse(list(target_dir.glob("*.rollback.*")))
+                def fail_target_validation(database_path, manifest_path, summary):
+                    if database_path.parent == target_dir:
+                        raise failure
+                    return original_validate(database_path, manifest_path, summary)
+
+                def fail_selected_restore(source, destination):
+                    if any(label in Path(source).name for label in (".rollback.", ".restore.")):
+                        attempted.append(Path(destination).name)
+                        if Path(destination).name in failed_names:
+                            raise PermissionError("injected rollback failure: " + Path(destination).name)
+                    original_replace(source, destination)
+
+                with (
+                    patch.object(promotion, "validate_manifest", side_effect=fail_target_validation),
+                    patch.object(promotion.os, "replace", side_effect=fail_selected_restore),
+                ):
+                    with self.assertRaises(StaticReleasePromotionError) as caught:
+                        promote_candidate(candidate_dir, config_path, target_dir)
+                self.assertIs(failure, caught.exception)
+                self.assertEqual([DATABASE_FILENAME, MANIFEST_FILENAME], attempted)
+                for name, content in old.items():
+                    expected = (candidate_dir / name).read_bytes() if name in failed_names else content
+                    self.assertEqual(expected, (target_dir / name).read_bytes())
+                self.assertFalse(list(target_dir.glob("*.pending.*")))
+                self.assertFalse(list(target_dir.glob("*.restore.*")))
+                backups = list(target_dir.glob("*.rollback.*"))
+                if not failed_names:
+                    self.assertEqual([], backups)
+                    continue
+                self.assertEqual(set(old.values()), {path.read_bytes() for path in backups})
+                notes = "\n".join(caught.exception.__notes__)
+                for backup in backups:
+                    self.assertIn(str(backup), notes)
+                    self.assertIn(promotion.sha256(backup), notes)
+                for name in failed_names:
+                    self.assertIn("injected rollback failure: " + name, notes)
+                # 顶层命令只输出异常消息；恢复材料也须显示，不依赖 traceback 才能找到。
+                output = StringIO()
+                with patch.object(promotion, "promote_candidate", side_effect=failure), redirect_stdout(output):
+                    exit_code = main(["--candidate-dir", str(candidate_dir), "--local-config", str(config_path),
+                                      "--target-dir", str(target_dir)])
+                self.assertEqual(1, exit_code)
+                self.assertIn(str(failure), output.getvalue())
+                for backup in backups:
+                    self.assertIn(str(backup), output.getvalue())
+
+    def test_first_install_final_validation_failure_removes_both_new_members(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate_dir, config_path = self._create_candidate(root, "fixture-v1")
+            target_dir = root / "release"
+            original_validate = promotion.validate_manifest
+            failure = StaticReleasePromotionError("injected first install validation failure")
+
+            def fail_target_validation(database_path, manifest_path, summary):
+                if database_path.parent == target_dir:
+                    raise failure
+                return original_validate(database_path, manifest_path, summary)
+
+            with patch.object(promotion, "validate_manifest", side_effect=fail_target_validation):
+                with self.assertRaises(StaticReleasePromotionError) as caught:
+                    promote_candidate(candidate_dir, config_path, target_dir)
+            self.assertIs(failure, caught.exception)
+            self.assertEqual([], list(target_dir.iterdir()))
 
 
 if __name__ == "__main__":

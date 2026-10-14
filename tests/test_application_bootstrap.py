@@ -10,6 +10,39 @@ from unittest.mock import Mock
 import pytest
 
 
+def test_frozen_nonocr_launch_does_not_register_or_import_backend(tmp_path, monkeypatch):
+    import builtins
+    import main
+    from types import ModuleType
+
+    # 未选库的残留目录和 OS 注册故障不属于桌面启动；只有真实 OCR 首次使用拥有它们。
+    (tmp_path / "openvino/libs").mkdir(parents=True)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "argv", ["main.py", "--gui"])
+    monkeypatch.setenv("OPENVINO_LIB_PATHS", "existing-backend-path")
+    register = Mock(side_effect=OSError("unselected backend registration failed"))
+    monkeypatch.setattr(os, "add_dll_directory", register, raising=False)
+    original_import = builtins.__import__
+
+    def without_backends(name, *args, **kwargs):
+        if name.split(".")[0] in {
+            "openvino", "onnxruntime", "rapidocr_openvino", "rapidocr_onnxruntime",
+        }:
+            raise AssertionError("non-OCR launch imported a backend")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_backends)
+    app = ModuleType("src.ui.app")
+    app.run_gui = Mock()
+    monkeypatch.setitem(sys.modules, "src.ui.app", app)
+    main.main()
+    app.run_gui.assert_called_once_with()
+    register.assert_not_called()
+    assert os.environ["OPENVINO_LIB_PATHS"] == "existing-backend-path"
+
+
 def test_import_main_window_does_not_initialize_account_or_runtime_paths():
     # 新进程覆盖真实冷导入，避免被 sys.modules 缓存或替身绑定的残留影响。
     code = """

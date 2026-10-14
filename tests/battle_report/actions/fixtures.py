@@ -1,7 +1,7 @@
 # 共用不可变逐击夹具，避免测试模块间导入与重复收集。
 from __future__ import annotations
 
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
 
 
 def _hit(

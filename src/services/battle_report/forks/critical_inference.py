@@ -6,7 +6,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from src.domain.battle_report import BattleAnalysisHit, BattleHitReplayResult
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.services.battle_report.forks.default_policy import (
     INFER_KNIGHT_CANDY_CRITICAL_FROM_HIT_REPLAY,
 )

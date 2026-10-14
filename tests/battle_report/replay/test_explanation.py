@@ -5,18 +5,11 @@ NTE_TEST_TIER = "core"
 from dataclasses import replace
 import unittest
 
-from src.domain.battle_counterfactual import BattleBuildHitCounterfactual
-from src.domain.battle_counterfactual_quantification import (
-    BattleCounterfactualRatio,
-)
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleBuffModifierEvidence,
-    BattleHitReplayFactor,
-    BattleHitReplayResult,
-    BattleHitReplayTerm,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.counterfactual.results import BattleBuildHitCounterfactual
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
+from src.domain.battle_report.replay.models import BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm
 from src.services.battle_report.replay.explanation import (
     BattleHitReplayExplanationService,
     _factor_lines,

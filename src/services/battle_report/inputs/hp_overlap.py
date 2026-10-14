@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from src.domain.battle_report import BattleAnalysisHit
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
 
 
 SINGLE_TARGET_DAMAGE_NORMALIZATION_VERSION = (

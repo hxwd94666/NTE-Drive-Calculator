@@ -6,13 +6,10 @@ import unittest
 from dataclasses import replace
 from math import floor
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleCharacterBaseline,
-    BattleCharacterStat,
-    BattleTargetCondition,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline, BattleCharacterStat
+from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.replay.explanation import (
     BattleHitReplayExplanationService,
 )

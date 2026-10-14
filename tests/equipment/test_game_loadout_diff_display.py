@@ -679,6 +679,10 @@ def test_missing_tape_game_detail_keeps_blueprint(monkeypatch) -> None:
         def list_inventory_items(self, _snapshot_id, *, equipped=None):
             return [dict(module)]
 
+        def list_current_loadout_slot_plans(self, *, include_archived=False):
+            # 本例没有计算配装；正式当前身份由槽位指针决定，而非旧历史 is_active。
+            return []
+
         def list_loadout_plans(self):
             return []
 

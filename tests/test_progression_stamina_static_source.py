@@ -7,7 +7,7 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from src.domain.progression_stamina import (
+from src.domain.progression.stamina import (
     FarmingStage,
     MaterialRequirement,
     MaterialYield,

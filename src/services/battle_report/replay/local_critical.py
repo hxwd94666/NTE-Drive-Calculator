@@ -7,11 +7,9 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 
-from src.domain.native_analysis import BattleComputeBackend
-from src.domain.battle_report import (
-    BattleAnalysisSnapshot,
-    BattleHitReplayResult,
-)
+from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.services.battle_report.replay.support import (
     replay_error_percent,
     replay_factor,

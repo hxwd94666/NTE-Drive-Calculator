@@ -4,7 +4,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from src.domain.battle_report import BattleAnalysisHit, BattleInferredBuffInterval, BattleSkillDamageEvidence
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 from src.services.battle_report.analysis.progress import BattleAnalysisProgressCallback, report_battle_analysis_progress
 from src.services.battle_report.buffs.counterfactual_plan import BattleBuffCounterfactualGroupPlan
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex, BattleBuffIntervalIndexView

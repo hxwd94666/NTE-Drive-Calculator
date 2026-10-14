@@ -9,14 +9,14 @@ import time
 import shutil
 from pathlib import Path
 
-from src.integrations.vision.recognition.backend_runtime import CancelCheck, check_cancel
+from src.integrations.vision.recognition.ocr.backend_runtime import CancelCheck, check_cancel
 from src.integrations.vision.recognition.config import ScannerConfig
-from src.integrations.vision.recognition.language_resources import OcrRuntimeResources
-from src.integrations.vision.recognition.model_resources import OcrModelResourceError
+from src.integrations.vision.recognition.ocr.language_resources import OcrRuntimeResources
+from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from src.integrations.vision.recognition.image_resources import RecognitionImageProfile, CaptureTemplateFile
 from src.integrations.vision.recognition.resources import RecognitionResources
 from src.integrations.vision.recognition.shape_recognizer import ShapeRecognizer
-from src.integrations.vision.recognition.ocr_engine import OCREngine
+from src.integrations.vision.recognition.ocr.ocr_engine import OCREngine
 from src.integrations.vision.recognition.parser import DriveDataParser
 from src.integrations.vision.recognition.duplicate_filter import (
     is_inventory_probe_filename,

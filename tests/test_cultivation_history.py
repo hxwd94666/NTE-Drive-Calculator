@@ -6,13 +6,11 @@ import sqlite3
 
 import pytest
 
-from src.domain.cultivation_history import HistoryConflict, HistoryPayload
+from src.domain.progression.history import HistoryConflict, HistoryPayload
 from src.storage.sqlite.user_data_dao import UserDataDao
 
-from tests.cultivation_history_test_support import module_load_tests
 
 NTE_TEST_TIER = "core"
-load_tests = module_load_tests(__name__, __file__)
 
 
 def history_payload(*, quantity: int = 0, manual: bool = True) -> HistoryPayload:
@@ -102,7 +100,7 @@ def test_malformed_summary_is_displayable_and_remains_deletable(tmp_path, field,
 
 
 def test_summary_rejects_duplicate_keys_and_preserves_complete_zero():
-    from src.domain.cultivation_history import decode_summary
+    from src.domain.progression.history import decode_summary
 
     value = json.loads(history_payload().summary_json)
     value.update(status="complete", known_stamina=0, total_stamina=0, gap_count=0)
@@ -113,14 +111,14 @@ def test_summary_rejects_duplicate_keys_and_preserves_complete_zero():
 
 
 def test_historical_view_does_not_apply_current_identification_mapping(monkeypatch):
-    from src.domain.cultivation_history import freeze_configuration
+    from src.domain.progression.history import freeze_configuration
 
     payload = history_payload()
 
     def changed_mapping(*_args, **_kwargs):
         raise ValueError("current mapping changed")
 
-    monkeypatch.setattr("src.domain.cultivation_history.project_identification_level", changed_mapping)
+    monkeypatch.setattr("src.domain.progression.history.project_identification_level", changed_mapping)
     assert HistoryPayload.decode(payload.configuration_json, payload.result_snapshot_json) == payload
     with pytest.raises(ValueError, match="mapping changed"):
         freeze_configuration(json.loads(payload.configuration_json))

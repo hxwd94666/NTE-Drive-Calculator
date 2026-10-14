@@ -5,12 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from math import isfinite
 
-from src.domain.battle_report import (
-    BattleCharacterBaseline,
-    BattleHitBuffProjection,
-    BattleHitReplayResult,
-    BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.build.inputs import BattleCharacterBaseline
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
 from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )

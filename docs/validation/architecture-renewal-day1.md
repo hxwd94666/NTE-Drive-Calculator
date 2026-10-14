@@ -1,7 +1,9 @@
 # 架构重构首批验收
 
-本页只维护实际验证范围；整体目标及四日出口分别见[架构方案](../roadmap/architecture-renewal.md)和
-[四日计划](../roadmap/four-day-development-plan.md)。首批专项通过不代表 Day 1 或全项目完成。
+本页保留初次重构的实际验证范围和原始结果；当前完整范围见[重构后复审计划](../roadmap/architecture-post-refactor-review.md)。
+历史专项通过不代表当前全项目完成，下述原始失败、退出状态及未覆盖边界保持原义。
+历史命令保留当时模块路径；当前基础权重入口与测试位置见 [Fork 开发路线](../reference/fork-development.md)，其他入口以对应领域文档为准。
+下文 `build/architecture-day1/` 为初次执行工作区的本机证据定位，不属于可克隆源码；原件仍保留在原工作区，不复制为新证据。当前复审工作清单记录其位置。
 
 ## 1. 显式启动批次
 
@@ -95,7 +97,7 @@ uv run python -m pytest -q tests/characters/test_basic_weight_page.py tests/char
 先前冻结源码镜像的 core 已终态：1,285 项，3 失败、2 错误、3 跳过。
 同一镜像 full 也已终态：3,250 项，8 失败、22 错误、213 跳过；不是仍在运行，也不是通过。
 用户明确暂挂其失败测试，不追修、删除或弱化；本轮新增回归与既有失败分开记录。
-原始命令、输出、退出状态和失败身份保留于本机记录，规则见[主动删测边界](../roadmap/architecture-renewal.md#47-随全仓审查主动删减测试)。
+原始命令、输出、退出状态和失败身份保留于本机记录，规则见[主动删测边界](../roadmap/architecture-post-refactor-review.md#5-测试代码的再次精简)。
 
 质量入口已由单一 unittest 发现改成 pytest 原生统一执行函数及 TestCase，保留层级与专项选择。
 嵌套混合用例、fixture／参数化、串并行单次执行、收集／子进程错误和零测试非零的两个集成用例通过。
@@ -308,7 +310,7 @@ Astra 只读复审确认原三项闭合，未替代专项执行。
   模型常量/资源安装位置保持；独立导入模型校验未加载 OCR 引擎及后端。关键批次/缓存边界补中文说明。
 
 仅有源代码与隔离行为证据，本批不宣称 OCR 真实推理、游戏扫描、低配体验、发行体积或全项目验收完成。
-模型/词库/dataset 全链冻结及更多语言仍按[功能内语言预备](../roadmap/architecture-renewal.md#62-鉴定与扫描的功能内语言预备)单独推进。
+模型/词库/dataset 全链冻结及更多语言仍按[功能内语言预备](../roadmap/architecture-post-refactor-review.md#鉴定与扫描的功能内语言预备)单独推进。
 
 ## 11. 鉴定服务归组与冻结批处理
 
@@ -637,10 +639,11 @@ uv run python -m pytest -q tests/vision tests/identification tests/test_streamin
 
 ### 原生页面读模型与进度依赖收敛
 
-- 四个结果 DTO 与纯属性标识归到 `src/domain/battle_page_models.py`，真实 wire 函数按需导入；
+- 当时四个结果 DTO 与纯属性标识归到 `src/domain/battle_page_models.py`，真实 wire 函数按需导入；
   两个进度实现合入 `analysis/progress.py` 并删除旧文件，全部受控消费者迁移。
   26 个生产主体、四个 DTO 与三项进度主体等价；Request、原生 gate 和离线算法 owner 不改。
   必填未知值、字段顺序、类型提示、浅冻结、原生非空生产者修订和旧 v6 恢复门禁保持原义。
+  本轮复审已按责任将这些模型迁入 `src/domain/battle_report/`；当前归属见[战报领域结构](../architecture.md#211-原生战报整页分析)，本节保留原验收时的路径和结果。
 - 同一六份冻结合成 raw 的真实公共 decoder/DTO 构造、20 个错误和进度观察前后等价；
   同事件引用、原始 payload、逐击 raw/formula 查询与未知值保留。
   这已超过先前准备阶段的未执行状态，但不证明真实生产者、伤害公式或 structured 字段语义。
@@ -690,7 +693,7 @@ uv run python -m pytest -q tests/vision tests/identification tests/test_streamin
   一次隔离实际 MainWindow 烟测退出 0，916 个源码模块均来自实际 test，无候选 overlay；
   first interactive 约 4751 ms，外部调用与错误列表均为空。关闭后窗口隐藏，自有 worker 与 Qt worker 均为 0，
   QWidget 剩余为 0（旧观测 32）；冷启动未加载 QtNetwork，侧栏外三个按钮均保持隐藏。
-  实际命令与控件 owner 验证由[既有启动批次](../../build/architecture-day1/20261011-resumed/batch-startup-resource-closure/widget-owner-verification.json)维护；
+  实际命令与控件 owner 验证由既有启动批次（原记录 `build/architecture-day1/20261011-resumed/batch-startup-resource-closure/widget-owner-verification.json`）维护；
   合成账号与禁用外部启动／网络的这一次烟测不证明真实 TLS、游戏、完整发行包或低配真机通过。
 - 当前全范围 1755 个非 held Python 文件的十八批 hard Ruff 均退出 0。
   第一次当前补充 core 因十二个非 held 测试的旧导入在收集阶段退出 2，未执行行为用例；十二处消费者已按真实 owner 修复，未恢复兼容壳或删断言。
@@ -700,11 +703,11 @@ uv run python -m pytest -q tests/vision tests/identification tests/test_streamin
   十九项失败中十八项现已修正，一项纯 AST 私有结构检查按主动删测规则删除；共十四个测试／工具文件已一次发布，
   对应专项 71＋61 项及 hard Ruff 通过。唯一工具增量补入实际消费的静态 manifest 输入身份，正式发行、冻结与 Qt 门禁未放宽。
   新风险独审无未解决 P1/P2；实际十四项后状态与严格回退预检通过。该结果不将原 exit 1 改写为通过；随后 583 文件／5145 节点的补充 full 已终态：4923 passed／11 failed／211 skipped，另有 1 个 teardown error，退出 1。
-  [同一质量记录](../../build/architecture-day1/20261011-resumed/final-integration-acceptance/concentrated-current.json)保留初次失败及后续阶段。
+  同一质量记录（原记录 `build/architecture-day1/20261011-resumed/final-integration-acceptance/concentrated-current.json`）保留初次失败及后续阶段。
   本次 full 的 1700 个项目模块均来自实际 test，未导入暂挂模块；七个晚绑定旧引用、两处旧夹具接口及一个 allowlist 路径问题已迁完，
   角色目录测试在同一就绪预算内改用 Qt 事件循环，并在销毁前等待物理退场。实际八项消费者修复与单测试修复已发布，生产公式与来源门禁不变。
   对原十一失败节点的实际专项为 11 passed，退出 0，SQLite 清理错误也未再出现；实际输入和完整字面输出只由
-  [同一消费者记录](../../build/architecture-day1/20261011-resumed/batch-final-full-consumer-closure/verification-record.json)维护。
+  同一消费者记录（原记录 `build/architecture-day1/20261011-resumed/batch-final-full-consumer-closure/verification-record.json`）维护。
   两个 fixture 的冻结／回调传递与真实 DAO 取消两阶段证据分别解释，不把 FakeDao 当事务验收；原 full 的失败与退出状态仍保留，专项不改写为 full 通过。
   随后当前输入的 584 文件／5156 节点补充 full 已物理结束：4941 passed／3 failed／211 skipped，另有 1 个 setup error、3188 subtests，退出 1。
   1701 个项目模块全部来自实际 test；同一质量记录保留全部旧失败与一次尚未调用 pytest 的模块名包装错误。
@@ -713,13 +716,13 @@ uv run python -m pytest -q tests/vision tests/identification tests/test_streamin
   失败保留旧文件、不重放业务、不提前授权。三个 sleep 请求的合计 100 ms 不是整个 I/O 耗时保证，永久及其他错误仍抛出。
   当前四失败边界与相关新增检查为 12 passed；其后置来源包装因模块名错误退出 1，完整输出保留，
   仅从已捕获的 905 个实际来源及原输入哈希纠正校验，退出 0，没有重跑业务。细节由
-  [唯一保存记录](../../build/architecture-day1/20261011-resumed/batch-work-mode-save-closure/verification.json)维护；不将原 full 改写为通过。
+  唯一保存记录（原记录 `build/architecture-day1/20261011-resumed/batch-work-mode-save-closure/verification.json`）维护；不将原 full 改写为通过。
   历史 1716 文件冻结输入的正式两层因 held 旧导入在收集阶段退出 2；
   同输入排除原 51 暂挂模块的补充 core 1886 passed／4 skipped（退出 0）、
   full 4659 passed／1 failed／214 skipped（退出 1）不是正式 full 通过，也不解释后续已发布源码。
   其非 held 寿命观测修正、旧失败及更早冻结记录继续作为历史证据，不撤销当前门禁；
   暂挂约束沿用[原边界](#5-回归与暂挂失败)，本轮仅使用集合名称，不读正文、哈希、导入或执行。
-- 已闭合的五个缺失目标及关联引用仍以[原引用闭合记录](../../build/architecture-day1/20261011-resumed/batch-public-doc-reference-closure/verification.json)为证据，
+- 已闭合的五个缺失目标及关联引用仍以原引用闭合记录（原记录 `build/architecture-day1/20261011-resumed/batch-public-doc-reference-closure/verification.json`）为证据，
   不扩大成全仓断链清零。发布测量／裁剪专项仍仅证明精确逻辑字节、I/O 与合成安装器边界，责任见[Integration](../integrations.md#2-视觉ocr-与游戏输入)。
 - 保留内核的模型、观测、拼图求解和优化器共 23 个模块已按实际职责审查；二十项改动已发布，
   中文关键说明与重复图纸签名规则收敛，评分与搜索目标保持；共享日志凭据边界见[日志契约](../reference/logging-events.md#脱敏边界)。
@@ -733,7 +736,7 @@ uv run python -m pytest -q tests/vision tests/identification tests/test_streamin
 - 原生插件更新的物理退场四项已发布并独审闭合：停止只请求取消，关闭窗口持有 worker 至物理完成；
   账号前置门禁保留旧代次和索引，已接受更新登记一次，未知维护状态仍保持业务暂停，不当作线程存活。
   与既有计算／保存关闭、账号切换及普通 UI 的实际联合检查为 38 passed，退出 0，919 个项目模块全部来自实际 test；
-  [唯一退出批次记录](../../build/architecture-day1/20261011-resumed/batch-native-update-physical-retirement/verification.json)维护确切输入与字面输出，不扩大为组件／游戏实测。
+  唯一退出批次记录（原记录 `build/architecture-day1/20261011-resumed/batch-native-update-physical-retirement/verification.json`）维护确切输入与字面输出，不扩大为组件／游戏实测。
   普通 App／UI 等 68 个保留模块已按职责审查，四十项运行 AST 等价的关键中文说明及两处测试精简已发布；
   删除文案／私有结构重复检查，正式导航 key 与屏幕内可操作性保护保留。角色 Feature 五模块和蓝图两模块的保留审查与九项实际改动也已闭合；两份修改测试为 10 passed／5 subtests，旧公式、来源及取消规则保持。
 - 原定各领域源码、保留模块的规则／归属／关键中文说明及非暂挂测试价值决定已按既有清单对齐，未重扫或以 full 绿色替代审查。
@@ -749,8 +752,28 @@ uv run python -m pytest -q tests/vision tests/identification tests/test_streamin
   关闭约 13.75 ms，四个正式 owner、目录任务、自有／Qt worker 及 QWidget 均归零，917 个源码模块均来自实际 test，外部业务调用为空。
   新 GUI 入口调用正式 DPI helper，保持旧生产启动顺序，而不是拿纯导入代理的不同模式替代真实行为。
   这些是一次离屏代理与源身份核对，不证明真实低配、绘制／滚动、混合 DPI 或任意长时间无泄漏；前后全机 CPU 观测不构成竞争原因证明。
-  源码、字面命令、原失败及边界只由[同一启动记录](../../build/architecture-day1/20261011-resumed/batch-startup-resource-closure/widget-owner-verification.json)维护，未复制测量或重复测试到绿。
+  源码、字面命令、原失败及边界只由同一启动记录（原记录 `build/architecture-day1/20261011-resumed/batch-startup-resource-closure/widget-owner-verification.json`）维护，未复制测量或重复测试到绿。
 - 三主题／键盘可达性、完整用户交互、长期资源稳定性，以及低配同条件长尾／内存／绘制／滚动仍须各自验收。
   真实组件、TLS、最终 EXE、完整发行包及安装器不由专项或归包证明；构建、安装、部署和游戏操作未获本轮执行授权。
 
 本节只维护实际验收边界，不重设导航、布局或视觉；没有提交、推送、应用构建／安装、组件部署或游戏操作。
+
+## 30. 本轮复审收口
+
+本节是本轮复审的交付边界；上文第 1–29 节的“当前／本轮”仍指初次重构当时的冻结输入，不改写历史。
+原领域清单中的明确整改、调用方迁移、规则注释、测试价值整理、语言/OCR 预备、AGENTS、更新 skill 与文档归并已收口；
+不再由“摘要未证明全覆盖”生成新一轮全仓扫描。此结论不是全功能发布认证。
+
+- 集中 core/full 已执行。原 full 为 5520 passed、56 failed、211 skipped，退出 1；56 个失败分别取得受影响范围的修复通过证据，未再跑一轮 full 宣称全绿。
+  后续实际随附原生组件 91 节点通过；固定 catalog probe 为 119/120，剩余正式技能 ID 大小写差异仍待匹配版本的组件契约裁决，未修改期望值消除失败。
+- 本机 Windows 为用户指定低配环境。三主题、实际计算/保存/重开，以及固定三轮同步与页面交错具有限定实窗证据；
+  草稿、取消离页、最新投影及物理收尾通过，具体性能与未达标记录只在[响应性记录](ui-responsiveness.md)维护。短序列不证明长期无泄漏。
+- 当前修复源码已生成实际 EXE 和安装器，并完成原始冻结 EXE 的离线合成账号启动／正常退出烟测。
+  EXE 18,801,196 字节，安装器 187,361,079 字节，发行目录 672,588,869 字节；85 份 SQL 资源与源码一致。没有执行安装器、系统安装、发布或游戏部署。
+- 最小参考的 20 个公开锁定 wheels／19 项行为证据继续有效；新默认环境 54 包及 5 项启动、页面保存、事务回退检查通过。
+  其中六个原本来自本地派生 wheel 的包已从锁定公开源包离线重建，14 项运行代码／资源字节一致；未据此重复业务测试。
+  唯一 vgamepad 源码构建涉及系统驱动前置，见 [README 开发说明](../../README.md#development)；未执行其 setup，也未复测驱动。
+
+独立发布仍需按[Windows 清单](windows.md)处理系统安装／升级回滚、真实游戏／组件部署、混合 DPI、GPU 与更广环境；
+既有冷态、键盘联合等待及首次启动未归因记录保留，不以本轮成功样本覆盖。真正的伤害分配策略仍另行开发。
+本机字面命令、输出及工件定位保留于既有 `build/post-refactor-review/`，当前索引为 `current.json` 与 `remaining-scope.json`，不复制旧证据。

@@ -7,12 +7,10 @@ from src.services.battle_report.buffs.projection_memo import BattleBuffProjectio
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from src.domain.native_analysis import DirectFormulaBackend
-from src.domain.battle_report import (
-    BattleAnalysisSnapshot,
-    BattleHitBuffProjection,
-    BattleSkillDamageEvidence,
-)
+from src.domain.battle_report.analysis.backend_contracts import DirectFormulaBackend
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.buffs.models import BattleHitBuffProjection
+from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 from src.services.battle_report.buffs.counterfactual import (
     BUFF_COUNTERFACTUAL_MODEL_VERSION,
     BattleBuffCounterfactualService,

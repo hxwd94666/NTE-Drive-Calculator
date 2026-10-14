@@ -5,12 +5,10 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleAnalysisSnapshot,
-    BattleHitReplayResult,
-    BattleRangeRoleSummary,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.services.battle_report.build.counterfactual import BattleBuildCounterfactualService
 from src.services.battle_report.replay.buff_cache import BattleHitBuffProjectionCache
 

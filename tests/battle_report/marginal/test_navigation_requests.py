@@ -38,7 +38,7 @@ class MarginalNavigationRequestTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        editor = patch("src.features.battle_report.marginal_page.OfficialRoleProfileEditor", _Editor)
+        editor = patch("src.features.battle_report.marginal.page.OfficialRoleProfileEditor", _Editor)
         editor.start()
         self.addCleanup(editor.stop)
         self.page = BattleReportPage(game_ui_asset_root="data/game_ui")

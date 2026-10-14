@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 
-from src.domain.battle_report import BattleHitReplayResult
-from src.domain.battle_counterfactual_quantification import BattleCounterfactualRatio
+from src.domain.battle_report.replay.models import BattleHitReplayResult
+from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio
 
 
 @dataclass(frozen=True, slots=True)

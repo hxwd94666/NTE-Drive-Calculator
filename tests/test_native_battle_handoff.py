@@ -6,9 +6,9 @@ from threading import Event, Thread
 import pytest
 
 from src.integrations.nte_core_response_wait import wait_core_response
-from src.services.inventory_capture_wait import InventorySyncCancelled
-from src.services.native_game_session import NativeGameSession
-from tests.test_native_inventory_sync_integration import ProjectionCore
+from src.services.inventory.sync.capture_wait import InventorySyncCancelled
+from src.services.native_session.session import NativeGameSession
+from tests.inventory.sync.test_native_integration import ProjectionCore
 
 
 @pytest.mark.parametrize("source", ["inspection", "inventory", "character"])
@@ -17,7 +17,10 @@ def test_battle_cancels_refresh_waits_for_abort_then_allows_sync_again(source):
     failures, battles, created = [], [], []
 
     class SlowCore(ProjectionCore):
-        def call(self, method, params, **kwargs):
+        def call(self, method, params=None, **kwargs):
+            # 正式只读 core.status 无参数；替身同样接受该入口，取消发生在后续刷新。
+            if method == "core.status":
+                return self.status()
             if method == "native.snapshot.refresh":
                 entered.set()
                 return wait_core_response(Queue(), method=method, timeout=65,
@@ -117,7 +120,7 @@ def test_battle_handoff_wait_is_bounded_and_revocable(monkeypatch, revocation):
     session = NativeGameSession(lambda: clients.append(ProjectionCore()) or clients[-1],
                                 guard, lambda: context[0])
     if revocation == "timeout":
-        monkeypatch.setattr("src.services.native_game_session.NATIVE_BATTLE_HANDOFF_TIMEOUT_SECONDS", 0.05)
+        monkeypatch.setattr("src.services.native_session.session.NATIVE_BATTLE_HANDOFF_TIMEOUT_SECONDS", 0.05)
 
     def hold():
         with session._snapshot_lock:

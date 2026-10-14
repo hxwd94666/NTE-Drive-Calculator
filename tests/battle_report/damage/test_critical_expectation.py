@@ -5,10 +5,7 @@ NTE_TEST_TIER = "core"
 import unittest
 from dataclasses import replace
 
-from src.domain.battle_report import (
-    BattleBuffModifierEvidence,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.damage.counterfactual_formula import critical_ratio
 from src.services.battle_report.marginal.calculation import (
     BattleMarginalCalculationService,

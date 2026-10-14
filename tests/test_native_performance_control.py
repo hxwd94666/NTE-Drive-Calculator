@@ -7,7 +7,7 @@ import pytest
 from src.services.native_session.session import NativeGameSession
 from tests.test_native_game_session import FakeNativeCore
 from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError
-from src.services.performance_monitor import PerformanceMonitor
+from src.services.performance.monitor import PerformanceMonitor
 
 NTE_TEST_TIER = "core"
 

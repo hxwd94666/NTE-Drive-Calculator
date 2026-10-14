@@ -7,10 +7,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import overload
 
-from src.domain.battle_report import (
-    BattleAnalysisHit,
-    BattleInferredBuffInterval,
-)
+from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 
 
 @dataclass(frozen=True, slots=True)
