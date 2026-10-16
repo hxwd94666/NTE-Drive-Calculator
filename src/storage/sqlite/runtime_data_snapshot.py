@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import closing
 import json
 from pathlib import Path
+import re
 import sqlite3
 
 from src.storage.sqlite.accounts.transfer_database import backup_account_database
@@ -43,3 +44,39 @@ def backup_database(source: Path, destination: Path) -> None:
     with closing(sqlite3.connect(destination)) as db:
         if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
             raise DataSnapshotError("恢复点数据库校验失败，尚未迁移。")
+
+
+def legacy_import_identity_needs_repair(path: Path, account_id: str, account_name: str) -> bool:
+    """只识别历史 default 导入分叉；其他身份冲突与未来 schema 沿原门禁停止。"""
+    try:
+        database_identity(path, account_id)
+        return False
+    except DataSnapshotError:
+        with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
+            db.execute("BEGIN")
+            profile = db.execute("SELECT account_id,account_name FROM database_profile WHERE singleton_id=1").fetchone()
+            version = db.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0]
+            suffix = re.fullmatch(r"default_([0-9]+)", account_id)
+            if (profile and profile == ("default", account_name) and account_name.strip()
+                    and suffix and int(suffix[1]) >= 2 and 0 < version <= SCHEMA_VERSION):
+                return True
+        raise
+
+
+def repair_legacy_import_identity(path: Path, account_id: str, account_name: str, *, rollback=False) -> None:
+    """调用方持数据租约并已有一致性恢复点；单库事务只改 profile 身份，不改业务行或时间。"""
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=rw", uri=True, timeout=10)) as db:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            before, after = (account_id, "default") if rollback else ("default", account_id)
+            row = db.execute("SELECT account_id,account_name FROM database_profile WHERE singleton_id=1").fetchone()
+            if row != (before, account_name):
+                raise DataSnapshotError("修复期间账号身份已变化；保留恢复点，未覆盖当前数据。")
+            cursor = db.execute("UPDATE database_profile SET account_id=? WHERE singleton_id=1 AND account_id=? AND account_name=?",
+                                (after, before, account_name))
+            if cursor.rowcount != 1:
+                raise DataSnapshotError("账号标识修复未完成，原数据保留。")
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise

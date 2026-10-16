@@ -7,6 +7,25 @@ from src.integrations.distribution.metadata import DistributionError, load_distr
 from src.integrations.distribution.release_files import verify_release
 
 
+def confirm_legacy_account_identity_repair(root: Path, count: int) -> bool:
+    """旧版导入曾保留源库 default 标识；修复须由用户确认，默认取消并保留原数据。"""
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from src.ui.gui_startup import prepare_process_dpi_awareness
+    prepare_process_dpi_awareness()
+    app = QApplication.instance() or QApplication([])
+    confirm_legacy_account_identity_repair.application = app
+    QApplication.beep()
+    answer = QMessageBox.warning(
+        None, "修复旧导入账号标识",
+        f"检测到 {count} 个旧版导入账号的内部标识未更新。\n"
+        "请确认其他旧版计算器已退出。确认后先完整备份，再仅校正标识；库存、配装和战报保留。\n"
+        f"数据位置：{root}\n取消则保留原数据并停止启动。",
+        QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Cancel,
+    )
+    return answer == QMessageBox.StandardButton.Ok
+
+
 def choose_first_external_root() -> bool:
     _package, app_dir = resolve_application_roots()
     distribution = load_distribution(app_dir)

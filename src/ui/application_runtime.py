@@ -19,7 +19,7 @@ from src.integrations.distribution.data_lifecycle import prepare_data_upgrade
 from src.integrations.distribution.release_files import verify_release
 from src.integrations.distribution.retired_files import reconcile_release
 from src.integrations.distribution.startup_commit import commit_runtime_acceptance, recover_interrupted_acceptance
-from src.services.runtime_data_upgrade import apply_runtime_data_upgrades
+from src.services.runtime_data_upgrade import apply_runtime_data_upgrades, repair_legacy_account_identities
 from src.services.characters.character_shape_bonus_service import SHARED_DATABASE_ENV
 from src.services.preferences.global_theme_settings_service import GlobalThemeSettingsService
 from src.services.preferences.language_settings_service import LanguageSettingsService
@@ -78,6 +78,8 @@ def prepare_application_runtime(
         recover_interrupted_acceptance(data_root, lease)
         if (data_root / "maintenance" / "pending-import.json").exists():
             raise DistributionError("上次迁入尚未完成；请先使用 --resume-data-import 恢复迁入。")
+        from src.ui.startup_data_selection import confirm_legacy_account_identity_repair
+        repair_legacy_account_identities(data_root, lease, confirm=confirm_legacy_account_identity_repair)
         reconcile_release(app_dir, data_root / "maintenance", verified)
         establish_portable_identity(data_root, distribution, lease)
         recovery = prepare_data_upgrade(data_root, package_root, distribution, lease)
