@@ -50,6 +50,18 @@ class BattleNativePageService:
         from src.integrations.battle_analysis.editor_facts import load_editor_facts
         return load_editor_facts(self._client, self._dependencies, self._context_is_current, battle_record_id)
 
+    def freeze_axis_evaluation(self, request, *, anchor_mode, selected_character_id,
+                               baseline_equipment_by_character, candidates, checkpoint=None):
+        from src.services.battle_report.analysis.axis_evaluation import freeze_axis_evaluation
+        return freeze_axis_evaluation(self._client, self._dependencies, self._semantics_path,
+            self._context_is_current, request, anchor_mode=anchor_mode, selected_character_id=selected_character_id,
+            baseline_equipment_by_character=baseline_equipment_by_character, candidates=candidates, checkpoint=checkpoint)
+
+    def evaluate_axis(self, frozen, *, checkpoint=None):
+        from src.services.battle_report.analysis.axis_evaluation import evaluate_frozen_axis
+        return evaluate_frozen_axis(self._client, self._dependencies, self._semantics_path,
+                                    self._context_is_current, frozen, checkpoint=checkpoint)
+
     def load(self, request, *, progress_callback=None):
         if self._client is None or not self._client.supports_battle_page:
             raise NativeAnalysisError('战报页面需要支持数据库直读的分析组件，请部署配套版本后重试')

@@ -13,7 +13,6 @@ from src.domain.official_role.models import ROLE_PANEL_MARGINAL_UNITS
 from src.integrations.bundled_resources import bundled_config_dir
 from src.domain.equipment.virtual_equipment import grid_count_from_geometry
 from src.optimizer.scoring import ScoringEngine
-from src.services.equipment.equipment_scoring_service import score_drive_stats, score_tape_stats
 from src.services.damage_calculation_service import (
     DamageScalingStat,
 )
@@ -180,14 +179,14 @@ def calculate_official_role_final_weights(
     }
 
 
-def calculate_official_role_hidden_equipment_score(
+def _hidden_equipment_score_inputs(
     detail: Mapping[str, Any],
     item: Mapping[str, Any],
     *,
     property_weights: Mapping[str, float],
     main_property_weights: Mapping[str, float] | None = None,
     config_dir: str | Path | None = None,
-) -> float:
+):
     """Score one candidate with the role page's final weights, not direct damage.
 
     This is intentionally the same category/quality/shape scoring model used
@@ -229,25 +228,44 @@ def calculate_official_role_hidden_equipment_score(
             main_value = float(raw_main_value) if raw_main_value is not None else None
         except (TypeError, ValueError):
             main_value = None
-        return score_tape_stats(
-            engine,
-            main_stat_name=_property_label(
-                detail,
-                str(first_main_stat.get("property_id") or ""),
-            ),
-            sub_stat_names=sub_stat_names,
-            weights=weights,
-            quality=quality,
-            main_weights=main_weights,
-            main_value=main_value,
-        )
+        return engine, weights, main_weights, {"item_type": "tape", "area": 15, "quality": quality,
+            "main_stats": _property_label(detail, str(first_main_stat.get("property_id") or "")),
+            "main_value": main_value, "sub_stats": dict.fromkeys(sub_stat_names, 0.0)}
     area = int(item.get("grid_count") or 0) or grid_count_from_geometry(
         item.get("geometry")
     )
-    return score_drive_stats(
-        engine,
-        sub_stat_names=sub_stat_names,
-        area=area,
-        weights=weights,
-        quality=quality,
-    )
+    return engine, weights, main_weights, {"item_type": "drive", "area": area, "quality": quality,
+        "main_stats": None, "main_value": None, "sub_stats": dict.fromkeys(sub_stat_names, 0.0)}
+
+
+def prefetch_official_role_hidden_equipment_scores(detail, items, *, property_weights, main_property_weights=None, config_dir=None):
+    rows = [_hidden_equipment_score_inputs(detail, item, property_weights=property_weights,
+        main_property_weights=main_property_weights, config_dir=config_dir) for item in items]
+    if rows:
+        engine, weights, mains, _ = rows[0]
+        engine.prepare_scores([row[3] for row in rows], profiles=[{"key": "profile", "weights": weights, "main_weights": mains}])
+
+
+def calculate_official_role_hidden_equipment_score(
+    detail: Mapping[str, Any],
+    item: Mapping[str, Any],
+    *,
+    property_weights: Mapping[str, float],
+    main_property_weights: Mapping[str, float] | None = None,
+    config_dir: str | Path | None = None,
+) -> float:
+    """Score one candidate with the role page's final weights, not direct damage.
+
+    This is intentionally the same category/quality/shape scoring model used
+    by result cards.  Role details display this score and its grade; replacement
+    choices also use it for ordering. Direct-damage gain is a separate metric.
+    """
+
+    engine, weights, mains, raw = _hidden_equipment_score_inputs(detail, item,
+        property_weights=property_weights, main_property_weights=main_property_weights, config_dir=config_dir)
+    engine.prepare_scores([raw], profiles=[{"key": "profile", "weights": weights, "main_weights": mains}])
+    maximum = engine.max_theoretical_weight(weights)
+    from types import SimpleNamespace
+    projected = SimpleNamespace(**raw)
+    return (engine.calculate_cartridge_score(projected, weights, maximum, mains) if raw["item_type"] == "tape"
+            else engine.calculate_drive_score(projected, weights, maximum))

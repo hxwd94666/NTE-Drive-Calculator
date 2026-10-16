@@ -23,4 +23,5 @@ def open_scan_post_action_manager(self):
         user_database_path=dependencies.user_database_path,
         static_database_path=dependencies.static_database_path,
         asset_root=dependencies.game_ui_asset_root,
+        role_suit_matching=self.role_suit_matching,
     )

@@ -10,6 +10,7 @@ from typing import Protocol
 
 from src.domain.post_actions import merge_post_action_config
 from src.services.accounts.settings import AccountSettingsService, SETTING_GROUPS
+from src.services.identification.matching_settings import MatchingSettingsService
 from src.integrations.accounts.index_file import locked_account_index
 from src.integrations.accounts.mutation_directories import (
     preserve_deleted_account_cleanup, require_account_directory_ready, retired_account_directory,
@@ -62,6 +63,8 @@ def _prepare_settings(staged: Path) -> None:
     settings = AccountSettingsService(staged / USER_DATABASE_FILENAME,
                                       legacy_config_dir=staged / "config")
     settings.migrate_legacy_settings()
+    # 额外套装是账号业务偏好；暂存区校验失败时不切换当前账号。
+    MatchingSettingsService(staged / USER_DATABASE_FILENAME).load()
     for key in SETTING_GROUPS:
         value = settings.load(key)
         if key == "ui" and value.get("full_scan_post_action_config"):

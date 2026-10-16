@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from typing import Any
+from functools import partial
 
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import (
@@ -13,12 +14,16 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from src.app.theme import themed_style
+from src.app.window_geometry import fit_dialog_to_available_screen
+from src.services.identification.matching_settings import MatchingSettingsService
 from src.app.workers import WorkerThread
 from src.features.identification.page import build_identify_result_row
 from src.features.inventory.warehouse.cards import warehouse_item_compare_category
@@ -35,6 +40,7 @@ def _identify_snapshot_items(
     database_path: Any,
     config_dir: Any,
     snapshot_id: int,
+    static_database_path: Any,
     uids: tuple[str, ...],
 ) -> tuple[dict[str, Any], ...]:
     """Load and score fixed-snapshot items without calling another controller."""
@@ -42,11 +48,11 @@ def _identify_snapshot_items(
     matcher = EquipmentIdentificationService.from_paths(
         config_dir=config_dir,
         user_database_path=database_path,
+        static_database_path=static_database_path,
     )
-    return tuple(
-        matcher.identify_item(loader.load_item(snapshot_id, uid))
-        for uid in uids
-    )
+    results = tuple(matcher.identify_items([loader.load_item(snapshot_id, uid) for uid in uids]))
+    MatchingSettingsService(database_path).require_identity(matcher.context.settings_identity)
+    return results
 
 
 def show_warehouse_item_identification(
@@ -64,32 +70,8 @@ def show_warehouse_item_identification(
     active_worker = getattr(owner, "_warehouse_identification_worker", None)
     if active_worker is not None and active_worker.isRunning():
         return
-    database_path = owner.app_context.account.user_database_path
-    config_dir = owner.app_context.paths.config_dir
-    uid = str(item.get("uid") or "")
-    worker = WorkerThread(
-        target=lambda: _identify_snapshot_items(
-            database_path=database_path,
-            config_dir=config_dir,
-            snapshot_id=snapshot_id,
-            uids=(uid,),
-        )[0],
-        parent=owner,
-    )
-    owner._warehouse_identification_worker = worker
-    worker.result_ready.connect(
-        lambda result, current=dict(item): show_warehouse_identification_dialog(
-            owner, current, result
-        )
-    )
-    worker.error.connect(
-        lambda error: QMessageBox.warning(
-            owner,
-            "装备鉴定失败",
-            f"未能完成角色匹配评分：\n{error}",
-        )
-    )
-    worker.start()
+    _submit_identification(owner, snapshot_id, (str(item.get("uid") or ""),),
+        lambda result: show_warehouse_identification_dialog(owner, dict(item), result[0]))
 
 
 def select_warehouse_compare_item(
@@ -132,37 +114,69 @@ def select_warehouse_compare_item(
     if active_worker is not None and active_worker.isRunning():
         return
     owner._warehouse_compare_first = None
-    database_path = owner.app_context.account.user_database_path
-    config_dir = owner.app_context.paths.config_dir
-    uids = (
-        str(first_item.get("uid") or ""),
-        str(item.get("uid") or ""),
-    )
-    worker = WorkerThread(
-        target=lambda: _identify_snapshot_items(
-            database_path=database_path,
-            config_dir=config_dir,
-            snapshot_id=snapshot_id,
-            uids=uids,
-        ),
-        parent=owner,
-    )
+    _submit_identification(owner, snapshot_id,
+        (str(first_item.get("uid") or ""), str(item.get("uid") or "")),
+        lambda result: show_warehouse_identification_comparison(owner, dict(first_item), dict(item), result))
+
+
+def _submit_identification(owner, snapshot_id, uids, deliver):
+    context = owner.app_context
+    database = context.account.user_database_path
+    generation = context.generation
+    def current():
+        return context.generation == generation and context.account.user_database_path == database
+    def received(results):
+        if not current():
+            return
+        try:
+            for result in results:
+                MatchingSettingsService(database).require_identity(result["matching_settings_identity"])
+        except Exception:
+            # 旧结果不继续显示，配装和仓库事实保持不变。
+            owner.warehouse_hint.setText(owner.role_suit_matching.catalog.render("matching.stale"))
+            owner.warehouse_hint.show()
+            return
+        deliver(results)
+    worker = WorkerThread(target=partial(_identify_snapshot_items, database_path=database,
+        config_dir=context.paths.config_dir, static_database_path=context.paths.equipment_allocation_database_path,
+        snapshot_id=snapshot_id, uids=uids), parent=owner)
     owner._warehouse_identification_worker = worker
-    worker.result_ready.connect(
-        lambda result, left=dict(first_item), right=dict(
-            item
-        ): show_warehouse_identification_comparison(
-            owner, left, right, result
-        )
-    )
-    worker.error.connect(
-        lambda error: QMessageBox.warning(
-            owner,
-            "装备对比失败",
-            f"未能完成同类别装备鉴定对比：\n{error}",
-        )
-    )
+    worker.result_ready.connect(received)
+    worker.error.connect(lambda error: QMessageBox.warning(owner, "装备鉴定失败", str(error)) if current() else None)
     worker.start()
+
+
+def _matching_controls(owner, dialog, layout, content, results):
+    matching = owner.role_suit_matching
+    notice = QLabel()
+    notice.setTextFormat(Qt.PlainText)
+    notice.setWordWrap(True)
+    if any(result.get("matching_status") == "incomplete" for result in results):
+        notice.setText(matching.catalog.render("matching.incomplete"))
+    notice.setVisible(bool(notice.text()))
+    layout.addWidget(notice)
+    # 两种鉴定弹窗共用紧凑页脚；打开套装编辑不接受或关闭当前结果窗口。
+    footer = QHBoxLayout()
+    footer.addStretch()
+    button = QPushButton(matching.catalog.render("matching.title"))
+    button.setObjectName("btnNew")
+    button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    button.setToolTip(matching.catalog.render("matching.scope_hint"))
+    button.clicked.connect(lambda: matching.open(dialog))
+    footer.addWidget(button)
+    buttons = QDialogButtonBox(QDialogButtonBox.Close)
+    buttons.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    buttons.rejected.connect(dialog.reject)
+    footer.addWidget(buttons)
+    layout.addLayout(footer)
+    database = owner.app_context.account.user_database_path
+    def invalidated(request):
+        if request.database == database:
+            content.setEnabled(False)
+            notice.setText(matching.catalog.render("matching.stale"))
+            notice.show()
+    matching.changed.connect(invalidated)
+    dialog.finished.connect(lambda _: matching.changed.disconnect(invalidated))
 
 
 def show_warehouse_identification_dialog(
@@ -173,7 +187,7 @@ def show_warehouse_identification_dialog(
     del item
     dialog = QDialog(owner)
     dialog.setWindowTitle("装备鉴定结果")
-    dialog.setFixedSize(560, 520)
+    dialog.resize(560, 520)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(16, 16, 16, 12)
     layout.setSpacing(10)
@@ -197,21 +211,23 @@ def show_warehouse_identification_dialog(
                     rank,
                     row,
                     game_ui_asset_root=owner.app_context.paths.game_ui_asset_root,
+                    catalog=owner.role_suit_matching.catalog,
                 )
             )
     else:
-        empty = QLabel("没有找到图纸可使用该装备的角色。")
+        empty = QLabel(owner.role_suit_matching.catalog.render(
+            "matching.incomplete" if result.get("matching_status") == "incomplete" else "matching.unmatched"))
+        empty.setWordWrap(True)
         empty.setStyleSheet(themed_style("color:#8b949e"))
         match_layout.addWidget(empty)
     content_layout.addWidget(match_group)
     content_layout.addStretch()
     scroll.setWidget(content)
     layout.addWidget(scroll, 1)
-    buttons = QDialogButtonBox(QDialogButtonBox.Close)
-    buttons.rejected.connect(dialog.reject)
-    buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
+    _matching_controls(owner, dialog, layout, scroll, (result,))
+    fit_dialog_to_available_screen(dialog, dialog.size())
     dialog.exec()
+    dialog.deleteLater()
 
 
 def show_warehouse_identification_comparison(
@@ -222,7 +238,7 @@ def show_warehouse_identification_comparison(
 ) -> None:
     dialog = QDialog(owner)
     dialog.setWindowTitle("装备鉴定对比")
-    dialog.setFixedSize(1120, 620)
+    dialog.resize(1120, 620)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(16, 16, 16, 12)
     columns = QHBoxLayout()
@@ -257,19 +273,23 @@ def show_warehouse_identification_comparison(
                         game_ui_asset_root=(
                             owner.app_context.paths.game_ui_asset_root
                         ),
+                        catalog=owner.role_suit_matching.catalog,
                     )
                 )
         else:
-            empty = QLabel("没有找到图纸可使用该装备的角色。")
+            empty = QLabel(owner.role_suit_matching.catalog.render(
+                "matching.incomplete" if result.get("matching_status") == "incomplete" else "matching.unmatched"))
+            empty.setWordWrap(True)
             empty.setStyleSheet(themed_style("color:#8b949e"))
             content_layout.addWidget(empty)
         content_layout.addStretch()
         scroll.setWidget(content)
         group_layout.addWidget(scroll)
         columns.addWidget(group, 1)
-    layout.addLayout(columns, 1)
-    buttons = QDialogButtonBox(QDialogButtonBox.Close)
-    buttons.rejected.connect(dialog.reject)
-    buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
+    container = QWidget()
+    container.setLayout(columns)
+    layout.addWidget(container, 1)
+    _matching_controls(owner, dialog, layout, container, results)
+    fit_dialog_to_available_screen(dialog, dialog.size())
     dialog.exec()
+    dialog.deleteLater()

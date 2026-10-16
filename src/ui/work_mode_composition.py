@@ -14,7 +14,10 @@ from src.services.plugins.hud import PluginService
 def initialize_mode_policy(window):
     path = window.app_context.paths.config_dir / "work_mode.json"
     window._migrate_legacy_component_facts = not path.exists()
-    window.work_mode_service = WorkModeService(path)
+    from src.integrations.distribution.machine_revalidation import MigratedMachineGate
+    window.work_mode_service = WorkModeService(
+        path, machine_gate=MigratedMachineGate(window.app_context.paths.data_root),
+    )
     def require_operation(capability, *, automatic=False):
         # 模式暂停只限制自动服务；账号补偿失败则同时拒绝新的手动指令。
         # 停止/清理沿用会话的原 owner 出口，不经过新操作授权。

@@ -25,6 +25,8 @@ def _item(uid: str, item_type: str, quality: str) -> dict[str, str]:
 
 def test_default_filter_is_empty_and_preserves_every_candidate() -> None:
     settings = AllocationFilterSettings()
+    assert settings.blueprint_combo_limit == AllocationFilterSettings.from_payload({}).blueprint_combo_limit == 2000
+    assert AllocationFilterSettings.from_payload({"blueprint_combo_limit": 500}).blueprint_combo_limit == 500
     candidates = (
         _item("blue-drive", "drive", "Blue"),
         _item("purple-tape", "tape", "Purple"),

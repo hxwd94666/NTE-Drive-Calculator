@@ -13,7 +13,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 class SharedDataSeedTests(unittest.TestCase):
-    def test_packaged_database_replaces_the_local_public_override(self) -> None:
+    def test_packaged_database_only_seeds_missing_local_compatibility_data(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bundled = root / "bundled.sqlite3"
@@ -26,7 +26,7 @@ class SharedDataSeedTests(unittest.TestCase):
 
             seeded.write_bytes(b"existing-user-override")
             self.assertEqual(seeded, seed_shared_database(bundled, data_root))
-            self.assertEqual(bundled.read_bytes(), seeded.read_bytes())
+            self.assertEqual(b"existing-user-override", seeded.read_bytes())
 
     def test_public_seed_does_not_touch_an_account_custom_character_chassis(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

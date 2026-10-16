@@ -52,8 +52,12 @@ class CalcUpdateController(QObject):
     """UI 线程拥有状态；worker 只消费冻结参数，结果必须等物理 finished 后交付。"""
 
     def __init__(self, *, identity_provider, load_settings, save_settings, style_sheet,
-                 show_group, show_netdisk, request_close, parent):
+                 show_group, show_netdisk, request_close, parent, update_channel="installer"):
         super().__init__(parent)
+        if update_channel not in {"installer", "manual", "platform"}:
+            raise ValueError("unsupported distribution update channel")
+        # 发行身份由组合根冻结注入，不根据启动进程、目录或下载 URL 猜测。
+        self._update_channel = update_channel
         self._identity = identity_provider
         self._load, self._save = load_settings, save_settings
         self._style, self._show_group, self._show_netdisk = style_sheet, show_group, show_netdisk
@@ -79,6 +83,17 @@ class CalcUpdateController(QObject):
         self._view = status, check_button, download_button, cdk_editor
         self.rebuild_account()
 
+    def configure_distribution_links(self, *, homepage_button, netdisk_button):
+        if self._update_channel == "installer":
+            return
+        netdisk_button.setEnabled(False)
+        netdisk_button.setToolTip("此入口未声明便携 ZIP，不作为便携更新渠道。")
+        if self._update_channel == "platform":
+            homepage_button.setEnabled(False)
+            homepage_button.setToolTip("请使用分发平台的更新或修复入口。")
+        else:
+            homepage_button.setText("发布页（选择便携 ZIP）")
+
     def _status(self, text):
         if self._view is not None:
             self._view[0].setText(text)
@@ -86,7 +101,19 @@ class CalcUpdateController(QObject):
     def _buttons(self):
         if self._view is not None:
             self._view[1].setEnabled(not self._closed and self._check is None)
-            self._view[2].setEnabled(not self._closed and self._download is None)
+            self._view[1].setText("检查更新" if self._update_channel == "installer" else "更新说明")
+            self._view[2].setEnabled(self._update_channel == "installer" and not self._closed and self._download is None)
+            self._view[2].setToolTip("Mirror 当前仅提供安装器，便携版不使用此下载入口。" if self._update_channel != "installer" else "")
+            self._view[3].setEnabled(self._update_channel == "installer" and not self._closed)
+
+    def _portable_status(self):
+        if self._update_channel == "platform":
+            return (f"当前版本: {APP_VERSION}（平台托管便携版）\n"
+                    "请在分发平台更新或修复，并先退出本程序；此处不检查或下载竞争更新。\n"
+                    "Mirror 当前仅提供安装器，不适用于便携版。")
+        return (f"当前版本: {APP_VERSION}（手动便携版）\n"
+                "请从可信发布渠道获取对应便携 ZIP，退出程序后完整覆盖，保留 userdata。\n"
+                "若渠道仅提供安装器，请等待便携包；Mirror 当前仅提供安装器，不作为便携更新。")
 
     def _current(self, request):
         return (not self._closed and not request.cancelled.is_set()
@@ -108,6 +135,9 @@ class CalcUpdateController(QObject):
         return bool(self._workers)
 
     def startup(self):
+        if self._update_channel != "installer":
+            self._status(self._portable_status())
+            return
         if not self._closed and not self._load().get("never_remind"):
             self._startup_identity = self._identity()
             self._startup_timer.start()
@@ -123,6 +153,9 @@ class CalcUpdateController(QObject):
     def check(self, _checked=False, *, manual=True):
         if self._closed or self._check is not None:
             return
+        if self._update_channel != "installer":
+            self._status(self._portable_status())
+            return
         request = self._check = _Request(self._identity(), "check", manual)
         self._buttons()
         self._status("正在通过 Mirror 酱检查更新…")
@@ -131,7 +164,7 @@ class CalcUpdateController(QObject):
             MIRROR_UPDATE_API, APP_VERSION, cancel_check=request.cancelled.is_set))
 
     def save_cdk(self):
-        if self._closed or self._view is None:
+        if self._closed or self._view is None or self._update_channel != "installer":
             return ""
         settings = dict(self._load())
         cdk = self._view[3].text().strip()
@@ -142,6 +175,9 @@ class CalcUpdateController(QObject):
 
     def start_download(self, _checked=False):
         if self._closed or self._download is not None:
+            return
+        if self._update_channel != "installer":
+            self._status(self._portable_status())
             return
         cdk = self.save_cdk() if self._view else str(self._load().get("mirror_cdk") or "").strip()
         if not cdk:
@@ -231,6 +267,10 @@ class CalcUpdateController(QObject):
         self._end(request)
 
     def _address_ready(self, request, info):
+        if self._update_channel != "installer":
+            self._status(self._portable_status())
+            self._end(request)
+            return
         latest, url = str((info or {}).get("latest") or ""), str((info or {}).get("url") or "")
         if not latest or not url:
             self._fail(request, "未获取到下载地址，请确认 CDK 有效后重试。")
@@ -297,7 +337,7 @@ class CalcUpdateController(QObject):
         if pending is None:
             return
         request, receipt = pending
-        if not self._current(request) or request.dispatched:
+        if self._update_channel != "installer" or not self._current(request) or request.dispatched:
             discard_installer(receipt)
             return
         # 在 OS 边界前消耗权限。异常、超时、迟到槽均不复活同一次派发。
@@ -344,7 +384,7 @@ class CalcUpdateController(QObject):
         # AppContext 已发布新 settings，再通知 lifecycle.rebuild；不读旧窗口缓存。
         if not self._closed and self._view is not None:
             self._view[3].setText(str(self._load().get("mirror_cdk") or ""))
-            self._status(f"当前版本: {APP_VERSION}")
+            self._status(f"当前版本: {APP_VERSION}" if self._update_channel == "installer" else self._portable_status())
             self._buttons()
 
     def begin_close(self):

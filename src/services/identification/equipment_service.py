@@ -11,6 +11,9 @@ from src.services.recognition.resources import load_recognition_resources, check
 from src.models.equipment import Drive, Tape
 from src.optimizer.scoring import ScoringEngine
 from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.domain.equipment.matching import EquipmentMatchContext
+from src.services.identification.matching_context import build_equipment_match_context
+from src.services.identification.matching_settings import MatchingSettingsService
 
 
 class EquipmentIdentificationService:
@@ -19,12 +22,17 @@ class EquipmentIdentificationService:
     def __init__(
         self,
         orchestrator: NTEPipelineOrchestrator,
-        blueprints: dict[str, Any],
+        context: EquipmentMatchContext,
         scoring_engine: ScoringEngine,
     ) -> None:
         self._orchestrator = orchestrator
-        self._blueprints = blueprints
+        self.context = context
         self._scoring = scoring_engine
+
+    @property
+    def scoring(self) -> ScoringEngine:
+        """本批与图纸共用角色数据的评分器；调用方不另读可变账号权重。"""
+        return self._scoring
 
     @classmethod
     def from_paths(
@@ -49,9 +57,8 @@ class EquipmentIdentificationService:
             static_database_path=resources.static_database_path,
             expected_dataset=resources.dataset, stat_catalog=catalog,
         )
-        blueprints = orchestrator.solve_blueprints(
-            list(orchestrator.roles_db), cancel_check=cancel_check,
-        )
+        settings = MatchingSettingsService(user_database_path).load()
+        context = build_equipment_match_context(orchestrator, settings, cancel_check=cancel_check)
         scoring = ScoringEngine(
             str(config_dir),
             user_database_path=Path(user_database_path),
@@ -60,51 +67,52 @@ class EquipmentIdentificationService:
             static_database_path=resources.static_database_path, stat_catalog=catalog,
         )
         check_recognition_resources(resources)
-        return cls(orchestrator, blueprints, scoring)
+        MatchingSettingsService(user_database_path).require_identity(context.settings_identity)
+        return cls(orchestrator, context, scoring)
 
     def identify_item(self, item: Drive | Tape) -> dict[str, Any]:
         """Return ranked character matches for one drive or tape."""
+        return self.identify_items([item])[0]
+
+    def identify_items(self, items, *, checkpoint=None):
+        items = [item.model_copy(deep=True) for item in items]
+        self._scoring.prepare_scores(items, checkpoint=checkpoint, assign_scores=True)
+        results = []
+        for item in items:
+            if checkpoint is not None:
+                checkpoint()
+            results.append(self._identify_scored_item(item))
+        return results
+
+    def _identify_scored_item(self, item):
         orchestrator = self._orchestrator
         scoring = self._scoring
         rows: list[dict[str, Any]] = []
         if isinstance(item, Tape):
             item.set_name = orchestrator._resolve_set_name(item.set_name)
+        matches_by_role = {}
+        for match in self.context.for_item(item):
+            matches_by_role.setdefault(match.role, []).append(match)
         for role_name, role_data in orchestrator.roles_db.items():
-            role_bps = self._blueprints.get(role_name, [])
-            if not role_bps:
+            matches = matches_by_role.get(role_name, [])
+            if not matches:
                 continue
-            target_set = orchestrator._resolve_set_name(
-                role_data.get("default_set", "")
-            )
+            target_set = matches[0].suit_name
             weights = role_data.get("weights", {})
             main_weights = (
                 role_data.get("main_weights")
                 if isinstance(role_data, dict)
                 else None
             )
-            max_weight = scoring.max_theoretical_weight(weights)
+            score = item.role_scores[role_name]
             if isinstance(item, Tape):
-                if item.set_name != target_set:
-                    continue
-                score = scoring.calculate_cartridge_score(
-                    item,
-                    weights,
-                    max_weight,
-                    main_weights,
-                )
-                match_desc = "套装匹配"
+                match_desc = "默认匹配" if any(match.is_default for match in matches) else "自选匹配"
                 area = 15
             else:
-                set_shapes = orchestrator.sets_db[target_set]["shapes"]
-                in_set = item.shape_id in set_shapes
-                in_extra = any(
-                    item.shape_id in blueprint.get("extra_pieces", [])
-                    for blueprint in role_bps
-                )
-                if not in_set and not in_extra:
-                    continue
-                score = scoring.calculate_drive_score(item, weights, max_weight)
-                match_desc = "套装位" if in_set else "散件位"
+                in_set = any(item.shape_id in match.set_shapes for match in matches)
+                in_extra = any(item.shape_id in match.extra_shapes for match in matches)
+                match_desc = ("默认匹配" if any(match.is_default for match in matches) else "自选匹配")
+                match_desc += " · " + ("套装位 / 散件位" if in_set and in_extra else "套装位" if in_set else "散件位")
                 area = item.area
             grade = scoring.get_grade_tag(score, area)
             max_score = area * 10.0
@@ -120,7 +128,17 @@ class EquipmentIdentificationService:
                     "match": match_desc,
                     "weights": weights,
                     "main_weights": main_weights,
+                    "matched_suits": [{"suit_id": match.suit_id, "name": match.suit_name,
+                                       "is_default": match.is_default,
+                                       # 一张图纸可同时容纳套装位与散件位，不把另一种适配丢掉。
+                                       "positions": (["cartridge"] if isinstance(item, Tape) else
+                                           [key for key, shapes in (("set", match.set_shapes), ("extra", match.extra_shapes))
+                                            if item.shape_id in shapes])} for match in matches],
                 }
             )
         rows.sort(key=lambda row: row["score"], reverse=True)
-        return {"item": item, "rows": rows}
+        errors = self.context.errors + tuple((str(identity), "", "角色资料缺失")
+                                             for identity in self.context.missing_character_ids)
+        return {"item": item, "rows": rows, "matching_errors": errors,
+                "matching_status": "incomplete" if errors else "matched" if rows else "unmatched",
+                "matching_settings_identity": self.context.settings_identity}

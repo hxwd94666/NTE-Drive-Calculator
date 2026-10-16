@@ -32,6 +32,7 @@ class ScanningControllerOperationGenerationTests(TestCase):
         parent = QWidget()
         hotkeys = SimpleNamespace(start=Mock(), stop=Mock(), configuration=SimpleNamespace(stop="F12"))
         controller = ScanningController(
+            global_preferences=Mock(),
             app_context=context, dialog_parent=parent, minimize_window=lambda: None,
             navigate=lambda _page: None, work_mode_provider=lambda: WorkMode.LOW,
             restore_window=lambda: None, activate_window=lambda: None,

@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from concurrent.futures import CancelledError
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass
 from time import perf_counter, sleep
@@ -23,10 +24,16 @@ class EquipmentStateBatchMetrics:
     wall_duration_ms: float
     rpc_duration_ms: float
     retry_count: int
+    accepted_operations: tuple[dict[str, Any], ...] = ()
+    stopped_reason: str | None = None
 
 
 class WarehouseStateWriteError(RuntimeError):
     """The live core session cannot safely accept a warehouse state change."""
+
+
+class _DispatchInvalidated(CancelledError):
+    """只表示本地复核否决；RPC 自身取消或未知结果不归为明确未派发。"""
 
 
 class LiveInventorySync(Protocol):
@@ -132,68 +139,58 @@ class WarehouseStateWriter:
         changes: list[tuple[Mapping[str, Any], str, Mapping[str, int]]],
         *,
         group_completed=None,
+        check_current: Callable[[], None] | None = None,
     ) -> EquipmentStateBatchMetrics:
-        groups = tuple(
-            self._operations(row, target_state, equipment)
-            for row, target_state, equipment in changes
-        )
+        groups = tuple(self._operations(row, target, equipment) for row, target, equipment in changes)
         capabilities = (self.sync_service.core_hello_result or {}).get("capabilities", [])
-        if isinstance(capabilities, list) and STATE_BATCH_CAPABILITY in capabilities:
-            return self._apply_state_batches(groups, group_completed)
-        with self.batch():
-            started = perf_counter()
-            rpc_count = 0
-            rpc_duration = 0.0
-            retry_count = 0
-            for index, group in enumerate(groups, 1):
-                for operation in group:
-                    elapsed, attempts, retries = self._dispatch_operation(operation)
-                    rpc_duration += elapsed
-                    rpc_count += attempts
-                    retry_count += retries
-                if group_completed is not None:
-                    group_completed(index, len(groups))
-            return EquipmentStateBatchMetrics(
-                group_count=len(groups),
-                rpc_count=rpc_count,
-                wall_duration_ms=round((perf_counter() - started) * 1000.0, 3),
-                rpc_duration_ms=round(rpc_duration * 1000.0, 3),
-                retry_count=retry_count,
-            )
-
-    def _apply_state_batches(self, groups, group_completed):
+        batched = isinstance(capabilities, list) and STATE_BATCH_CAPABILITY in capabilities
         started = perf_counter()
+        rpc_count = retry_count = completed = 0
         rpc_duration = 0.0
-        rpc_count = retry_count = 0
-        pending = []
-        completed_groups = 0
+        accepted = []
+        stopped_reason = None
         with self.batch():
-            for index, group in enumerate(groups, 1):
-                # Keep unlock/discard pairs together, including at chunk boundaries.
-                if pending and len(pending) + len(group) > MAX_STATE_OPERATIONS:
-                    elapsed, attempts, retries = self._dispatch_operation(
-                        {"method": "set_item_states", "kwargs": {"operations": pending}})
-                    rpc_duration += elapsed
-                    rpc_count += attempts
-                    retry_count += retries
-                    pending = []
-                    if group_completed is not None:
-                        group_completed(completed_groups, len(groups))
-                for operation in group:
-                    kwargs = operation["kwargs"]
-                    field = "locked" if operation["method"] == "set_item_locked" else "discarded"
-                    pending.append({"equipment": kwargs["equipment"], "field": field, "value": kwargs[field]})
-                completed_groups = index
-            if pending:
-                elapsed, attempts, retries = self._dispatch_operation(
-                    {"method": "set_item_states", "kwargs": {"operations": pending}})
+            for operation, covered, completed_after in self._dispatch_units(groups, batched):
+                try:
+                    elapsed, attempts, retries = self._dispatch_operation(operation, check_current)
+                except _DispatchInvalidated as exc:
+                    # 仅撤销尚未派发部分；已接受字段交还 Service 走原后验确认，不假装整组成功。
+                    stopped_reason = str(exc) or "本批状态处理已取消"
+                    break
                 rpc_duration += elapsed
                 rpc_count += attempts
                 retry_count += retries
-            if group_completed is not None:
-                group_completed(len(groups), len(groups))
-        return EquipmentStateBatchMetrics(len(groups), rpc_count,
-            round((perf_counter() - started) * 1000, 3), round(rpc_duration * 1000, 3), retry_count)
+                accepted.extend(covered)
+                if completed_after > completed:
+                    completed = completed_after
+                    if group_completed is not None:
+                        group_completed(completed, len(groups))
+        return EquipmentStateBatchMetrics(completed, rpc_count,
+            round((perf_counter() - started) * 1000, 3), round(rpc_duration * 1000, 3),
+            retry_count, tuple(accepted), stopped_reason)
+
+    @staticmethod
+    def _dispatch_units(groups, batched):
+        """批量协议保留单件解锁/弃置对；旧协议逐字段发送并记录真实接受边界。"""
+        pending = []
+        completed = 0
+        for index, group in enumerate(groups, 1):
+            fields = []
+            for operation in group:
+                kwargs = operation["kwargs"]
+                field = "locked" if operation["method"] == "set_item_locked" else "discarded"
+                fields.append({"equipment": kwargs["equipment"], "field": field, "value": kwargs[field]})
+            if not batched:
+                for offset, operation in enumerate(group):
+                    yield operation, [fields[offset]], index if offset == len(group) - 1 else index - 1
+                continue
+            if pending and len(pending) + len(fields) > MAX_STATE_OPERATIONS:
+                yield {"method": "set_item_states", "kwargs": {"operations": pending}}, pending, completed
+                pending = []
+            pending.extend(fields)
+            completed = index
+        if pending:
+            yield {"method": "set_item_states", "kwargs": {"operations": pending}}, pending, completed
 
     @staticmethod
     def _is_pre_dispatch_transient(error: BaseException) -> bool:
@@ -204,11 +201,16 @@ class WarehouseStateWriter:
             and error.domain_code is None
         )
 
-    def _dispatch_operation(self, operation: Mapping[str, Any]) -> tuple[float, int, int]:
+    def _dispatch_operation(self, operation: Mapping[str, Any], check_current=None) -> tuple[float, int, int]:
         started = perf_counter()
         attempts = 0
         retries = 0
         while True:
+            if check_current is not None:
+                try:
+                    check_current()
+                except CancelledError as exc:
+                    raise _DispatchInvalidated(str(exc)) from exc
             attempts += 1
             try:
                 getattr(self.sync_service, operation["method"])(**operation["kwargs"])

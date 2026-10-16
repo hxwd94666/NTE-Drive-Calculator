@@ -154,7 +154,7 @@ def test_accepted_save_close_keeps_real_worker_and_event_loop_alive(desktop, mon
     owner._pending_allocation_static_release = static_release
     owner._pending_allocation_static_identity = (static_release.database_path, static_release.dataset_id, (0, 0))
     owner._allocation_lock_snapshot = AllocationLockSnapshot(1, frozenset(), frozenset(), ())
-    monkeypatch.setattr(runner, "_select_allocation_save_slots", lambda *args: {"role": (1004, None)})
+    monkeypatch.setattr(runner, "_select_allocation_save_slots", lambda *args, **kwargs: {"role": (1004, None)})
     monkeypatch.setattr(save_workflow, "selected_legacy_comparison_diffs", lambda *args: {"role": {}})
     monkeypatch.setattr(owner, "_render_results", lambda result: deliveries.append(result))
     monkeypatch.setattr(save_workflow, "show_allocation_save_success", lambda *args: notices.append("success"))

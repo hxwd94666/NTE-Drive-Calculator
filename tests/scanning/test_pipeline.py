@@ -10,14 +10,17 @@ import pytest
 from unittest.mock import Mock, patch
 
 from src.domain.post_actions import summarize_state_changes
+from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
 
 
-def _fake_state_sync_factory(scanner, *, total_drives, post_action_ready_callback, sleep_fn):
+def _fake_state_sync_factory(scanner, *, total_drives, post_action_ready_callback, sleep_fn, check_current=None):
     def sync(state_changes, config):
         if not state_changes:
             return summarize_state_changes([])
         if post_action_ready_callback is not None:
             post_action_ready_callback()
+        if check_current is not None:
+            check_current()
         return scanner.sync_equipment_states(total_drives, state_changes, action_mode="default")
 
     return SimpleNamespace(sync=sync)
@@ -136,17 +139,20 @@ class StreamingScanPipelineTests(unittest.TestCase):
             def get_grade_tag(self, score, _area):
                 return {1.0: "SS", 2.0: "SSS"}.get(float(score), "D")
 
-        item = SimpleNamespace(quality="Gold", area=1, role_scores={"A": 1.0, "B": 1.0})
+        item = SimpleNamespace(quality="Gold", area=3, shape_id="H_3", role_scores={"A": 1.0, "B": 1.0})
+        context = EquipmentMatchContext(matches=tuple(
+            RoleSuitMatch(role, index, "suit", "森林萤火之心", True, frozenset({"H_3"}), frozenset())
+            for index, role in enumerate(("A", "B"), 1)))
         config = default_post_action_config()
         config["discard"]["enabled"] = True
         config["discard"]["grade"] = "SS"
-        self.assertEqual("discarded", target_state_for_item(item, "normal", config, FakeScoring()))
+        self.assertEqual("discarded", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
 
         item.role_scores = {"A": 2.0, "B": 1.0}
         config = default_post_action_config()
         config["lock"]["enabled"] = True
         config["lock"]["grade"] = "SSS"
-        self.assertEqual("locked", target_state_for_item(item, "normal", config, FakeScoring()))
+        self.assertEqual("locked", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
 
     def test_post_action_preserve_rules_keep_or_lock_matching_tape(self):
         from src.domain.post_actions import default_post_action_config, target_state_for_item
@@ -274,10 +280,12 @@ class StreamingScanPipelineTests(unittest.TestCase):
             role_scores={"A": 2.0},
         )
 
-        self.assertEqual("locked", target_state_for_item(keep_drive, "normal", config, FakeScoring()))
-        self.assertEqual("normal", target_state_for_item(excluded_drive, "normal", config, FakeScoring()))
-        self.assertEqual("locked", target_state_for_item(keep_tape, "normal", config, FakeScoring()))
-        self.assertEqual("normal", target_state_for_item(excluded_tape, "normal", config, FakeScoring()))
+        context = EquipmentMatchContext(matches=(RoleSuitMatch(
+            "A", 1, "suit", "森林萤火之心", True, frozenset({"H_3"}), frozenset()),))
+        self.assertEqual("locked", target_state_for_item(keep_drive, "normal", config, FakeScoring(), score_context=context))
+        self.assertEqual("normal", target_state_for_item(excluded_drive, "normal", config, FakeScoring(), score_context=context))
+        self.assertEqual("locked", target_state_for_item(keep_tape, "normal", config, FakeScoring(), score_context=context))
+        self.assertEqual("normal", target_state_for_item(excluded_tape, "normal", config, FakeScoring(), score_context=context))
         self.assertEqual(
             {
                 "post_action_parsed_count": 4,
@@ -300,7 +308,6 @@ class StreamingScanPipelineTests(unittest.TestCase):
 
     def test_post_action_scores_only_usable_roles_when_context_is_strict(self):
         from src.domain.post_actions import (
-            PostActionScoreContext,
             default_post_action_config,
             target_state_for_item,
         )
@@ -324,7 +331,8 @@ class StreamingScanPipelineTests(unittest.TestCase):
         config = default_post_action_config()
         config["lock"]["enabled"] = True
         config["lock"]["grade"] = "SSS"
-        context = PostActionScoreContext(strict=True, drive_roles_by_shape={"S1": {"usable"}})
+        context = EquipmentMatchContext(matches=(RoleSuitMatch(
+            "usable", 1, "suit", "套装", True, frozenset({"S1"}), frozenset()),))
 
         self.assertEqual("normal", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
 
@@ -515,6 +523,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
                 return SimpleNamespace(item_type="drive"), True
 
         evaluation = SimpleNamespace(
+            matching_identity="",
             config={"server_region": "cn", "discard": {"enabled": True}, "lock": {"enabled": False}},
             state_changes=[{"index": 1, "current_state": "normal", "target_state": "locked"}],
             filter_summary={"post_action_candidate_count": 1},
@@ -572,6 +581,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
                 return item, True
 
         evaluation = SimpleNamespace(
+            matching_identity="",
             config={"discard": {"enabled": True}},
             state_changes=[
                 {"index": index, "current_state": "normal", "target_state": "locked"}
@@ -725,7 +735,7 @@ def test_evaluation_rechecks_frozen_guard_before_factory_and_ready(invalidated):
 
     guard = {"cancel": False, "current": True}
     config = {"discard": {"enabled": True}}
-    evaluation = SimpleNamespace(config=config, state_changes=[{"index": 1}], filter_summary={})
+    evaluation = SimpleNamespace(matching_identity="", config=config, state_changes=[{"index": 1}], filter_summary={})
     def evaluate(*_):
         guard["cancel" if invalidated == "cancel" else "current"] = invalidated == "cancel"
         return evaluation

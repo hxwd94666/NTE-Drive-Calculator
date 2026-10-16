@@ -5,9 +5,18 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 NTE_TEST_TIER = "core"
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def isolated_collection_root(tmp_path):
+    # cwd 在仓库而夹具可能在另一磁盘；自有配置避免 pytest 向上扫描整个 Temp，
+    # 否则其它 shard 正常删除其目录时会污染本例的收集生命周期。
+    (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
 
 
 def run_quality(directory: Path, *arguments: str):
@@ -31,7 +40,9 @@ def test_mixed_nested_cases_execute_once_in_serial_and_parallel(tmp_path):
         "    def test_committed(self): self.assertTrue(True)\n"
         "@pytest.fixture\ndef value(): return 2\n"
         "@pytest.mark.parametrize('expected', [2, 2])\n"
-        "def test_projection(value, expected): assert value == expected\n",
+        "def test_projection(value, expected, pytestconfig):\n"
+        "    assert value == expected\n"
+        f"    assert str(pytestconfig.rootpath) == {str(tmp_path)!r}\n",
         encoding="utf-8",
     )
     (domain / "test_other_service.py").write_text("def test_other(): assert True\n", encoding="utf-8")

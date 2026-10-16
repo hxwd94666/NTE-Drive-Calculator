@@ -5,11 +5,14 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from types import SimpleNamespace
+
+from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
 
 
 class PostActionAccountWeightTests(unittest.TestCase):
     def test_each_scoring_module_resolves_and_uses_its_own_character_ids(self):
-        from src.domain.post_actions import PostActionScoreContext, default_post_action_config
+        from src.domain.post_actions import default_post_action_config
         from src.models.equipment import Drive
         from src.services.inventory.post_action_evaluation import PostActionEvaluator
 
@@ -32,9 +35,12 @@ class PostActionAccountWeightTests(unittest.TestCase):
                      main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={}, role_scores={"低分角色": 0.0, "高分角色": 2.0})
         module = "src.services.inventory.post_action_evaluation"
         resolve = lambda _roles, ids, _path: ["低分角色" if value == 1003 else "高分角色" for value in ids]
-        with patch(f"{module}.ScoringEngine", Scoring), \
-                patch(f"{module}._selected_role_names", side_effect=resolve), \
-                patch(f"{module}.PostActionScoreContext.from_config_dir", return_value=PostActionScoreContext()):
+        context = EquipmentMatchContext(matches=tuple(
+            RoleSuitMatch(name, data["character_id"], "suit", "套装", True, frozenset({"H_3"}), frozenset())
+            for name, data in Scoring.roles_db.items()))
+        with patch(f"{module}.EquipmentIdentificationService.from_paths",
+                   return_value=SimpleNamespace(scoring=Scoring(), context=context)), \
+                patch(f"{module}._selected_role_names", side_effect=resolve):
             evaluator = PostActionEvaluator(post_actions_config=config)
             self.assertEqual("locked", evaluator.evaluate([(1, item, "normal")], [item]).state_changes[0]["target_state"])
             config["lock"]["selected_character_ids"] = [1003]
@@ -75,30 +81,27 @@ class PostActionAccountWeightTests(unittest.TestCase):
                 ),
             )
 
-    def test_evaluator_passes_account_database_to_scoring_engine(self):
+    def test_evaluator_passes_account_and_static_paths_to_shared_matcher(self):
         from src.domain.post_actions import default_post_action_config
         from src.services.inventory.post_action_evaluation import PostActionEvaluator
 
         captured = {}
-
-        class FakeScoring:
-            roles_db = {}
-
-            def __init__(self, config_dir, *, user_database_path=None):
-                captured["config_dir"] = config_dir
-                captured["user_database_path"] = user_database_path
-
+        evaluated = []
+        scoring = SimpleNamespace(roles_db={}, evaluate_global_inventory=evaluated.append)
+        def make_matcher(**kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(scoring=scoring, context=EquipmentMatchContext(settings_identity="frozen"))
         config = default_post_action_config()
         config["discard"]["enabled"] = True
-        with patch("src.services.inventory.post_action_evaluation.ScoringEngine", FakeScoring):
-            PostActionEvaluator(
-                post_actions_config=config,
-                config_dir="test-config",
-                user_database_path="account.sqlite3",
-            ).evaluate([], [])
-
-        self.assertEqual("test-config", captured["config_dir"])
-        self.assertEqual("account.sqlite3", str(captured["user_database_path"]))
+        with patch("src.services.inventory.post_action_evaluation.EquipmentIdentificationService.from_paths",
+                   side_effect=make_matcher):
+            result = PostActionEvaluator(post_actions_config=config, config_dir="test-config",
+                user_database_path="account.sqlite3", static_database_path="static.sqlite3").evaluate([], [])
+        self.assertEqual(Path("test-config"), captured["config_dir"])
+        self.assertEqual(Path("account.sqlite3"), captured["user_database_path"])
+        self.assertEqual(Path("static.sqlite3"), captured["static_database_path"])
+        self.assertEqual([[]], evaluated)
+        self.assertEqual("frozen", result.matching_identity)
 
     def test_scoring_engine_loads_custom_role_account_weights_for_scan_management(self):
         from src.optimizer.scoring import ScoringEngine
@@ -169,32 +172,8 @@ class PostActionAccountWeightTests(unittest.TestCase):
             scoring.roles_db["自建角色"],
         )
 
-    def test_score_context_passes_account_database_to_blueprint_source(self):
-        from src.domain.post_actions import PostActionScoreContext
-
-        captured = {}
-
-        class FakeOrchestrator:
-            def __init__(self, *, config_dir, user_database_path=None):
-                captured["config_dir"] = config_dir
-                captured["user_database_path"] = user_database_path
-                self.roles_db = {}
-
-            def solve_blueprints(self, _role_names):
-                return {}
-
-        with patch("src.domain.post_actions.NTEPipelineOrchestrator", FakeOrchestrator):
-            context = PostActionScoreContext.from_config_dir(
-                "test-config", user_database_path="account.sqlite3"
-            )
-
-        self.assertFalse(context.strict)
-        self.assertEqual("test-config", captured["config_dir"])
-        self.assertEqual("account.sqlite3", captured["user_database_path"])
-
     def test_tape_set_display_wrapper_matches_scoring_context_and_type_filter(self):
         from src.domain.post_actions import (
-            PostActionScoreContext,
             _type_range_matches,
             _usable_role_names,
         )
@@ -208,13 +187,10 @@ class PostActionAccountWeightTests(unittest.TestCase):
             main_stats="攻击力%",
             sub_stats={"暴击率%": 1.0},
         )
-        context = PostActionScoreContext(
-            strict=True,
-            tape_roles_by_set={"「森林萤火之心」": {"零"}},
-        )
+        context = EquipmentMatchContext(matches=(RoleSuitMatch(
+            "零", 1001, "suit", "「森林萤火之心」", True, frozenset(), frozenset()),))
 
-        # Contexts built before the compatibility fix may only contain the
-        # official bracketed key, so lookup itself must be wrapper-tolerant.
+        # 视觉卡带没有正式套装 ID，名称包装在同一适配边界规范化。
         roles, mode = _usable_role_names(tape, ["零"], context)
         self.assertEqual(["零"], roles)
         self.assertEqual("matched_usable_roles", mode)

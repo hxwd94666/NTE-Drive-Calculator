@@ -35,6 +35,8 @@ installer/output/
 installer/README.md
 
 # Runtime data
+# 数据根的本机进程锁，不是依赖锁文件；保留 uv.lock/Cargo.lock 的原跟踪规则。
+/.ndc-data.lock
 /logs/
 /scanned_images/
 /identify_captures/

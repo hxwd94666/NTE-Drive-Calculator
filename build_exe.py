@@ -28,18 +28,22 @@ from PyInstaller.utils.hooks import (
 )
 
 from tools import build_cli
+from tools.release.app_bundle_validation import (
+    CONFIG_RELEASE_FILES, CONFIG_RELEASE_DIRECTORIES, validate_app_bundle,
+    validate_analysis_component as _validate_analysis_component,
+)
+from tools.release.onedir_inputs import write_onedir_receipt
 from tools.release.ocr_build_inputs import collect_ocr_build_inputs, write_ocr_support_manifest
 from tools.release.managed_paths import plain_member_stat
 from src.integrations.vision.recognition.ocr.backend_support import load_backend_support
 from tools.release.native_component_bundle_build import native_component_build_inputs
 from tools.release.pyinstaller_native_dependencies import declared_native_proxies_only
 from tools.release.game_component_bundle_build import (
-    prepare_component_bundle, validate_packaged_component_bundle,
+    prepare_component_bundle,
 )
 from tools.release.runtime_pruning import prune_unused_runtime_binaries, validate_pruned_runtime
 from src.integrations.vision.recognition.ocr.model_resources import (
     build_source_ocr_models,
-    validate_packaged_ocr_models,
 )
 
 from src.integrations.vision.recognition.ocr.language_resources import load_ocr_dictionary, shared_dictionary_path
@@ -59,13 +63,6 @@ STATIC_DATABASE_PATH = ROOT / "data" / "game_static.sqlite3"
 STATIC_MANIFEST_PATH = ROOT / "data" / "manifest.json"
 STATIC_MIGRATION_DATA_DIR = ROOT / "data" / "migrations"
 SHARED_DATABASE_SEED_PATH = ROOT / "data" / "app_shared.sqlite3"
-CONFIG_RELEASE_FILES = (
-    "gameplay_effect_semantics.json",
-    "global_ui_preferences.json",
-    "stats.json",
-    "workshop_weight_template.json",
-)
-CONFIG_RELEASE_DIRECTORIES = ("github", "templates")
 ANALYSIS_CORE_PATH = THIRD_PARTY_DIR / "analysis-core" / "bin" / "nte-analysis-core.exe"
 ANALYSIS_CORE_MANIFEST_PATH = THIRD_PARTY_DIR / "analysis-core" / "component.json"
 ANALYSIS_CORE_RELEASE_FILES = ("LICENSE", "SOURCE.md", "THIRD_PARTY_NOTICES.txt")
@@ -162,27 +159,6 @@ def _validate_no_runtime_caches(output: Path) -> None:
     if found:
         joined = "、".join(str(path) for path in found)
         raise RuntimeError(f"打包产物混入本机运行时缓存，已拒绝发布：{joined}")
-
-
-def _validate_analysis_component(binary: Path, manifest_path: Path) -> None:
-    """独立分析组件的身份、字节与页面能力须同时通过，不以采集组件替代。"""
-
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        raise RuntimeError("独立分析组件清单无效") from error
-    capabilities = manifest.get("capabilities") if isinstance(manifest, dict) else None
-    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
-    if (
-        not isinstance(manifest, dict)
-        or manifest.get("engine") != "nte-analysis-core"
-        or manifest.get("engine_version") != "0.3.0"
-        or manifest.get("sha256") != digest
-        or not isinstance(capabilities, list)
-        or "battle_page_v1" not in capabilities
-        or "main_static_catalog_v1" not in capabilities
-    ):
-        raise RuntimeError("独立分析组件缺少战报数据库直读能力或哈希不匹配")
 
 
 def _running_in_automation() -> bool:
@@ -532,10 +508,12 @@ def main() -> int:
                 "[SIZE] 已裁剪可选运行库："
                 f"{sum(removed_runtime.values()) / (1024 * 1024):.1f} MiB 展开体积"
             )
-            validate_packaged_component_bundle(output / "_internal")
-            validate_packaged_ocr_models(output / "_internal")
+            validate_app_bundle(output / f"{PACKAGE_NAME}.exe", output / "_internal")
         _validate_no_ambient_icu_dlls(output)
         _validate_no_runtime_caches(output)
+        if not onefile:
+            from src.app.version import __version__
+            write_onedir_receipt(output, PACKAGE_BUILD_DIR / "onedir-files.json", version=__version__)
         size_mib = build_cli.artifact_size_bytes(output) / (1024 * 1024)
         build_cli.ok(f"Build complete: {output}")
         build_cli.info(f"[SIZE] {size_mib:.1f} MiB")

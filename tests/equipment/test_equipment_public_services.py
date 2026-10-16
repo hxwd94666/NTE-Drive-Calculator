@@ -309,6 +309,9 @@ def test_public_equipment_scoring_delegates_to_workshop_engine() -> None:
         def __init__(self) -> None:
             self.calls = []
 
+        def prepare_scores(self, items, *, profiles):
+            assert len(items) == len(profiles) == 1
+
         def max_theoretical_weight(self, weights):
             self.calls.append(("max", dict(weights)))
             return 9.0

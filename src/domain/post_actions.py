@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
+import math
 from typing import Any
 
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.optimizer.scoring import ScoringEngine
-from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.domain.equipment.matching import EquipmentMatchContext
 from src.utils.set_name import normalize_set_display_name
 
 
@@ -38,6 +38,7 @@ DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
     "discard": {
         "enabled": False,
         "grade": "S",
+        "discard_unmatched": False,
         "role_scope": "all",
         "selected_character_ids": [],
         "quality_scope": "gold_purple",
@@ -105,6 +106,8 @@ def normalize_post_action_config(config: dict[str, Any]) -> dict[str, Any]:
                 selected_ids.append(character_id)
         module["selected_character_ids"] = selected_ids
         module["enabled"] = bool(module.get("enabled", False))
+        if module_name == "discard":
+            module["discard_unmatched"] = module.get("discard_unmatched") is True
         if module.get("grade") not in GRADE_ORDER:
             module["grade"] = default_module["grade"]
         if module.get("role_scope") not in {"all", "selected"}:
@@ -261,62 +264,9 @@ def validate_post_action_config(config: dict[str, Any] | None, selected_roles: l
 
 def _role_names_for_scope(scoring: ScoringEngine, module_config: dict, selected_roles: list[str] | None) -> list[str]:
     if module_config.get("role_scope") == "selected":
-        return [role for role in (selected_roles or []) if role in scoring.roles_db]
-    return list(scoring.roles_db.keys())
+        return [role for role in (selected_roles or []) if scoring is not None and role in scoring.roles_db]
+    return list(scoring.roles_db.keys()) if scoring is not None else []
 
-
-@dataclass
-class PostActionScoreContext:
-    strict: bool = False
-    drive_roles_by_shape: dict[str, set[str]] = field(default_factory=dict)
-    tape_roles_by_set: dict[str, set[str]] = field(default_factory=dict)
-    role_sets: dict[str, str] = field(default_factory=dict)
-
-    @classmethod
-    def from_config_dir(
-        cls,
-        config_dir: str | None,
-        *,
-        user_database_path: str | None = None,
-        static_database_path: str | None = None,
-    ) -> "PostActionScoreContext":
-        try:
-            kwargs = {"config_dir": config_dir, "user_database_path": user_database_path}
-            if static_database_path is not None:
-                kwargs["static_database_path"] = static_database_path
-            orchestrator = NTEPipelineOrchestrator(**kwargs)
-            role_names = list(orchestrator.roles_db.keys())
-            blueprints = orchestrator.solve_blueprints(role_names)
-        except Exception:
-            return cls(strict=False)
-
-        drive_roles_by_shape: dict[str, set[str]] = {}
-        tape_roles_by_set: dict[str, set[str]] = {}
-        role_sets: dict[str, str] = {}
-        for role_name, role_data in orchestrator.roles_db.items():
-            try:
-                target_set = orchestrator._resolve_set_name(role_data.get("default_set", ""))
-            except Exception:
-                continue
-            role_sets[role_name] = target_set
-            # 库存投影会移除展示用的「」外框，而静态套装表通常保留它。
-            # 两种文本都属于同一套装；若只保存原始键，卡带会得到 0 个
-            # 可用角色，继而被误判为 D 级并弃置。
-            for set_key in {str(target_set), normalize_set_display_name(target_set)}:
-                tape_roles_by_set.setdefault(set_key, set()).add(role_name)
-
-            for blueprint in blueprints.get(role_name, []) or []:
-                shape_ids = list(blueprint.get("set_pieces", []) or []) + list(blueprint.get("extra_pieces", []) or [])
-                for shape_id in shape_ids:
-                    if shape_id:
-                        drive_roles_by_shape.setdefault(str(shape_id), set()).add(role_name)
-
-        return cls(
-            strict=bool(drive_roles_by_shape or tape_roles_by_set),
-            drive_roles_by_shape=drive_roles_by_shape,
-            tape_roles_by_set=tape_roles_by_set,
-            role_sets=role_sets,
-        )
 
 
 def _quality_matches(item: BaseEquipment, quality_scope: str) -> bool:
@@ -479,60 +429,42 @@ def _grade_for_score(scoring: ScoringEngine, item: BaseEquipment, score: float) 
 def _usable_role_names(
     item: BaseEquipment,
     role_names: list[str],
-    score_context: PostActionScoreContext | None,
+    score_context: EquipmentMatchContext | None,
 ) -> tuple[list[str], str]:
-    if not score_context or not score_context.strict:
-        return role_names, "fallback_all_roles"
-    allowed: set[str]
-    if isinstance(item, Drive):
-        allowed = score_context.drive_roles_by_shape.get(str(getattr(item, "shape_id", "") or ""), set())
-    elif isinstance(item, Tape):
-        raw_set = str(getattr(item, "set_name", "") or "")
-        allowed = score_context.tape_roles_by_set.get(raw_set, set())
-        if not allowed:
-            normalized_set = normalize_set_display_name(raw_set)
-            allowed = score_context.tape_roles_by_set.get(normalized_set, set())
-        if not allowed:
-            # 兼容已构造的旧上下文：它可能只存了带「」的静态名称。
-            normalized_set = normalize_set_display_name(raw_set)
-            allowed = next(
-                (
-                    roles
-                    for set_name, roles in score_context.tape_roles_by_set.items()
-                    if normalize_set_display_name(set_name) == normalized_set
-                ),
-                set(),
-            )
-    else:
-        allowed = set()
+    if score_context is None or score_context.errors_for_roles(role_names):
+        return [], "incomplete"
+    allowed = {match.role for match in score_context.for_item(item)}
     filtered = [role for role in role_names if role in allowed]
-    return filtered, "matched_usable_roles"
+    return filtered, "matched_usable_roles" if filtered else "unmatched"
 
 
 def _role_score_pairs_for_item(
     item: BaseEquipment,
     role_names: list[str],
-    score_context: PostActionScoreContext | None = None,
+    score_context: EquipmentMatchContext | None = None,
 ) -> tuple[list[tuple[str, float]], str]:
     usable_roles, match_mode = _usable_role_names(item, role_names, score_context)
     role_scores = getattr(item, "role_scores", {}) or {}
-    return [(role, float(role_scores.get(role, 0.0) or 0.0)) for role in usable_roles], match_mode
+    if any(role not in role_scores or type(role_scores[role]) not in (float, int)
+           or not math.isfinite(role_scores[role]) for role in usable_roles):
+        return [], "incomplete"
+    return [(role, float(role_scores[role])) for role in usable_roles], match_mode
 
 
 def _best_score_detail(
     item: BaseEquipment,
     role_names: list[str],
     scoring: ScoringEngine,
-    score_context: PostActionScoreContext | None = None,
+    score_context: EquipmentMatchContext | None = None,
 ) -> dict[str, Any]:
     pairs, match_mode = _role_score_pairs_for_item(item, role_names, score_context)
     best_role = ""
-    best_score = 0.0
+    best_score = None
     if pairs:
         best_role, best_score = max(pairs, key=lambda pair: pair[1])
     return {
         "score": best_score,
-        "grade": _grade_for_score(scoring, item, best_score),
+        "grade": _grade_for_score(scoring, item, best_score) if pairs else None,
         "role": best_role,
         "eligible_roles": len(pairs),
         "match_mode": match_mode,
@@ -545,7 +477,7 @@ def _discard_module_result(
     module_config: dict,
     scoring: ScoringEngine,
     selected_roles: list[str] | None,
-    score_context: PostActionScoreContext | None = None,
+    score_context: EquipmentMatchContext | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     detail = {"module": "discard", "enabled": bool(module_config.get("enabled")), "result": None}
     if not module_config.get("enabled") or not _module_matches_item(item, module_config):
@@ -554,11 +486,24 @@ def _discard_module_result(
     if not _state_action_allowed(current_state, module_config):
         detail["reason"] = "state_policy_skip"
         return None, detail
+    if score_context is not None and score_context.missing_character_ids and module_config.get("role_scope") == "all":
+        # 全角色范围缺失旧配置角色时结论不完整；明确选择的其他角色不因此被扩大保护。
+        detail["reason"] = "evaluation_incomplete"
+        return None, detail
     role_names = _role_names_for_scope(scoring, module_config, selected_roles)
     if not role_names:
-        detail["reason"] = "no_scope_roles"
+        detail["reason"] = "evaluation_incomplete" if scoring is None else "no_scope_roles"
         return None, detail
     detail.update(_best_score_detail(item, role_names, scoring, score_context))
+    if detail["match_mode"] == "incomplete":
+        detail["reason"] = "evaluation_incomplete"
+        return None, detail
+    if detail["match_mode"] == "unmatched":
+        detail["reason"] = "unmatched"
+        if module_config.get("discard_unmatched") is True:
+            detail.update(result="discarded", reason="unmatched_explicit_discard")
+            return "discarded", detail
+        return None, detail
     grade = str(detail["grade"])
     detail["threshold"] = module_config["grade"]
     is_low = GRADE_ORDER.index(grade) >= GRADE_ORDER.index(
@@ -582,7 +527,7 @@ def _lock_module_result(
     module_config: dict,
     scoring: ScoringEngine,
     selected_roles: list[str] | None,
-    score_context: PostActionScoreContext | None = None,
+    score_context: EquipmentMatchContext | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     detail = {"module": "lock", "enabled": bool(module_config.get("enabled")), "result": None}
     if not module_config.get("enabled") or not _module_matches_item(item, module_config):
@@ -591,11 +536,17 @@ def _lock_module_result(
     if not _state_action_allowed(current_state, module_config):
         detail["reason"] = "state_policy_skip"
         return None, detail
+    if score_context is not None and score_context.missing_character_ids and module_config.get("role_scope") == "all":
+        detail["reason"] = "evaluation_incomplete"
+        return None, detail
     role_names = _role_names_for_scope(scoring, module_config, selected_roles)
     if not role_names:
-        detail["reason"] = "no_scope_roles"
+        detail["reason"] = "evaluation_incomplete" if scoring is None else "no_scope_roles"
         return None, detail
     detail.update(_best_score_detail(item, role_names, scoring, score_context))
+    if detail["match_mode"] in {"incomplete", "unmatched"}:
+        detail["reason"] = "evaluation_incomplete" if detail["match_mode"] == "incomplete" else "unmatched"
+        return None, detail
     grade = str(detail["grade"])
     detail["threshold"] = module_config["grade"]
     is_high = GRADE_ORDER.index(grade) <= GRADE_ORDER.index(
@@ -619,7 +570,7 @@ def target_state_for_item(
     config: dict[str, Any],
     scoring: ScoringEngine,
     selected_roles: list[str] | dict[str, list[str]] | None = None,
-    score_context: PostActionScoreContext | None = None,
+    score_context: EquipmentMatchContext | None = None,
 ) -> str:
     return evaluate_target_state_for_item(
         item,
@@ -637,7 +588,8 @@ def evaluate_target_state_for_item(
     config: dict[str, Any],
     scoring: ScoringEngine,
     selected_roles: list[str] | dict[str, list[str]] | None = None,
-    score_context: PostActionScoreContext | None = None,
+    score_context: EquipmentMatchContext | None = None,
+    *, incomplete_scopes: frozenset[str] = frozenset(),
 ) -> tuple[str, dict[str, Any]]:
     """先规则锁与评分锁，再规则弃置；评分解锁、规则保留与评分弃置维持既有次序。"""
     current_state = current_state if current_state in EQUIPMENT_STATES else "normal"
@@ -647,7 +599,8 @@ def evaluate_target_state_for_item(
         return "locked", {"preserve": preserve_detail}
     lock_roles = selected_roles.get("lock", []) if isinstance(selected_roles, dict) else selected_roles
     discard_roles = selected_roles.get("discard", []) if isinstance(selected_roles, dict) else selected_roles
-    lock_result, lock_detail = _lock_module_result(item, current_state, config["lock"], scoring, lock_roles, score_context)
+    lock_result, lock_detail = _lock_module_result(item, current_state, config["lock"],
+        None if "lock" in incomplete_scopes else scoring, lock_roles, score_context)
     details = {"preserve": preserve_detail, "lock": lock_detail}
     if lock_result == "locked":
         return "locked", details
@@ -661,7 +614,8 @@ def evaluate_target_state_for_item(
         return "normal", details
     if preserve_detail["action"] == "keep":
         return "normal" if current_state == "discarded" else current_state, details
-    discard_result, discard_detail = _discard_module_result(item, current_state, config["discard"], scoring, discard_roles, score_context)
+    discard_result, discard_detail = _discard_module_result(item, current_state, config["discard"],
+        None if "discard" in incomplete_scopes else scoring, discard_roles, score_context)
     details["discard"] = discard_detail
     if discard_result == "discarded":
         return "discarded", details
@@ -675,7 +629,9 @@ def build_state_changes(
     config: dict[str, Any],
     scoring: ScoringEngine,
     selected_roles: list[str] | dict[str, list[str]] | None = None,
-    score_context: PostActionScoreContext | None = None,
+    score_context: EquipmentMatchContext | None = None,
+    *, evaluation_summary: dict[str, int] | None = None,
+    incomplete_scopes: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     changes = []
     for index, item, current_state in parsed_items:
@@ -686,7 +642,17 @@ def build_state_changes(
             scoring,
             selected_roles,
             score_context,
+            incomplete_scopes=incomplete_scopes,
         )
+        if evaluation_summary is not None:
+            # 统计实际走到的评分决策，一件装备跨两模块最多计一次；不为汇总再次评分。
+            modes = {part.get("reason") for name, part in detail.items() if name in {"discard", "lock"}}
+            for key, reasons in (
+                ("post_action_unmatched_count", {"unmatched", "unmatched_explicit_discard"}),
+                ("post_action_incomplete_count", {"evaluation_incomplete"}),
+            ):
+                if modes & reasons:
+                    evaluation_summary[key] = evaluation_summary.get(key, 0) + 1
         if target_state != current_state:
             changes.append(
                 {

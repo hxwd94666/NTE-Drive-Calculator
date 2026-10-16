@@ -27,6 +27,7 @@ from src.domain.allocation.failures import allocation_failure_text
 from src.services.inventory.warehouse_visual_catalog import representative_module_item_id
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.features.allocation.results_diff_view import _diff_value
+from src.ui.damage_optimization_panel import damage_optimization_panel
 
 
 @lru_cache(maxsize=256)
@@ -94,7 +95,7 @@ def _render_results(self, plan):
         it = self.result_content_layout.takeAt(0)
         if it.widget():
             it.widget().deleteLater()
-    mode_labels = {"role_priority": "角色优先", "update_mode": "锁定更新"}
+    mode_labels = {"role_priority": "角色优先", "update_mode": "锁定更新", "direct_priority": "直伤优先", "axis_priority": "战报轴伤优先"}
     mode_name = mode_labels.get(getattr(self, "_pending_strat", ""), "")
     plan_diffs = getattr(self, "allocation_plan_diff", {}) or {}
     if locked_roles:
@@ -190,6 +191,12 @@ def _render_results(self, plan):
         role_hdr.addWidget(gf)
         gl.addLayout(role_hdr)
         gl.addSpacing(6)
+
+        optimization_panel = damage_optimization_panel(
+            p.get("damage_optimization"), object_name="allocationDamageOptimization",
+        )
+        if optimization_panel is not None:
+            gl.addWidget(optimization_panel)
 
         board = p.get(PLAN_BLUEPRINT, {}).get("board", [])
         role_cfg = self.roles_db.get(role, {})

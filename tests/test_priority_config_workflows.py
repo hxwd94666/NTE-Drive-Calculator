@@ -173,7 +173,8 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
     def test_priority_groups_loads_old_priority_list_as_strict_order(self):
         from src.features.allocation.priority_groups import load_priority_selection
 
-        data = {"priority_list": ["A", "B", "C"]}
+        # 旧配置同时覆盖顺序、重复项和已不存在角色，不再另立微型测试模块。
+        data = {"priority_list": ["A", "B", "A", "missing", "C", "B"]}
 
         selected, links = load_priority_selection(data, {"A": {}, "B": {}, "C": {}})
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
-from src.features.allocation.runner import AllocationController
+from src.features.allocation.controller import AllocationController
 from src.features.scanning.controller import ScanningController
 
 

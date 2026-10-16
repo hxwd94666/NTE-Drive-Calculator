@@ -33,6 +33,8 @@ def append_scan_post_action_summary(summary: str, stats: Mapping[str, Any]) -> s
         ("post_action_quality_filtered_count", "品质范围过滤"),
         ("post_action_type_filtered_count", "处理类别过滤"),
         ("post_action_type_range_filtered_count", "类型范围过滤"),
+        ("post_action_unmatched_count", "评分未匹配"),
+        ("post_action_incomplete_count", "评分未完成（未执行评分动作）"),
     ):
         count = int(stats.get(key, 0) or 0)
         if count:

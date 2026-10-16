@@ -22,6 +22,8 @@ from src.app.window_geometry import fit_dialog_to_available_screen
 from src.features.allocation.save_progress import AllocationSaveProgress
 from src.services.allocation.slot_comparisons import selected_legacy_comparison_diffs
 from src.features.inventory.equipment.display_controller import invalidate_saved_equipment_cache
+from src.services.allocation.direct_postprocess import optimization_payload
+from src.services.allocation.postprocess_facts import allocation_role_state_from_plan
 from src.services.allocation.locks import AllocationLockSnapshot
 from src.services.allocation.plan_save import legacy_plan_tape_main_values, save_allocation_plans
 from src.integrations.static_catalog_release import StaticCatalogReleaseReader
@@ -93,7 +95,7 @@ def show_allocation_save_success(parent, saved_count: int) -> None:
 
 def save_allocation(owner, *, show_message=True):
     from src.features.allocation.runner import (
-        _allocation_paths, _select_allocation_save_slots, _role_state_from_plan,
+        _allocation_paths, _select_allocation_save_slots,
         _persistable_plan_diff, _plan_changed_uids, _plan_assignment_scores,
         _allocation_context_identity,
     )
@@ -132,15 +134,27 @@ def save_allocation(owner, *, show_message=True):
             raise RuntimeError("本次计算缺少冻结背包或静态数据集，请重新执行计算。")
         if not isinstance(lock_snapshot, AllocationLockSnapshot) or lock_snapshot.inventory_snapshot_id != snapshot_id:
             raise RuntimeError("本次计算缺少一致的配装锁定快照，请重新执行计算。")
+        eligible = {role: plan for role, plan in owner.final_plan.items() if isinstance(plan, dict) and plan.get("valid")
+            and (not plan.get("damage_optimization") or plan["damage_optimization"].get("status") == "completed")}
+        skipped = [role for role, plan in owner.final_plan.items() if isinstance(plan, dict) and plan.get("damage_optimization") and role not in eligible]
+        if not eligible:
+            raise RuntimeError("本次暂无可保存的优化方案。如需保存基础方案，请切回角色优先重新计算。")
+        if skipped:
+            choice = QMessageBox.warning(owner.dialog_parent, "部分方案可保存",
+                "本次保存：" + "、".join(eligible) + "\n保持原方案、不覆盖：" + "、".join(skipped)
+                + "\n其余角色尚未完成优化。如需保存它们的基础方案，请切回角色优先重新计算。\n继续保存上述可用方案？",
+                QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Cancel)
+            if choice != QMessageBox.Ok:
+                return False
         with UserDataDao(database_path) as user_dao, StaticCatalogReleaseReader().read_unit(
                 static_path, expected_release=release) as unit:
             static_dao = unit.dao
-            targets = _select_allocation_save_slots(owner, user_dao, static_dao, snapshot_id)
+            targets = _select_allocation_save_slots(owner, user_dao, static_dao, snapshot_id, plans=eligible)
             if targets is None:
                 return False
         checkpoint()
         # The plan is owned by this save operation until the modal worker finishes.
-        source_plans = owner.final_plan
+        source_plans = eligible
         strategy = owner._pending_strat
         combo_limit = owner._pending_blueprint_combo_limit
 
@@ -155,9 +169,10 @@ def save_allocation(owner, *, show_message=True):
                 character_id, slot_id = targets[role]
                 diff = diffs.get(role, {})
                 rows.append(dict(
-                    role_name=role, role_state=_role_state_from_plan(plan), character_id=character_id,
+                    role_name=role, role_state=allocation_role_state_from_plan(plan), character_id=character_id,
                     snapshot_id=snapshot_id, name=f"计算方案：{role}", score=float(plan.get("score", 0.0) or 0.0),
-                    slot_id=slot_id, payload={
+                    slot_id=slot_id, axis_preview_source=plan.get("axis_preview_source"),
+                    direct_group_preview_source=plan.get("direct_group_preview_source"), payload={
                         "schema": "allocation-official-snapshot-v1", "source": "allocation",
                         "source_role_name": role, "static_dataset_id": identity[1],
                         "strategy": strategy,
@@ -166,6 +181,8 @@ def save_allocation(owner, *, show_message=True):
                         "changed_uids": sorted(_plan_changed_uids(plan, diff)),
                         "assignment_scores": _plan_assignment_scores(role, plan),
                         "tape_main_values": legacy_plan_tape_main_values(plan),
+                        # 目标值、预算及模型身份独立保存，不覆盖基础逐件分数。
+                        **optimization_payload(plan),
                         # 回退事实取本次冻结结果，不从保存时的新偏好重新解释。
                         **({"core_main_filter_resolution": {
                             "requested": list(plan.get("requested_core_main_filters") or ()),
@@ -196,7 +213,7 @@ def save_allocation(owner, *, show_message=True):
         # Rebuilding both off-screen pages here used to freeze the save dialog.
         invalidate_saved_equipment_cache(owner.dialog_parent)
         dialog.set_stage(("正在更新计算结果…", row_count + 1, row_count + 2))
-        owner._render_results(plans)
+        owner._render_results({**deepcopy(owner.final_plan), **plans})
         dialog.set_stage(("保存完成", row_count + 2, row_count + 2))
         dialog.close()
         logger.info(f"allocation_save_complete roles={saved_count} elapsed_ms={(time.perf_counter() - started) * 1000:.1f}")

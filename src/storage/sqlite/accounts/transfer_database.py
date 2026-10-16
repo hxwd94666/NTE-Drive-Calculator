@@ -12,6 +12,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 PORTABLE_SETTING_FIELDS = {
+    "identification_role_suits": frozenset({"version", "extra_suits", "suit_overrides"}),
     "update": frozenset({"never_remind", "ignored_version"}),
     "hotkeys": frozenset({"capture", "finish", "stop", "battle_rerecord"}),
     "sync": frozenset({"inventory_sync_method", "equipment_apply_method",

@@ -7,9 +7,17 @@ from pathlib import Path
 
 from src.app.constants import APP_VERSION
 from src.integrations.nte_core import NteCoreClient
+from src.integrations.bundled_resources import bundled_config_dir
 from src.integrations.static_catalog_release import static_catalog_read_unit, StaticCatalogReleaseReader
 from src.services.allocation.plan_save import require_allocation_release
 from src.integrations.native_allocation import create_allocation_executor
+from src.integrations.nte_analysis_core import NativeAnalysisCancelled
+from src.integrations.damage_allocation_job import DeferredDamageBlueprints, execute_damage_job
+from src.integrations.analysis_core_release import create_bundled_analysis_client
+from src.services.allocation.direct_postprocess import direct_strategy_selection_error
+from src.services.allocation.direct_group_postprocess import freeze_direct_group_inputs, optimize_standard_direct_groups
+from src.services.allocation.axis_team_preflight import prepare_axis_team_selection
+from src.services.allocation.axis_postprocess import freeze_axis_allocation_inputs, optimize_frozen_axis
 from src.integrations.vision.recognition.batch_processor import BatchProcessor
 from src.services.recognition.resources import load_recognition_resources
 from src.domain.allocation.failures import explain_allocation_failures
@@ -31,7 +39,9 @@ class NTEAppFacade:
         log_dir: str | Path | None = None,
         app_dir: str | Path | None = None,
         allocation_static_database_path: str | Path | None = None,
+        battle_semantics_path: str | Path | None = None,
     ):
+        self.battle_semantics_path = Path(battle_semantics_path) if battle_semantics_path is not None else bundled_config_dir() / "gameplay_effect_semantics.json"
         self.config_dir = str(config_dir)
         self.user_config_dir = str(user_config_dir)
         self.user_database_path = Path(user_database_path)
@@ -83,20 +93,75 @@ class NTEAppFacade:
         cancel_check=None,
         allocation_observer=None,
         static_read_unit=None,
+        axis_selection=None,
+        postprocess_budget=None,
     ):
         """使用已经固定的数据集合计算，不要求生成中间库存文件。"""
-
+        postprocess_options = {} if postprocess_budget is None else {
+            "max_evaluations": postprocess_budget["max_evaluations"], "max_rounds": postprocess_budget["max_rounds"]}
+        direct = mode == "direct_priority"
+        axis = mode == "axis_priority"
+        if axis and axis_selection is None:
+            raise ValueError("轴策略需要明确选择本账号战报、范围、参与角色和A配置")
+        selection_error = direct_strategy_selection_error(mode, priority_list)
+        if selection_error:
+            raise ValueError(selection_error)
         with static_catalog_read_unit(self.allocation_static_database_path, read_unit=static_read_unit) as unit:
             require_allocation_release(unit.release, self.allocation_static_database_path)
+            # 两阶段共用同一组件字节身份；基础分配仍走原路由与角色优先目标。
+            analysis_client = create_bundled_analysis_client(
+                static_database_path=unit.release.database_path, cancelled=cancel_check,
+            ) if direct or axis else None
+            if axis:
+                def axis_checkpoint():
+                    if cancel_check is not None and cancel_check():
+                        from concurrent.futures import CancelledError
+                        raise CancelledError("轴伤队伍预检已取消")
+                axis_selection = prepare_axis_team_selection(analysis_client, axis_selection, priority_list,
+                    user_database_path=self.user_database_path, static_read_unit=unit,
+                    semantics_path=self.battle_semantics_path, source_inventory=inventory, checkpoint=axis_checkpoint)
+                locked_uids = set(locked_uids or ()) | set(axis_selection.fixed_team_reserved_uids)
             native_allocation_executor = create_allocation_executor(
                 static_database_path=unit.release.database_path,
-                cancel_check=cancel_check,
+                cancel_check=cancel_check, analysis_client=analysis_client,
             )
+            blueprint_executor = DeferredDamageBlueprints() if direct or axis else None
 
             def allocation_executor(request, scorer):
+                def checkpoint():
+                    if cancel_check is not None and cancel_check():
+                        from concurrent.futures import CancelledError
+                        raise CancelledError("直伤后处理已取消")
+                frozen = freeze_direct_group_inputs(
+                    request, user_database_path=self.user_database_path, static_read_unit=unit,
+                    source_inventory=inventory, reserved_uids=locked_uids, checkpoint=checkpoint,
+                ) if direct else None
+                axis_inputs = freeze_axis_allocation_inputs(analysis_client, request, axis_selection,
+                    user_database_path=self.user_database_path, static_read_unit=unit,
+                    source_inventory=inventory, semantics_path=self.battle_semantics_path,
+                    reserved_uids=locked_uids, checkpoint=checkpoint) if axis else None
+                native_job = None
+                if direct or axis:
+                    if axis and not axis_inputs.selection.optimize_groups:
+                        from dataclasses import replace
+                        axis_inputs = replace(axis_inputs, selection=replace(axis_inputs.selection, optimize_groups=True))
+                    try:
+                        request, plans, native_job = execute_damage_job(analysis_client, request, scorer,
+                            axis_inputs if axis else frozen, blueprint_executor, unit, axis=axis,
+                            checkpoint=checkpoint, **postprocess_options)
+                    except NativeAnalysisCancelled:
+                        from concurrent.futures import CancelledError
+                        raise CancelledError("伤害分配已取消") from None
+                else:
+                    plans = native_allocation_executor(request, scorer)
                 if allocation_observer is not None:
                     allocation_observer(request, scorer)
-                plans = native_allocation_executor(request, scorer)
+                if direct:
+                    plans = optimize_standard_direct_groups(analysis_client, request, scorer, plans, frozen,
+                                                      checkpoint=checkpoint, native_job=native_job)
+                if axis:
+                    plans = optimize_frozen_axis(analysis_client, request, scorer, plans, axis_inputs,
+                                                 checkpoint=checkpoint, native_job=native_job)
                 return explain_allocation_failures(plans, request, scorer.stat_catalog)
 
             orchestrator = NTEPipelineOrchestrator(
@@ -105,8 +170,8 @@ class NTEAppFacade:
                 static_database_path=unit.release.database_path, static_read_unit=unit,
             )
             locked_uids = set(locked_uids or ())
-            base_mode = mode
-            preferences_allowed = mode in ("role_priority", "update_mode")
+            base_mode = "role_priority" if direct or axis else mode
+            preferences_allowed = mode in ("role_priority", "update_mode", "direct_priority", "axis_priority")
             if mode == "update_mode":
                 with UserDataDao(self.user_database_path) as user_dao:
                     locked_uids.update({
@@ -135,6 +200,7 @@ class NTEAppFacade:
                 blueprint_combo_limit=blueprint_combo_limit,
                 cancel_check=cancel_check,
                 allocation_executor=allocation_executor,
+                blueprint_executor=blueprint_executor,
             )
             StaticCatalogReleaseReader().ensure_unchanged(unit.release)
             return final_plan, None

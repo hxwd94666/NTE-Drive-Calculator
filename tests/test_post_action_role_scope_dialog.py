@@ -114,6 +114,8 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                     combo.setCurrentIndex(combo.findData("selected"))
                     picker.return_value.selected_character_ids.return_value = selected
                     manager._widgets[module]["role_scope_button"].click()
+            self.assertFalse(manager._widgets["discard"]["discard_unmatched"].isChecked())
+            manager._widgets["discard"]["discard_unmatched"].setChecked(True)
             manager._main_tabs.setCurrentIndex(1)
             self.assertEqual("规则处理", manager._main_tabs.tabText(1))
             manager.show()
@@ -125,6 +127,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             manager._save()
             self.assertEqual(QDialog.Accepted, manager.result())
             saved = load_scan_post_action_config(Path(directory), user_database_path=database_path)
+            self.assertTrue(saved["discard"]["discard_unmatched"])
             self.assertEqual([1003], saved["discard"]["selected_character_ids"])
             self.assertEqual([1004], saved["lock"]["selected_character_ids"])
             self.assertEqual(["第二条", "第一条", "第三条"], [rule["name"] for rule in saved["preserve_rules"]])

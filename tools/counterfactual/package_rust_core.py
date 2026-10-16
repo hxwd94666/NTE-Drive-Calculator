@@ -52,8 +52,13 @@ def main() -> int:
         or "battle_page_v1" not in capabilities
         or "main_static_catalog_v1" not in capabilities
         or "allocation_v2" not in capabilities
+        or "damage_allocation_v1" not in capabilities
+        or "equipment_scoring_v1" not in capabilities
+        or "allocation_blueprints_v1" not in capabilities
+        or "battle_axis_team_v1" not in capabilities
+        or "battle_axis_fixed_team_v1" not in capabilities
     ):
-        raise RuntimeError("分析组件缺少战报数据库直读或空幕分配能力")
+        raise RuntimeError("分析组件缺少战报数据库直读、空幕分配、Rust 图纸生成或正式队伍预检能力")
     license_path = source.parent / "LICENSE"
     manifest = {
         **version,
@@ -65,7 +70,7 @@ def main() -> int:
         "rustc": build_record["rustc"],
         "license_sha256": sha256(license_path),
         "dependency_notices_sha256": sha256(source / "THIRD_PARTY_NOTICES.txt"),
-        "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel, frozen drive allocation; Python owns user input, blueprint generation, process lifecycle and rendering",
+        "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel, frozen drive allocation and bounded blueprint generation; Python owns user input, request freezing, process lifecycle and rendering",
     }
     manifest["source_input_sha256"] = build_record["source_input_sha256"]
     # 可执行文件探测后、修改目标前再次核对整套构建记录，防止配给旧产物。

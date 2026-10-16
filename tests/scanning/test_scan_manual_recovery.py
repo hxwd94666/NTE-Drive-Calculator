@@ -196,7 +196,7 @@ def controller_for(scene):
     paths = SimpleNamespace(config_dir=root, template_dir=root, equipment_allocation_database_path=root / "static.sqlite3",
         equipment_allocation_asset_root=root / "game_ui")
     context = SimpleNamespace(account=account, generation=1, paths=paths)
-    owner = ScanningController(app_context=context, dialog_parent=scene.root, navigate=Mock(),
+    owner = ScanningController(global_preferences=Mock(), app_context=context, dialog_parent=scene.root, navigate=Mock(),
         work_mode_provider=lambda: WorkMode.LOW, minimize_window=Mock(), restore_window=Mock(), activate_window=Mock(),
         update_inventory_status=Mock(), refresh_home=Mock(), preferences_provider=lambda: {}, save_preferences=Mock(),
         refresh_roles=Mock(), refresh_equipment=Mock(), card_factory=Mock(), equipment_presentation=Mock(), hotkey_manager=Mock())

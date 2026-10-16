@@ -80,6 +80,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self,
         *,
         app_context: AppContext,
+        role_suit_matching=None,
         dialog_parent: QWidget,
         card_factory: Callable[..., Any],
         equipment_presentation: EquipmentPresentation,
@@ -92,6 +93,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
     ) -> None:
         super().__init__(dialog_parent)
         self.app_context = app_context
+        self.role_suit_matching = role_suit_matching
         self.operation_entry = operation_entry
         self.operation_unavailable = operation_unavailable
         self._dialog_parent = dialog_parent
@@ -103,6 +105,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._activate_window = activate_window
         self._shape_areas: dict[str, int] = {}
         self.all_set_names: list[str] = []
+        self._matching_stale = False
         self._identify_task: IdentificationTask | None = None
         self._identify_dependencies: IdentificationDependencies | None = None
         self._identify_tasks = IdentificationTaskController(
@@ -113,8 +116,21 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._identify_tasks.failed.connect(self._on_identify_task_failed)
         self._identify_tasks.cleaned.connect(self._on_identify_clipboard_cleaned)
         self._identify_tasks.idle.connect(self._on_identify_idle)
+        if role_suit_matching is not None:
+            role_suit_matching.changed.connect(self.invalidate_matching)
         self.identify_capture_signal.connect(self._add_identify_capture_path)
         self.identify_capture_done_signal.connect(self._finish_identify_capture_mode)
+
+    def invalidate_matching(self, request):
+        if request.database != self.app_context.account.user_database_path:
+            return
+        self._identify_tasks.cancel()
+        self._matching_stale = True
+        self._identify_task = None
+        self._identify_result_pages = []
+        if hasattr(self, "ident_result_widget"):
+            self.ident_result_widget.hide()
+            self.ident_summary.setText(self.role_suit_matching.catalog.render("matching.stale"))
 
     def build_page(self) -> QScrollArea:
         return self._page_identify()
@@ -133,6 +149,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self.refresh_options()
 
     def reset_account_state(self) -> None:
+        self._matching_stale = False
         self._stop_capture_hotkeys()
         self._identify_tasks.cancel()
         self._identify_task = None
@@ -612,7 +629,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
     def _on_identify_idle(self):
         if not self._identify_tasks.closed and not self._identify_tasks.is_running():
             self._set_identify_busy(False)
-            if self._identify_task is None and hasattr(self, "ident_summary"):
+            if self._identify_task is None and hasattr(self, "ident_summary") and not self._matching_stale:
                 self.ident_summary.setText("等待输入装备数据")
 
     def _on_identify_clipboard_cleaned(self, task, paths):
@@ -714,6 +731,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._identify_tasks.submit_matches(task, request)
 
     def _render_identify_result(self, data):
+        self._matching_stale = False
+        self.ident_result_widget.show()
         pages = data if isinstance(data, list) else [data]
         _identification_event(
             self,
@@ -744,6 +763,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             rank,
             row,
             game_ui_asset_root=self.app_context.paths.game_ui_asset_root,
+            catalog=self.role_suit_matching.catalog if self.role_suit_matching is not None else None,
         )
 
     def _on_identify_error(self, err):

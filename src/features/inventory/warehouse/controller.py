@@ -471,6 +471,7 @@ def _open_warehouse_state_manager(self):
         asset_root=self.app_context.paths.equipment_allocation_asset_root,
         window_title="仓库弃置/锁定管理",
         show_server_region_option=False,
+        role_suit_matching=self.role_suit_matching,
     ):
         return
     config = load_scan_post_action_config(
@@ -508,8 +509,15 @@ def _open_warehouse_state_manager(self):
 
 def _on_warehouse_state_plan_ready(self, plan):
     self._set_warehouse_management_busy(False)
+    matching_notice = ""
+    unmatched = plan.filter_summary.get("post_action_unmatched_count", 0)
+    incomplete = plan.filter_summary.get("post_action_incomplete_count", 0)
+    if unmatched:
+        matching_notice += f"\n评分未匹配 {unmatched} 件；是否弃置取决于未匹配开关及独立规则。"
+    if incomplete:
+        matching_notice += f"\n评分未完成 {incomplete} 件，未执行其评分动作；请检查角色匹配套装和评分资料。"
     if not plan.changes:
-        QMessageBox.information(self, "仓库管理", "当前稳定背包没有符合规则、需要变更状态的装备。")
+        QMessageBox.information(self, "仓库管理", "当前没有需要变更状态的装备。" + matching_notice)
         return
     counts = {"弃置": 0, "锁定": 0, "取消弃置/锁定": 0}
     for change in plan.changes:
@@ -524,7 +532,7 @@ def _on_warehouse_state_plan_ready(self, plan):
         f"将按快照 #{plan.snapshot_id} 操作 {len(plan.changes)} 件装备：\n"
         f"弃置 {counts['弃置']} 件，锁定 {counts['锁定']} 件，"
         f"取消状态 {counts['取消弃置/锁定']} 件。\n\n"
-        "确认后会通过本地核心组件直接写入游戏。"
+        "确认后会通过本地核心组件直接写入游戏。" + matching_notice
     )
     if (
         QMessageBox.question(self, "确认一键管理", message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)

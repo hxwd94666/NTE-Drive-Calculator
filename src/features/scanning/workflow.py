@@ -12,7 +12,8 @@ from src.app.theme import current_style_sheet
 from src.app.workers import FullVisualScanParseWorkerThread
 from src.features.scanning.incremental_workflow import start_incremental_capture, finish_incremental_capture, fail_incremental_capture
 from src.features.allocation.execute_page import build_execute_page
-from src.features.allocation.preference_modes import role_preference_mode_error
+from src.features.allocation.preference_modes import allocation_strategy_for_button, role_preference_mode_error
+from src.services.allocation.direct_postprocess import direct_strategy_selection_error
 from src.features.allocation.role_selector import RoleSelector
 from src.features.scanning.dependencies import (
     current_scanning_dependencies as _current_scanning_dependencies,
@@ -84,8 +85,8 @@ def _on_priority_changed(self):
     pass
 
 
-def _do_exec(self):
-    sm = str(self.scan_group.checkedId())
+def _do_exec(self, *, axis_initial_request=None):
+    sm = "4" if axis_initial_request is not None else str(self.scan_group.checkedId())
     if sm in {"1", "2"} and not request_input_entry(self, "interface_input", "游戏界面扫描"):
         return
     dependencies = _current_scanning_dependencies(self)
@@ -150,7 +151,19 @@ def _do_exec(self):
                 "由于版本更新解析逻辑变动，需要重新进行全量扫描",
             )
             return
-    strat = ["role_priority", "update_mode"][max(0, min(1, self.strategy_group.checkedId()))]
+    strat = "axis_priority" if axis_initial_request is not None else allocation_strategy_for_button(self.strategy_group.checkedId())
+    selection_error = None if parse_only else direct_strategy_selection_error(strat, sel)
+    if selection_error:
+        QMessageBox.warning(self.dialog_parent, "直伤优化目标", selection_error)
+        return
+    axis_selection = None
+    if strat == "axis_priority" and not parse_only:
+        if sm != "4":
+            QMessageBox.warning(self.dialog_parent, "轴策略使用固定库存", "请选直接读取库存；先完成同步或扫描，再明确选择战报轴优化。")
+            return
+        axis_selection = self.choose_axis_allocation(sel, initial_request=axis_initial_request)
+        if axis_selection is None:
+            return
     cs = self.role_selector.get_custom_sets()
     cw = self.role_selector.get_custom_weapons() if hasattr(self.role_selector, "get_custom_weapons") else {}
     tmf = self.role_selector.get_tape_main_filters()
@@ -239,6 +252,7 @@ def _do_exec(self):
             custom_weapons=cw,
             filter_settings=self._allocation_filter_settings,
             blueprint_combo_limit=self._allocation_filter_settings.blueprint_combo_limit,
+            axis_selection=axis_selection,
         )
 
 

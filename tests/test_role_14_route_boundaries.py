@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from src.domain.equipment.matching import EquipmentMatchContext
 from unittest.mock import patch
 
 
@@ -26,7 +28,7 @@ def test_rewind_and_management_offer_new_reference_roles(tmp_path: Path) -> None
 
 
 def test_post_action_scoring_uses_the_selected_catalog() -> None:
-    from src.domain.post_actions import PostActionScoreContext, default_post_action_config
+    from src.domain.post_actions import default_post_action_config
     from src.services.inventory.post_action_evaluation import PostActionEvaluator
 
     captured: dict[str, object] = {}
@@ -34,18 +36,16 @@ def test_post_action_scoring_uses_the_selected_catalog() -> None:
     class Scoring:
         roles_db = {"角色": {"character_id": 1042}}
 
-        def __init__(self, _config_dir, **kwargs):
-            captured.update(kwargs)
-
         def evaluate_global_inventory(self, _inventory):
             return None
 
     config = default_post_action_config()
     config["discard"]["enabled"] = True
     catalog = Path("reference.sqlite3")
-    with (
-        patch("src.services.inventory.post_action_evaluation.ScoringEngine", Scoring),
-        patch.object(PostActionScoreContext, "from_config_dir", return_value=PostActionScoreContext()),
-    ):
+    def matcher(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(scoring=Scoring(), context=EquipmentMatchContext())
+    with patch("src.services.inventory.post_action_evaluation.EquipmentIdentificationService.from_paths",
+               side_effect=matcher):
         PostActionEvaluator(post_actions_config=config, static_database_path=catalog).evaluate([], [])
     assert captured["static_database_path"] == catalog

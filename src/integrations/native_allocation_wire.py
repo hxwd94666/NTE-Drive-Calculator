@@ -1,7 +1,7 @@
 # 冻结空幕分配协议输入，仅转换目录身份和数据类型。
 from __future__ import annotations
 
-from dataclasses import asdict
+from src.integrations.equipment_scoring import freeze_scoring_catalog
 
 
 def freeze(request, scorer):
@@ -14,9 +14,6 @@ def freeze(request, scorer):
         raise ValueError('allocation_v1 selected role is absent from the role catalogue')
     indexes = {name: index for index, name in enumerate(roles)}
     catalog = scorer.stat_catalog
-    stats = asdict(catalog)
-    stats['tape_main_stat_values'] = stats.pop('tape_main_values')
-    stats['tape_main_stats_pool'] = stats.pop('tape_main_stats')
     inventory = [item.model_dump() for item in request.inventory]
     names = set()
 
@@ -34,24 +31,7 @@ def freeze(request, scorer):
             names.update(pref.get('blacklist', ()))
     for mains in request.core_main_filters.values():
         names.update(mains)
-    names.update(catalog.gold_base_values)
-    names.update(catalog.tape_main_values)
-    names.update(catalog.stat_alias_mapping)
-    names.update(catalog.stat_alias_mapping.values())
-    names.update(name.strip() for name in list(names))
-    # 文本别名统一从同一目录解析（含旧模糊名）；数值权重、评分和候选选择仍归原生核心。
-    normalized = {}
-    for name in names:
-        normalized[name] = catalog.normalize_stat_name(name, is_percent='%' in name) or name.strip()
-    names.update(normalized.values())
-    mapping = {
-        name: {
-            'normal': normalized.get(name) or catalog.normalize_stat_name(name, is_percent='%' in name) or name.strip(),
-            'main': catalog.normalize_tape_main_stat(name),
-            'alias': catalog.flexible_weight_name(name),
-        }
-        for name in sorted(names)
-    }
+    stats, mapping = freeze_scoring_catalog(catalog, names)
 
     def suit_key(name):
         identity = suit_id_for_target(name, request.sets_db)

@@ -4,18 +4,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from src.domain.post_actions import (
-    PostActionScoreContext,
     build_state_changes,
     merge_post_action_config,
     post_actions_enabled,
     summarize_post_action_filtering,
 )
 from src.integrations.bundled_resources import bundled_config_dir
-from src.optimizer.scoring import ScoringEngine
+from src.services.identification.equipment_service import EquipmentIdentificationService
+from src.domain.equipment.matching import EquipmentMatchContext
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.utils.logger import logger
 
@@ -26,6 +27,8 @@ class PostActionEvaluation:
     enabled: bool = False
     state_changes: list[dict[str, Any]] = field(default_factory=list)
     filter_summary: dict[str, int] = field(default_factory=dict)
+    matching_identity: str = ""
+    matching_errors: tuple = ()
 
 
 class PostActionEvaluator:
@@ -37,7 +40,9 @@ class PostActionEvaluator:
         config_dir=None,
         user_database_path: str | Path | None = None,
         static_database_path: str | Path | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ):
+        self.cancel_check = cancel_check
         self.raw_config = post_actions_config
         # 外层仍会传递计算角色；状态管理只消费配置中各模块自己的正式角色身份。
         self.config_dir = Path(config_dir) if config_dir is not None else bundled_config_dir()
@@ -53,36 +58,31 @@ class PostActionEvaluator:
         if not effective_config or not post_actions_enabled(effective_config):
             return PostActionEvaluation(config=effective_config, enabled=False)
 
-        scoring_kwargs = {"user_database_path": self.user_database_path}
-        if self.static_database_path is not None:
-            scoring_kwargs["static_database_path"] = self.static_database_path
-        scoring = ScoringEngine(str(self.config_dir), **scoring_kwargs)
-        has_preserve_rules = bool(effective_config.get("preserve_rules"))
-        if not scoring.roles_db and not has_preserve_rules:
-            return PostActionEvaluation(config=effective_config, enabled=True)
-
-        scoring.evaluate_global_inventory(inventory)
+        scoring = None
+        score_context = EquipmentMatchContext()
+        if any(effective_config[name]["enabled"] for name in ("discard", "lock")):
+            try:
+                matcher = EquipmentIdentificationService.from_paths(
+                    config_dir=self.config_dir, user_database_path=self.user_database_path,
+                    static_database_path=self.static_database_path, cancel_check=self.cancel_check)
+                scoring, score_context = matcher.scoring, matcher.context
+                scoring.evaluate_global_inventory(inventory)
+            except (ValueError, RuntimeError, OSError):
+                # 评分失败不扩大为全角色，不阻断独立的显式规则，也不生成评分动作。
+                scoring = None
+                score_context = EquipmentMatchContext(errors=(("", "", "评分资料准备失败"),))
         # 两模块的角色身份独立冻结；只有正在评估的指定范围才需要解析。
-        selected_roles = {}
+        selected_roles, incomplete_scopes = {}, set()
         for module_name in ("discard", "lock"):
             module = effective_config[module_name]
-            selected_roles[module_name] = _selected_role_names(
-                scoring.roles_db,
-                module["selected_character_ids"],
-                self.static_database_path,
-            ) if module["enabled"] and module["role_scope"] == "selected" else []
-        context_kwargs = {"user_database_path": self.user_database_path}
-        if self.static_database_path is not None:
-            context_kwargs["static_database_path"] = self.static_database_path
-        score_context = PostActionScoreContext.from_config_dir(str(self.config_dir), **context_kwargs)
-        if score_context.strict:
-            logger.info(
-                "[状态管理] 已启用实际可用角色评分: "
-                f"驱动形状映射 {len(score_context.drive_roles_by_shape)} 个，"
-                f"卡带套装映射 {len(score_context.tape_roles_by_set)} 个"
-            )
-        else:
-            logger.warning("[状态管理] 未能建立图纸可用角色映射，已退回全角色评分")
+            selected_roles[module_name] = []
+            if scoring is not None and module["enabled"] and module["role_scope"] == "selected":
+                try:
+                    selected_roles[module_name] = _selected_role_names(
+                        scoring.roles_db, module["selected_character_ids"], self.static_database_path)
+                except (ValueError, RuntimeError, OSError):
+                    # 指定范围缺项只使该模块评估未完成，不能按剩余角色推断低分；独立规则仍执行。
+                    incomplete_scopes.add(module_name)
         filter_summary = summarize_post_action_filtering(parsed_items, effective_config)
         state_changes = build_state_changes(
             parsed_items,
@@ -90,6 +90,8 @@ class PostActionEvaluator:
             scoring,
             selected_roles,
             score_context,
+            evaluation_summary=filter_summary,
+            incomplete_scopes=frozenset(incomplete_scopes),
         )
         logger.info(
             f"[状态管理] 评分完成: 成功解析 {len(parsed_items)} 件，"
@@ -108,6 +110,10 @@ class PostActionEvaluator:
             enabled=True,
             state_changes=state_changes,
             filter_summary=filter_summary,
+            matching_identity=score_context.settings_identity,
+            matching_errors=score_context.errors + tuple(
+                (str(identity), "", "角色资料缺失") for identity in score_context.missing_character_ids) + tuple(
+                (module, "", "指定角色评分资料缺失，请重新选择角色") for module in sorted(incomplete_scopes)),
         )
 
 

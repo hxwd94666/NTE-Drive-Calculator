@@ -10,8 +10,12 @@
 Rust 返回的版本化目标派生快照由 Python 在复核账号和静态配置后通过既有 DAO 保存，原始事实不改写。
 低层公式、Buff 投影与批量算法协议继续提供独立调用和差分验证能力，详细契约见独立 crate README。
 
-`allocation_v1` 接收计算按钮冻结的库存、角色配置、图纸与评分目录，执行评分、筛选和角色优先分配；
-该入口不读取账号文件。Python 保留图纸生成、进程取消、结果渲染和预览保存，组件能力缺失时明确拒绝计算。
+`allocation_v2` 提供普通角色优先分配。正式直伤与轴伤使用 `damage_allocation_v1`：
+一次冻结作业生成图纸、原角色优先 B0、正式落位，再执行独立有界优化；不修改上游权重、基础评分或原始战报。
+`equipment_scoring_v1` 与分配共用评分/评级核，公开 ScoringEngine 为批量无公式适配入口。
+完整作业返回基础分、评级、落位及覆盖证明；Calc 复核冻结身份并保存，不复制私有数值实现。
+功能范围、未量化机制和截断说明见[功能说明](../../docs/features.md#计算结果后处理)，
+协议职责与来源身份见[集成说明](../../docs/integrations.md#12-分配结果后处理作业)。
 
 构建与部署命令为 `python tools/counterfactual/package_rust_core.py --build --source <analysis-core目录>`。
 不带 `--build` 时，仅接受已有且与当前源码、程序和许可一致的构建记录，不能用当前源码给旧 EXE 补清单。

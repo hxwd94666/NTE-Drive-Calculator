@@ -43,6 +43,7 @@ class ScoringEngine:
         roles_db: Mapping[str, Mapping[str, Any]] | None = None,
         static_database_path: str | Path | None = None,
         stat_catalog: StatCatalog | None = None,
+        scoring_client=None,
     ):
         self.config_dir = str(Path(config_dir) if config_dir is not None else bundled_config_dir())
         self.user_database_path = (
@@ -63,6 +64,9 @@ class ScoringEngine:
             self._apply_stat_catalog(stat_catalog)
         if roles_db is None:
             self._load_roles_from_sqlite()
+        from src.integrations.equipment_score_backend import NativeEquipmentScorer
+        self._native_scores = NativeEquipmentScorer(self.stat_catalog, self.quality_map,
+                                                    self.static_database_path, scoring_client)
 
     def _load_stats(self):
         stats_path = Path(self.config_dir) / "stats.json"
@@ -164,98 +168,44 @@ class ScoringEngine:
             if user_dao is not None:
                 user_dao.close()
 
-    def _stat_identity(self, stat_name: str) -> str:
-        raw = str(stat_name or "").strip()
-        normalized = self.stat_catalog.normalize_stat_name(raw, is_percent="%" in raw)
-        return self.stat_catalog.flexible_weight_name(normalized or raw)
+    def prepare_scores(self, inventory, *, profiles=None, crit_priority_modes=None, checkpoint=None, assign_scores=False):
+        """批量预热同一冻结目录的公共 Rust 核；只组装原值，不在 Python 汇总分数。"""
+        if profiles is None:
+            configs = crit_priority_modes or {}
+            profiles = [{"key": role, "weights": data.get("weights") or {},
+                         "main_weights": data.get("main_weights"), "max_weight": None,
+                         "zero_weight_stats": list((configs.get(role) or {}).get("blacklist") or ())
+                         if (configs.get(role) or {}).get("blacklist_zero_weight") else []}
+                        for role, data in self.roles_db.items()]
+        def consume(items, result):
+            for row in result["profiles"]:
+                for index, (item, score) in enumerate(zip(items, row["scores"])):
+                    if checkpoint is not None and index % 64 == 0:
+                        checkpoint()
+                    item.role_scores[row["key"]] = score
+        if assign_scores:
+            for item in inventory:
+                item.role_scores = {}
+        self._native_scores.prepare(inventory, profiles, checkpoint=checkpoint,
+                                    consume=consume if assign_scores else None)
 
-    def _uses_zero_weight(self, stat_name: str, zero_weight_stats: Mapping[str, object] | set[str] | tuple[str, ...] | list[str] | None) -> bool:
-        if not zero_weight_stats:
-            return False
-        target = self._stat_identity(stat_name)
-        return any(target == self._stat_identity(str(value)) for value in zero_weight_stats)
+    def prepare_weight_queries(self, weights, names):
+        profiles = [{"key": str(index), "weights": dict(row)} for index, row in enumerate(weights)]
+        self._native_scores.batch([], profiles, queries=tuple(names))
 
-    def max_theoretical_weight(
-        self,
-        weights: Mapping[str, float],
-        *,
-        zero_weight_stats: Mapping[str, object] | set[str] | tuple[str, ...] | list[str] | None = None,
-    ) -> float:
-        if not weights: return 1.0
-        valid_sub_weights = [
-            w
-            for name, w in weights.items()
-            if not any(kw in name for kw in self.main_only_keywords)
-            and not self._uses_zero_weight(name, zero_weight_stats)
-        ]
-        sorted_weights = sorted(valid_sub_weights, reverse=True)
-        max_sub_weight = sum(sorted_weights[:4])
-        return max_sub_weight if max_sub_weight > 0 else 1.0
+    def max_theoretical_weight(self, weights, *, zero_weight_stats=None) -> float:
+        return self._native_scores.maximum(weights, zero_weight_stats)
 
     def flexible_weight(self, stat_name: str, weights: Mapping[str, float]) -> float:
-        names = [str(stat_name or "").strip()]
-        normalized = self.stat_catalog.normalize_stat_name(names[0], is_percent="%" in names[0])
-        if normalized:
-            names.append(normalized)
-        mapped_name = self.stat_catalog.flexible_weight_name(names[0])
-        if mapped_name:
-            names.append(mapped_name)
+        return self._native_scores.weight(stat_name, weights)
 
-        for name in dict.fromkeys(n for n in names if n):
-            w = weights.get(name, 0.0)
-            if w > 0:
-                return w
-        for target_name in dict.fromkeys(n for n in names if n):
-            for raw_name, weight in weights.items():
-                if weight > 0 and self.stat_catalog.flexible_weight_name(raw_name) == target_name:
-                    return weight
+    def calculate_drive_score(self, drive: Drive, weights: Dict[str, float], max_weight: float,
+                              *, zero_weight_stats=None) -> float:
+        return self._native_scores.score(drive, weights, max_weight, kind="drive", zeros=zero_weight_stats)
 
-        flat_names = {"攻击力", "防御力", "生命值"}
-        for name in dict.fromkeys(n for n in names if n):
-            if name not in flat_names:
-                w = weights.get(f"{name}%", 0.0)
-                if w > 0:
-                    return w
-        return 0.0
-
-    def calculate_drive_score(
-        self,
-        drive: Drive,
-        weights: Dict[str, float],
-        max_weight: float,
-        *,
-        zero_weight_stats: Mapping[str, object] | set[str] | tuple[str, ...] | list[str] | None = None,
-    ) -> float:
-        if max_weight <= 0: return 0.0
-        actual_weight = sum(
-            0.0
-            if self._uses_zero_weight(stat_name, zero_weight_stats)
-            else self.flexible_weight(stat_name, weights)
-            for stat_name in drive.sub_stats.keys()
-        )
-        if actual_weight <= 0: return 0.0
-
-        quality_coef = self.quality_map.get(drive.quality, 1.0)
-        score = (10.0 / max_weight) * actual_weight * drive.area * quality_coef
-        return round(score, 2)
-
-    def calculate_cartridge_score(self, tape: Tape, weights: dict, max_weight: float, main_weights: dict | None = None) -> float:
-        if max_weight <= 0: return 0.0
-
-        quality_coef = self.quality_map.get(tape.quality, 1.0)
-
-        main_stat_name = tape.main_stats
-        main_weight_source = main_weights if isinstance(main_weights, dict) else weights
-        main_weight = self.flexible_weight(main_stat_name, main_weight_source)
-        catalog_value = float((self.stat_catalog.tape_main_values or {}).get(main_stat_name, 0.0) or 0.0)
-        actual_value = getattr(tape, "main_value", None)
-        value_ratio = float(actual_value) / catalog_value if actual_value is not None and catalog_value > 0 else quality_coef
-        main_score = main_weight * 50.0 * value_ratio
-
-        sub_weight = sum(self.flexible_weight(stat_name, weights) for stat_name in tape.sub_stats.keys())
-        sub_score = (10.0 / max_weight) * sub_weight * 10.0 * quality_coef
-
-        return round(main_score + sub_score, 2)
+    def calculate_cartridge_score(self, tape: Tape, weights: dict, max_weight: float,
+                                  main_weights: dict | None = None) -> float:
+        return self._native_scores.score(tape, weights, max_weight, kind="tape", main_weights=main_weights)
 
     def _is_a_grade_item(self, role: str, item: BaseEquipment) -> bool:
         score = getattr(item, "role_scores", {}).get(role, 0.0)
@@ -352,40 +302,17 @@ class ScoringEngine:
         )
         logger.info(f"  评分引擎: 开始评估 {len(inventory)} 件装备 × {len(self.roles_db)} 角色...")
 
+        self.prepare_scores(inventory, crit_priority_modes=crit_priority_modes, checkpoint=checkpoint, assign_scores=True)
+
         all_scored_drives: List[Drive] = []
         valid_drives: List[Drive] = []
         valid_tapes: List[Tape] = []
 
         for item in checked(inventory):
-            item.role_scores = {}
             item.max_score = 0.0
 
-            for role_name, role_data in checked(self.roles_db.items()):
-                weights = role_data.get("weights", {})
-                role_config = crit_priority_modes.get(role_name)
-                zero_weight_stats = (
-                    role_config.get("blacklist", ())
-                    if isinstance(role_config, dict)
-                    and role_config.get("blacklist_zero_weight")
-                    else ()
-                )
-                max_weight = self.max_theoretical_weight(
-                    weights,
-                    zero_weight_stats=zero_weight_stats,
-                )
-
-                if isinstance(item, Drive):
-                    score = self.calculate_drive_score(
-                        item,
-                        weights,
-                        max_weight,
-                        zero_weight_stats=zero_weight_stats,
-                    )
-                else:
-                    main_weights = role_data["main_weights"] if "main_weights" in role_data else None
-                    score = self.calculate_cartridge_score(item, weights, max_weight, main_weights)
-
-                item.role_scores[role_name] = score
+            for role_name in checked(self.roles_db):
+                score = item.role_scores[role_name]
                 if score > item.max_score:
                     item.max_score = score
 
@@ -551,14 +478,4 @@ class ScoringEngine:
         }
 
     def get_grade_tag(self, score: float, area: int) -> str:
-        max_possible_score = area * 10.0
-        if max_possible_score == 0: return "D"
-        ratio = score / max_possible_score
-        if ratio >= 0.8: return "ACE"
-        elif ratio >= 0.7: return "SSS"
-        elif ratio >= 0.6: return "SS"
-        elif ratio >= 0.5: return "S"
-        elif ratio >= 0.4: return "A"
-        elif ratio >= 0.3: return "B"
-        elif ratio >= 0.2: return "C"
-        else: return "D"
+        return self._native_scores.grade(score, area)

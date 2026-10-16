@@ -1,0 +1,2 @@
+# Reviewed profile pins cover exact bytes, including existing line endings.
+*.json -text

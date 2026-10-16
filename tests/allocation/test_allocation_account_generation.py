@@ -113,7 +113,7 @@ def test_save_rechecks_current_account_after_slot_dialog(tmp_path) -> None:
         plan_revisions=(),
     )
 
-    def switch_account(*_args):
+    def switch_account(*_args, **_kwargs):
         owner.app_context = _window(2, "new").app_context
         return {"role": (1, 1)}
 

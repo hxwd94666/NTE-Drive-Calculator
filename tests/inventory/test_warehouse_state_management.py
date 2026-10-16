@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 class WarehouseStateManagementTests(unittest.TestCase):
     def test_saved_direct_discard_rule_reaches_uid_plan_writer_and_confirmed_snapshot(self):
-        from src.domain.post_actions import PostActionScoreContext, default_post_action_config
+        from src.domain.post_actions import default_post_action_config
         from src.features.scanning.post_action_dialog import load_scan_post_action_config, save_scan_post_action_config
         from src.services.inventory.warehouse_state_management import WarehouseStateManagementService
 
@@ -72,12 +72,8 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 "unused.sqlite3", sync, dao_factory=lambda _path: dao,
                 static_dao_factory=lambda: nullcontext(),
             )
-            with patch("src.services.inventory.warehouse_state_management.SqliteAllocationInventory") as projection, \
-                    patch("src.services.inventory.post_action_evaluation.ScoringEngine") as scoring, \
-                    patch("src.services.inventory.post_action_evaluation.PostActionScoreContext.from_config_dir",
-                          return_value=PostActionScoreContext()):
+            with patch("src.services.inventory.warehouse_state_management.SqliteAllocationInventory") as projection:
                 projection.return_value.build.return_value = SimpleNamespace(snapshot_id=7, items=[payload])
-                scoring.return_value.roles_db = {}
                 plan = service.evaluate(stored)
             self.assertEqual(7, plan.snapshot_id)
             self.assertEqual("discarded", plan.changes[0]["target_state"])

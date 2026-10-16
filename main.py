@@ -16,6 +16,8 @@ if str(ROOT_DIR) not in sys.path:
 def main() -> None:
     """解析启动选择后再准备运行环境；退役 CLI 不执行桌面初始化。"""
     parser = argparse.ArgumentParser(description="NTE 卡带驱动配装工具")
+    from src.integrations.distribution.maintenance_cli import add_maintenance_arguments, run_maintenance
+    add_maintenance_arguments(parser)
     parser.add_argument("--cli", action="store_true", help="旧命令行模式（已移除）")
     parser.add_argument("--gui", action="store_true", help="桌面 GUI 模式（默认）")
     parser.add_argument(
@@ -31,7 +33,21 @@ def main() -> None:
         _enable_ime_compatibility()
     from src.ui.app import run_gui
 
-    run_gui()
+    try:
+        if run_maintenance(args):
+            return
+        from src.ui.startup_data_selection import choose_first_external_root
+        if choose_first_external_root():
+            run_gui()
+    except Exception as error:
+        # Qt 尚未创建时也必须有明确提示；不把数据目录故障表现为无窗口退出。
+        message = f"启动已停止：{error}\n请修复所示位置或恢复完整程序包后重试；未选择替代数据目录。"
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "NTE Drive Calc", 0x10)
+        else:
+            print(message, file=sys.stderr)
+        raise SystemExit(1) from error
 
 
 def _enable_ime_compatibility() -> None:

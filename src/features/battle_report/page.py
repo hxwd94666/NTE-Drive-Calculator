@@ -80,6 +80,7 @@ class BattleReportPage(QWidget):
     marginal_reset_requested = Signal()
     marginal_draft_changed = Signal()
     marginal_closed = Signal()
+    axis_allocation_requested = Signal()
     analysis_details_requested = Signal(str, object)
 
     def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
@@ -245,6 +246,7 @@ class BattleReportPage(QWidget):
         self.marginal_page = BattleMarginalPage(
             game_ui_asset_root=game_ui_asset_root,
         )
+        self.marginal_page.axis_optimization_requested.connect(self.axis_allocation_requested)
         self.marginal_page.back_requested.connect(self.show_report)
         self.marginal_page.recalculate_requested.connect(
             self.marginal_recalculate_requested

@@ -238,6 +238,8 @@ class WorkModeRuntime:
         self, *, running: bool | None = None,
         allow_unrecorded_legacy_workspace: bool = False,
     ) -> None:
+        if self.policy.machine_revalidation_required is True:
+            raise PermissionError("迁入的本机路径尚待显式检测确认；未执行组件清理。")
         self._cleanup_observation = None
         try:
             self._cleanup_components(
@@ -570,7 +572,8 @@ class WorkModeRuntime:
             recorded_files=record.get("managed_files", {}), bundle_inspection=self._bundle,
         ) if path_valid else None
         self._loader_files = False
-        if record.get("loading_method") == "loader" and record.get("native_workspace_root"):
+        if (record.get("loading_method") == "loader" and record.get("native_workspace_root")
+                and self.policy.machine_revalidation_required is not True):
             self._restore_native_workspace(record)
             workspace = self.loader.inspect_native_workspace()
             state = self.loader.snapshot()
@@ -585,6 +588,7 @@ class WorkModeRuntime:
         with self._lock:
             if self._closed:
                 return WorkModeProbe()
+            preview = preview or self.policy.machine_revalidation_required is True
             self.discover(force=False, persist=not preview)
             if self._closed:
                 return WorkModeProbe()

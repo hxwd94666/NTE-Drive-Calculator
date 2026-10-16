@@ -11,11 +11,20 @@ def seed_shared_database(
     bundled_database_path: str | Path,
     data_root: str | Path,
 ) -> Path:
-    """复制发行公共库到指定数据域；源与目标同路径时保留原文件。"""
+    """只为首次使用提供基线；本机兼容迁移状态归 DAO，不随发行覆盖。"""
 
     destination = Path(data_root) / "data" / "app_shared.sqlite3"
     source = Path(bundled_database_path)
-    if source.is_file() and source.resolve() != destination.resolve():
+    if source.is_file() and not destination.exists() and source.resolve() != destination.resolve():
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
+        # 启动持有数据根锁；暂存完整后原子发布，不让中断留下半份基线。
+        import os
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".shared-seed-", delete=False) as stream:
+            temporary = Path(stream.name)
+        try:
+            shutil.copyfile(source, temporary)
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
     return destination

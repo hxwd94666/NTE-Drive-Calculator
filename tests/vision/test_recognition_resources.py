@@ -316,7 +316,7 @@ def test_independent_match_freezes_once_and_copies_form_items(selected, tmp_path
         def identify(candidate):
             candidate.set_name = "changed privately"
             return {"fixture": True}
-        return SimpleNamespace(identify_item=identify)
+        return SimpleNamespace(identify_items=lambda items, **_kwargs: [identify(item) for item in items])
     monkeypatch.setattr(tasks.EquipmentIdentificationService, "from_paths", matcher)
     assert tasks.match_identification_items(request) == [{"fixture": True}]
     assert len(loads) == 1 and item.set_name == "夹具套装"

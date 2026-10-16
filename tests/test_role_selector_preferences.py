@@ -32,13 +32,16 @@ class RoleSelectorPreferenceTests(unittest.TestCase):
                 self.assertEqual(first_y, switches[2].mapTo(dialog, QPoint()).y())
                 self.assertGreater(switches[3].mapTo(dialog, QPoint()).y(), first_y)
                 grade_label = next(label for label in dialog.findChildren(QLabel) if label.text() == "最低等级门槛")
-                row_gap = grade_label.mapTo(dialog, QPoint()).x()-switches[3].mapTo(dialog, QPoint()).x()-switches[3].width()
-                self.assertGreaterEqual(row_gap, switches[3].fontMetrics().horizontalAdvance("\u3000\u3000"))
-                initial_left = grade_label.mapTo(dialog, QPoint()).x()
-                dialog.resize(dialog.width()+80, dialog.height())
-                app.processEvents()
-                # 拉宽窗口只扩展行尾留白，等级不能脱离左侧的选项块向右漂移。
-                self.assertEqual(initial_left, grade_label.mapTo(dialog, QPoint()).x())
+                # 布局改为均匀铺开；只守护缩放后文字可读、选项可操作，不固化间距。
+                for width in (dialog.width(), dialog.width()+80):
+                    dialog.resize(width, dialog.height())
+                    app.processEvents()
+                    for option in (*switches, grade_label):
+                        self.assertGreaterEqual(option.width(), option.minimumSizeHint().width())
+                        self.assertTrue(dialog.rect().contains(
+                            option.rect().translated(option.mapTo(dialog, QPoint()))))
+                    self.assertLessEqual(switches[3].mapTo(dialog, QPoint()).x()+switches[3].width(),
+                                         grade_label.mapTo(dialog, QPoint()).x())
                 switches[0].setChecked(True)
                 return QDialog.Accepted
             with patch.object(QDialog, "exec", choose):

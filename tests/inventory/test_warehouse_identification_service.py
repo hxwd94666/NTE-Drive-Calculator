@@ -7,6 +7,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from src.models.equipment import Drive
+from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
 
 
 class WarehouseIdentificationServiceTests(unittest.TestCase):
@@ -51,7 +52,8 @@ class WarehouseIdentificationServiceTests(unittest.TestCase):
         )
         service = EquipmentIdentificationService(
             cast(Any, Orchestrator()),
-            {"角色A": [{}], "角色B": [{}]},
+            EquipmentMatchContext(tuple(RoleSuitMatch(name, index, "A", "套装A", True,
+                frozenset({"H_3"}), frozenset()) for index, name in enumerate(("角色A", "角色B"), 1))),
             cast(Any, Scoring()),
         )
 
@@ -111,8 +113,8 @@ class WarehouseIdentificationServiceTests(unittest.TestCase):
             set_name="测试套装",
             main_stats={"攻击力": 10.0, "防御力": 10.0},
         )
-        matcher = SimpleNamespace(
-            identify_item=lambda value: {"item": value, "rows": [{"role": "角色A"}]}
+        matcher = SimpleNamespace(context=SimpleNamespace(settings_identity="fixture"),
+            identify_items=lambda values, **_kwargs: [{"item": value, "rows": [{"role": "角色A"}]} for value in values]
         )
         with (
             patch(
@@ -124,12 +126,14 @@ class WarehouseIdentificationServiceTests(unittest.TestCase):
                 "EquipmentIdentificationService.from_paths",
                 return_value=matcher,
             ) as matcher_factory,
+            patch("src.features.inventory.warehouse.identification_controller.MatchingSettingsService.require_identity"),
         ):
             loader_type.return_value.load_item.return_value = item
             result = _identify_snapshot_items(
                 database_path="account.sqlite3",
                 config_dir="config",
                 snapshot_id=7,
+                static_database_path="selected.sqlite3",
                 uids=("drive-1", "drive-2"),
             )
 
@@ -139,6 +143,7 @@ class WarehouseIdentificationServiceTests(unittest.TestCase):
         matcher_factory.assert_called_once_with(
             config_dir="config",
             user_database_path="account.sqlite3",
+            static_database_path="selected.sqlite3",
         )
 
 

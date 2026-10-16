@@ -43,6 +43,7 @@ from src.services.battle_report.history.service import (
     StaleBattleReportContextError,
 )
 from src.services.battle_report.history.transfer import BattleReportTransferService
+from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest
 
 
 BattlePersistenceFactory = Callable[
@@ -84,6 +85,7 @@ class BattleReportController(
         work_mode_service=None,
         operation_entry: Callable[[str, str], bool] | None = None,
         operation_unavailable: Callable[..., None] | None = None,
+        axis_allocation_requested: Callable[[BattleReportAnalysisLoadRequest], None] | None = None,
     ) -> None:
         super().__init__(dialog_parent)
         self._app_context = app_context
@@ -96,6 +98,7 @@ class BattleReportController(
         self._work_mode_service = work_mode_service
         self._operation_entry = operation_entry
         self._operation_unavailable = operation_unavailable
+        self._axis_allocation_requested = axis_allocation_requested
         self._capture_guidance_enabled = False
         self._capture_unavailable_notified = False
         self._persistence_factory = persistence_factory
@@ -105,6 +108,7 @@ class BattleReportController(
         asset_root = app_context.paths.game_ui_asset_root
         self._asset_root = asset_root
         self._page = BattleReportPage(game_ui_asset_root=asset_root)
+        self._page.axis_allocation_requested.connect(self._request_axis_allocation)
         self._overlay = BattleReportOverlay(game_ui_asset_root=asset_root)
         self._overlay_disposed = False
         self._service: BattleCaptureService | ComparisonCapture | None = None
@@ -165,6 +169,23 @@ class BattleReportController(
         self._state_received.connect(self._apply_state)
         self._capture_hotkey_received.connect(self._handle_capture_hotkey)
         self._restore_last_history()
+
+    def _request_axis_allocation(self):
+        if self._axis_allocation_requested is None:
+            QMessageBox.warning(self._dialog_parent, "轴优化未就绪", "本次计算服务未就绪。")
+            return
+        record_id = self._latest_state.battle_record_id
+        if record_id is None:
+            QMessageBox.warning(self._dialog_parent, "请选择战报", "请先明确打开一个已保存战报。")
+            return
+        base = self._latest_analysis_load_request
+        if base is None or base.battle_record_id != record_id:
+            base = BattleReportAnalysisLoadRequest(record_id)
+        # 只交接选择器；内存边际草稿、补充推断均不悄悄成为新作业的 A。
+        selected = self._page.marginal_page.selected_character_id()
+        request = replace(base, selected_character_id=selected, detail_scope=self._page.marginal_detail_scope(),
+            detail_level="hit", marginal_candidate=None, marginal_benefit_candidate=None, marginal_drive_units=None)
+        self._axis_allocation_requested(request)
 
     def build_page(self) -> QWidget:
         self._restore_last_history()

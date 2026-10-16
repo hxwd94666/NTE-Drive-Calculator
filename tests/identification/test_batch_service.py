@@ -9,6 +9,8 @@ import pytest
 from src.models.equipment import Drive, Tape
 from src.optimizer.scoring import ScoringEngine
 from src.services.identification import equipment_service, tasks
+from src.services.identification.matching_context import build_equipment_match_context
+from src.services.identification.matching_settings import normalize_matching_settings
 
 NTE_TEST_TIER = "core"
 
@@ -19,15 +21,15 @@ def equipment():
 
 
 class Orchestrator:
-    roles_db = {"角色": {"default_set": "套装", "weights": {"暴击率%": 1.0}}}
-    sets_db = {"套装": {"shapes": ["H_2"]}}
+    roles_db = {"角色": {"character_id": 1001, "default_set": "套装", "weights": {"暴击率%": 1.0}}}
+    sets_db = {"套装": {"suit_id": "A", "shapes": ["H_2"]}}
 
     @staticmethod
     def _resolve_set_name(value):
         return "套装"
 
     def solve_blueprints(self, roles, **kwargs):
-        return {role: [{}] for role in roles}
+        return {role: [{"set_pieces": ["H_2"]}] for role in roles}
 
 
 def request(items):
@@ -46,11 +48,12 @@ def test_batch_matches_existing_score_without_mutating_inputs():
     frozen = request(inputs)
     scoring = ScoringEngine("config", roles_db=Orchestrator.roles_db)
     matcher = equipment_service.EquipmentIdentificationService(
-        Orchestrator(), {"角色": [{}]}, scoring,
+        Orchestrator(), build_equipment_match_context(Orchestrator()), scoring,
     )
     expected = [matcher.identify_item(item.model_copy(deep=True)) for item in inputs]
     with patch.object(equipment_service.EquipmentIdentificationService,
-                      "from_paths", return_value=matcher) as factory:
+                      "from_paths", return_value=matcher) as factory, \
+         patch.object(tasks.MatchingSettingsService, "load", return_value=normalize_matching_settings(None)):
         actual = tasks.match_identification_items(frozen)
     assert actual == expected
     assert [item.model_dump() for item in inputs] == before
@@ -64,7 +67,8 @@ def test_matcher_reuses_roles_and_selected_static_paths():
     cancel = lambda: False
     selected = Path("data/game_static.sqlite3").resolve()
     with patch.object(equipment_service, "NTEPipelineOrchestrator", return_value=orchestrator) as ctor, \
-         patch.object(equipment_service, "ScoringEngine") as scoring:
+         patch.object(equipment_service, "ScoringEngine") as scoring, \
+         patch.object(equipment_service.MatchingSettingsService, "load", return_value=normalize_matching_settings(None)):
         equipment_service.EquipmentIdentificationService.from_paths(
             config_dir="config", user_database_path="user.sqlite3",
             static_database_path=selected, cancel_check=cancel,
@@ -74,6 +78,32 @@ def test_matcher_reuses_roles_and_selected_static_paths():
     assert scoring.call_args.kwargs["roles_db"] is orchestrator.roles_db
 
 
+def test_settings_change_during_last_item_rejects_whole_batch(tmp_path):
+    from src.services.identification.matching_settings import MatchingSettingsService
+    from src.storage.sqlite.user_data_dao import UserDataDao
+
+    database = tmp_path / "account.sqlite3"
+    with UserDataDao(database, account_id="fixture"):
+        pass
+    settings = MatchingSettingsService(database)
+    matcher = equipment_service.EquipmentIdentificationService(
+        Orchestrator(), build_equipment_match_context(Orchestrator(), settings.load()),
+        ScoringEngine("config", roles_db=Orchestrator.roles_db))
+    frozen = tasks.IdentificationMatchRequest.freeze(
+        config_dir=Path("config"), user_database_path=database,
+        static_database_path=Path("data/game_static.sqlite3").resolve(), items=[equipment()])
+    identify = matcher.identify_items
+    def identify_then_change(items, **kwargs):
+        result = identify(items, **kwargs)
+        settings.save({"version": 1, "extra_suits": {"1001": ["B"]}}, expected=settings.load())
+        return result
+    with patch.object(equipment_service.EquipmentIdentificationService, "from_paths", return_value=matcher), \
+         patch.object(matcher, "identify_items", side_effect=identify_then_change):
+        with pytest.raises(CancelledError, match="角色匹配套装已变化"):
+            tasks.match_identification_items(frozen)
+    assert settings.load()["extra_suits"] == {"1001": ["B"]}
+
+
 def test_cancel_stops_before_initialization_and_between_items():
     frozen = request([equipment(), equipment()])
     with patch.object(equipment_service.EquipmentIdentificationService, "from_paths") as factory:
@@ -81,15 +111,17 @@ def test_cancel_stops_before_initialization_and_between_items():
             tasks.match_identification_items(frozen, cancel_check=lambda: True)
         factory.assert_not_called()
         cancelled = False
-        def identify(item):
+        def identify(items, *, checkpoint):
             nonlocal cancelled
+            checkpoint()
             cancelled = True
-            return {"item": item, "rows": []}
-        matcher = SimpleNamespace(identify_item=Mock(side_effect=identify))
+            checkpoint()
+            raise AssertionError("cancelled batch continued")
+        matcher = SimpleNamespace(identify_items=Mock(side_effect=identify))
         factory.return_value = matcher
         with pytest.raises(CancelledError):
             tasks.match_identification_items(frozen, cancel_check=lambda: cancelled)
-        assert matcher.identify_item.call_count == 1
+        assert matcher.identify_items.call_count == 1
     assert tasks.match_identification_items(request([])) == []
 
 

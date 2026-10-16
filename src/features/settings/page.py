@@ -482,6 +482,7 @@ def build_settings_page(
 
     update_card = window._card("软件更新")
     window._update_status = QLabel(f"当前版本: {app_version}")
+    window._update_status.setWordWrap(True)
     update_card.layout().addWidget(window._update_status)
     update_row = QHBoxLayout()
     update_row.setSpacing(10)
@@ -500,6 +501,7 @@ def build_settings_page(
         if hasattr(window, "_show_netdisk_download_dialog") and netdisk_options
         else None
     )
+    window.calc_update_controller.configure_distribution_links(homepage_button=home_btn, netdisk_button=netdisk_btn)
     update_row.addWidget(window._check_update_btn)
     update_row.addWidget(window._mirror_download_btn)
     update_row.addWidget(netdisk_btn)

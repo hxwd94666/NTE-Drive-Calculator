@@ -20,11 +20,22 @@ class WorkModeDenied(PermissionError):
 
 
 class WorkModeService:
-    def __init__(self, settings_path: Path) -> None:
+    def __init__(self, settings_path: Path, *, machine_gate=None) -> None:
+        self._machine_gate = machine_gate
         self._store = WorkModeSettingsStore(settings_path)
         self._settings = self._store.load()
         self._operation_revision = 0
         self._lock = RLock()
+
+    @property
+    def machine_revalidation_required(self) -> bool:
+        return self._machine_gate is not None and self._machine_gate.pending
+
+    def confirm_machine_revalidation(self) -> None:
+        with self._lock:
+            if self._machine_gate is not None:
+                self._machine_gate.confirm()
+                self._operation_revision += 1
 
     @property
     def settings(self) -> WorkModeSettings:
@@ -128,6 +139,8 @@ class WorkModeService:
     def allowed(self, capability: Capability | str, *, automatic: bool = False) -> bool:
         capability = Capability(capability)
         settings = self._settings
+        if self.machine_revalidation_required and capability not in {Capability.LOCAL, Capability.DIAGNOSTICS}:
+            return False
         if capability not in allowed_capabilities(settings):
             return False
         if not automatic:

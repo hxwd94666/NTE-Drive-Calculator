@@ -15,6 +15,7 @@ from src.features.identification.manual_parsing import IdentificationManualParsi
 from src.features.identification.task_controller import IdentificationTaskController
 from src.optimizer.scoring import ScoringEngine
 from src.services.identification import tasks
+from src.services.identification.matching_settings import matching_settings_identity, normalize_matching_settings
 from src.services.recognition.resources import RecognitionResourceError
 from tests.vision.test_recognition_resources import selected as selected
 
@@ -117,7 +118,11 @@ def test_manual_and_clipboard_share_parse_and_match_identity(manual_host, monkey
     assert resources.stat_catalog().gold_base_values["攻击力%"] == base
     # 刻意保留页面旧评分器，证明实际数值不再借用它。
     assert host.scoring_engine.gold_base_values["攻击力%"] == 3.0
-    factory = Mock(return_value=SimpleNamespace(identify_item=lambda item: {"item": item, "rows": []}))
+    settings = normalize_matching_settings(None)
+    factory = Mock(return_value=SimpleNamespace(identify_items=lambda items, **_kwargs: [{"item": item, "rows": []} for item in items],
+        context=SimpleNamespace(settings_identity=matching_settings_identity(settings))))
+    # 本例隔离解析资料，不创建账号库；替身仍遵守匹配器的冻结配置身份契约。
+    monkeypatch.setattr(tasks.MatchingSettingsService, "load", lambda _self: settings)
     monkeypatch.setattr(tasks.EquipmentIdentificationService, "from_paths", factory)
     if change == "before_parse":
         assert read()[0]["item"].sub_stats == {"攻击力%": grid * base}

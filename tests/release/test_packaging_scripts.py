@@ -120,9 +120,9 @@ class PackagingScriptTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()  # 只保证合成成员存在，保留已生成组件字节与清单哈希。
                 stack.enter_context(patch.object(build_installer, field, path))
-            stack.enter_context(
-                patch.object(build_installer, "validate_packaged_ocr_models")
-            )
+            from tests.release.portable_fixture import add_app_requirements
+            add_app_requirements(required["APP_EXE"], internal)
+            stack.enter_context(patch("tools.release.app_bundle_validation.validate_packaged_ocr_models"))
             build_installer._validate_app_bundle()
             for field, message in (("APP_STATIC_DATABASE", "静态数据库"), ("APP_NTE_CORE", "nte-core")):
                 path = required[field]
@@ -214,7 +214,7 @@ def executable_inputs(tmp_path, monkeypatch):
     (root / "third_party/presentmon/component.json").write_text(json.dumps({"sha256": payload_hash}))
     build.ANALYSIS_CORE_MANIFEST_PATH.write_text(json.dumps({
         "engine": "nte-analysis-core", "engine_version": "0.3.0", "sha256": payload_hash,
-        "capabilities": ["battle_page_v1", "main_static_catalog_v1"],
+        "capabilities": ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1"],
     }))
     role = SimpleNamespace(database_path=root / "data/role_catalog/game_static.sqlite3",
                            asset_root=root / "data/role_catalog/game_ui", dataset_id="synthetic", sha256="fixture")
@@ -249,7 +249,7 @@ def executable_inputs(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["onedir", "onefile", "isolated-onedir", "isolated-onefile",
-                                 "bad-hash", "missing-page-capability", "missing-schema", "empty-schema"])
+                                 "bad-hash", "missing-page-capability", "missing-team-capability", "missing-fixed-team-capability", "missing-damage-job-capability", "missing-score-capability", "missing-schema", "empty-schema"])
 def test_executable_main_freezes_root_resources_and_rejects_invalid_analysis(executable_inputs, monkeypatch, mode):
     build, root, support = executable_inputs
     build_mode = mode.removeprefix("isolated-")
@@ -267,12 +267,12 @@ def test_executable_main_freezes_root_resources_and_rejects_invalid_analysis(exe
         if mode == "empty-schema":
             directory.mkdir()
         monkeypatch.setattr(build, "SQLITE_SCHEMA_DIR", directory)
-    if mode in {"bad-hash", "missing-page-capability"}:
+    if mode in {"bad-hash", "missing-page-capability", "missing-team-capability", "missing-fixed-team-capability", "missing-damage-job-capability", "missing-score-capability"}:
         manifest = json.loads(build.ANALYSIS_CORE_MANIFEST_PATH.read_text())
         if mode == "bad-hash":
             manifest["sha256"] = "0" * 64
         else:
-            manifest["capabilities"].remove("battle_page_v1")
+            manifest["capabilities"].remove("damage_allocation_v1" if mode == "missing-damage-job-capability" else "equipment_scoring_v1" if mode == "missing-score-capability" else "battle_axis_fixed_team_v1" if mode == "missing-fixed-team-capability" else "battle_axis_team_v1" if mode == "missing-team-capability" else "battle_page_v1")
         build.ANALYSIS_CORE_MANIFEST_PATH.write_text(json.dumps(manifest))
     before = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
     before_path = os.environ.get("PATH")
@@ -297,7 +297,7 @@ def test_executable_main_freezes_root_resources_and_rejects_invalid_analysis(exe
         if schema_failure:
             with pytest.raises(FileNotFoundError, match="SQLite schema"):
                 build.main()
-        elif mode in {"bad-hash", "missing-page-capability"}:
+        elif mode in {"bad-hash", "missing-page-capability", "missing-team-capability", "missing-fixed-team-capability", "missing-damage-job-capability", "missing-score-capability"}:
             with pytest.raises(RuntimeError, match="能力或哈希不匹配"):
                 build.main()
         else:
@@ -305,7 +305,7 @@ def test_executable_main_freezes_root_resources_and_rejects_invalid_analysis(exe
                 build.main()
     assert {path: path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
     assert os.environ.get("PATH") == before_path
-    if schema_failure or mode in {"bad-hash", "missing-page-capability"}:
+    if schema_failure or mode in {"bad-hash", "missing-page-capability", "missing-team-capability", "missing-fixed-team-capability", "missing-damage-job-capability", "missing-score-capability"}:
         compiler.assert_not_called()
         build._remove_package_artifact.assert_not_called()
         return

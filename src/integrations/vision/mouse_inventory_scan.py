@@ -712,6 +712,7 @@ class MouseInventoryScanner:
         total_drives: int,
         state_changes: list[dict],
         action_mode: str = "default",
+        *, check_current=None,
     ) -> MouseStateSyncResult:
         del action_mode
         from src.integrations.vision.mouse_state_sync import MouseEquipmentStateSync
@@ -721,6 +722,7 @@ class MouseInventoryScanner:
             self,
             state_detector=right_panel_button_state_from_image,
             sleep_fn=self._sleep,
+            check_current=check_current,
         )
         return sync.sync(total_drives, state_changes)
 

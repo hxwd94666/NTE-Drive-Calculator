@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ctypes
+import re
 import sys
 
 from PySide6.QtCore import QObject, QEvent
@@ -14,7 +15,6 @@ from src.app.window_geometry import fit_dialog_to_available_screen
 
 # 所有评分界面复用同一等级颜色；这里只统一展示，不重算评分。
 GRADE_COLORS = {"ACE": "#f0883e", "SSS": "#f0883e", "SS": "#ffa726", "S": "#ffa726", "A": "#7ec8e3", "B": "#5b9bd5", "C": "#4a7fb5", "D": "#3d5a80"}
-GRADE_BGS = {"ACE": "#f0883e30", "SSS": "#f0883e20", "SS": "#ffa72618", "S": "#ffa72618", "A": "#7ec8e318", "B": "#5b9bd515", "C": "#4a7fb512", "D": "#3d5a8010"}
 
 DARK_STYLE = """
 QMainWindow{background:#0d1117;border:1px solid #21262d;border-radius:10px}
@@ -64,8 +64,11 @@ QPushButton#allocationFilterHelp{background:transparent;border:1px solid #30363d
 QPushButton#allocationFilterHelp:hover{background:#1f6feb33;color:#58a6ff;border-color:#58a6ff}
 QPushButton#btnDanger{background:#da3633;color:#fff;border:1px solid #f85149}
 QPushButton#btnDanger:hover{background:#f85149}
-QPushButton#btnAction{background:#1f6feb33;color:#58a6ff;border:1px solid #1f6feb;font-size:12px;padding:5px 12px}
-QPushButton#btnAction:hover{background:#1f6feb66}
+QPushButton#btnAction{background:#161b22;color:#58a6ff;border:1px solid #1f6feb;font-size:12px;padding:5px 12px}
+QPushButton#btnAction:hover{background:#21262d}
+QPushButton#btnAction:pressed{background:#0d1f35}
+QPushButton#btnAction:focus{border:2px solid #58a6ff}
+QPushButton#btnAction:disabled{background:#161b22;color:#6e7681;border-color:#30363d}
 QPushButton#btnSm{font-size:11px;padding:4px 8px;min-width:28px;min-height:24px}
 QPushButton#btnHelp{background:transparent;border:1px solid #30363d;border-radius:10px;color:#8b949e;font-size:11px;font-weight:700;padding:2px 7px;min-width:20px;max-width:20px;min-height:20px;max-height:20px}
 QPushButton#btnHelp:hover{background:#1f6feb33;color:#58a6ff;border-color:#58a6ff}
@@ -184,24 +187,38 @@ BLACK_COLOR_MAP = {
 _DARK_FROM_BLACK_COLOR_MAP = {value: key for key, value in BLACK_COLOR_MAP.items()}
 
 
-def _map_light_colors(style: str) -> str:
-    for src, dst in LIGHT_COLOR_MAP.items():
+_RGBA_HEX = re.compile(r"#([0-9a-fA-F]{6})([0-9a-fA-F]{2})(?![0-9a-fA-F])")
+
+
+def _qt_alpha_colors(style: str) -> str:
+    """样式底稿的八位色是 RGBA；Qt 八位十六进制是 ARGB，统一输出无歧义 rgba。"""
+    def convert(match):
+        rgb, alpha = match.groups()
+        return f"rgba({int(rgb[:2], 16)},{int(rgb[2:4], 16)},{int(rgb[4:], 16)},{int(alpha, 16)})"
+    return _RGBA_HEX.sub(convert, style)
+
+
+_LIGHT_STYLE_MAP = {_qt_alpha_colors(k): _qt_alpha_colors(v) for k, v in LIGHT_COLOR_MAP.items()}
+_DARK_STYLE_MAP = {_qt_alpha_colors(k): _qt_alpha_colors(v) for k, v in _DARK_COLOR_MAP.items()}
+
+
+def _map_style_colors(style: str, mapping: dict[str, str]) -> str:
+    style = _qt_alpha_colors(style)
+    for src, dst in mapping.items():
         style = style.replace(src, dst)
     return style
+
+
+def _map_light_colors(style: str) -> str:
+    return _map_style_colors(style, _LIGHT_STYLE_MAP)
 
 
 def _map_dark_colors(style: str) -> str:
-    for src, dst in _DARK_COLOR_MAP.items():
-        style = style.replace(src, dst)
-    for src, dst in _DARK_FROM_BLACK_COLOR_MAP.items():
-        style = style.replace(src, dst)
-    return style
+    return _map_style_colors(_map_style_colors(style, _DARK_STYLE_MAP), _DARK_FROM_BLACK_COLOR_MAP)
 
 
 def _map_black_colors(style: str) -> str:
-    for src, dst in BLACK_COLOR_MAP.items():
-        style = style.replace(src, dst)
-    return style
+    return _map_style_colors(style, BLACK_COLOR_MAP)
 
 
 def _build_light_style() -> str:
@@ -209,6 +226,7 @@ def _build_light_style() -> str:
     return _map_light_colors(style)
 
 
+DARK_STYLE = _qt_alpha_colors(DARK_STYLE)
 LIGHT_STYLE = _build_light_style()
 BLACK_STYLE = _map_black_colors(DARK_STYLE)
 STYLE = DARK_STYLE
@@ -258,16 +276,19 @@ def themed_style(style: str, app: QApplication | None = None) -> str:
         return _map_light_colors(style)
     if theme == "black":
         return _map_black_colors(style)
-    return style
+    return _qt_alpha_colors(style)
 
 
 def theme_color(dark_color: str, app: QApplication | None = None) -> str:
     theme = current_theme_name(app)
     if theme == "light":
-        return LIGHT_COLOR_MAP.get(dark_color, dark_color)
-    if theme == "black":
-        return BLACK_COLOR_MAP.get(dark_color, dark_color)
-    return dark_color
+        color = LIGHT_COLOR_MAP.get(dark_color, dark_color)
+    elif theme == "black":
+        color = BLACK_COLOR_MAP.get(dark_color, dark_color)
+    else:
+        color = dark_color
+    # QColor 接口仍用 Qt 原生 ARGB，不能传入仅 QSS 识别的 rgba() 文本。
+    return "#" + color[7:] + color[1:7] if _RGBA_HEX.fullmatch(color) else color
 
 
 def theme_rgba(dark_color: str, alpha: float, app: QApplication | None = None) -> str:
@@ -294,7 +315,7 @@ def refresh_inline_theme_styles(root, app: QApplication | None = None) -> None:
         elif theme == "black":
             widget.setStyleSheet(_map_black_colors(base))
         else:
-            widget.setStyleSheet(base)
+            widget.setStyleSheet(_qt_alpha_colors(base))
 
 
 def apply_theme_palette(app: QApplication, theme: str | None = "black") -> None:
@@ -419,7 +440,8 @@ def localize_standard_buttons(widget) -> None:
 
 class _DialogPolishFilter(QObject):
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Show and isinstance(obj, QDialog):
+        # 标签页内的 QDialog 使用父布局坐标；按屏幕居中或创建原生标题栏会把内容移出视口。
+        if event.type() == QEvent.Show and isinstance(obj, QDialog) and obj.isWindow():
             theme = current_theme_name()
             if obj.property("_nte_dialog_theme") != theme:
                 obj.setProperty("_nte_dialog_theme", theme)

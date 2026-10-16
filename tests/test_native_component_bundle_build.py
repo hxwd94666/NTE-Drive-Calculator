@@ -105,14 +105,12 @@ def test_installer_and_release_accept_native_layout_without_legacy_mods(tmp_path
     result = prepare(root)
     monkeypatch.setattr(installer, "ROOT", root)
     monkeypatch.setattr(installer, "APP_INTERNAL", result.resource_root)
-    for field in ("APP_EXE", "APP_NTE_CORE", "APP_ANALYSIS_CORE", "APP_ANALYSIS_CORE_MANIFEST",
-                  "APP_USER_SCHEMA", "APP_STATIC_DATABASE", "APP_STATIC_MANIFEST",
-                  "APP_SHARED_DATABASE_SEED", "APP_SHAPE_BONUS_BASELINE"):
-        path = tmp_path / field
-        path.write_bytes(b"unrelated app fixture")
-        monkeypatch.setattr(installer, field, path)
-    # This fixture covers the native bundle, not the separately tested OCR model package.
-    monkeypatch.setattr(installer, "validate_packaged_ocr_models", lambda _root: None)
+    from tests.release.portable_fixture import add_app_requirements
+    exe = tmp_path / "NTE_Drive_Calc.exe"
+    add_app_requirements(exe, result.resource_root)
+    monkeypatch.setattr(installer, "APP_EXE", exe)
+    # 仅隔离既有 OCR 模型专项；公共合成分析/原生清单及许可仍实际核验。
+    monkeypatch.setattr("tools.release.app_bundle_validation.validate_packaged_ocr_models", lambda _root: None)
     installer._validate_app_bundle()
     monkeypatch.setattr(release, "ROOT", root)
     standalone = root / "third_party" / "nte-core" / "bin" / "nte-core.exe"

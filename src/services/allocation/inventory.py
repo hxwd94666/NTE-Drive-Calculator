@@ -203,6 +203,8 @@ class SqliteAllocationInventory:
                     "item_id": str(item.get("item_id") or ""),
                     "suit_id": item.get("suit_id"),
                     "geometry": item.get("geometry"),
+                    # 正式占格数量属于原始快照证据，原生投影不从旧评分面积猜补。
+                    "grid_count": item.get("grid_count"),
                     "quality": item.get("quality"),
                     "level": int(item.get("level") or 0),
                     "max_level": int(item.get("max_level") or 0),

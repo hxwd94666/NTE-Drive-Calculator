@@ -134,19 +134,20 @@ def score_allocation_candidates(
     scoring = ScoringEngine(stat_catalog=context.scoring_rules.to_stat_catalog(), roles_db={})
     zeros = ([names.get(pid, pid) for pid in canonical_role.substat_blacklist]
              if canonical_role.blacklist_zero_weight else ())
-    maximum = scoring.max_theoretical_weight(weights, zero_weight_stats=zeros)
-    scores = {}
+    items = {}
     for requested in candidates:
         candidate = by_uid.get(requested.uid)
         if candidate is None:
             raise ValueError(f"候选装备{requested.uid}不在固定背包上下文中")
-        if candidate.uid in scores:
-            continue
-        # 同UID外部对象只用作定位，数值始终来自Context中的原始候选。
-        item = _project_candidate(candidate, names, shapes)
-        score = (scoring.calculate_drive_score(item, weights, maximum, zero_weight_stats=zeros)
-                 if isinstance(item, Drive) else scoring.calculate_cartridge_score(item, weights, maximum, mains))
-        scores[candidate.uid] = float(score)
+        if candidate.uid not in items:
+            items[candidate.uid] = _project_candidate(candidate, names, shapes)
+    scoring.prepare_scores(list(items.values()), profiles=[{"key": "profile", "weights": weights,
+        "main_weights": mains, "zero_weight_stats": list(zeros)}])
+    maximum = scoring.max_theoretical_weight(weights, zero_weight_stats=zeros)
+    scores = {uid: float(scoring.calculate_drive_score(item, weights, maximum, zero_weight_stats=zeros)
+                        if isinstance(item, Drive) else scoring.calculate_cartridge_score(item, weights, maximum, mains))
+              for uid, item in items.items()}
+
     return scores
 
 

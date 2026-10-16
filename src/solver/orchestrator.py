@@ -263,7 +263,7 @@ class NTEPipelineOrchestrator:
                             crit_rate_baselines: Dict[str, float] = None,
                             custom_weapons: Dict[str, str] = None,
                             blueprint_combo_limit: int = 2000,
-                            cancel_check=None, *, allocation_executor):
+                            cancel_check=None, *, allocation_executor, blueprint_executor=None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
@@ -309,9 +309,29 @@ class NTEPipelineOrchestrator:
         total_t0 = time.perf_counter()
         logger.info(f"\n[阶段 1] 开始完整分配流程 | 库存: {len(inventory)} | 角色: {priority_list} | 模式: {mode}")
         stage_t0 = time.perf_counter()
-        blueprints_db = self.solve_blueprints(
-            priority_list, custom_sets, set_effect_modes, cancel_check=cancel_check,
-        )
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("分配图纸生成已取消")
+        if blueprint_executor is None:
+            # 非伤害策略与尚未迁移的独立调用继续使用原入口；伤害策略显式注入 Rust，无失败回退。
+            blueprints_db = self.solve_blueprints(
+                priority_list, custom_sets, set_effect_modes, cancel_check=cancel_check,
+            )
+        else:
+            # 这里只冻结身份、盘面和形状事实；组合、排序、摆盘与预算由 Rust 执行。
+            roles = []
+            for role_name in priority_list:
+                role = self.roles_db[role_name]
+                set_name = self._resolve_set_name(custom_sets.get(role_name, role["default_set"]))
+                roles.append({"role": role_name, "board": copy.deepcopy(self._board_matrices[role_name]),
+                              "set_shapes": list(self.sets_db[set_name]["shapes"]),
+                              "extra_label": role["extra_shape_label"],
+                              "set_effect_mode": normalize_set_effect_mode(set_effect_modes.get(role_name))})
+            blueprints_db = blueprint_executor({
+                "version": 1, "roles": roles, "include_layout_variants": False,
+                "shapes": [shape.model_dump() for shape in self.shapes_db.values() if shape.shape_id != "TAPE_15"],
+            })
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("分配图纸生成已取消")
         logger.info(f"[计时] 图纸求解阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         logger.info(f"\n[阶段 3] 接收到 {len(inventory)} 个资产，正在过滤与类型转换...")
@@ -341,7 +361,8 @@ class NTEPipelineOrchestrator:
             user_database_path=self.user_database_path,
             roles_db=self.roles_db,
         )
-        drive_screen_limit, tape_screen_limit = estimate_candidate_pool_limits(
+        # 完整 Rust 作业还未生成图纸，临时值不参与求解；需求上限在原生生成后统一计算。
+        drive_screen_limit, tape_screen_limit = (15, 6) if getattr(blueprint_executor, "deferred", False) else estimate_candidate_pool_limits(
             blueprints_db, priority_list, priority_groups or (),
         )
         if drive_screen_limit > 15:

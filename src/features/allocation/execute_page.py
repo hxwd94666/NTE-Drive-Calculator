@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from src.app.theme import theme_color, theme_rgba, themed_style
 
 def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, show_help):
-    scan_card = window._card("第一步 · 扫描模式")
+    scan_card = window._card("第一步 · 数据读取")
     window.scan_group = QButtonGroup()
     _add_scan_mode_options(window, scan_card, scan_help, show_help)
     _build_offline_frame(window, scan_card, offline_help, show_help)
@@ -36,10 +36,22 @@ def _build_scan_mode_card(window, layout, scan_help, drone_help, offline_help, s
     _build_drone_frame(window, scan_card, drone_help, show_help)
     window._confirmed_scan_mode_id = window.scan_group.checkedId()
     window.scan_group.idToggled.connect(window._on_scan_change)
+    # 先走既有选择确认，再读实际选中项；被拒绝的模式不会残留在收起摘要中。
+    window.scan_group.idToggled.connect(lambda *_: _refresh_reading_summary(window))
     layout.addWidget(scan_card)
 
 
 def _add_scan_mode_options(window, scan_card, scan_help, show_help):
+    window.reading_options_frame = QWidget()
+    other_layout = QVBoxLayout(window.reading_options_frame)
+    other_layout.setContentsMargins(24, 0, 0, 0)
+    other_layout.setSpacing(6)
+    window.reading_options_toggle = QPushButton()
+    toggle = window.reading_options_toggle
+    toggle.setCheckable(True)
+    toggle.setChecked(window.load_reading_options_expanded())
+    window.reading_mode_summary = QLabel()
+    window.reading_mode_summary.setWordWrap(True)
     scan_options = [
         ("4", "直接读取库存 — 不扫描，直接重新配装"),
         ("3", "离线解析 — 解析已有截图并生成库存"),
@@ -57,12 +69,40 @@ def _add_scan_mode_options(window, scan_card, scan_help, show_help):
         help_btn.setObjectName("btnHelp")
         help_btn.clicked.connect(
             lambda checked, v=value, parent=help_btn: show_help(
-                parent, "扫描模式说明", scan_help.get(v, ""),
+                parent, "数据读取说明", scan_help.get(v, ""),
             )
         )
         row.addWidget(help_btn)
         row.addStretch()
-        scan_card.layout().addLayout(row)
+        if value == "4":
+            row.addWidget(toggle)
+            scan_card.layout().addLayout(row)
+        else:
+            other_layout.addLayout(row)
+    scan_card.layout().addWidget(window.reading_options_frame)
+    scan_card.layout().addWidget(window.reading_mode_summary)
+
+    def set_expanded(expanded):
+        # 折叠只改变可见性；绝不切换扫描模式、触发读取或重置扫描参数。
+        if not window.save_reading_options_expanded(expanded):
+            toggle.blockSignals(True)
+            toggle.setChecked(not expanded)
+            toggle.blockSignals(False)
+        _refresh_reading_summary(window)
+
+    toggle.toggled.connect(set_expanded)
+    _refresh_reading_summary(window)
+
+
+def _refresh_reading_summary(window):
+    expanded = window.reading_options_toggle.isChecked()
+    window.reading_options_frame.setVisible(expanded)
+    window.reading_options_toggle.setText("收起 ▴" if expanded else "其他 ▾")
+    window.reading_options_toggle.setAccessibleName("收起其他读取方式" if expanded else "其他读取方式")
+    selected = window.scan_group.checkedId()
+    names = {1: "全量扫描", 2: "增量扫描", 3: "离线解析"}
+    window.reading_mode_summary.setText("当前方式：" + names[selected] if selected in names else "")
+    window.reading_mode_summary.setVisible(not expanded and selected in names)
 
 
 def _build_offline_frame(window, scan_card, offline_help, show_help):
@@ -291,10 +331,16 @@ def _build_strategy_card(window, layout):
     strategy_options = [
         "角色优先 — 按角色顺序配装，优先照顾前排角色",
         "锁定更新 — 锁定所有计算配装，只用其他装备分配",
+        "直伤优先 — 先完成配装，再替换装备提升标准直伤",
+        "战报轴伤优先 — 按所选战报，提升全队轴伤估算",
     ]
     for index, text in enumerate(strategy_options):
         rb = QRadioButton(text)
         rb.setChecked(index == 0)
+        if index == 2:
+            rb.setToolTip("先按角色优先生成基础方案，再比较换装收益；同级角色以各自提升比例的平均值为目标。装备评分仍使用基础权重，"
+                          "沿用基础计算的满级卡带主词条假设，不模拟实际技能或整场伤害。"
+                          "组件未就绪时保留基础结果并明确显示缺口。")
         window.strategy_group.addButton(rb, index)
         strategy_card.layout().addWidget(rb)
     layout.addWidget(strategy_card)

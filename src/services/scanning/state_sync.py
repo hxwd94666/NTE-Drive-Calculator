@@ -20,11 +20,13 @@ class GamepadStateSyncService:
         total_drives: int,
         post_action_ready_callback: Callable[[], None] | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
+        check_current: Callable[[], None] | None = None,
     ) -> None:
         self.scanner = scanner
         self.total_drives = int(total_drives)
         self.post_action_ready_callback = post_action_ready_callback
         self.sleep_fn = sleep_fn
+        self.check_current = check_current
 
     def sync(
         self,
@@ -38,7 +40,11 @@ class GamepadStateSyncService:
             logger.warning("扫描后管理目标已生成，但当前扫描器不支持状态同步，已跳过游戏内处理。")
             return summarize_state_changes(state_changes, 0)
 
+        if self.check_current is not None:
+            self.check_current()
         self._notify_ready()
+        if self.check_current is not None:
+            self.check_current()
         action_mode = "hmt" if (effective_config or {}).get("server_region") == "hmt" else "default"
         logger.info(
             f"[状态管理] 开始游戏内同步: total={self.total_drives} "
@@ -48,6 +54,7 @@ class GamepadStateSyncService:
             self.total_drives,
             state_changes,
             action_mode=action_mode,
+            **({"check_current": self.check_current} if self.check_current is not None else {}),
         )
         applied_count = int(getattr(sync_result, "applied_count", sync_result))
         logger.info(f"[状态管理] 游戏内同步完成: requested={len(state_changes)} applied={applied_count}")

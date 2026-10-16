@@ -261,7 +261,7 @@ def test_actual_mainwindow_close_waits_for_owned_update_thread(owner, monkeypatc
     host.equipment_persistence_controller = SimpleNamespace(defer_transition=lambda *_args, **_kwargs: False, close=noop)
     host.basic_weight_page = SimpleNamespace(task_owner=None, is_dirty=lambda: False, close_tasks=noop)
     for name in ("scanning_controller", "workshop_refresh_controller", "native_plugin_update_controller",
-                 "_ui_latency_timer", "dashboard_controller", "identification_controller",
+                 "_ui_latency_timer", "dashboard_controller", "identification_controller", "role_suit_matching",
                  "performance_controller", "character_profile_sync_controller", "auto_sync_controller",
                  "work_mode_controller", "battle_report_controller", "_mod_plugin_loading_service",
                  "static_catalog_page", "global_hotkey_manager"):

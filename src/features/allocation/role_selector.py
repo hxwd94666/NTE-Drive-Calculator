@@ -34,21 +34,6 @@ from src.domain.role_name_order import role_name_sort_key
 from src.solver.set_effects import FOUR_PIECE, normalize_set_effect_mode
 
 
-def resolve_priority_choice(values: list[str], raw_text: str | None, current_data=None) -> str:
-    """Resolve a searchable combo selection without confusing prefix-like stats."""
-
-    if current_data is not None and str(current_data) in values:
-        return str(current_data)
-    raw = str(raw_text or "").strip()
-    if raw in values:
-        return raw
-    return next((value for value in values if match_pinyin(value, raw)), raw)
-
-
-def temporary_priority_config_path(path: Path) -> Path:
-    return path.with_name(f"{path.stem}.temp{path.suffix}")
-
-
 def normalize_weapons_db(weapons_db) -> dict:
     if not isinstance(weapons_db, dict):
         return {}
@@ -61,7 +46,7 @@ def normalize_weapons_db(weapons_db) -> dict:
     return normalized
 
 
-from src.features.allocation.role_selector_preferences import RoleSelectorPreferencesMixin
+from src.features.allocation.role_selector_preferences import RoleSelectorPreferencesMixin, resolve_priority_choice
 
 class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
     """Select role priority and manage per-role set/stat filters."""

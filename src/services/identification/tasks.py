@@ -10,6 +10,7 @@ from src.integrations.vision.recognition.resources import RecognitionResources
 from src.services.recognition.resources import load_recognition_resources, check_recognition_resources
 from src.models.equipment import Drive, Tape
 from src.services.identification.equipment_service import EquipmentIdentificationService
+from src.services.identification.matching_settings import MatchingSettingsService
 
 
 @dataclass(frozen=True)
@@ -109,10 +110,8 @@ def match_identification_items(
         config_dir=request.config_dir, user_database_path=request.user_database_path,
         static_database_path=request.static_database_path, cancel_check=cancel_check, resources=resources,
     )
-    results = []
-    for item in request.items:
-        _check_cancel(cancel_check)
-        results.append(matcher.identify_item(item))
+    results = matcher.identify_items(request.items, checkpoint=lambda: _check_cancel(cancel_check))
     _check_cancel(cancel_check)
     check_recognition_resources(resources)
+    MatchingSettingsService(request.user_database_path).require_identity(matcher.context.settings_identity)
     return results

@@ -12,11 +12,11 @@ from src.models.equipment import Drive, Tape
 from src.optimizer.allocation_kernel import execute_with_soft_main_fallback
 
 
-def create_allocation_executor(*, static_database_path, cancel_check=None):
+def create_allocation_executor(*, static_database_path, cancel_check=None, analysis_client=None):
     """Bind one verified component to this calculation; never fall back silently."""
     if cancel_check is not None and cancel_check():
         raise CancelledError("分配计算已取消")
-    client = create_bundled_analysis_client(
+    client = analysis_client if analysis_client is not None else create_bundled_analysis_client(
         static_database_path=static_database_path, cancelled=cancel_check,
     )
     if client is None or not client.supports_allocation:

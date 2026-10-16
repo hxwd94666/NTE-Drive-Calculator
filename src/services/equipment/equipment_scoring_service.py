@@ -16,6 +16,7 @@ class _DriveScoreInput:
     sub_stats: dict[str, float]
     area: int
     quality: str
+    item_type: str = "drive"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,8 @@ class _TapeScoreInput:
     sub_stats: dict[str, float]
     quality: str
     main_value: float | None
+    item_type: str = "tape"
+    area: int = 15
 
 
 def score_drive_stats(
@@ -38,15 +41,11 @@ def score_drive_stats(
 ) -> float:
     """Score one drive from normalized stat names and its occupied area."""
 
-    return engine.calculate_drive_score(
-        _DriveScoreInput(
-            sub_stats={str(name): 0.0 for name in sub_stat_names},
-            area=int(area),
-            quality=str(quality),
-        ),
-        dict(weights),
-        engine.max_theoretical_weight(dict(weights)),
-    )
+    item = _DriveScoreInput(sub_stats={str(name): 0.0 for name in sub_stat_names},
+                            area=int(area), quality=str(quality))
+    engine.prepare_scores([item], profiles=[{"key": "profile", "weights": dict(weights)}])
+    return engine.calculate_drive_score(item, dict(weights), engine.max_theoretical_weight(dict(weights)))
+
 
 
 def score_tape_stats(
@@ -62,14 +61,9 @@ def score_tape_stats(
     """Score one tape from normalized main/sub-stat names."""
 
     normalized_weights = dict(weights)
-    return engine.calculate_cartridge_score(
-        _TapeScoreInput(
-            main_stats=str(main_stat_name),
-            sub_stats={str(name): 0.0 for name in sub_stat_names},
-            quality=str(quality),
-            main_value=main_value,
-        ),
-        normalized_weights,
-        engine.max_theoretical_weight(normalized_weights),
-        dict(main_weights) if main_weights is not None else None,
-    )
+    mains = dict(main_weights) if main_weights is not None else None
+    item = _TapeScoreInput(main_stats=str(main_stat_name), sub_stats={str(name): 0.0 for name in sub_stat_names},
+                           quality=str(quality), main_value=main_value)
+    engine.prepare_scores([item], profiles=[{"key": "profile", "weights": normalized_weights, "main_weights": mains}])
+    return engine.calculate_cartridge_score(item, normalized_weights,
+                                            engine.max_theoretical_weight(normalized_weights), mains)

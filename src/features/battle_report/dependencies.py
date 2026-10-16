@@ -130,9 +130,11 @@ def build_battle_report_controller(
     native_session,
     operation_entry: Callable[[str, str], bool] | None = None,
     operation_unavailable: Callable[..., None] | None = None,
+    axis_allocation_requested=None,
 ) -> BattleReportController:
     service_factory = BattleReportServiceFactory(app_context)
     return BattleReportController(
+        axis_allocation_requested=axis_allocation_requested,
         app_context=app_context,
         dialog_parent=dialog_parent,
         inventory_sync_is_running=inventory_sync_is_running,

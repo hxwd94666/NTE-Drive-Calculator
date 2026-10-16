@@ -9,6 +9,7 @@ running nte-core inventory session.  It never relies on screenshot ordering.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from pathlib import Path
 import time
@@ -21,6 +22,7 @@ from src.integrations.inventory.warehouse_state_writer import (
     WarehouseStateWriter,
 )
 from src.services.inventory.post_action_evaluation import PostActionEvaluator
+from src.services.identification.matching_settings import MatchingSettingsService
 from src.models.equipment import Drive, Tape
 from src.observability import OperationContext, operation_scope
 from src.services.allocation.inventory import SqliteAllocationInventory
@@ -38,6 +40,7 @@ class WarehouseStateManagementPlan:
     changes: tuple[dict[str, Any], ...]
     filter_summary: dict[str, int]
     command_projection_allowed: bool = False
+    matching_identity: str = ""
 
 
 @dataclass(frozen=True)
@@ -168,6 +171,7 @@ class WarehouseStateManagementService:
             changes=tuple(changes),
             filter_summary=dict(evaluation.filter_summary),
             command_projection_allowed=True,
+            matching_identity=evaluation.matching_identity,
         )
 
     def plan_manual_changes(
@@ -283,6 +287,15 @@ class WarehouseStateManagementService:
         except WarehouseStateWriteError as exc:
             raise WarehouseStateManagementError(str(exc)) from exc
 
+        check_current = None
+        if plan.matching_identity:
+            settings = MatchingSettingsService(self.database_path)
+            def check_current():
+                settings.require_identity(plan.matching_identity)
+            try:
+                check_current()
+            except CancelledError as exc:
+                raise WarehouseStateManagementError(str(exc)) from exc
         guard_token: object | None = None
         with self.dao_factory(self.database_path) as user_dao:
             current_snapshot_id = user_dao.current_inventory_snapshot_id()
@@ -345,7 +358,12 @@ class WarehouseStateManagementService:
                         dispatch_metrics = self.state_writer.apply_many(
                             prepared_changes,
                             group_completed=report_completed,
+                            **({"check_current": check_current} if check_current is not None else {}),
                         )
+                        if dispatch_metrics.stopped_reason:
+                            applied_changes = self._accepted_changes(current_rows, dispatch_metrics.accepted_operations)
+                            if not applied_changes:
+                                raise WarehouseStateManagementError(dispatch_metrics.stopped_reason)
                     except WarehouseStateWriteError as exc:
                         raise WarehouseStateManagementError(str(exc)) from exc
                 if plan.command_projection_allowed and applied_changes:
@@ -391,7 +409,8 @@ class WarehouseStateManagementService:
             confirmation_started = time.monotonic()
             self._report_progress(
                 progress_callback,
-                "修改指令已全部提交，正在等待游戏产生新的完整背包快照…",
+                ("配置已变化，后续指令已停止；正在核对已提交部分…" if dispatch_metrics.stopped_reason
+                 else "修改指令已全部提交，正在等待游戏产生新的完整背包快照…"),
             )
             after_snapshot_id, verified, verification_error = (
                 self._wait_for_confirmation(
@@ -433,11 +452,13 @@ class WarehouseStateManagementService:
                     end_guard(guard_token)
         return WarehouseStateManagementResult(
             before_snapshot_id=plan.snapshot_id,
-            summary=summarize_state_changes(list(plan.changes)),
+            summary=summarize_state_changes(applied_changes),
             changes=tuple(applied_changes),
             after_snapshot_id=after_snapshot_id,
-            verified=verified,
-            verification_error=verification_error,
+            verified=verified and not dispatch_metrics.stopped_reason,
+            verification_error=(
+                dispatch_metrics.stopped_reason + ("；已提交部分已确认，其余未执行" if verified else "；" + str(verification_error))
+                if dispatch_metrics.stopped_reason else verification_error),
             inventory_reduction_observed=inventory_reduction_observed,
             dispatch_rpc_count=dispatch_metrics.rpc_count,
             dispatch_duration_ms=dispatch_metrics.wall_duration_ms,
@@ -445,6 +466,19 @@ class WarehouseStateManagementService:
             dispatch_retry_count=dispatch_metrics.retry_count,
             confirmation_duration_ms=confirmation_duration_ms,
         )
+
+    @staticmethod
+    def _accepted_changes(current_rows, operations):
+        """派发中止时只核对已接受字段；半途解锁不被误当作弃置成功。"""
+        projected = {}
+        for operation in operations:
+            equipment = operation["equipment"]
+            key = (equipment["slot"], equipment["serial"])
+            row = projected.setdefault(key, dict(current_rows[key]))
+            row[operation["field"]] = operation["value"]
+        return [{"uid": _compat_uid(row), "equipment": {"slot": key[0], "serial": key[1]},
+                 "current_state": _current_state(current_rows[key]), "target_state": _current_state(row)}
+                for key, row in projected.items()]
 
     def _wait_for_confirmation(
         self,

@@ -27,6 +27,7 @@ from src.app.context import AccountContext
 from src.integrations.accounts.index_file import (
     locked_account_index, read_account_index_bytes, write_account_index_bytes,
 )
+from src.integrations.distribution.lock import reject_links
 from src.integrations.accounts.mutation_directories import (
     AccountMutationRecoveryError,
     account_mutation_path, create_account_directory, delete_account_directory,
@@ -120,7 +121,13 @@ class AccountManager:
 
         src_templates = self.bundled_config_dir / "templates"
         if src_templates.exists() and src_templates.resolve() != self.template_dir.resolve():
-            shutil.copytree(str(src_templates), str(self.template_dir), dirs_exist_ok=True)
+            # 模板在运行数据域可编辑；发行新增项只初始化缺项，不覆盖用户已有内容。
+            for source in src_templates.rglob("*"):
+                destination = self.template_dir / source.relative_to(src_templates)
+                reject_links(destination)
+                if source.is_file() and not destination.exists():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, destination)
 
     def _seed_account_profile(self, account_id: str) -> Path:
         """调用方已持索引锁；正式 ID 重检后才取得账号 DAO 写锁。"""

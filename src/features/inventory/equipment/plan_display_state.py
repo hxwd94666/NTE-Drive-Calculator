@@ -296,6 +296,7 @@ def _sqlite_plan_display_state(
         ROLE_TOTAL_GRADE: "",
         # 游戏导入是独立来源标记，不继承此前界面碰巧启用的计算策略。
         "strategy_mode": display_strategy_mode(payload),
+        "damage_optimization": payload.get("damage_optimization"),
         "_sqlite_plan_id": plan["plan_id"],
         "_sqlite_source_snapshot_id": snapshot_id,
         "_sqlite_assignment_scores_complete": assignment_scores_complete,

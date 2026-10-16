@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -92,6 +93,13 @@ def build_identify_page(window, text_edit_cls):
         window.ident_quality_combo.addItem(label, value)
     type_row.addWidget(window.ident_quality_combo)
     type_row.addStretch()
+    if window.role_suit_matching is not None:
+        matching = window.role_suit_matching
+        button = QPushButton(matching.catalog.render("matching.title"))
+        button.setObjectName("btnNew")
+        button.setToolTip(matching.catalog.render("matching.scope_hint"))
+        button.clicked.connect(lambda: matching.open(page))
+        type_row.addWidget(button)
     input_card.layout().addLayout(type_row)
 
     window.ident_shape_row = QWidget()
@@ -262,6 +270,8 @@ def render_identify_result_page(window, pages: list[dict]):
     item_name = "卡带" if isinstance(item, Tape) else "驱动块"
     page_text = f"（{index + 1}/{len(pages)}）" if len(pages) > 1 else ""
     window.ident_summary.setText(f"{item_name}鉴定完成{page_text}：{len(rows)} 名角色可使用")
+    if window.role_suit_matching is not None and data.get("matching_status") == "incomplete":
+        window.ident_summary.setText(window.role_suit_matching.catalog.render("matching.incomplete"))
 
     preview_weights = rows[0]["weights"] if rows else {}
     preview_main_weights = rows[0].get("main_weights") if rows else None
@@ -291,7 +301,10 @@ def render_identify_result_page(window, pages: list[dict]):
         window.ident_result_layout.addLayout(nav)
 
     if not rows:
-        empty = QLabel("没有找到图纸可使用该装备的角色。")
+        matching = window.role_suit_matching
+        empty = QLabel(matching.catalog.render("matching.incomplete" if data.get("matching_status") == "incomplete"
+                       else "matching.unmatched") if matching is not None else "没有找到图纸可使用该装备的角色。")
+        empty.setWordWrap(True)
         empty.setAlignment(Qt.AlignCenter)
         empty.setStyleSheet(themed_style("color:#6e7681;padding:20px"))
         window.ident_result_layout.addWidget(empty)
@@ -303,6 +316,7 @@ def render_identify_result_page(window, pages: list[dict]):
                 rank,
                 row,
                 game_ui_asset_root=window.app_context.paths.game_ui_asset_root,
+                catalog=window.role_suit_matching.catalog if window.role_suit_matching is not None else None,
             )
         )
     window.ident_result_layout.addStretch()
@@ -313,6 +327,7 @@ def build_identify_result_row(
     row: dict,
     *,
     game_ui_asset_root: Path,
+    catalog=None,
 ):
     grade = row["grade"]
     grade_color = GRADE_COLORS.get(grade, "#58a6ff")
@@ -350,26 +365,49 @@ def build_identify_result_row(
     role.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#c9d1d9;border:none"))
     role_header.addWidget(role)
     role_header.addStretch()
-    meta = QLabel(f"{row['set']} · {row['match']} · 占比 {row['percent']:.1f}%")
-    meta.setStyleSheet(themed_style("color:#8b949e;font-size:11px;border:none"))
     info.addLayout(role_header)
-    info.addWidget(meta)
+    if catalog is not None and row.get("matched_suits"):
+        # 默认保持结果行紧凑，用户展开后才显示每个套装的全部适配位置。
+        toggle = QToolButton()
+        toggle.setText(catalog.render("matching.result_details"))
+        toggle.setCheckable(True)
+        toggle.setAutoRaise(True)
+        toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        toggle.setArrowType(Qt.RightArrow)
+        toggle.setStyleSheet(themed_style(
+            "QToolButton{color:#58a6ff;background:transparent;border:1px solid transparent;padding:2px 4px}"
+            "QToolButton:hover,QToolButton:checked{background:#161b22}"
+            "QToolButton:focus{border:1px solid #58a6ff;border-radius:4px}"))
+        details = QLabel("\n".join(catalog.render("matching.result_suit",
+            suit=match["name"], source=catalog.render("matching.source.default" if match["is_default"] else "matching.source.extra"),
+            positions=" / ".join(catalog.render("matching.position." + position) for position in match["positions"]))
+            for match in row["matched_suits"]))
+        details.setTextFormat(Qt.PlainText)
+        details.setWordWrap(True)
+        details.setStyleSheet(themed_style("color:#8b949e;background:transparent;border:none;padding:0"))
+        details.hide()
+        toggle.toggled.connect(details.setVisible)
+        toggle.toggled.connect(lambda expanded: toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow))
+        info.addWidget(toggle, 0, Qt.AlignLeft)
+        info.addWidget(details)
     layout.addLayout(info, 1)
 
     badge = QFrame()
+    badge.setObjectName("identificationScoreBadge")
+    # 徽标只容纳两行数值，不跟随左侧展开内容拉高；样式也不扩散到子标签。
     badge.setStyleSheet(
-        f"QFrame{{background:{grade_bg};border:1px solid {grade_color};border-radius:6px;padding:4px 10px}}"
+        f"QFrame#identificationScoreBadge{{background:{grade_bg};border:1px solid {grade_color};border-radius:6px;padding:0}}"
     )
     badge_layout = QVBoxLayout(badge)
-    badge_layout.setContentsMargins(8, 2, 8, 2)
-    badge_layout.setSpacing(0)
+    badge_layout.setContentsMargins(12, 7, 12, 7)
+    badge_layout.setSpacing(2)
     score = QLabel(f"{row['score']:.1f}")
     score.setAlignment(Qt.AlignCenter)
-    score.setStyleSheet(f"font-size:18px;font-weight:800;color:{grade_color};border:none")
+    score.setStyleSheet(f"font-size:18px;font-weight:800;color:{grade_color};background:transparent;border:none;padding:0")
     grade_label = QLabel(grade)
     grade_label.setAlignment(Qt.AlignCenter)
-    grade_label.setStyleSheet(f"font-size:11px;font-weight:700;color:{grade_color};border:none")
+    grade_label.setStyleSheet(f"font-size:11px;font-weight:700;color:{grade_color};background:transparent;border:none;padding:0")
     badge_layout.addWidget(score)
     badge_layout.addWidget(grade_label)
-    layout.addWidget(badge)
+    layout.addWidget(badge, 0, Qt.AlignVCenter)
     return frame

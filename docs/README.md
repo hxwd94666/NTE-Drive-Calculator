@@ -15,7 +15,8 @@
 | Fork 环境入口、基础权重完整流程与五类修改配方 | [Fork 开发路线](reference/fork-development.md) |
 | 全项目重构、遗漏补做、模块与测试精简、低配及语言预备 | [当前架构复审方案](roadmap/architecture-post-refactor-review.md) |
 | 新版解包驱动数据、素材与新角色逐功能接入 | [版本更新 skill](../skills/nte-game-update/SKILL.md) |
-| 伤害分配占位、组合搜索与最优证明边界 | [伤害分配算法备忘](roadmap/damage-allocation.md) |
+| 直伤优先、战报轴伤优先及独立后处理开发 | [伤害分配开发方案](roadmap/damage-allocation.md) |
+| 免安装 ZIP、平台原目录覆盖更新及数据升级恢复 | [免安装发行开发方案](roadmap/portable-distribution.md) |
 | 已交付的页面、计算、同步、配装和设置 | [功能原理](features.md) |
 | 界面语言补丁、本机偏好、生效与识别语言边界 | [界面语言预备](features/localization.md) |
 | 战报当前行为 | [战报功能](features/battle-report.md) |

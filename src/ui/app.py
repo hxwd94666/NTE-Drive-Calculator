@@ -1,13 +1,12 @@
 # PySide6 主窗口入口和功能模块挂载。
 """组合桌面窗口及功能 owner；数据准备只在显式启动时执行。"""
-
 import sys, ctypes
+from src.ui.axis_allocation_composition import build_axis_allocation_selection_service
 from pathlib import Path
 from src.domain.equipment.loadout_management import LoadoutAccount
 from src.services.equipment.loadout_management import LoadoutManagementService
 from src.features.inventory.equipment.persistence_controller import EquipmentPersistenceController, wait_for_equipment_persistence
 from typing import Optional
-
 from src.app.context import (
     AccountChangedEvent,
     AccountSwitchError,
@@ -18,7 +17,6 @@ from src.app.constants import (
     APP_VERSION,
 )
 from src.ui.application_runtime import ApplicationRuntime, prepare_application_runtime
-
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -26,7 +24,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer, Qt, Signal, QPoint
 from PySide6.QtGui import QIcon
-
 from src.observability import OperationContext, log_event
 from src.utils.logger import (
     disable_session_log,
@@ -34,7 +31,6 @@ from src.utils.logger import (
     set_log_dir,
 )
 from src.ui.qt_log_sink import QtLogSink
-
 
 from src.features.accounts.manager import populate_account_combo, show_account_manager_dialog
 from src.features.settings.page import refresh_account_scoped_settings
@@ -122,6 +118,9 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
                 rebuild=lambda _account: self.equipment_persistence_controller.rebuild(), start=lambda: None),
         )
         self._language_settings = runtime.language_settings
+        from src.ui.role_suit_matching.controller import RoleSuitMatchingController
+        self.role_suit_matching = RoleSuitMatchingController(
+            self.app_context, self._language_settings.startup().catalog, self)
         self.setWindowTitle("NTE Drive Calc")
         screen_geo = QApplication.primaryScreen().availableGeometry()
         initial_w = min(self.W, max(640, screen_geo.width() - 80))
@@ -225,7 +224,10 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             dialog_parent=self,
         )
         self.scanning_controller = ScanningController(
+            global_preferences=runtime.theme_settings.store,
+            role_suit_matching=self.role_suit_matching,
             prepare_calculation=self.prepare_calculation,
+            axis_selection_service_provider=lambda: build_axis_allocation_selection_service(self.app_context),
             navigate=self._go,
             work_mode_provider=lambda: self.work_mode_service.settings.mode,
             operation_entry=self.operation_entry,
@@ -248,6 +250,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             hotkey_manager=self.global_hotkey_manager,
         )
         self.identification_controller = IdentificationController(
+            role_suit_matching=self.role_suit_matching,
             operation_entry=self.operation_entry,
             operation_unavailable=self.operation_unavailable,
             app_context=self.app_context,
@@ -260,6 +263,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             activate_window=self.activateWindow,
         )
         self.battle_report_controller = build_battle_report_controller(
+            axis_allocation_requested=self.scanning_controller.start_axis_allocation_from_battle,
             operation_entry=self.operation_entry,
             operation_unavailable=self.operation_unavailable,
             app_context=self.app_context,
@@ -343,6 +347,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
             save_settings=lambda values: self.app_context.account_settings.save("update", values),
             style_sheet=self._current_style_sheet, show_group=self._show_group_chat_notice,
             show_netdisk=self._show_netdisk_download_dialog, request_close=self.close, parent=self,
+            update_channel=runtime.distribution.update_channel,
         )
         # rebuild 早于账号变更通知；回调直接读取新上下文，不借旧账号 settings 缓存。
         self._unregister_calc_updates = self.app_context.register_account_lifecycle(CallbackAccountLifecycle(
@@ -485,6 +490,7 @@ class MainWindow(MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowData
         self.basic_weight_page.close_tasks()
         self.toolbox_page.shutdown()
         self.identification_controller.close()
+        self.role_suit_matching.close()
         warehouse_reads = getattr(self, "warehouse_read_controller", None)
         if warehouse_reads is not None:
             warehouse_reads.close()
@@ -786,8 +792,8 @@ def run_gui():
     """先确认启动权限，再准备账号，最后把明确依赖交给 Qt 入口。"""
     from src.ui.gui_startup import run_gui as start_gui
     _ensure_admin()
-    runtime = prepare_application_runtime()
-    start_gui(runtime.context, runtime.theme_settings, lambda: MainWindow(runtime))
+    with prepare_application_runtime() as runtime:
+        start_gui(runtime.context, runtime.theme_settings, lambda: MainWindow(runtime), on_ready=runtime.accept_release)
 
 
 if __name__ == "__main__":

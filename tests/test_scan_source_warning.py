@@ -247,7 +247,7 @@ def test_medium_scan_management_cancel_opens_manager_and_forward_only_navigates(
     from src.features.scanning import entry_controls
 
     navigation, managers = [], []
-    owner = type("Owner", (), {"dialog_parent": None})()
+    owner = type("Owner", (), {"dialog_parent": None, "role_suit_matching": None})()
     owner.work_mode_provider = lambda: WorkMode.MEDIUM
     owner.navigate = navigation.append
     monkeypatch.setattr(entry_controls, "confirm_operation_recommendation", lambda *_args, **_kwargs: choice)
@@ -264,7 +264,7 @@ def test_non_medium_scan_management_retains_existing_dialog(monkeypatch):
     from src.domain.work_mode import WorkMode
     from src.features.scanning import entry_controls
 
-    owner = type("Owner", (), {"dialog_parent": None})()
+    owner = type("Owner", (), {"dialog_parent": None, "role_suit_matching": None})()
     owner.work_mode_provider = lambda: WorkMode.LOW
     dependencies = type("Dependencies", (), dict.fromkeys(
         ("user_config_dir", "config_dir", "user_database_path", "static_database_path", "game_ui_asset_root"), "unused"))()

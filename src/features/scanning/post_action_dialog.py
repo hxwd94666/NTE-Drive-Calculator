@@ -212,6 +212,7 @@ class ScanPostActionDialog(QDialog):
         asset_root: Path | None = None,
         window_title: str = "全量扫描管理",
         show_server_region_option: bool = True,
+        role_suit_matching=None,
     ):
         super().__init__(parent)
         self.user_config_dir = Path(user_config_dir)
@@ -220,6 +221,9 @@ class ScanPostActionDialog(QDialog):
         self.static_database_path = static_database_path
         self.asset_root = asset_root
         self._show_server_region_option = show_server_region_option
+        self.role_suit_matching = role_suit_matching
+        self._matching_panel = None
+        self._matching_committing = False
         self.setWindowTitle(window_title)
         self.setMinimumWidth(560)
         self.config = load_scan_post_action_config(
@@ -277,6 +281,10 @@ class ScanPostActionDialog(QDialog):
         self._main_tabs = QTabWidget()
         self._main_tabs.addTab(self._build_scoring_page(), "评分处理")
         self._main_tabs.addTab(self._build_preserve_rules_page(), "规则处理")
+        if self.role_suit_matching is not None:
+            panel = self.role_suit_matching.create_panel(self)
+            self._matching_panel = panel
+            self._main_tabs.addTab(panel, self.role_suit_matching.catalog.render("matching.title"))
         add_button = QPushButton("新增规则")
         add_button.setStyleSheet(
             "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
@@ -291,9 +299,54 @@ class ScanPostActionDialog(QDialog):
         root.addWidget(self._main_tabs, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Save).setText("保存")
+        buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        self._buttons = buttons
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        bottom = QHBoxLayout()
+        if self._matching_panel is not None:
+            panel = self._matching_panel
+            bottom.addWidget(panel.footer, 1)
+            panel.footer.hide()
+            self._main_tabs.currentChanged.connect(self._update_matching_footer)
+            panel.stack.currentChanged.connect(self._update_matching_footer)
+            panel.busy_changed.connect(self._matching_busy)
+            panel.management_save_finished.connect(self._matching_saved)
+            self._matching_busy(not panel.stack.isEnabled(), False)
+        else:
+            bottom.addStretch()
+        bottom.addWidget(buttons)
+        root.addLayout(bottom)
+
+    def _update_matching_footer(self, _index=None):
+        panel = self._matching_panel
+        matching_visible = self._main_tabs.currentIndex() == 2
+        panel.footer.setVisible(matching_visible)
+        # 只有卡带编辑页使用内层保存/返回；其他页面仍走管理窗口的保存/取消。
+        self._buttons.setVisible(not (matching_visible and panel.stack.currentIndex() == 1))
+
+    def _matching_busy(self, busy, committing):
+        self._matching_committing = committing
+        self._buttons.button(QDialogButtonBox.Save).setEnabled(not busy)
+        self._buttons.button(QDialogButtonBox.Cancel).setEnabled(not committing)
+        self._main_tabs.setEnabled(not committing)
+
+    def _matching_saved(self, success):
+        if success:
+            self.accept()
+        else:
+            self._main_tabs.setCurrentIndex(2)
+
+    def reject(self):
+        if not self._matching_committing:
+            super().reject()
+
+    def closeEvent(self, event):
+        if self._matching_committing:
+            event.ignore()
+        else:
+            super().closeEvent(event)
 
     def _build_scoring_page(self) -> QWidget:
         page = QWidget()
@@ -481,14 +534,15 @@ class ScanPostActionDialog(QDialog):
 
     def _module_help_text(self, key: str) -> str:
         if key == "discard":
-            action = "· 评分不高于设定等级时弃置\n· 不满足规则时取消弃置"
+            action = "· 有适用角色且最高评分不高于设定等级时弃置\n· 评分完整且高于门槛时取消弃置\n· 未匹配默认保持原状态，勾选下方开关才按未匹配弃置"
         else:
-            action = "· 评分达到设定等级时锁定\n· 不满足规则时解除锁定"
+            action = "· 有适用角色且最高评分达到设定等级时锁定\n· 评分完整且低于门槛时解除锁定\n· 未匹配保持原状态"
         return (
             f"{action}\n"
             "· 角色范围：决定按哪些角色评分\n"
             "· 品质、类别和类型：决定处理哪些装备\n"
-            "· 选择跳过时，会保留装备当前状态"
+            "· 选择跳过时，会保留装备当前状态\n"
+            "· 评分资料不完整时不执行评分动作；独立处理规则仍按原优先级生效"
         )
 
     def _show_module_help(self, key: str, title: str) -> None:
@@ -584,6 +638,13 @@ class ScanPostActionDialog(QDialog):
         role_scope.currentIndexChanged.connect(
             lambda _index, module_key=key: self._update_role_scope_summary(module_key)
         )
+        if key == "discard":
+            text = self.role_suit_matching.catalog.render if self.role_suit_matching is not None else None
+            discard_unmatched = QCheckBox(text("matching.discard_unmatched") if text else "未匹配装备也弃置")
+            discard_unmatched.setChecked(module.get("discard_unmatched") is True)
+            discard_unmatched.setToolTip(text("matching.discard_hint") if text else "仅处理所选角色范围内已完整确认未匹配的装备；资料缺失不算未匹配。")
+            outer.addWidget(discard_unmatched)
+            self._widgets[key]["discard_unmatched"] = discard_unmatched
         self._update_role_scope_summary(key)
         type_scope.currentIndexChanged.connect(lambda _index, module_key=key: self._update_type_range_summary(module_key))
         self._update_type_range_summary(key)
@@ -660,6 +721,8 @@ class ScanPostActionDialog(QDialog):
             module = config[key]
             module["selected_character_ids"] = list(self._selected_character_ids[key])
             module["enabled"] = widgets["enabled"].isChecked()
+            if key == "discard":
+                module["discard_unmatched"] = widgets["discard_unmatched"].isChecked()
             for field in ("grade", "role_scope", "quality_scope", "type_scope", "on_locked", "on_discarded"):
                 module[field] = widgets[field].currentData()
             module["shape_ids"] = list(self._range_values[key]["shape_ids"])
@@ -672,6 +735,10 @@ class ScanPostActionDialog(QDialog):
         error = validate_post_action_config(config)
         if error:
             QMessageBox.warning(self, "配置无效", error)
+            return
+        if self._matching_panel is not None:
+            # 同一确认提交评分、规则及套装配置，成功才触发原调用方的后续计算。
+            self._matching_panel.management_save_requested.emit(config)
             return
         save_scan_post_action_config(
             self.user_config_dir,
@@ -691,6 +758,7 @@ def show_scan_post_action_dialog(
     asset_root: Path | None = None,
     window_title: str = "全量扫描管理",
     show_server_region_option: bool = True,
+    role_suit_matching=None,
 ) -> bool:
     dialog = ScanPostActionDialog(
         parent,
@@ -701,5 +769,6 @@ def show_scan_post_action_dialog(
         asset_root=asset_root,
         window_title=window_title,
         show_server_region_option=show_server_region_option,
+        role_suit_matching=role_suit_matching,
     )
     return dialog.exec() == QDialog.Accepted

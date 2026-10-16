@@ -114,6 +114,30 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
             (key, _json(dict(value)), _utc_now()),
         )
 
+    def compare_and_replace_application_setting_copy(
+        self, key: str, value: Mapping[str, Any], *, expected: Mapping[str, Any],
+        missing_value: Mapping[str, Any], check: Callable[[], None] | None = None,
+    ) -> bool:
+        """同一写事务内核对编辑基线；并发编辑或账号代次失效时保留原配置。"""
+        with self.write_transaction():
+            if check is not None:
+                check()
+            current = self.list_application_setting_copies().get(key, dict(missing_value))
+            if current != dict(expected):
+                raise UserDataValidationError("配置已变化，请重新打开后修改")
+            if current == dict(value):
+                return False
+            self._write_application_setting(key, value)
+            if check is not None:
+                check()
+        return True
+
+    def patch_application_setting_copy(self, key: str, fields: Mapping[str, Any]) -> None:
+        """锁内只合并指定字段；参与外层事务，不覆盖其他功能刚保存的偏好。"""
+        with self.write_transaction():
+            current = self.list_application_setting_copies().get(key, {})
+            self._write_application_setting(key, {**current, **fields})
+
     def delete_application_setting_copy(self, setting_key: str) -> None:
         self._db().execute(
             "DELETE FROM application_setting_copy WHERE setting_key = ?",

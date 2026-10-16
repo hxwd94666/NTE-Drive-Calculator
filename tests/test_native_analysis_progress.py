@@ -107,8 +107,10 @@ class ProgressTransportTests(unittest.TestCase):
         times = []
 
         def checkpoint():
+            if not self.children:
+                return
             times.append(time.monotonic())
-            if len(times) >= 4:
+            if len(times) >= 2:
                 raise NativeAnalysisCancelled("cancel")
 
         with self.child("import time; time.sleep(30)"):
@@ -118,29 +120,59 @@ class ProgressTransportTests(unittest.TestCase):
         self.assert_clean()
 
     def test_large_fast_response_checks_boundaries_not_each_pipe_fragment(self):
-        checks = Mock()
-        source = "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*2000000)"
-        # Hold the clock within one checkpoint period. The number of checks
-        # must depend on lifecycle boundaries, not OS pipe fragmentation.
-        with self.child(source), patch('src.integrations.native_analysis_stream.time.monotonic', return_value=1.0):
-            result = self.client._run_progress(b'{}', checkpoint=checks, progress_callback=Mock())
-        self.assertEqual(result, b'x' * 2000000)
-        self.assertEqual(checks.call_count, 3)  # Before start, first poll, final delivery.
+        counts = []
+        for size in (1, 2_000_000):
+            before_spawn, after_spawn = [], []
+            previous_children = len(self.children)
+            def checkpoint():
+                target = after_spawn if len(self.children) > previous_children else before_spawn
+                target.append(1)
+            source = f"import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*{size})"
+            # 固定时钟排除周期检查，分片数量不改变first-poll与final-delivery两个边界。
+            with self.child(source), patch('src.integrations.native_analysis_stream.time.monotonic', return_value=1.0):
+                result = self.client._run_progress(b'{}', checkpoint=checkpoint, progress_callback=Mock())
+            self.assertEqual(result, b'x' * size)
+            self.assertTrue(before_spawn)  # 不固定组件身份预检的按块检查次数。
+            self.assertEqual(len(after_spawn), 2)
+            counts.append((len(before_spawn), len(after_spawn)))
+        self.assertEqual(counts[0], counts[1])
         self.assert_clean()
 
     def test_fast_response_still_checks_cancellation_before_delivery(self):
-        checks = Mock(side_effect=[None, None, NativeAnalysisCancelled('cancel')])
+        after_spawn = []
+        def checkpoint():
+            if not self.children:
+                return
+            after_spawn.append(1)
+            # 冻结时钟下首次poll放行，第二个运行期边界必为完整响应交付前检查。
+            if len(after_spawn) == 2:
+                self.assertIsNotNone(self.children[-1].poll())
+                raise NativeAnalysisCancelled('cancel')
         with self.child("print('{}')"), patch('src.integrations.native_analysis_stream.time.monotonic', return_value=1.0):
-            with self.assertRaises(NativeAnalysisCancelled):
-                self.client._run_progress(b'{}', checkpoint=checks, progress_callback=Mock())
+            with patch.object(self.client, '_check_exit') as deliver:
+                with self.assertRaises(NativeAnalysisCancelled):
+                    self.client._run_progress(b'{}', checkpoint=checkpoint, progress_callback=Mock())
+                deliver.assert_not_called()
+        self.assertEqual(len(after_spawn), 2)
         self.assert_clean()
+
+    def test_checkpoint_cancel_before_progress_launch_creates_no_child(self):
+        with self.child("print('{}')") as spawn:
+            with self.assertRaises(NativeAnalysisCancelled):
+                self.client._run_progress(b'{}', checkpoint=Mock(side_effect=NativeAnalysisCancelled('cancel')),
+                                          progress_callback=Mock())
+            spawn.assert_not_called()
+        self.assertFalse(self.children)
+        self.assertFalse(any(thread.name.startswith('nte-analysis-') for thread in threading.enumerate()))
 
     def test_cancel_blocked_stdin_writer_closes_pipe_and_thread(self):
         checks = []
 
         def checkpoint():
+            if not self.children:
+                return
             checks.append(1)
-            if len(checks) >= 4:
+            if len(checks) >= 2:
                 raise NativeAnalysisCancelled("cancel")
 
         with self.child("import time;time.sleep(30)"):

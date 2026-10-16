@@ -30,6 +30,7 @@ def build_marginal_toolbar(
     inferred_toggled: Callable[[bool], None],
     reset: Callable[[], None],
     recalculate: Callable[[], None],
+    axis_optimize: Callable[[], None] | None = None,
 ) -> BattleMarginalToolbar:
     help_text = (
         "冻结本场动作、逐击、目标和时段，只替换角色属性与配置。"
@@ -87,6 +88,12 @@ def build_marginal_toolbar(
     recalculate_button.setObjectName("btnPrimary")
     recalculate_button.clicked.connect(recalculate)
     layout.addWidget(recalculate_button)
+    if axis_optimize is not None:
+        optimize_button = QPushButton("按本轴优化装备")
+        optimize_button.setAccessibleName("按本轴优化装备")
+        optimize_button.setToolTip("明确确认本报告/范围、单角色或本次全部优先组及A配置；当前边际草稿不会自动带入。")
+        optimize_button.clicked.connect(axis_optimize)
+        layout.addWidget(optimize_button)
     help_button = QPushButton("?")
     help_button.setObjectName("btnHelp")
     help_button.setToolTip(help_text)

@@ -71,6 +71,7 @@ class WorkModeReportActionsMixin:
               preview: bool = False, retry_deployment: bool = False) -> None:
         if self._closed or self._sync_activation_request is not None:
             return
+        preview = preview or self.policy.machine_revalidation_required is True
         if not preview:
             self.cancel_report_sync_guidance()
         self._request_serial += 1

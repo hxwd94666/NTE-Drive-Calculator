@@ -75,19 +75,21 @@ class NativeAnalysisLifecycleTests(unittest.TestCase):
 
     def test_checkpoint_cancel_reaps_only_its_child(self):
         child = ProcessStub()
-        checkpoints = []
+        other_child = ProcessStub()
 
         def checkpoint():
-            checkpoints.append(1)
-            if len(checkpoints) == 2:
+            # 身份哈希预检可增加检查次数；仅在本次Popen实际返回后模拟运行期取消。
+            if spawn.called:
                 raise NativeAnalysisCancelled("cancel")
 
         client = NteAnalysisCoreClient(self.path, "fixture")
-        with patch("src.integrations.nte_analysis_core.subprocess.Popen", return_value=child):
+        with patch("src.integrations.nte_analysis_core.subprocess.Popen", return_value=child) as spawn:
             with self.assertRaises(NativeAnalysisCancelled):
                 client.calculate_batch([public_job()], checkpoint=checkpoint)
+        spawn.assert_called_once()
         self.assertTrue(child.killed)
         self.assertTrue(child.reaped)
+        self.assertFalse(other_child.killed or other_child.reaped)
 
     def test_timeout_reaps_child(self):
         child = ProcessStub()

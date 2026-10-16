@@ -638,7 +638,7 @@ class GamepadScanner:
             return True
         return False
 
-    def sync_equipment_states(self, total_drives: int, state_changes: list[dict], action_mode: str = "default") -> int:
+    def sync_equipment_states(self, total_drives: int, state_changes: list[dict], action_mode: str = "default", *, check_current=None) -> int:
         profile = GamepadActionProfile.state_management("hmt" if action_mode == "hmt" else "cn")
         changes = sorted(
             (
@@ -660,6 +660,8 @@ class GamepadScanner:
             # Two down-stick inputs consistently focus the last physical item
             # of the last row. This origin differs from the S-path end on odd
             # rows, so it must not be derived from ``positions[-1]``.
+            if check_current is not None:
+                check_current()
             self._activate_and_focus_last_inventory_equipment()
             curr_row, curr_col = self._last_inventory_position(int(total_drives))
             applied = 0
@@ -697,6 +699,9 @@ class GamepadScanner:
                     f"准备同步状态: raw_drive_{index:04d} "
                     f"{change.get('current_state')} -> {change.get('target_state')}"
                 )
+                if check_current is not None:
+                    check_current()
+                # 已开始的单件动作保持原确认与退场；新配置只撤销尚未开始的后续装备。
                 changed = self._sync_selected_equipment_state_with_profile(
                     change.get("current_state"),
                     change.get("target_state"),

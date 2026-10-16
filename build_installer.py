@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 from tools import build_cli
+from tools.release.app_bundle_validation import validate_app_bundle
 from tools.release.managed_paths import plain_member_stat
 from src.app.version import windows_numeric_version
 from src.integrations.game_component_bundle import inspect_game_component_bundle
@@ -227,26 +228,7 @@ def _app_process_running() -> bool:
 def _validate_app_bundle() -> None:
     """安装前检查 PyInstaller 产物，避免生成启动后才报缺文件的安装包。"""
 
-    required = {
-        "主程序": APP_EXE,
-        "PyInstaller 运行目录": APP_INTERNAL,
-        "nte-core 本地组件": APP_NTE_CORE,
-        "战报分析本地组件": APP_ANALYSIS_CORE,
-        "战报分析组件清单": APP_ANALYSIS_CORE_MANIFEST,
-        "游戏组件整包清单": APP_INTERNAL / "component-bundle.json",
-        "用户数据库结构": APP_USER_SCHEMA,
-        "发行版静态数据库": APP_STATIC_DATABASE,
-        "发行版静态数据库清单": APP_STATIC_MANIFEST,
-        "公共额外形状默认库": APP_SHARED_DATABASE_SEED,
-        "旧版额外形状迁移基线": APP_SHAPE_BONUS_BASELINE,
-    }
-    missing = [f"{label}：{path}" for label, path in required.items() if not path.exists()]
-    if missing:
-        raise RuntimeError("PyInstaller 产物不完整，缺少：\n" + "\n".join(missing))
-    validate_packaged_component_bundle(
-        APP_INTERNAL, source_manifest_path=source_component_manifest(ROOT),
-    )
-    validate_packaged_ocr_models(APP_INTERNAL)
+    validate_app_bundle(APP_EXE, APP_INTERNAL, source_manifest_path=source_component_manifest(ROOT))
 
 
 def _ensure_app_bundle(skip_app_build: bool) -> None:

@@ -51,6 +51,7 @@ from src.optimizer.contracts import (
     ROLE_TOTAL_SCORE,
 )
 from src.features.inventory.equipment.plan_projection import display_stat_label
+from src.ui.damage_optimization_panel import damage_optimization_panel
 from src.features.inventory.equipment.display_context import equipment_presentation
 from src.ui.puzzle_board import PuzzleBoardWidget
 from src.ui.attribute_summary_panel import AttributeSummaryPanel, AttributeSummaryRow
@@ -368,6 +369,8 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         _ml = {
             "role_priority": "角色优先",
             "update_mode": "锁定更新",
+            "direct_priority": "直伤优先",
+            "axis_priority": "战报轴伤优先",
             "damage_based": "期望伤害",
             "game_inventory": "游戏配装",
         }.get(_sm, _sm)
@@ -502,6 +505,11 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         status_label.setStyleSheet(themed_style("color:#d29922;font-size:12px;padding:2px 4px"))
         gl.addWidget(status_label)
     gl.addSpacing(6)
+    optimization_panel = damage_optimization_panel(
+        rd.get("damage_optimization"), object_name="savedDamageOptimization",
+    )
+    if optimization_panel is not None:
+        gl.addWidget(optimization_panel)
 
     bp = rd.get(ROLE_BLUEPRINT_LAYOUT, [])
     drives = rd.get(ROLE_EQUIPPED_DRIVES, [])

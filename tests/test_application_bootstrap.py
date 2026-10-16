@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -137,18 +137,21 @@ def test_explicit_runtime_prepares_only_injected_data_root(tmp_path, monkeypatch
     assert not (package / "accounts").exists()
     assert runtime.theme_settings is not None
     assert runtime.language_settings.startup().catalog.locale == "zh-CN"
+    runtime.close()
 
 
 def test_gui_entry_checks_privilege_before_preparing_runtime(monkeypatch):
     from src.ui import app, gui_startup
 
     events = []
-    runtime = Mock()
+    runtime = MagicMock()
+    runtime.__enter__.return_value = runtime
     monkeypatch.setattr(app, "_ensure_admin", lambda: events.append("admin"))
     monkeypatch.setattr(app, "prepare_application_runtime", lambda: events.append("prepare") or runtime)
-    monkeypatch.setattr(gui_startup, "run_gui", lambda *_args: events.append("gui"))
+    monkeypatch.setattr(gui_startup, "run_gui", lambda *_args, **_kwargs: events.append("gui"))
     app.run_gui()
     assert events == ["admin", "prepare", "gui"]
+    runtime.__exit__.assert_called_once()
 
 
 def test_failed_runtime_preparation_restores_previous_path_environment(tmp_path, monkeypatch):
@@ -164,6 +167,40 @@ def test_failed_runtime_preparation_restores_previous_path_environment(tmp_path,
         prepare_application_runtime(package_root=tmp_path, app_dir=tmp_path, data_root=tmp_path / "runtime")
     assert os.environ[SHARED_DATABASE_ENV] == "existing-shared"
     assert WORKSHOP_WEIGHT_TEMPLATE_ENV not in os.environ
+    from src.integrations.distribution.lock import DataRootLease
+    with DataRootLease(tmp_path / "runtime"):
+        pass
+
+
+def test_startup_failure_is_visible_before_qt(monkeypatch):
+    import ctypes
+    import main
+    from src.ui import app
+    monkeypatch.setattr(sys, "argv", ["main.py"])
+    monkeypatch.setattr(app, "run_gui", Mock(side_effect=RuntimeError("fixture data root blocked")))
+    prompt = Mock(return_value=1)
+    monkeypatch.setattr(ctypes.windll.user32, "MessageBoxW", prompt)
+    with pytest.raises(SystemExit) as caught:
+        main.main()
+    assert caught.value.code == 1
+    assert "fixture data root blocked" in prompt.call_args.args[1]
+
+
+def test_gui_system_exit_releases_runtime_lease(tmp_path, monkeypatch):
+    from src.ui import app, gui_startup
+    from src.integrations.distribution.lock import DataRootLease
+    from contextlib import contextmanager
+    @contextmanager
+    def runtime():
+        with DataRootLease(tmp_path):
+            yield Mock()
+    monkeypatch.setattr(app, "_ensure_admin", lambda: None)
+    monkeypatch.setattr(app, "prepare_application_runtime", runtime)
+    monkeypatch.setattr(gui_startup, "run_gui", Mock(side_effect=SystemExit(0)))
+    with pytest.raises(SystemExit):
+        app.run_gui()
+    with DataRootLease(tmp_path):
+        pass
 
 
 def test_explicit_gui_bootstrap_prepares_dpi_before_qapplication(tmp_path, monkeypatch):
@@ -177,6 +214,10 @@ def test_explicit_gui_bootstrap_prepares_dpi_before_qapplication(tmp_path, monke
         pass
 
     class Application:
+        @staticmethod
+        def instance():
+            return None
+
         @staticmethod
         def setAttribute(*args):
             pass

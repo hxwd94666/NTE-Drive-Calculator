@@ -4,6 +4,7 @@ from itertools import permutations
 from types import SimpleNamespace
 
 from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
 from src.domain.post_actions import (
     preserve_rule_matches_item,
     default_post_action_config,
@@ -16,20 +17,25 @@ from src.domain.post_actions import (
 from src.models.equipment import Drive, Tape
 
 
+# 测试评分范围时显式提供合法匹配，不再借用“上下文缺失即全角色”的旧回退。
+MATCH_CONTEXT = EquipmentMatchContext(matches=(RoleSuitMatch(
+    "角色", 1, "suit", "套装甲", True, frozenset({"H_3"}), frozenset()),))
+
+
 class PostActionRuleConstraintTests(unittest.TestCase):
     def test_processing_category_filters_execution_even_when_other_ranges_are_selected(self):
         drive = Drive(uid="range-drive", quality="Gold", area=3, shape_id="H_3",
-                      main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={})
+                      main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={}, role_scores={"角色": 0.0})
         tape = Tape(uid="range-tape", quality="Gold", area=15, set_name="套装甲",
-                    main_stats="攻击力", sub_stats={})
+                    main_stats="攻击力", sub_stats={}, role_scores={"角色": 0.0})
         scoring = SimpleNamespace(roles_db={"角色": {}}, get_grade_tag=lambda *_args: "S")
         for module, target in (("discard", "discarded"), ("lock", "locked")):
             config = default_post_action_config()
             config[module].update(enabled=True, grade="S", shape_ids=["H_3"], set_names=["套装甲"])
             for kind, chosen, excluded in (("drive", drive, tape), ("tape", tape, drive)):
                 config[module]["type_scope"] = kind
-                self.assertEqual(target, target_state_for_item(chosen, "normal", config, scoring))
-                self.assertEqual("normal", target_state_for_item(excluded, "normal", config, scoring))
+                self.assertEqual(target, target_state_for_item(chosen, "normal", config, scoring, score_context=MATCH_CONTEXT))
+                self.assertEqual("normal", target_state_for_item(excluded, "normal", config, scoring, score_context=MATCH_CONTEXT))
                 summary = summarize_post_action_filtering([(1, drive, "normal"), (2, tape, "normal")], config)
                 self.assertEqual(1, summary["post_action_candidate_count"])
                 self.assertEqual(1, summary["post_action_type_filtered_count"])
@@ -68,7 +74,7 @@ class PostActionRuleConstraintTests(unittest.TestCase):
 
     def test_direct_discard_is_normalized_planned_and_order_independent(self):
         item = Drive(uid="rule-drive", quality="Gold", area=3, shape_id="H_3",
-                     main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={"攻击力": 1.0})
+                     main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={"攻击力": 1.0}, role_scores={"角色": 0.0})
         scoring = SimpleNamespace(roles_db={})
         rules = [{"name": action, "item_type": "drive", "action": action,
                   "sub_stats": ["攻击力"], "sub_match": 1}
@@ -83,15 +89,15 @@ class PostActionRuleConstraintTests(unittest.TestCase):
         self.assertEqual([], build_state_changes([(1, item, "discarded")], normalized, scoring))
         self.assertEqual([], build_state_changes([(1, item, "locked")], normalized, scoring))
         normalized["discard"]["on_locked"] = "normal"
-        self.assertEqual("discarded", target_state_for_item(item, "locked", normalized, scoring))
+        self.assertEqual("discarded", target_state_for_item(item, "locked", normalized, scoring, score_context=MATCH_CONTEXT))
         normalized["lock"].update(enabled=True, on_locked="normal")
         scoring.roles_db = {"角色": {}}
         scoring.get_grade_tag = lambda *_args: "D"
-        self.assertEqual("discarded", target_state_for_item(item, "locked", normalized, scoring))
+        self.assertEqual("discarded", target_state_for_item(item, "locked", normalized, scoring, score_context=MATCH_CONTEXT))
         normalized["discard"]["on_locked"] = "skip"
-        self.assertEqual("normal", target_state_for_item(item, "locked", normalized, scoring))
+        self.assertEqual("normal", target_state_for_item(item, "locked", normalized, scoring, score_context=MATCH_CONTEXT))
         scoring.get_grade_tag = lambda *_args: "SSS"
-        self.assertEqual("locked", target_state_for_item(item, "normal", normalized, scoring))
+        self.assertEqual("locked", target_state_for_item(item, "normal", normalized, scoring, score_context=MATCH_CONTEXT))
         # 自定义展示顺序不是 first-hit；直接锁定 > 直接弃置 > 仅保留。
         for ordered in permutations(rules):
             config["preserve_rules"] = list(ordered)

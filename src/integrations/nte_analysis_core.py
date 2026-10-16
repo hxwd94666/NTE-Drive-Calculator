@@ -38,7 +38,7 @@ class AnalysisComponentIdentity:
     """发行绑定只认可创建时核验的执行物和能力清单，不接纳会话中途替换。"""
 
     executable: Path
-    manifest_path: Path
+    manifest_path: Path | None
     executable_sha256: str
     manifest_sha256: str
 
@@ -46,6 +46,8 @@ class AnalysisComponentIdentity:
         # 每次派发前按块核对字节并响应取消；路径检查不声称消除检查至 Popen 的竞态。
         for path, expected in ((self.manifest_path, self.manifest_sha256),
                                (self.executable, self.executable_sha256)):
+            if path is None:
+                continue  # 显式诊断候选没有发行清单，但执行物仍绑定冻结哈希。
             checkpoint()
             digest = hashlib.sha256()
             try:
@@ -138,11 +140,65 @@ class NteAnalysisCoreClient:
             engine_version == ENGINE_VERSION
             and capabilities is not None and "allocation_v2" in capabilities
         )
+        self.supports_damage_allocation_job = (
+            self.supports_allocation and capabilities is not None and "damage_allocation_v1" in capabilities
+        )
+        self.supports_equipment_scoring = (
+            self.supports_allocation and capabilities is not None and "equipment_scoring_v1" in capabilities
+        )
+        self.supports_blueprints = (
+            engine_version == ENGINE_VERSION
+            and capabilities is not None and "allocation_blueprints_v1" in capabilities
+        )
+        self.supports_allocation_group_postprocess = (
+            self.supports_allocation and capabilities is not None and "allocation_group_postprocess_v1" in capabilities
+        )
+        self.supports_allocation_group_projection = (
+            self.supports_allocation_group_postprocess and capabilities is not None
+            and "allocation_group_postprocess_v2" in capabilities
+        )
+        self.supports_battle_axis_group_postprocess = (
+            self.supports_allocation and capabilities is not None and "battle_axis_group_postprocess_v1" in capabilities
+        )
+        self.supports_battle_axis_group_rematch = (
+            self.supports_battle_axis_group_postprocess and capabilities is not None
+            and "battle_axis_group_postprocess_v2" in capabilities
+        )
+        self.supports_allocation_postprocess = (
+            engine_version == ENGINE_VERSION
+            and capabilities is not None and "allocation_postprocess_v1" in capabilities
+        )
+        self.supports_battle_axis_team = (
+            engine_version == ENGINE_VERSION
+            and capabilities is not None and "battle_axis_team_v1" in capabilities
+        )
+        self.supports_battle_axis_fixed_team = (
+            engine_version == ENGINE_VERSION
+            and capabilities is not None and "battle_axis_fixed_team_v1" in capabilities
+        )
+        self.supports_battle_axis_evaluation = (
+            engine_version == ENGINE_VERSION
+            and capabilities is not None and "battle_axis_evaluate_v1" in capabilities
+        )
+        self.supports_battle_axis_postprocess = (
+            engine_version == ENGINE_VERSION
+            and capabilities is not None and "battle_axis_postprocess_v1" in capabilities
+        )
         self.supports_native_payload_fragments = (
             capabilities is not None and "battle_native_payload_fragments_v1" in capabilities
         )
         self.timeout = timeout
         self.cancelled = cancelled
+        if component_identity is None:
+            digest = hashlib.sha256()
+            try:
+                with self.executable.open('rb') as stream:
+                    while chunk := stream.read(1024 * 1024):
+                        digest.update(chunk)
+                        self._checkpoint(None)
+            except OSError:
+                raise NativeAnalysisError('独立分析候选读取失败') from None
+            component_identity = AnalysisComponentIdentity(self.executable, None, digest.hexdigest(), '')
         self._component_identity = component_identity
         self._lock = threading.Lock()
         self._stats: dict[str, int | float] = {
@@ -178,6 +234,12 @@ class NteAnalysisCoreClient:
             raise NativeAnalysisError("独立分析核心身份、版本或能力无效")
         return cls(executable, dataset_version, timeout, cancelled,
                    engine_version=identity["engine_version"], capabilities=frozenset(capabilities))
+
+    @property
+    def component_provenance(self) -> dict[str, str | None]:
+        """Return the already bound source, never re-label a historic preview from today's package."""
+        return {"component_executable_sha256": self._component_identity.executable_sha256,
+                "component_manifest_sha256": self._component_identity.manifest_sha256 or None}
 
     @property
     def stats(self) -> dict[str, int | float]:
@@ -251,6 +313,15 @@ class NteAnalysisCoreClient:
                         and isinstance(error, dict)
                         and error.get("code") == "projection_plan_too_large"):
                     raise BuffProjectionBatchTooLarge("Buff 候选计划超过核心工作量限制")
+                if (rejected.get("engine_version") == self.engine_version
+                        and rejected.get("schema_version") == RESPONSE_SCHEMA and isinstance(error, dict)):
+                    budget_messages = {
+                        "damage_job_blueprints_incomplete": "图纸生成已达预算，尚未完成全部候选；请减少参与角色或调整套装后重试，现有方案保持不变。",
+                        "damage_job_time_budget": "分配准备已达时间预算；请减少参与角色后重试，现有方案保持不变。",
+                    }
+                    budget_code = error.get("code")
+                    if isinstance(budget_code, str) and budget_code in budget_messages:
+                        raise NativeAnalysisError(budget_messages[budget_code])
             # Do not surface raw stderr, request JSON or private values.
             raise NativeAnalysisError(
                 f"独立分析核心拒绝请求或执行失败（退出码 {returncode}）"
@@ -301,7 +372,63 @@ class NteAnalysisCoreClient:
             raise NativeAnalysisError("独立分析核心缺少战报进度能力")
         if self.supports_battle_page_identity and "battle_page_identity_v1" not in value.get("capabilities", []):
             raise NativeAnalysisError("独立分析核心缺少战报输入身份能力")
+        if self.supports_allocation_postprocess and "allocation_postprocess_v1" not in value.get("capabilities", []):
+            raise NativeAnalysisError("独立分析核心缺少配装后处理能力")
+        if self.supports_battle_axis_evaluation and "battle_axis_evaluate_v1" not in value.get("capabilities", []):
+            raise NativeAnalysisError("独立分析核心缺少战报轴批量评价能力")
+        if self.supports_battle_axis_postprocess and "battle_axis_postprocess_v1" not in value.get("capabilities", []):
+            raise NativeAnalysisError("独立分析核心缺少战报轴装备优化能力")
+        for enabled, capability in ((self.supports_battle_axis_team, "battle_axis_team_v1"),
+                                    (self.supports_battle_axis_fixed_team, "battle_axis_fixed_team_v1"),
+                                    (self.supports_blueprints, "allocation_blueprints_v1"),
+                                    (self.supports_equipment_scoring, "equipment_scoring_v1"),
+                                    (self.supports_damage_allocation_job, "damage_allocation_v1"),
+                                    (self.supports_allocation_group_postprocess, "allocation_group_postprocess_v1"),
+                                    (self.supports_allocation_group_projection, "allocation_group_postprocess_v2"),
+                                    (self.supports_battle_axis_group_postprocess, "battle_axis_group_postprocess_v1"),
+                                    (self.supports_battle_axis_group_rematch, "battle_axis_group_postprocess_v2")):
+            if enabled and capability not in value.get("capabilities", []):
+                raise NativeAnalysisError("独立分析核心缺少冻结多组装备优化能力")
         return value
+
+    def score_equipment(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
+        from src.integrations.equipment_scoring import score_equipment
+        return score_equipment(self, request, checkpoint=checkpoint)
+
+    def generate_blueprints(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
+        """一次派发冻结形状/棋盘，由 Rust 返回图纸与明确的搜索覆盖。"""
+        from src.integrations.native_blueprints import generate_blueprints
+        return generate_blueprints(self, request, checkpoint=checkpoint)
+
+    def postprocess_allocation(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
+        """Keep postprocess transport separate from the established allocation route."""
+        from src.integrations.allocation_postprocess import postprocess_allocation
+        return postprocess_allocation(self, request, checkpoint=checkpoint)
+
+    def resolve_battle_axis_team(self, selector, selected_character_ids, *, checkpoint=None):
+        from src.integrations.axis_team import resolve_axis_team
+        return resolve_axis_team(self, selector, selected_character_ids, checkpoint=checkpoint)
+
+    def resolve_battle_axis_fixed_team(self, selector, selected_character_ids, anchor_mode, inventory_identities, *, checkpoint=None):
+        from src.integrations.axis_fixed_team import resolve_fixed_team
+        return resolve_fixed_team(self, selector, selected_character_ids, anchor_mode, inventory_identities, checkpoint=checkpoint)
+
+    def evaluate_battle_axis(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
+        """Reuse the bounded child transport; do not load a page per equipment candidate."""
+        from src.integrations.battle_axis_evaluation import evaluate_battle_axis
+        return evaluate_battle_axis(self, request, checkpoint=checkpoint)
+
+    def postprocess_battle_axis(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
+        from src.integrations.axis_allocation_postprocess import postprocess_battle_axis
+        return postprocess_battle_axis(self, request, checkpoint=checkpoint)
+
+    def postprocess_allocation_groups(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
+        from src.integrations.allocation_group_postprocess import postprocess_allocation_groups
+        return postprocess_allocation_groups(self, request, checkpoint=checkpoint)
+
+    def postprocess_battle_axis_groups(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
+        from src.integrations.allocation_group_postprocess import postprocess_allocation_groups
+        return postprocess_allocation_groups(self, request, axis=True, checkpoint=checkpoint)
 
     def allocate(
         self, payload: Mapping[str, Any], *,
@@ -360,7 +487,7 @@ class NteAnalysisCoreClient:
             raise NativeAnalysisError("分析组件尚不支持数据库直读，请部署对应版本")
         started = time.perf_counter()
         request = dict(request)
-        if self.supports_native_payload_fragments:
+        if self.supports_native_payload_fragments and request.get("detail_level") != "identity":
             request["native_payload_encoding"] = "fragments_v1"
         payload = json.dumps({
             "schema_version": REQUEST_SCHEMA, "batch_kind": "battle_page_v1",

@@ -44,6 +44,8 @@ class FrozenComparisonScorer:
                    frozen.max_theoretical_weight(weights, zero_weight_stats=zeros))
 
     def metadata(self) -> dict[str, Any]:
+        self.engine.prepare_weight_queries([self.weights] + ([self.main_weights] if self.main_weights is not None else []),
+                                           self.names.values())
         rules = json.dumps(asdict(self.engine.stat_catalog), sort_keys=True, ensure_ascii=False)
         return dict(
             character_id=self.character_id, static_dataset_id=self.dataset_id,

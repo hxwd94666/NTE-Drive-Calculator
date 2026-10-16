@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -77,18 +78,6 @@ def resolve_optional_priority_choice(
 
 def temporary_priority_config_path(path: Path) -> Path:
     return path.with_name(f"{path.stem}.temp{path.suffix}")
-
-
-def normalize_weapons_db(weapons_db) -> dict:
-    if not isinstance(weapons_db, dict):
-        return {}
-    normalized = {}
-    for key, info in weapons_db.items():
-        if isinstance(info, dict):
-            name = str(info.get("name") or key or "").strip()
-            if name:
-                normalized[name] = info
-    return normalized
 
 
 class RoleSelectorPreferencesMixin:
@@ -202,9 +191,10 @@ class RoleSelectorPreferencesMixin:
         help_btn.setFixedSize(24, 24)
         help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
 
-        stat_option_row = QHBoxLayout()
-        stat_option_row.setContentsMargins(0, 4, 0, 0)
-        stat_option_row.setSpacing(10)
+        stat_options = QGridLayout()
+        stat_options.setContentsMargins(0, 4, 0, 0)
+        stat_options.setHorizontalSpacing(10)
+        stat_options.setVerticalSpacing(8)
         soft_main_filter = QCheckBox("取消主词条硬过滤")
         soft_main_filter.setChecked(bool(current_stat_cfg.get("soft_main_filter", False)))
         soft_main_filter.setToolTip("优先使用所选主词条；没有合法匹配卡带时回退，其他约束保持生效。")
@@ -225,20 +215,19 @@ class RoleSelectorPreferencesMixin:
         grade_index = grade_combo.findData(current_min_grade)
         grade_combo.setCurrentIndex(grade_index if grade_index >= 0 else grade_combo.findData("A"))
         grade_combo.setEnabled(not ignore_grade_limit.isChecked())
-        stat_option_row.addWidget(soft_main_filter)
-        stat_option_row.addWidget(stat_equal)
-        stat_option_row.addWidget(blacklist_zero_weight)
-        stat_option_row.addStretch(1)
-        stat_layout.addLayout(stat_option_row)
-        stat_option_second_row = QHBoxLayout()
-        stat_option_second_row.setSpacing(10)
-        stat_option_second_row.addWidget(ignore_grade_limit)
-        # 用当前字体的两字留白分隔等级配置，行尾伸展仍保持整行靠左。
-        stat_option_second_row.addSpacing(ignore_grade_limit.fontMetrics().horizontalAdvance("\u3000\u3000"))
-        for option in (grade_label, grade_combo, help_btn):
-            stat_option_second_row.addWidget(option)
-        stat_option_second_row.addStretch(1)
-        stat_layout.addLayout(stat_option_second_row)
+        # 两行共用等宽列，随窗口均匀展开；等级是一组控件，不用文字空格定位。
+        for column, option in enumerate((soft_main_filter, stat_equal, blacklist_zero_weight)):
+            stat_options.setColumnStretch(column, 1)
+            stat_options.addWidget(option, 0, column)
+        stat_options.addWidget(ignore_grade_limit, 1, 0)
+        grade_row = QHBoxLayout()
+        grade_row.setSpacing(10)
+        grade_row.addWidget(grade_label)
+        grade_row.addWidget(grade_combo)
+        grade_row.addWidget(help_btn)
+        grade_row.addStretch(1)
+        stat_options.addLayout(grade_row, 1, 1, 1, 2)
+        stat_layout.addLayout(stat_options)
 
         crit_threshold_label = QLabel("暴击率最小值")
         crit_threshold_help = QPushButton("?")
@@ -371,7 +360,9 @@ class RoleSelectorPreferencesMixin:
         dlg.ensurePolished()
         layout.activate()
         margins = root.contentsMargins()
-        width = max(dlg.minimumWidth(), content.minimumSizeHint().width()+margins.left()+margins.right())
+        # 按当前字体收窄约四个汉字，仍以内容最小宽度兜底，避免高 DPI 下遮挡。
+        preferred_width = 720 - dlg.fontMetrics().horizontalAdvance("四个汉字")
+        width = max(preferred_width, content.minimumSizeHint().width()+margins.left()+margins.right())
         body_height = max(content.minimumSizeHint().height(), layout.totalHeightForWidth(width-margins.left()-margins.right()))
         # 摘要只增加所需高度，不撑宽窗口；超出工作区的内容由外层滚动承接。
         height = body_height+buttons.sizeHint().height()+root.spacing()+margins.top()+margins.bottom()

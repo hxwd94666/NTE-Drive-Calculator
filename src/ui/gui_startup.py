@@ -1,7 +1,7 @@
 # 初始化 Qt、异常处理和应用主窗口。
 import sys
 import threading
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEventLoop, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 from src.app.theme import apply_app_theme, install_dialog_defaults
@@ -33,7 +33,7 @@ def prepare_process_dpi_awareness():
             pass
 
 
-def run_gui(app_context, global_theme_settings, window_factory):
+def run_gui(app_context, global_theme_settings, window_factory, *, on_ready=None):
     """消费已经准备好的运行期依赖；Qt 初始化不再隐式创建默认账号。"""
     import faulthandler
 
@@ -54,7 +54,7 @@ def run_gui(app_context, global_theme_settings, window_factory):
     # 启动参数保留给 UAC/主题重启，Qt 只接收自己的平台参数。
     qt_args = [arg for arg in sys.argv if arg not in {"--gui", "--ime-compat"}]
     prepare_process_dpi_awareness()
-    app = QApplication(qt_args)
+    app = QApplication.instance() or QApplication(qt_args)
     app.setStyle("Fusion")
     account_settings = app_context.account_settings
     legacy_theme = account_settings.legacy_theme_preference()
@@ -69,5 +69,31 @@ def run_gui(app_context, global_theme_settings, window_factory):
         app.setWindowIcon(QIcon(str(app_context.paths.app_icon_path)))
     w = window_factory()
     w.show()
+    if on_ready is not None:
+        try:
+            on_ready()
+        except BaseException:
+            retire_failed_startup_window(w)
+            raise
     sys.exit(app.exec())
 
+
+
+def retire_failed_startup_window(window):
+    """持有外层数据租约，让本窗口既有异步 close 协议完成后才传播启动失败。"""
+    loop = QEventLoop()
+    timer = QTimer()
+    timer.setInterval(25)
+    def finish_when_closed():
+        if not window.isVisible():
+            loop.quit()
+    timer.timeout.connect(finish_when_closed)
+    window.close()
+    if window.isVisible():
+        timer.start()
+        try:
+            # 不全局关窗或终止线程；窗口的 closeEvent 负责 owner 的物理退场。
+            while window.isVisible():
+                loop.exec()
+        finally:
+            timer.stop()

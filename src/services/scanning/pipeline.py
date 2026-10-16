@@ -21,6 +21,8 @@ from src.domain.post_actions import (
 )
 from src.integrations.vision.equipment_state_detection import equipment_screenshot_state
 from src.services.inventory.post_action_evaluation import PostActionEvaluator
+from src.services.identification.matching_settings import MatchingSettingsService
+from concurrent.futures import CancelledError
 from src.utils.logger import logger
 from src.utils.perf import log_perf
 
@@ -376,6 +378,7 @@ def run_streaming_scan_parse(
                 config_dir=config_dir,
                 user_database_path=user_database_path,
                 static_database_path=static_database_path,
+                cancel_check=cancel_check,
             ).evaluate(scan_result.parsed_items, processor.inventory)
             effective_post_config = evaluation.config
             # 评分可能耗时；复核同一冻结账号/取消回调后才加载或构造输入 owner。
@@ -390,12 +393,20 @@ def run_streaming_scan_parse(
                     from src.services.scanning.state_sync import GamepadStateSyncService
 
                     state_sync_factory = GamepadStateSyncService
+                def check_current():
+                    if cancel_check is not None and cancel_check():
+                        raise CancelledError("扫描后管理已取消")
+                    if result_is_current is not None and not result_is_current():
+                        raise CancelledError("账号上下文已变化，扫描后管理已停止")
+                    if evaluation.matching_identity:
+                        MatchingSettingsService(user_database_path).require_identity(evaluation.matching_identity)
                 # 部分成功与 issue 原样保留；未知结果不在流水线自动重发。
                 post_action_summary = state_sync_factory(
                     scanner,
                     total_drives=total_drives,
                     post_action_ready_callback=post_action_ready_callback,
                     sleep_fn=time.sleep,
+                    check_current=check_current,
                 ).sync(evaluation.state_changes, evaluation.config)
                 post_action_filter_summary = evaluation.filter_summary
         else:

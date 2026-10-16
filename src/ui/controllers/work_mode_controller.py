@@ -183,6 +183,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         ):
             return None
         try:
+            preview = preview or self.policy.machine_revalidation_required is True
             tick_args = {"allow_connect": allow_connect and not self.policy.settings.paused}
             if allow_unrecorded_legacy_cleanup:
                 tick_args["allow_unrecorded_legacy_cleanup"] = True
@@ -541,6 +542,8 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             self._show_request_id = None
             if self._report_dialog is not None:
                 self._report_dialog.set_report(report)
+                from src.ui.migrated_machine_confirmation import confirm_migrated_machine
+                confirm_migrated_machine(self.window, self.policy, probe)
                 if request_id == self._sync_preflight_request and self._sync_preflight_callback:
                     decision = decide_sync_enable(
                         self.policy.settings, self.policy.deployment_record, probe,

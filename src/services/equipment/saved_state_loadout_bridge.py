@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from src.domain.drive_layout import extract_drive_blocks_from_state
+from src.domain.equipment.native_layout import validate_native_layout
 from src.domain.equipment.loadout_plan_scores import exact_assignment_score_total
 from src.domain.equipment.virtual_equipment import (
     is_virtual_equipment_assignment,
@@ -357,7 +358,14 @@ class SavedStateLoadoutBridge:
             shapes = {shape["shape_id"]: shape for shape in self.static_dao.list_shapes()}
 
         assignments: list[dict[str, Any]] = []
-        blocks = extract_drive_blocks_from_state({role_name: dict(role_state)})
+        if "native_layout" in role_state:
+            try:
+                assignments.extend(validate_native_layout(role_state, items_by_uid, shapes, parse_uid=_saved_uid))
+            except (ValueError, TypeError, KeyError) as error:
+                raise SavedStateLoadoutError("原生配装的冻结布局或装备身份验收失败") from error
+            blocks = []
+        else:
+            blocks = extract_drive_blocks_from_state({role_name: dict(role_state)})
         for block in blocks:
             drive = block.get("drive")
             if not isinstance(drive, Mapping):

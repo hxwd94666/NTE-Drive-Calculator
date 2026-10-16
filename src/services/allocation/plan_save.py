@@ -11,6 +11,10 @@ from src.optimizer.contracts import EQUIP_UID, PLAN_ASSIGNED_TAPE
 from src.services.allocation.locks import verify_allocation_lock_snapshot
 from src.services.equipment.saved_state_loadout_bridge import SavedStateLoadoutBridge
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.allocation.direct_postprocess import verify_direct_postprocess_ownership
+from src.services.allocation.axis_postprocess import verify_axis_postprocess_save
+from src.services.allocation.direct_group_postprocess import verify_direct_group_save
+from src.integrations.analysis_core_release import create_bundled_analysis_client
 
 
 def require_allocation_release(release, database_path):
@@ -24,23 +28,36 @@ def require_allocation_release(release, database_path):
 
 
 def save_allocation_plans(*, database_path, static_database_path, static_identity,
-                          lock_snapshot, rows, checkpoint, progress, static_release=None):
+                          lock_snapshot, rows, checkpoint, progress, static_release=None, axis_analysis_client=None):
     checkpoint()
     release = require_allocation_release(static_release, static_database_path)
     if not static_identity or static_identity[:2] != (release.database_path, release.dataset_id):
         raise RuntimeError("计算结果与冻结静态来源不一致，请重新计算。")
+    axis_rows = [row for row in rows if ((row.get("payload") or {}).get("damage_optimization") or {}).get("objective") == "frozen_axis_expected_v1"]
+    group_rows = [row for row in rows if row not in axis_rows and "group_index" in ((row.get("payload") or {}).get("damage_optimization") or {})]
+    direct_rows = [row for row in rows if row not in axis_rows and row not in group_rows]
+    if axis_rows and axis_analysis_client is None:
+        axis_analysis_client = create_bundled_analysis_client(static_database_path=release.database_path)
+    def verify_optimization(dao):
+        verify_direct_postprocess_ownership(dao, direct_rows, dataset_id=release.dataset_id)
+        if group_rows:
+            verify_direct_group_save(dao, group_rows, dataset_id=release.dataset_id)
+        if axis_rows:
+            verify_axis_postprocess_save(dao, axis_rows, dataset_id=release.dataset_id,
+                                         client=axis_analysis_client, checkpoint=checkpoint)
     reader = StaticCatalogReleaseReader()
     # 同一拒写pin覆盖准备、暂存和真实commit；共享旧DAO连接不参与来源许可。
     with UserDataDao(database_path) as user_dao, static_catalog_commit_unit(release.database_path, expected_release=release) as unit:
         static_dao = unit.dao
         verify_allocation_lock_snapshot(user_dao, lock_snapshot)
+        verify_optimization(user_dao)
         bridge = SavedStateLoadoutBridge(
             user_dao, static_dao, frozen_snapshot_id=lock_snapshot.inventory_snapshot_id,
         )
         prepared = []
         for index, row in enumerate(rows, 1):
             checkpoint()
-            arguments = {key: value for key, value in row.items() if key != "slot_id"}
+            arguments = {key: value for key, value in row.items() if key not in {"slot_id", "axis_preview_source", "direct_group_preview_source"}}
             plan = bridge.prepare_role_plan(**arguments)
             slot_id = row["slot_id"]
             if slot_id is None:
@@ -65,9 +82,13 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
             checkpoint()
             reader.ensure_unchanged(release)
 
+        def validate():
+            verify_allocation_lock_snapshot(user_dao, lock_snapshot)
+            verify_optimization(user_dao)
+
         user_dao.save_calculated_loadout_plans(
             prepared, checkpoint=commit_checkpoint,
-            validate=lambda: verify_allocation_lock_snapshot(user_dao, lock_snapshot),
+            validate=validate,
         )
         progress(("方案已保存，正在刷新页面…", len(rows) + 1, len(rows) + 4))
     return len(prepared)

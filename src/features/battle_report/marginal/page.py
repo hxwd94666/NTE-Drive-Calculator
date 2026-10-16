@@ -80,6 +80,7 @@ class BattleMarginalPage(QWidget):
     reset_requested = Signal()
     draft_changed = Signal()
     role_changed = Signal(object)
+    axis_optimization_requested = Signal()
 
     def __init__(self, *, game_ui_asset_root=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -106,6 +107,7 @@ class BattleMarginalPage(QWidget):
             inferred_toggled=self._mark_draft_changed,
             reset=self._reset_draft,
             recalculate=self._request_recalculate,
+            axis_optimize=self.axis_optimization_requested.emit,
         )
         self.character_combo = toolbar.character_combo
         self.change_summary = toolbar.change_summary

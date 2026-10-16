@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton, QWidget
 
 from src.app.context import AppContext
 from src.domain.work_mode import WorkMode
-from src.features.allocation.runner import AllocationController
+from src.features.allocation.controller import AllocationController
 from src.features.allocation.filter_settings_dialog import AllocationFilterSettingsDialog
 from src.integrations.global_hotkeys import GlobalHotkeyManager
 from src.ui.equipment_presentation import EquipmentPresentation
@@ -128,6 +128,7 @@ class ScanningController(QObject):
         self,
         *,
         app_context: AppContext,
+        role_suit_matching=None,
         dialog_parent: QWidget,
         navigate: Callable[[str], None],
         work_mode_provider: Callable[[], WorkMode],
@@ -138,6 +139,7 @@ class ScanningController(QObject):
         refresh_home: Callable[[], None],
         preferences_provider: Callable[[], dict[str, Any]],
         save_preferences: Callable[[], None],
+        global_preferences,
         refresh_roles: Callable[[], None],
         refresh_equipment: Callable[[], None],
         card_factory: Callable[..., Any],
@@ -148,14 +150,17 @@ class ScanningController(QObject):
         operation_entry: Callable[[str, str], bool] | None = None,
         operation_unavailable: Callable[[str, str, str], None] | None = None,
         prepare_calculation: Callable[[Callable[[], None]], None] | None = None,
+        axis_selection_service_provider: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(dialog_parent)
         self.app_context = app_context
+        self.role_suit_matching = role_suit_matching
         self.operation_entry = operation_entry
         self.operation_unavailable = operation_unavailable
         self.operation_guard = operation_guard
         self.operation_generation = operation_generation
         self._prepare_calculation = prepare_calculation
+        self._axis_selection_service_provider = axis_selection_service_provider
         self.dialog_parent = dialog_parent
         self.navigate = navigate
         self.work_mode_provider = work_mode_provider
@@ -167,6 +172,8 @@ class ScanningController(QObject):
         self._card_factory = card_factory
         self._preferences_provider = preferences_provider
         self._save_preferences_callback = save_preferences
+        from src.services.preferences.data_reading_settings import DataReadingSettings
+        self._data_reading_settings = DataReadingSettings(global_preferences)
         self._equipment_presentation = equipment_presentation
         self._hotkey_manager = hotkey_manager
         self._page: QWidget | None = None
@@ -245,6 +252,44 @@ class ScanningController(QObject):
             _do_exec(self)
         else:
             self._prepare_calculation(lambda: _do_exec(self))
+
+    def choose_axis_allocation(self, selected_roles, *, initial_request=None):
+        from src.features.allocation.axis_selection_dialog import AxisAllocationSelectionDialog
+        if self._axis_selection_service_provider is None:
+            QMessageBox.warning(self.dialog_parent, "轴优化未就绪", "当前账号轴选择服务未就绪。")
+            return None
+        service = self._axis_selection_service_provider()
+        try:
+            choices = service.choices(selected_roles)
+        except (ValueError, RuntimeError) as error:
+            QMessageBox.warning(self.dialog_parent, "轴优化未就绪", str(error))
+            return None
+        dialog = AxisAllocationSelectionDialog(service=service, choices=choices, initial_request=initial_request,
+                                                parent=self.dialog_parent)
+        try:
+            return dialog.selection if dialog.exec() == QDialog.Accepted else None
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+
+    def start_axis_allocation_from_battle(self, request):
+        """明确报告来自边际页；走同一冻结服务，不模拟点击或持久化候选。"""
+        if self.is_running():
+            QMessageBox.warning(self.dialog_parent, "计算进行中", "请先停止当前计算或扫描。")
+            return
+        self.build_page()
+        self.navigate("execute")
+        self.scan_group.button(4).setChecked(True)
+        self.strategy_group.button(3).setChecked(True)
+        if not self.role_selector.get_selected():
+            QMessageBox.information(self.dialog_parent, "请选择计算成员", "请先在计算页明确选择角色和优先组，再按本轴优化。")
+            return
+        def start():
+            _do_exec(self, axis_initial_request=request)
+        if self._prepare_calculation is None:
+            start()
+        else:
+            self._prepare_calculation(start)
 
     def request_stop(self) -> None:
         """Revoke active input/parse work without waiting on the GUI thread."""
@@ -381,6 +426,21 @@ class ScanningController(QObject):
 
     def _save_ui_preferences(self) -> None:
         self._save_preferences_callback()
+
+    def load_reading_options_expanded(self) -> bool:
+        try:
+            return self._data_reading_settings.load()
+        except (OSError, ValueError):
+            QMessageBox.warning(self.dialog_parent, "数据读取", "展开状态读取失败，本次默认收起；原设置未修改。")
+            return False
+
+    def save_reading_options_expanded(self, expanded: bool) -> bool:
+        try:
+            self._data_reading_settings.save(expanded)
+        except (OSError, ValueError):
+            QMessageBox.warning(self.dialog_parent, "数据读取", "展开状态保存失败，已保留原状态；请检查配置文件。")
+            return False
+        return True
 
     def _reload_full_scan_preference_widgets(self) -> None:
         """Project current-account scan preferences onto an already-built page."""

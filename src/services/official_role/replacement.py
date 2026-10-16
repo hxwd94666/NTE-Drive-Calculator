@@ -28,7 +28,7 @@ from src.optimizer.contracts import (
     EQUIP_UID,
 )
 from src.services.official_role.attributes import _role_panel_damage_inputs
-from src.services.official_role.marginal_scoring import calculate_official_role_final_weights, calculate_official_role_hidden_equipment_score, calculate_official_role_margins
+from src.services.official_role.marginal_scoring import calculate_official_role_final_weights, calculate_official_role_hidden_equipment_score, calculate_official_role_margins, prefetch_official_role_hidden_equipment_scores
 
 from src.services.official_role.attributes import _context_calculation_items, _total_direct_damage
 
@@ -277,6 +277,8 @@ def _rank_replacement_values(detail, context_key, target, values):
     current_direct_damage_score = (
         float(current_gain["gain_percent"]) if current_gain else None
     )
+    prefetch_official_role_hidden_equipment_scores(full_level_detail, [projected_target, *projected_candidates],
+        property_weights=final_weights["property_weights"], main_property_weights=final_weights["main_property_weights"])
     current_score = calculate_official_role_hidden_equipment_score(
         full_level_detail,
         projected_target,
