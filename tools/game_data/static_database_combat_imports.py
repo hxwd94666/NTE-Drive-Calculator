@@ -28,6 +28,17 @@ def fork_refinement_curve_value(curve: dict, level: int) -> float:
         return boundary[1]
     raise StaticDatabaseError(f'弧盘精炼曲线外推未支持：{field}')
 
+def _fork_parameter_name_id(parameter: Any) -> str:
+    """仅兼容两种已观测官方字段名；身份冲突、空值与类型错误仍中止候选。"""
+    if not isinstance(parameter, dict):
+        raise StaticDatabaseError("弧盘精炼参数不是对象")
+    values = [parameter[key] for key in ("NameID", "NameId") if key in parameter]
+    if not values or any(not isinstance(value, str) or not value.strip() for value in values):
+        raise StaticDatabaseError("弧盘精炼参数缺少正式曲线身份")
+    if len(set(values)) != 1:
+        raise StaticDatabaseError("弧盘精炼参数 NameID/NameId 身份冲突")
+    return values[0]
+
 
 class CombatImportMixin:
     def _import_forks(self) -> None:
@@ -202,14 +213,11 @@ class CombatImportMixin:
                     self.source_row_id("fork_stars", row_key),
                 ),
             )
-            for ordinal, parameter in enumerate(row.get("DataList", [])):
-                # 新测试服导出使用 NameId；只接受已观测的两种拼写，冲突拒绝导入。
-                name_id = parameter.get("NameID", parameter.get("NameId"))
-                if not isinstance(name_id, str) or not name_id.strip() or (
-                    "NameID" in parameter and "NameId" in parameter
-                    and parameter["NameID"] != parameter["NameId"]
-                ):
-                    raise StaticDatabaseError(f"弧盘精炼参数身份缺失或冲突：{row_key}/{ordinal}")
+            parameters = row.get("DataList", [])
+            if not isinstance(parameters, list):
+                raise StaticDatabaseError(f"弧盘精炼参数列表无效：{row_key}")
+            for ordinal, parameter in enumerate(parameters):
+                name_id = _fork_parameter_name_id(parameter)
                 self.connection.execute(
                     "INSERT INTO fork_star_parameter VALUES (?,?,?,?,?)",
                     (
@@ -507,6 +515,7 @@ class CombatImportMixin:
             "character_awaken_skill_level_bonus",
             "character_likeability_bonus",
             "character_likeability_bonus_property",
+            "character_likeability_gap",
             "character_panel_growth",
             "character_progression_profile",
             "character_upgrade_level",
@@ -590,6 +599,7 @@ class CombatImportMixin:
             "feast_stage",
             "feast_stage_difficulty",
             "feast_option",
+            "feast_option_effect",
             "feast_stage_option",
             "divination_buff",
             "clone_activity_category",

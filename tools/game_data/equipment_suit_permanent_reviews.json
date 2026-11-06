@@ -1,0 +1,305 @@
+{
+  "format": "equipment_suit_permanent_reviews_v1",
+  "source_dataset_id": "cn_formal_20261105_usmap0798cff8",
+  "source_static_schema": 43,
+  "source_database_sha256": "5403937c85aa57c94e0b1caa159e619c413ee973e95ec4f0dfb34183fd69cae3",
+  "reviews": [
+    {
+      "suit_id": "Suit1",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DamageUpChaosBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "e74d5a45c762333383bd991ca2151b0ea1db1ca1ce36d9b548112138236e942a"
+    },
+    {
+      "suit_id": "Suit1",
+      "required_count": 4,
+      "classification": "mixed",
+      "properties": [
+        {
+          "kind": "buff_modifier",
+          "asset_suffix": "_Effect",
+          "modifier_ordinal": 0,
+          "property_id": "DamagePenetrateChaos"
+        }
+      ],
+      "note": "常驻暗抗穿透12%；反应后提升至24%的部分为条件效果，不额外常驻叠加。",
+      "evidence_sha256": "8f3c258205b749ec0d1ff51ec2fab1c7861735f505b0878acf8e5b865169558f"
+    },
+    {
+      "suit_id": "Suit2",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DamageUpNatureBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "03f3c11b7eabc9c6b347f98c9713cc3a6ba8cd492401101ce36dd9862ff1c2a7"
+    },
+    {
+      "suit_id": "Suit2",
+      "required_count": 4,
+      "classification": "conditional_only",
+      "properties": [],
+      "note": "灵属性伤害事件触发暴伤层数，持续时间和层数均非装备即有。",
+      "evidence_sha256": "b92c4c2155eebb23254919dfaab92b293680a1fb033dc72643ec9d14f8ffc503"
+    },
+    {
+      "suit_id": "Suit3",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DamageUpPsycheBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "37735985b83d2e98d2e72d391f8a0575980a837f3577e9f03f5cb0b1a3253df5"
+    },
+    {
+      "suit_id": "Suit3",
+      "required_count": 4,
+      "classification": "mixed",
+      "properties": [
+        {
+          "kind": "buff_modifier",
+          "asset_suffix": "",
+          "modifier_ordinal": 0,
+          "property_id": "DamageUpGeneralBase"
+        }
+      ],
+      "note": "常驻通伤18%；目标处于黯星/浸染时额外18%保留为条件效果。",
+      "evidence_sha256": "f938369f7a30714ac0481e20c2b69e2445a72d2e8cb16c28dbfbfd0c00219fee"
+    },
+    {
+      "suit_id": "Suit4",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DamageUpIncantationBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "bc6454130ad3fe8ff85fe6e1abb411611b168a3364ea7d62c4f28afc47a5ddb0"
+    },
+    {
+      "suit_id": "Suit4",
+      "required_count": 4,
+      "classification": "conditional_only",
+      "properties": [],
+      "note": "咒属性伤害事件触发攻击力层数，不作为初始常驻。",
+      "evidence_sha256": "290c741e9f3aa635cfa00308e2273bd551dffa67d324640a72f8efe6d32ec364"
+    },
+    {
+      "suit_id": "Suit5",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DamageUpLakshanaBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "9bb922922b6bdaaeb5f520bc565ca4b0a8faee64d74fc65dfe302dd29c8ff96f"
+    },
+    {
+      "suit_id": "Suit5",
+      "required_count": 4,
+      "classification": "mixed",
+      "properties": [
+        {
+          "kind": "buff_modifier",
+          "asset_suffix": "",
+          "modifier_ordinal": 0,
+          "property_id": "CritBase"
+        }
+      ],
+      "note": "常驻暴击14%；反应后额外14%不作为常驻。",
+      "evidence_sha256": "cf5da9f2faf4b344834a76a9776764d9d79f52d2847c9fa1cd8199a83ca3cdc2"
+    },
+    {
+      "suit_id": "Suit6",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DamageUpCosmosBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "78c66f097c0ba081a2c79be950ba922576f483210c2c4beebf1e4ebf0080a477"
+    },
+    {
+      "suit_id": "Suit6",
+      "required_count": 4,
+      "classification": "conditional_only",
+      "properties": [],
+      "note": "终结技后20秒无视防御，属于触发增益。",
+      "evidence_sha256": "09f87fabd13e30d60185573285d7e761959be18a5839b204684fe9aa2d758fd6"
+    },
+    {
+      "suit_id": "Suit7",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DefUp"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "347902821edd7a7ff2187ed47be995f3b5be729e1ff56e3f891475bece83f595"
+    },
+    {
+      "suit_id": "Suit7",
+      "required_count": 4,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "ShieldEfficiency"
+        }
+      ],
+      "note": "护盾效率20%为无条件常驻，不等同于普通伤害提升。",
+      "evidence_sha256": "391061b9d2f715e0b20a270c4cc3e1bda3dea54770afe5187e9cfa5685c7d993"
+    },
+    {
+      "suit_id": "Suit8",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "AtkUp"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "6adf6cf3ef529335add078a37bb7fda05633a11d1dbc8a95c726e229f4eeabaa"
+    },
+    {
+      "suit_id": "Suit8",
+      "required_count": 4,
+      "classification": "conditional_only",
+      "properties": [],
+      "note": "变轨技能后20秒攻击提升，属于触发增益。",
+      "evidence_sha256": "4797283f90a3874e6dc44777d7db30b02d0c7aeca7812c88216a59ad1d4ba3d9"
+    },
+    {
+      "suit_id": "Suit9",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "HPMaxUp"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "ad5c03a56716292748808fba7352cfe9af9f908e4c75a84a380dd5f35a8af03d"
+    },
+    {
+      "suit_id": "Suit9",
+      "required_count": 4,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "HealUp"
+        }
+      ],
+      "note": "治疗效率20%为无条件常驻，不等同于普通伤害提升。",
+      "evidence_sha256": "378da37397169451ecbaf11045a633cad8f52ca298a5f32a4654b596858d2c8e"
+    },
+    {
+      "suit_id": "Suit10",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "HPMaxUp"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "02441686c36a258f31bbcf2a550865287e01769969cc3efb3a41f6eaae6bbdbd"
+    },
+    {
+      "suit_id": "Suit10",
+      "required_count": 4,
+      "classification": "conditional_only",
+      "properties": [],
+      "note": "扣血或终结技触发生命层数，无触发时不补十层。",
+      "evidence_sha256": "0252390802927acb6fc2cf66903b5fffb1a67326ad2b1e7e42a21bd6d830c443"
+    },
+    {
+      "suit_id": "Suit11",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "ChargeGetEfficiencyBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "6265a20532a4918e2ca07f40705b9e121cbdfbe2328a89cb3b168a52d9e3b950"
+    },
+    {
+      "suit_id": "Suit11",
+      "required_count": 4,
+      "classification": "conditional_only",
+      "properties": [],
+      "note": "终结技后全队攻击提升，无触发时不补常驻。",
+      "evidence_sha256": "18ebdccddec27ee39fb6d733765e3df0113aa5fb5a8f33114077604f6e5099ba"
+    },
+    {
+      "suit_id": "Suit12",
+      "required_count": 2,
+      "classification": "permanent_only",
+      "properties": [
+        {
+          "kind": "modify_pack",
+          "ordinal": 0,
+          "property_id": "DamageUpPsychicallyBase"
+        }
+      ],
+      "note": "二件套修改包无前置条件，常驻一次。",
+      "evidence_sha256": "f3f778bc584462d1a644f6822272793e8e22057ed0a0c9974d1d185d302ce599"
+    },
+    {
+      "suit_id": "Suit12",
+      "required_count": 4,
+      "classification": "conditional_only",
+      "properties": [],
+      "note": "普攻后心灵伤害层数，无触发时不补三层。",
+      "evidence_sha256": "9a1e9e01f84d67d149c334033ddd0e028b2c9c82555fb75486fafa7bc1869f47"
+    }
+  ]
+}

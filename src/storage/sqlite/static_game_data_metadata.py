@@ -1,7 +1,7 @@
 # 静态游戏数据库版本与摘要表清单。
 """规范化静态库的权威版本与摘要表清单；只描述发行结构，不执行迁移。"""
 
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 44
 MINIMUM_SUPPORTED_SCHEMA_VERSION = 31
 
 SUMMARY_TABLES = (
@@ -20,6 +20,7 @@ SUMMARY_TABLES = (
     "character_awaken_skill_level_bonus",
     "character_likeability_bonus",
     "character_likeability_bonus_property",
+    "character_likeability_gap",
     "character_panel_growth",
     "character_progression_profile",
     "character_upgrade_level",
@@ -103,6 +104,8 @@ SUMMARY_TABLES = (
     "feast_stage_difficulty",
     "feast_option",
     "feast_mechanism_detail",
+
+    "feast_option_effect",
     "feast_stage_option",
     "divination_buff",
     "clone_activity_category",

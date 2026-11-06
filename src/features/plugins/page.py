@@ -1,6 +1,6 @@
 # 展示紧凑的游戏内显示卡片，并直接编辑各插件的显示选项。
 from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QVBoxLayout, QWidget,
@@ -29,6 +29,11 @@ class _ToggleSwitch(QCheckBox):
         painter.setPen(QColor(theme_color("#c9d1d9")))
         painter.drawText(QRectF(56, 0, self.width() - 56, self.height()),
                          Qt.AlignLeft | Qt.AlignVCenter, self.text())
+        # 自绘开关也必须显式呈现键盘焦点，不能只保留不可见的 checkbox 焦点状态。
+        if self.hasFocus():
+            painter.setPen(QPen(QColor(theme_color("#58a6ff")), 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(QRectF(.5, .5, self.width() - 1, self.height() - 1), 5, 5)
 
 
 class PluginsPage(QWidget):
@@ -58,18 +63,16 @@ class PluginsPage(QWidget):
         )
 
         if quick_wheel is not None:
-            wheel_card = QFrame()
-            wheel_card.setObjectName("card")
-            wheel_layout = QVBoxLayout(wheel_card)
-            self.wheel_toggle = QCheckBox("游戏内快捷轮盘")
+            self.wheel_toggle, self.wheel_badge, wheel_layout = self._add_card(
+                layout, "quick_wheel", "自定义打桩",
+                "按住 Tab 选择功能；指向木桩展开次轮盘，回中心返回。", (),
+                on_toggle=self._toggle_wheel,
+            )
             self.wheel_status = QLabel()
-            wheel_hint = QLabel("按住 Tab 选择功能；指向木桩展开次轮盘，回中心返回。开启后替换原 Tab 轮盘，关闭后恢复。")
-            wheel_hint.setWordWrap(True)
-            wheel_layout.addWidget(self.wheel_toggle)
-            wheel_layout.addWidget(self.wheel_status)
-            wheel_layout.addWidget(wheel_hint)
-            layout.addWidget(wheel_card)
-            self.wheel_toggle.toggled.connect(self._toggle_wheel)
+            self.wheel_status.setTextFormat(Qt.PlainText)
+            self.wheel_status.setWordWrap(True)
+            self.wheel_status.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px")
+            wheel_layout.insertWidget(1, self.wheel_status)
             quick_wheel.changed.connect(self._refresh_wheel)
             self._refresh_wheel()
 
@@ -95,7 +98,7 @@ class PluginsPage(QWidget):
         try:
             self.quick_wheel.set_enabled(enabled)
         except (OSError, RuntimeError, ValueError) as error:
-            QMessageBox.warning(self, "快捷轮盘", str(error))
+            QMessageBox.warning(self, "自定义打桩", str(error))
         self._refresh_wheel()
 
     def _refresh_wheel(self):
@@ -103,11 +106,31 @@ class PluginsPage(QWidget):
             return
         self.wheel_toggle.blockSignals(True)
         self.wheel_toggle.setChecked(self.quick_wheel.enabled)
+        self.wheel_toggle.setText("已开启" if self.quick_wheel.enabled else "已关闭")
         self.wheel_toggle.blockSignals(False)
         self.wheel_toggle.setEnabled(self.service.policy.allowed("native_load") or self.quick_wheel.enabled)
-        self.wheel_status.setText(f"{self.quick_wheel.status} · 自有木桩 {self.quick_wheel.owned_count}")
+        text, tone = self._wheel_status_presentation(self.quick_wheel.status, self.quick_wheel.enabled)
+        self._set_badge(self.wheel_badge, text, tone, self.quick_wheel.status)
+        self.wheel_status.setText(f"自有木桩：{self.quick_wheel.owned_count}")
 
-    def _add_card(self, layout, key: str, title: str, description: str, fields) -> None:
+    @staticmethod
+    def _wheel_status_presentation(raw: str, checked: bool) -> tuple[str, str]:
+        # 偏好与后验状态分开：关闭请求尚未确认时，不能因开关已关就显示成功。
+        if raw == "关闭待确认" or "停用未确认" in raw:
+            return "关闭待确认", "warning"
+        if not checked and raw in {"未开启", "已关闭"}:
+            return "已关闭", "neutral"
+        if checked and raw == "已启用":
+            return "已启用", "success"
+        if raw == "正在启用":
+            return "正在启用", "active"
+        if raw.startswith(("等待", "账号已切换")):
+            return "等待就绪", "warning"
+        if raw.startswith("连接已恢复"):
+            return "正在恢复", "active"
+        return "状态异常", "error"
+
+    def _add_card(self, layout, key: str, title: str, description: str, fields, *, on_toggle=None):
         frame = QFrame()
         frame.setObjectName("card")
         card = QVBoxLayout(frame)
@@ -127,7 +150,11 @@ class PluginsPage(QWidget):
         row.addStretch()
         toggle = _ToggleSwitch()
         toggle.setObjectName(f"plugin_{key}")
-        toggle.toggled.connect(lambda enabled, key=key: self._update(**{key: enabled}))
+        toggle.setAccessibleName(title)
+        if on_toggle is None:
+            toggle.toggled.connect(lambda enabled, key=key: self._update(**{key: enabled}))
+        else:
+            toggle.toggled.connect(on_toggle)
         row.addWidget(toggle)
         card.addLayout(row)
 
@@ -146,9 +173,12 @@ class PluginsPage(QWidget):
         options.addStretch()
         if fields:
             card.addLayout(options)
-        self.cards[key] = toggle, status
-        self.option_boxes[key] = boxes
+        # 轮盘由独立 controller 管理，不登记成 HUD 设置字段，也不参与 HUD 的刷新和提交。
+        if on_toggle is None:
+            self.cards[key] = toggle, status
+            self.option_boxes[key] = boxes
         layout.addWidget(frame)
+        return toggle, status, card
 
     @staticmethod
     def _status_presentation(raw: str, checked: bool) -> tuple[str, str]:

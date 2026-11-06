@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -29,9 +30,10 @@ from src.services.static_catalog.monsters.models import (
 from src.ui.widgets import NoWheelComboBox
 
 
-FeastDetailLoader = Callable[
-    [str, str, int, tuple[str, ...]], CatalogDetail | None
-]
+class FeastDetailLoader(Protocol):
+    def __call__(self, period_id: str, stage_id: str, difficulty_id: int,
+                 selected_option_ids: tuple[str, ...], boss_monster_id: str | None = None) -> CatalogDetail | None: ...
+
 BlessingDetailLoader = Callable[[str], CatalogDetail | None]
 
 
@@ -84,6 +86,10 @@ class FeastEncounterView(QWidget):
         self.difficulty_combo.setMinimumWidth(210)
         self.difficulty_combo.currentIndexChanged.connect(self._refresh_detail)
         summary_row.addWidget(self.difficulty_combo, 1)
+        self.target_combo = NoWheelComboBox(self.controls)
+        self.target_combo.setAccessibleName("赏宴画像目标")
+        self.target_combo.currentIndexChanged.connect(self._target_changed)
+        self.controls_layout.addWidget(self.target_combo)
         self.condition_summary = QLabel("未启用挑战条件", self.controls)
         self.condition_summary.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px"
@@ -166,10 +172,16 @@ class FeastEncounterView(QWidget):
         self.subtitle.setText(
             f"{setup.title} · {setup.boss_name} · {setup.schedule_label}"
         )
+        self.target_combo.clear()
+        if len(setup.targets) > 1:
+            self.target_combo.addItem("请选择画像目标", None)
+        for ordinal, target in enumerate(setup.targets, 1):
+            self.target_combo.addItem(f"目标 {ordinal} · {target.display_name}", target)
+        self.target_combo.setVisible(len(setup.targets) > 1)
         self.difficulty_combo.clear()
         for difficulty in setup.difficulties:
             self.difficulty_combo.addItem(
-                f"{difficulty.display_name} · Lv.{difficulty.monster_level}",
+                difficulty.display_name + (f" · Lv.{difficulty.monster_level}" if difficulty.monster_level is not None else ""),
                 difficulty.difficulty_id,
             )
         default_index = self.difficulty_combo.findData(setup.default_difficulty_id)
@@ -184,6 +196,7 @@ class FeastEncounterView(QWidget):
             combo.addItem("不启用", "")
             for option in group.options:
                 combo.addItem(option.display_name, option.option_id)
+                combo.setItemData(combo.count() - 1, option.display_name, Qt.ItemDataRole.ToolTipRole)
             combo.currentIndexChanged.connect(self._refresh_detail)
             self._option_combos.append(combo)
             self._selector_widgets.append(
@@ -256,6 +269,12 @@ class FeastEncounterView(QWidget):
         difficulty_id = self.difficulty_combo.currentData()
         if difficulty_id is None:
             return
+        target = self.target_combo.currentData()
+        if len(self._setup.targets) > 1 and target is None:
+            self.condition_summary.setText("请选择当前画像目标；不同目标使用各自的等级和属性包。")
+            self.detail.hide()
+            return
+        self.detail.show()
         selected = tuple(
             str(combo.currentData())
             for combo in self._option_combos
@@ -265,11 +284,14 @@ class FeastEncounterView(QWidget):
             f"已启用 {len(selected)} 项"
             if selected else (self._setup.condition_note or "未启用挑战条件")
         )
+        if selected and self._setup.condition_note:
+            self.condition_summary.setText(self.condition_summary.text() + "；" + self._setup.condition_note)
         detail = self._loader(
             self._setup.period_id,
             self._setup.stage_id,
             int(difficulty_id),
             selected,
+            *([target.monster_id] if len(self._setup.targets) > 1 and target is not None else []),
         )
         if detail is None:
             return
@@ -285,6 +307,23 @@ class FeastEncounterView(QWidget):
                 level=self.difficulty_combo.currentText(),
             ),
         )
+
+    def _target_changed(self) -> None:
+        if self._loading or self._setup is None:
+            return
+        current = self.difficulty_combo.currentData()
+        target = self.target_combo.currentData()
+        choices = target.difficulties if target is not None else self._setup.difficulties
+        self._loading = True
+        try:
+            self.difficulty_combo.clear()
+            for difficulty in choices:
+                label = difficulty.display_name + (f" · Lv.{difficulty.monster_level}" if difficulty.monster_level is not None else "")
+                self.difficulty_combo.addItem(label, difficulty.difficulty_id)
+            self.difficulty_combo.setCurrentIndex(max(0, self.difficulty_combo.findData(current)))
+        finally:
+            self._loading = False
+        self._refresh_detail()
 
     def _layout_options(self, *, force: bool = False) -> None:
         if self.width() < 680:

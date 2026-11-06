@@ -44,6 +44,7 @@ def spin(app, predicate):
 
 
 class Owner(QWidget):
+    _team_axis_dialog = None
     _start_vision_processing = workflow._start_vision_processing
     _on_vision_progress = workflow._on_vision_progress
     _on_vision_done = workflow._on_vision_done

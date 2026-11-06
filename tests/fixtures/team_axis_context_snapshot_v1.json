@@ -1,0 +1,18 @@
+{
+  "format": "team_axis_context_snapshot_v1",
+  "account_id": "测试账号-α",
+  "scope": {
+    "battle_record_id": 9007199254740993,
+    "start_us": null,
+    "end_us": null,
+    "detail_scope": null
+  },
+  "dataset_id": "fixture",
+  "static_schema": 42,
+  "static_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "engine_version": "0.3.8",
+  "source_input_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "payload_sha256": "9afce4fbfa83827b7a8f42581d82c47b915a1ac2919e197c4c946a986327526e",
+  "payload_json": "{\"record\":{\"id\":1,\"label\":\"合成\"},\"evidence\":{},\"build\":{\"ordered\":{\"b\":2,\"a\":1}},\"edit\":null,\"saved_target\":null,\"inferred_target\":null,\"world_bonus\":{\"yaodao_attack_add\":0.0,\"quantao_crit_damage\":0.0},\"semantics\":{}}",
+  "snapshot_sha256": "d50b316e350e0c0569e580598e8c9904dbb4f21cc9d3950ceed931b1d77be7da"
+}

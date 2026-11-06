@@ -33,3 +33,4 @@ class TeamRole:
     name: str
     icon_path: str = ""
     custom: bool = False
+    icon_note: str = ""

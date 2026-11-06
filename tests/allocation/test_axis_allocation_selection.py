@@ -12,9 +12,10 @@ import pytest
 
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import create_axis_catalog_case
 from src.features.allocation.team_axis_dialog import TeamAxisDialog
-from src.domain.teams import TeamDraft
+from src.domain.teams.models import TeamDraft
 from src.services.allocation.axis_selection import AxisAllocationSelectionService
 from src.storage.sqlite.user_data_dao import UserDataDao
+from team_report_fixture import MatchingFixture, drain_dialog, wait_for
 
 
 NTE_TEST_TIER = "core"
@@ -74,7 +75,8 @@ def make_team_dialog(selection_service, **kwargs):
     with UserDataDao(case["dependencies"].user_database_path) as dao:
         team = dao.save_team(TeamDraft("公开四人队", (1072, 1003, 1004, 1008)))
     choices = replace(choices, role_character_ids=(("灵可", 1072), ("队友甲", 1003), ("队友乙", 1004), ("队友丙", 1008)))
-    return TeamAxisDialog(service=service, teams=(team,), choices=choices, **kwargs)
+    matcher = MatchingFixture(choices.entries, (team,))
+    return TeamAxisDialog(service=service, matching_service=matcher, teams=(team,), choices=choices, **kwargs)
 
 
 def test_team_dialog_requires_report_and_preserves_explicit_range(selection_service):
@@ -86,16 +88,18 @@ def test_team_dialog_requires_report_and_preserves_explicit_range(selection_serv
     dialog = make_team_dialog(selection_service, initial_request=replace(selected.battle, marginal_drive_units=(("AtkUp", 100.0),)))
     try:
         row = dialog._rows[0]
-        assert row["report"].currentData() == case["battle_record_id"]
-        assert row["scope"].currentData() == "range"
+        assert row["match"].candidate.range.record_id == case["battle_record_id"]
+        assert row["match"].candidate.range.scope == "range"
         dialog.buttons.button(QDialogButtonBox.Ok).click()
         assert dialog.selection is None  # 来自战报的快捷入口不替用户选队伍。
         row["check"].click()
         dialog.buttons.button(QDialogButtonBox.Ok).click()
+        wait_for(lambda: not dialog.is_running())
         axis = dialog.selection.teams[0].axis
         assert axis.optimize_groups and axis.battle.marginal_drive_units is None
         assert (axis.battle.start_us, axis.battle.end_us) == (500_000, 1_000_001)
     finally:
+        drain_dialog(dialog)
         dispose(dialog)
 
 
@@ -108,18 +112,14 @@ def test_team_dialog_range_keyboard_cancel_has_no_selection_write(selection_serv
         dialog.show()
         row = dialog._rows[0]
         row["check"].click()
-        assert row["report"].currentData() is None
+        assert row["match"] is None
         dialog.buttons.button(QDialogButtonBox.Ok).click()
         assert dialog.selection is None
-        row["report"].setCurrentIndex(row["report"].findData(case["battle_record_id"]))
-        for scope in ("all", "range", "all", "range"):
-            row["scope"].setCurrentIndex(row["scope"].findData(scope))
-            app.processEvents()
-            assert row["time"].isVisible() == (scope == "range")
-            assert row["time_label"].isVisible() == (scope == "range")
+        app.processEvents()
         with patch.object(service, "select", wraps=service.select) as select:
             QTest.keyClick(dialog.buttons.button(QDialogButtonBox.Cancel), Qt.Key_Space)
             select.assert_not_called()
         assert dialog.selection is None and dialog.result() == 0 and not dialog.isVisible()
     finally:
+        drain_dialog(dialog)
         dispose(dialog)

@@ -3,10 +3,12 @@
 
 from concurrent.futures import CancelledError
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import List, Dict, Any, Mapping
 
 from src.domain.crit_threshold import meets_preference_grade_limit, stat_priority_match_depth
+from src.domain.equipment.equipment_normalizer import equipment_quality_coefficient
 from src.domain.grade_limits import meets_min_grade
 from src.domain.suit_identity import tape_suit_key
 from src.domain.stat_catalog import StatCatalog
@@ -57,7 +59,7 @@ class ScoringEngine:
         self.gold_base_values = {}
         self.main_only_keywords = []
         self.stat_alias_mapping = {}
-        self.quality_map = {"Gold": 1.0, "Purple": 0.8, "Blue": 0.6}
+        self.quality_map = {name: equipment_quality_coefficient(name) for name in ("Gold", "Purple", "Blue")}
         if stat_catalog is None:
             self._load_stats()
         else:
@@ -67,6 +69,18 @@ class ScoringEngine:
         from src.integrations.equipment_score_backend import NativeEquipmentScorer
         self._native_scores = NativeEquipmentScorer(self.stat_catalog, self.quality_map,
                                                     self.static_database_path, scoring_client)
+
+    def frozen_copy(self) -> "ScoringEngine":
+        """冻结评分输入而非复制客户端资源；权重由比较请求单独持有。"""
+        frozen = ScoringEngine(
+            self.config_dir, roles_db={}, static_database_path=self.static_database_path,
+            stat_catalog=deepcopy(self.stat_catalog), scoring_client=self._native_scores.client,
+        )
+        # 品质系数同属本次规则；保留新 backend 对这份独立字典的引用。
+        # 仅借用已绑定的无账号短进程客户端，不复制线程锁、评分缓存或重读账号。
+        frozen.quality_map.clear()
+        frozen.quality_map.update(deepcopy(self.quality_map))
+        return frozen
 
     def _load_stats(self):
         stats_path = Path(self.config_dir) / "stats.json"
@@ -210,8 +224,9 @@ class ScoringEngine:
         return self._native_scores.score(drive, weights, max_weight, kind="drive", zeros=zero_weight_stats)
 
     def calculate_cartridge_score(self, tape: Tape, weights: dict, max_weight: float,
-                                  main_weights: dict | None = None) -> float:
-        return self._native_scores.score(tape, weights, max_weight, kind="tape", main_weights=main_weights)
+                                  main_weights: dict | None = None, *, zero_weight_stats=None) -> float:
+        return self._native_scores.score(tape, weights, max_weight, kind="tape", main_weights=main_weights,
+                                         zeros=zero_weight_stats)
 
     def _is_a_grade_item(self, role: str, item: BaseEquipment) -> bool:
         score = getattr(item, "role_scores", {}).get(role, 0.0)
@@ -421,7 +436,11 @@ class ScoringEngine:
                     or (allowed_mains and self._tape_main_allowed(t, allowed_mains))
                 )
             ]
-            role_tapes = [t for t in checked(role_tapes) if self._tape_main_allowed(t, allowed_mains)]
+            config = crit_priority_modes.get(role_name) or {}
+            # 黑名单先于Top-K，缺卡或主词条软回退也不得重新纳入命中的副词条。
+            role_tapes = [t for t in checked(role_tapes) if self._tape_main_allowed(t, allowed_mains)
+                          and (config.get("blacklist_zero_weight")
+                               or not self._item_matches_stat_blacklist(t, config))]
             set_buckets = {}
             for t in checked(role_tapes):
                 set_buckets.setdefault(tape_suit_key(t), []).append(t)

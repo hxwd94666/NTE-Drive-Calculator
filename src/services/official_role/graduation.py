@@ -78,7 +78,8 @@ def graduation_template_with_weight_substats(detail: dict) -> dict | None:
     if not isinstance(detail.get("property_weights"), dict):
         return dict(template)
     config_dir = detail.get("config_dir") or bundled_config_dir()
-    catalog = StatCatalog.from_config_dir(config_dir)
+    frozen_catalog = detail.get("stat_catalog")
+    catalog = frozen_catalog if isinstance(frozen_catalog, StatCatalog) else StatCatalog.from_config_dir(config_dir)
     labels_by_property = {
         property_id: label for label, property_id in _WEIGHT_PROPERTY_CHOICES
     }
@@ -276,6 +277,9 @@ def _resolved_graduation_context_key(detail: dict, context_key: str) -> str:
 
 def graduation_tooltip(detail: dict) -> str:
     """Describe the benchmark equipment behind the graduation percentage."""
+
+    if (detail.get("likeability_bonus") or {}).get("availability") == "unavailable":
+        return "满练度毕业基准需要十级好感属性；当前同版资料缺项，尚未生成该角色的毕业基准。"
 
     template = graduation_template_with_weight_substats(detail)
     if not isinstance(template, dict):

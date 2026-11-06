@@ -17,7 +17,7 @@ from src.services.progression.models import (
 from src.services.progression.planner_service import CultivationPlannerService
 
 # 计算/聚合语义变化时单独升版；与 JSON 格式版本不是同一身份。
-CULTIVATION_ALGORITHM_VERSION = "cultivation-v1"
+CULTIVATION_ALGORITHM_VERSION = "cultivation-v3-estimate-20261106"
 
 
 def _stamina(result: ProgressionStaminaResult | None) -> dict[str, object]:
@@ -32,8 +32,8 @@ def _stamina(result: ProgressionStaminaResult | None) -> dict[str, object]:
     }
 
 
-def _base(dataset: Mapping[str, object]) -> dict[str, object]:
-    return {"version": PAYLOAD_VERSION, "dataset": dict(dataset),
+def _base(dataset: Mapping[str, object], version: int = PAYLOAD_VERSION) -> dict[str, object]:
+    return {"version": version, "dataset": dict(dataset),
             "algorithm_version": CULTIVATION_ALGORITHM_VERSION}
 
 
@@ -54,7 +54,7 @@ def single_history_payload(
         gaps.extend({"line_id": None, "reason_code": reason, "item_id": None} for reason in total.gaps)
     else:
         gaps.append({"line_id": None, "reason_code": "stamina_unavailable", "item_id": None})
-    snapshot = _base(dataset)
+    snapshot = _base(dataset, configuration["version"])
     snapshot.update({
         "materials": [{"item_id": item.item_id, "name": item.name, "required": item.quantity,
                        "allocated_equivalent": allocated.get(item.item_id, 0),
@@ -74,7 +74,7 @@ def batch_history_payload(
 ) -> HistoryPayload:
     configuration = json.loads(configuration_json)
     remaining = {item.item_id: item.quantity for item in plan.remaining_totals}
-    snapshot = _base(dataset)
+    snapshot = _base(dataset, configuration["version"])
     snapshot.update({
         "materials": [{"item_id": item.item_id, "name": item.name, "required": item.quantity,
                        "allocated_equivalent": item.quantity - remaining.get(item.item_id, 0),

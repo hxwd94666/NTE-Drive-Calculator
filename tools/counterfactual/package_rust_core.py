@@ -64,7 +64,7 @@ def main() -> int:
         **version,
         "sha256": build_record["sha256"],
         "size_bytes": executable.stat().st_size,
-        "source_files": build_record["source_files"],
+        # 逐文件构建收据只留在私库；交付清单绑定整体输入摘要，不外发内部源码冻结清单。
         "source_base_commit": build_record["source_base_commit"],
         "source_worktree_modified": build_record["source_worktree_modified"],
         "rustc": build_record["rustc"],
@@ -102,7 +102,7 @@ def main() -> int:
             raise RuntimeError("archive verification failed")
     print(json.dumps({"engine_version": version["engine_version"],
                       "sha256": manifest["sha256"], "size_bytes": manifest["size_bytes"],
-                      "source_file_count": len(manifest["source_files"])}, ensure_ascii=False))
+                      "source_file_count": len(build_record["source_files"])}, ensure_ascii=False))
     return 0
 
 

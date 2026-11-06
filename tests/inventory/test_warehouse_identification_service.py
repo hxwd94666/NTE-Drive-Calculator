@@ -27,14 +27,17 @@ class WarehouseIdentificationServiceTests(unittest.TestCase):
             def _resolve_set_name(value):
                 return value
 
+        prepare_calls = []
         class Scoring:
             @staticmethod
-            def max_theoretical_weight(_weights):
-                return 10.0
-
-            @staticmethod
-            def calculate_drive_score(_item, weights, _max_weight):
-                return weights["score"]
+            def prepare_scores(items, *, checkpoint=None, assign_scores=False):
+                prepare_calls.append((len(items), assign_scores))
+                assert assign_scores
+                for candidate in items:
+                    if checkpoint is not None:
+                        checkpoint()
+                    candidate.role_scores = {name: role["weights"]["score"]
+                                             for name, role in Orchestrator.roles_db.items()}
 
             @staticmethod
             def get_grade_tag(score, _area):
@@ -57,9 +60,14 @@ class WarehouseIdentificationServiceTests(unittest.TestCase):
             cast(Any, Scoring()),
         )
 
+        before = item.model_dump()
         result = service.identify_item(item)
 
-        self.assertIs(item, result["item"])
+        # 鉴定在独立副本上批量评分；输入对象及其旧评分不能被展示准备改写。
+        self.assertIsNot(item, result["item"])
+        self.assertEqual(before, item.model_dump())
+        self.assertEqual(item.uid, result["item"].uid)
+        self.assertEqual([(1, True)], prepare_calls)
         self.assertEqual(["角色B", "角色A"], [row["role"] for row in result["rows"]])
         self.assertEqual(["S", "A"], [row["grade"] for row in result["rows"]])
 

@@ -76,6 +76,9 @@ def prepare_axis_team_selection(client, selection, selected_roles, *, user_datab
     except NativeAnalysisCancelled:
         raise CancelledError from None
     check()
+    if (selection.expected_source_input_digest is not None
+            and team["source_input_digest"] != selection.expected_source_input_digest):
+        raise ValueError("所选战报输入在确认后已变化，请重新匹配并确认范围。")
     if team["outside_character_ids"]:
         outsiders = set(team["outside_character_ids"])
         names = "、".join(name for name, cid in mapped if cid in outsiders)

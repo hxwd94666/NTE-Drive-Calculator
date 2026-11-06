@@ -461,6 +461,12 @@ class StaticGameDataQueriesMixin(
                     damage[key] = bool(damage[key])
         return skills
 
+    def list_character_skill_level_requirements(self, character_id: int) -> list[dict[str, Any]]:
+        """目标编辑只读基础技能等级和前置，不加载逐击倍率/材料正文。"""
+        return self._rows(
+            "SELECT skill_id,level,required_breakthrough_stage,required_awaken_level "
+            "FROM character_skill_level WHERE character_id=? ORDER BY skill_id,level", (character_id,))
+
     def list_shapes(self) -> list[dict[str, Any]]:
         shapes = self._rows(
             """

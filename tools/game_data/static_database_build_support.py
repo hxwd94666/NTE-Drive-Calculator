@@ -86,9 +86,11 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "040_game_static_summon_season.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "041_game_static_feast_mechanisms.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "042_game_static_reference_characters.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "043_game_static_likeability_gap.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "044_game_static_feast_targets.sql",
 )
-SCHEMA_VERSION = 42
-IMPORTER_VERSION = 60
+SCHEMA_VERSION = 44
+IMPORTER_VERSION = 61
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -298,6 +300,25 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def graduation_template_gaps(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    """只消费借用连接中的已证实缺项；图鉴用途不声明满练度毕业能力。"""
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "character_likeability_gap" not in tables:
+        return []
+    if "dataset_scope" not in tables:
+        raise StaticDatabaseError("毕业缺项报告缺少静态用途身份")
+    scope = connection.execute("SELECT scope FROM dataset_scope").fetchone()
+    if scope is None or scope[0] not in {"game", "reference", "role_page"}:
+        raise StaticDatabaseError("毕业缺项报告的静态用途未识别")
+    if scope[0] != "game":
+        return []
+    return [{"character_id": row[0], "reason": "likeability_source_unavailable", "source_row_id": row[1]}
+            for row in connection.execute(
+                "SELECT g.character_id,g.source_row_id FROM character_likeability_gap g "
+                "WHERE NOT EXISTS(SELECT 1 FROM character_graduation_template t WHERE t.character_id=g.character_id) "
+                "ORDER BY g.character_id")]
 
 
 def write_static_manifest(

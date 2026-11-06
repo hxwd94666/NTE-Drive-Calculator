@@ -16,6 +16,7 @@ from src.domain.stat_catalog import StatCatalog
 from src.models.equipment import DriveShape
 from src.optimizer.scoring import ScoringEngine
 from src.domain.official_role.advancement import fork_active_panel_stats
+from src.domain.official_role.likeability import enabled_likeability_properties, likeability_unavailable
 from src.services.allocation.inventory import legacy_shape_id
 from src.services.characters.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.services.official_role.page import load_official_role_detail
@@ -97,12 +98,12 @@ def _likeability_crit_rate_bonus(
     elif profile is not None:
         enabled = bool(profile.get("likeability_level_10_enabled"))
     else:
-        enabled = True
+        enabled = not likeability_unavailable(bonus)
     if not enabled:
         return 0.0
     return sum(
         float(row.get("value") or 0.0)
-        for row in bonus.get("properties") or ()
+        for row in enabled_likeability_properties(bonus, enabled=enabled)
         if str(row.get("property_id") or "") == "CritBase"
     )
 

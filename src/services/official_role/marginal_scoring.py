@@ -223,14 +223,11 @@ def _hidden_equipment_score_inputs(
             if main_stats and isinstance(main_stats[0], Mapping)
             else {}
         )
-        raw_main_value = first_main_stat.get("value")
-        try:
-            main_value = float(raw_main_value) if raw_main_value is not None else None
-        except (TypeError, ValueError):
-            main_value = None
+        # 边际权重改变评分权重，不改变按品质满级的装备评分口径。
+        # 实际主词条与百分比仍留在原item，直伤收益不消费这里的评分投影。
         return engine, weights, main_weights, {"item_type": "tape", "area": 15, "quality": quality,
             "main_stats": _property_label(detail, str(first_main_stat.get("property_id") or "")),
-            "main_value": main_value, "sub_stats": dict.fromkeys(sub_stat_names, 0.0)}
+            "main_value": None, "sub_stats": dict.fromkeys(sub_stat_names, 0.0)}
     area = int(item.get("grid_count") or 0) or grid_count_from_geometry(
         item.get("geometry")
     )

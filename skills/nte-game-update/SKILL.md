@@ -11,7 +11,7 @@ description: 根据异环新版解包维护 NTE Drive Calc 的静态候选、公
 
 - 核实计算器仓库、Git ref、未提交状态及解包根，先读 `RESPONSIBLE_USE.md`、`AGENTS.md` 和当前 `docs/architecture.md`。
   本文代码路径相对仓库，辅助脚本路径相对本 skill；保留既有改动。
-- 冻结地区、游戏版本依据、导出批次、dataset、旧发行与组件身份；解包只读，多 Content 根显式选择，不以目录时间推版本。
+- 冻结地区、正式服／测试服渠道、游戏版本依据、导出批次、dataset、旧发行与组件身份；解包只读，多 Content 根显式选择，不以目录时间推版本。
 - 分别确认本次代码修改、检查、候选构建、正式晋升范围；使用 skill 不附带提交、推送、打包、部署或游戏操作权限。
   完整来源、账号数据与本机绝对路径不进公开交付。
 
@@ -20,6 +20,8 @@ description: 根据异环新版解包维护 NTE Drive Calc 的静态候选、公
 读取 [更新工作流](references/update-workflow.md) 的来源与候选章节。可用 `scripts/inspect_update_inputs.py`
 定位唯一 Content 根并对比已登记来源：默认主库，独立图鉴显式传 `--baseline-dir data/role_catalog`，报告只写仓库 `build/` 新文件。
 未登记文件提示不等于本版新增；角色行、结构、机制和素材差异仍沿正式 importer/资源规则核对。
+遇到核心表突然为空、导出内存错误或原生映射不支持时，先读[解包恢复与组件映射](references/export-recovery.md)，
+区分解包不完整、来源版本差异和组件内嵌目录过时，不直接以升级静态库或分析 EXE 替代定位。
 
 ## 更新时的分流
 

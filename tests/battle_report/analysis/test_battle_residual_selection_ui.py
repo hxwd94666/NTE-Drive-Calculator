@@ -6,6 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 from PySide6.QtWidgets import QApplication
+from auto_sync_ui_fixture import dispose
 
 from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.domain.battle_report.targets.profiles import BattleTargetInstanceResolution
@@ -19,7 +20,7 @@ class BattleResidualSelectionUiTests(unittest.TestCase):
 
     def test_selected_scope_stays_visible_with_conflict_warning(self) -> None:
         view = BattleLongAnalysisView()
-        self.addCleanup(view.close)
+        self.addCleanup(dispose, view)
         for name in (
             "_hide_hit_formula_dialog",
             "_hide_hit_buff_dialog",
@@ -44,6 +45,8 @@ class BattleResidualSelectionUiTests(unittest.TestCase):
         flower_condition = replace(condition, target_name="愿望之花")
         analysis = SimpleNamespace(
             battle_record_id=2,
+            discarded_attempt_hit_count=0,
+            discarded_attempt_damage=0.0,
             timeline_buff_intervals=(),
             target_condition=condition,
             target_identity_inference_ambiguous=True,

@@ -12,7 +12,7 @@ import pytest
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QLineEdit, QMainWindow, QPushButton
 
-from auto_sync_ui_fixture import application
+from auto_sync_ui_fixture import application, dispose
 from src.app.context import AccountContext, AppContext, CallbackAccountLifecycle
 from src.features.settings.updates.controller import CalcUpdateController
 from src.features.settings.updates import controller as ui
@@ -257,10 +257,10 @@ def test_actual_mainwindow_close_waits_for_owned_update_thread(owner, monkeypatc
             QMainWindow.__init__(self)
     host = CloseHost()
     noop = lambda *_args: None
-    idle = SimpleNamespace(close=noop, stop=noop, begin_close=noop, is_running=lambda: False)
+    idle = SimpleNamespace(close=noop, stop=noop, begin_close=noop, deactivate=noop, is_running=lambda: False)
     host.equipment_persistence_controller = SimpleNamespace(defer_transition=lambda *_args, **_kwargs: False, close=noop)
     host.basic_weight_page = SimpleNamespace(task_owner=None, is_dirty=lambda: False, close_tasks=noop)
-    for name in ("scanning_controller", "workshop_refresh_controller", "native_plugin_update_controller",
+    for name in ("scanning_controller", "team_controller", "workshop_refresh_controller", "native_plugin_update_controller",
                  "_ui_latency_timer", "dashboard_controller", "identification_controller", "role_suit_matching",
                  "performance_controller", "character_profile_sync_controller", "auto_sync_controller",
                  "work_mode_controller", "battle_report_controller", "_mod_plugin_loading_service",
@@ -283,10 +283,15 @@ def test_actual_mainwindow_close_waits_for_owned_update_thread(owner, monkeypatc
             return super().read1(size)
     monkeypatch.setattr(mirror, "_open", lambda *_args: HeldResponse(b"{}"))
     owner.control.check()
-    assert entered.wait(1)
-    assert host.close() is False and owner.control.is_running()
-    release.set()
-    wait_until(lambda: not owner.control.is_running())
-    assert host.close() is True
-    owner.control.setParent(owner.window)
-    host.deleteLater()
+    try:
+        assert entered.wait(1)
+        assert host.close() is False and owner.control.is_running()
+        release.set()
+        wait_until(lambda: not owner.control.is_running())
+        assert host.close() is True
+    finally:
+        # 本例的真实更新线程须物理退场，再归还 parent；失败也不遗留半构造窗口。
+        release.set()
+        wait_until(lambda: not owner.control.is_running())
+        owner.control.setParent(owner.window)
+        dispose(host)

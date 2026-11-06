@@ -25,7 +25,9 @@ def owner(tmp_path, current=lambda _: True):
                                          ("user.sqlite3", "static.sqlite3", "semantics.json", "nte-analysis-core.exe"))
     for path in (user, static, semantics, executable):
         path.write_bytes(b"public-fixture")
-    client = NteAnalysisCoreClient(executable, "fixture-static", capabilities=frozenset({"battle_axis_evaluate_v1", "battle_page_identity_v1", "battle_page_v1"}))
+    # 合成响应固定旧协议版本；不能随产品默认引擎升级而让假握手与响应身份分离。
+    client = NteAnalysisCoreClient(executable, "fixture-static", engine_version="0.3.0",
+        capabilities=frozenset({"battle_axis_evaluate_v1", "battle_page_identity_v1", "battle_page_v1"}))
     client.load_battle_page_identity = Mock(return_value="a" * 64)
     dependencies = BattleReportPersistenceDependencies("fixture", user, 3, static)
     service = BattleNativePageService(client=client, dependencies=dependencies,
@@ -93,6 +95,17 @@ def test_unrelated_database_and_wal_changes_do_not_invalidate_scoped_report(tmp_
     Path(str(dependencies.user_database_path) + "-wal").write_bytes(b"unrelated-ui-setting")
     with patch.object(client, "_run", side_effect=lambda data, **_: json.dumps(wire_response(json.loads(data)["request"])).encode("utf8")):
         assert service.evaluate_axis(frozen)["baseline"]["status"] == "complete"
+
+
+def test_response_from_another_engine_version_is_still_rejected(tmp_path):
+    service, client, _, _ = owner(tmp_path)
+    frozen = freeze(service)
+    response = wire_response(json.loads(frozen.request_json))
+    response["engine_version"] = "0.3.1"
+    with patch.object(client, "_run", return_value=json.dumps(response).encode("utf8")) as run:
+        with pytest.raises(NativeAnalysisError):
+            service.evaluate_axis(frozen)
+    assert run.call_count == 1
 
 
 @pytest.mark.parametrize("when", ["before", "during"])

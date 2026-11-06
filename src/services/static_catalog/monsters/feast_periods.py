@@ -12,6 +12,7 @@ from src.services.static_catalog.monsters.display import NAME_UNAVAILABLE
 from src.services.static_catalog.monsters.feast import (
     apply_feast_options,
     build_feast_setup,
+    feast_mechanism_note,
     selected_feast_options,
 )
 from src.services.static_catalog.monsters.models import (
@@ -137,12 +138,18 @@ class StaticCatalogFeastPeriodMixin:
     """项目排期注解只决定期次成员与顺序，正式挑战数值仍读取同一静态来源。"""
 
     def list_feast_periods(self) -> tuple[FeastPeriod, ...]:
+        identity = str(self._queries.catalog_metadata().get("dataset_id") or "")
+        if self._queries.schema_version >= 41:
+            # 新结构尚无与该 dataset 绑定的排期证据；不从 ID 前缀推渠道，也不套用旧期成员。
+            return (FeastPeriod("dataset:" + identity, "本次来源（排期待确认）", "unscheduled",
+                                "不推定正式服活动期", tuple(row["stage_id"] for row in self._queries.list_feast_stages()),
+                                "本次静态来源", ""),)
         return feast_periods(self._mainland_now)
 
     def get_feast_setup(
         self, period_id: str, stage_id: str,
     ) -> FeastSetup | None:
-        period = feast_period(period_id, self._mainland_now)
+        period = next((item for item in self.list_feast_periods() if item.period_id == period_id), None)
         if period is None or stage_id not in period.challenge_ids:
             return None
         row = self._queries.feast_setup(stage_id)
@@ -173,12 +180,16 @@ class StaticCatalogFeastPeriodMixin:
         difficulty_id: int,
         *,
         selected_option_ids: tuple[str, ...] = (),
+        boss_monster_id: str | None = None,
     ) -> CatalogDetail | None:
-        period = feast_period(period_id, self._mainland_now)
+        period = next((item for item in self.list_feast_periods() if item.period_id == period_id), None)
         if period is None or stage_id not in period.challenge_ids:
             return None
-        row = self._queries.feast_encounter(stage_id, difficulty_id)
+        row = self._queries.feast_encounter(stage_id, difficulty_id, **(
+            {"boss_monster_id": boss_monster_id} if boss_monster_id else {}))
         if row is None:
+            if self._queries.feast_setup(stage_id) is not None:
+                return None  # 正式多目标尚未选择，不回落到往期第一目标。
             row = self._queries.historical_feast_encounter(
                 stage_id, difficulty_id
             )
@@ -198,8 +209,10 @@ class StaticCatalogFeastPeriodMixin:
         difficulty_id: int,
         *,
         selected_option_ids: tuple[str, ...] = (),
+        boss_monster_id: str | None = None,
     ) -> CatalogDetail | None:
-        row = self._queries.feast_encounter(stage_id, difficulty_id)
+        row = self._queries.feast_encounter(stage_id, difficulty_id, **(
+            {"boss_monster_id": boss_monster_id} if boss_monster_id else {}))
         if row is None:
             return None
         return self._build_feast_detail(
@@ -220,10 +233,11 @@ class StaticCatalogFeastPeriodMixin:
         selected = selected_feast_options(row.get("options", []), selected_option_ids)
         profile = apply_feast_options(row.get("profile"), selected)
         difficulty_name = _text(row.get("difficulty_name_zh"), NAME_UNAVAILABLE)
+        target_key = (row["boss_monster_id"],) if int(row.get("target_count") or 1) > 1 else ()
         entry_key = (
-            _key("feast_period", period.period_id, stage_id, difficulty_id)
+            _key("feast_period", period.period_id, stage_id, difficulty_id, *target_key)
             if period is not None
-            else _key("feast", stage_id, difficulty_id)
+            else _key("feast", stage_id, difficulty_id, *target_key)
         )
         subtitle = (
             f"争锋赏宴 · {period.display_label} · {difficulty_name}"
@@ -262,6 +276,9 @@ class StaticCatalogFeastPeriodMixin:
             self._value("得分倍率", row.get("score_rate")),
             self._value("特殊高难", bool(row.get("special_high_difficulty"))),
         )))
+        mechanism_note = feast_mechanism_note(row)
+        if mechanism_note:
+            sections.append(CatalogSection("挑战目标规则", (), mechanism_note))
         sections.append(self._combat_profile_section(
             profile, level=row.get("monster_level"), title="当前选择画像"
         ))

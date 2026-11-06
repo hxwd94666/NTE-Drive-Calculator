@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.domain.progression.history import PAYLOAD_VERSION
 from src.features.toolbox.cultivation.batch_result import CultivationBatchResultMixin
 from src.features.toolbox.cultivation.history_binding import CultivationHistoryDraftBinding, CultivationHistorySaveStatus
 from src.services.progression.history_adapters import batch_history_payload
@@ -519,7 +520,7 @@ class CultivationBatchContent(CultivationBatchResultMixin, QWidget):
     def export_history_configuration(self) -> dict[str, object]:
         hunter, identification = self._stamina_controls.values()
         return {
-            "version": 1, "mode": "batch", "hunter_level": hunter, "identification_level": identification,
+            "version": PAYLOAD_VERSION, "mode": "batch", "hunter_level": hunter, "identification_level": identification,
             "material_scope": self._material_scope, "owned_materials": self._owned_materials.export_history_materials(),
             "targets": [card.export_history_target() for card in self._cards],
         }
@@ -588,7 +589,7 @@ class CultivationBatchContent(CultivationBatchResultMixin, QWidget):
         for material in self._visible(plan.remaining_totals):
             lines.append(f"{material.name} × {material.quantity:,}")
         if plan.combined_stamina.total_stamina is not None:
-            lines.append(f"最低体力 × {plan.combined_stamina.total_stamina:,}")
+            lines.append(f"估算体力 × {plan.combined_stamina.total_stamina:,}")
         QApplication.clipboard().setText("\n".join(lines))
 
     def reset_draft(self) -> None:

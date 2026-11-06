@@ -16,6 +16,7 @@ from src.services.allocation.axis_postprocess import verify_axis_postprocess_sav
 from src.services.allocation.direct_group_postprocess import verify_direct_group_save
 from src.services.allocation.baseline_fallback import verify_baseline_save
 from src.integrations.analysis_core_release import create_bundled_analysis_client
+from src.services.teams.enhancement_results import team_result_commit_for_rows, check_completed_team_save
 
 
 def require_allocation_release(release, database_path):
@@ -31,6 +32,11 @@ def require_allocation_release(release, database_path):
 def save_allocation_plans(*, database_path, static_database_path, static_identity,
                           lock_snapshot, rows, checkpoint, progress, static_release=None, axis_analysis_client=None):
     checkpoint()
+    if any(row.get("team_enhancement_preview") is not None for row in rows):
+        with UserDataDao(database_path) as dao:
+            completed = check_completed_team_save(dao, rows)
+            if completed is not None:
+                return completed
     release = require_allocation_release(static_release, static_database_path)
     if not static_identity or static_identity[:2] != (release.database_path, release.dataset_id):
         raise RuntimeError("计算结果与冻结静态来源不一致，请重新计算。")
@@ -43,6 +49,7 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
     if axis_rows and axis_analysis_client is None:
         axis_analysis_client = create_bundled_analysis_client(static_database_path=release.database_path)
     def verify_optimization(dao):
+        team_result_commit_for_rows(dao, rows)
         verify_baseline_save(dao, baseline_rows, dataset_id=release.dataset_id, database_path=database_path)
         verify_direct_postprocess_ownership(dao, direct_rows, dataset_id=release.dataset_id)
         if group_rows:
@@ -56,13 +63,14 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
         static_dao = unit.dao
         verify_allocation_lock_snapshot(user_dao, lock_snapshot)
         verify_optimization(user_dao)
+        team_results = team_result_commit_for_rows(user_dao, rows)
         bridge = SavedStateLoadoutBridge(
             user_dao, static_dao, frozen_snapshot_id=lock_snapshot.inventory_snapshot_id,
         )
         prepared = []
         for index, row in enumerate(rows, 1):
             checkpoint()
-            arguments = {key: value for key, value in row.items() if key not in {"slot_id", "axis_preview_source", "direct_group_preview_source", "baseline_preview_source"}}
+            arguments = {key: value for key, value in row.items() if key not in {"slot_id", "axis_preview_source", "direct_group_preview_source", "baseline_preview_source", "team_enhancement_preview"}}
             plan = bridge.prepare_role_plan(**arguments)
             slot_id = row["slot_id"]
             if slot_id is None:
@@ -94,6 +102,7 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
         user_dao.save_calculated_loadout_plans(
             prepared, checkpoint=commit_checkpoint,
             validate=validate,
+            **({"team_results": team_results} if team_results is not None else {}),
         )
         progress(("方案已保存，正在刷新页面…", len(rows) + 1, len(rows) + 4))
     return len(prepared)

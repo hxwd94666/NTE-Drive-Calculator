@@ -242,7 +242,11 @@ def build_database(
         "excluded_roles": getattr(builder, "excluded_roles", []),
         "unavailable_likeability": getattr(builder, "unavailable_likeability", []),
         "foreign_key_violations": [],
+        "graduation_template_gaps": [],
     }
+    if populate_templates:
+        with closing(sqlite3.connect(output)) as audit:
+            report["graduation_template_gaps"] = graduation_template_gaps(audit)
     (report_dir / "static_database_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

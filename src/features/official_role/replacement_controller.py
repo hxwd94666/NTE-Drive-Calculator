@@ -85,6 +85,10 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
         return False
 
     scoring_engine = getattr(window, "scoring_engine", None)
+    if scoring_engine is None:
+        # 冷启动目录尚未就绪时不能让旧展示层的0分回退进入持久化方案。
+        QMessageBox.information(window, "替换优化", "评分资料尚未就绪，请等待资料加载完成后重试。")
+        return False
     shape_areas = dict(getattr(window, "_shape_areas", {}))
 
     current_item = dict(candidates[0]["current_item"])

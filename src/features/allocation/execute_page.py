@@ -326,7 +326,7 @@ def _build_strategy_card(window, layout):
     header.addWidget(window.allocation_filter_settings_button)
     strategy_card.layout().addLayout(header)
     from src.features.allocation.team_axis_controls import build_team_axis_controls
-    build_team_axis_controls(window, header, strategy_card.layout())
+    build_team_axis_controls(window, strategy_card.layout())
     header.addStretch(1)
 
     window.strategy_group = QButtonGroup()

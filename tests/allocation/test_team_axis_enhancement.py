@@ -6,12 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.domain.teams import Team, TeamDraft
+from src.domain.teams.models import Team, TeamDraft
 from src.domain.battle_report.history.records import BattleReportHistoryEntry
 from src.services.allocation.axis_selection import AxisAllocationChoices, AxisAllocationSelection
 from src.services.allocation.team_axis_selection import TeamAxisBinding, TeamAxisSelection, validate_team_group, verify_team_selection
 from src.services.allocation.team_enhancement import execute_team_enhancement
 from src.storage.sqlite.user_data_dao import UserDataDao
+from team_report_fixture import MatchingFixture
+from src.domain.teams.report_matching import ReportCandidate, ReportRange
 
 
 def teams():
@@ -37,7 +39,7 @@ def test_team_cards_show_names_members_and_independent_report_fields():
     from auto_sync_ui_fixture import application, dispose
     from src.features.allocation.team_axis_dialog import TeamAxisDialog
     application()
-    dialog = TeamAxisDialog(service=None, teams=teams(), choices=choices())
+    dialog = TeamAxisDialog(service=None, matching_service=MatchingFixture(), teams=teams(), choices=choices())
     try:
         dialog.show()
         a, b, overlap, third = dialog._rows
@@ -47,10 +49,12 @@ def test_team_cards_show_names_members_and_independent_report_fields():
         assert not overlap["check"].isEnabled() and "角色1" in overlap["reason"].text()
         b["check"].click()
         assert not third["check"].isEnabled()
-        a["report"].setCurrentIndex(1)
-        b["report"].setCurrentIndex(2)
-        assert (a["report"].currentData(), b["report"].currentData()) == (1, 2)
-        assert "示例场景" in a["report"].currentText() and "100 秒" in a["report"].currentText()
+        for row, entry in zip((a, b), choices().entries):
+            candidate = ReportCandidate(entry, ReportRange(entry.battle_record_id))
+            result = MatchingFixture().match_page(row["team"], (candidate,)).results[0]
+            dialog.set_report(row["team"].team_id, result)
+        assert (a["match"].candidate.range.record_id, b["match"].candidate.range.record_id) == (1, 2)
+        assert "示例场景" in a["report"].text() and "整场" in a["report"].text()
         a["check"].click()
         assert overlap["check"].isEnabled()
     finally:
@@ -58,11 +62,15 @@ def test_team_cards_show_names_members_and_independent_report_fields():
 
 
 def selection_for_database(tmp_path):
+    from src.integrations.static_catalog_release import static_catalog_read_unit
+    static_path = Path(__file__).resolve().parents[2] / "data/game_static.sqlite3"
+    with static_catalog_read_unit(static_path) as unit:
+        dataset = unit.release.dataset_id
     path = tmp_path / "account.sqlite3"
     with UserDataDao(path, account_id="teams") as dao:
         saved = tuple(dao.save_team(TeamDraft(team.name, team.character_ids)) for team in teams()[:2])
     bindings = tuple(TeamAxisBinding(team, tuple(f"角色{i}" for i in team.character_ids),
-        AxisAllocationSelection("teams", 1, path.resolve(), Path("static.sqlite3").resolve(), "static", None, None,
+        AxisAllocationSelection("teams", 1, path.resolve(), static_path, dataset, None, None,
                                 SimpleNamespace(battle_record_id=index + 1), "original", team.character_ids, True))
         for index, team in enumerate(saved))
     return path, TeamAxisSelection(bindings)

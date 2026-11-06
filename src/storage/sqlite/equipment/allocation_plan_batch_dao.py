@@ -47,7 +47,7 @@ class AllocationPlanBatchDaoMixin(UserDataDaoMixinHost):
         return int(cursor.lastrowid)
 
     def save_calculated_loadout_plans(
-        self, plans, *, checkpoint, validate=None, commit_context=None, activate_primary=True,
+        self, plans, *, checkpoint, validate=None, commit_context=None, activate_primary=True, team_results=None,
     ):
         """Persist targets and release other current owners in one transaction."""
         if not plans:
@@ -171,7 +171,11 @@ class AllocationPlanBatchDaoMixin(UserDataDaoMixinHost):
                     connection.execute("UPDATE loadout_plan SET is_active = 1 WHERE plan_id = ?", (plan_id,))
                 result.append(plan_id)
             # 可选提交接受门禁只包住原有末端检查与commit，不改变借出/历史算法。
+            if team_results is not None:
+                self.save_team_enhancement_run(team_results, tuple(result))
             with commit_context() if commit_context is not None else nullcontext():
+                if team_results is not None:
+                    self.assert_team_result_context(team_results)
                 checkpoint()
                 connection.commit()
             return tuple(result)

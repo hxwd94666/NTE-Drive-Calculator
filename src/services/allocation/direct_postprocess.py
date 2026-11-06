@@ -24,7 +24,7 @@ def optimization_payload(plan: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
     from src.integrations.axis_allocation_postprocess import OPTIMIZATION_FIELDS as AXIS_FIELDS
-    allowed = OPTIMIZATION_FIELDS | AXIS_FIELDS | {"status", "result_kind", "fallback_status", "coverage", "team_reports", "baseline_priority", "input_identity", "source_snapshot_id", "dataset_id",
+    allowed = OPTIMIZATION_FIELDS | AXIS_FIELDS | {"status", "result_kind", "fallback_status", "coverage", "team_reports", "baseline_priority", "input_identity", "source_snapshot_id", "dataset_id", "baseline_build_sha256",
                                      "character_id", "owners_sha256", "engine_version",
                                      "component_executable_sha256", "component_manifest_sha256", "equipment_value_mode", "allocation_character_ids", "ownership_excluded_character_ids",
                                      "source_input_digest", "fixed_team_build_sha256", "fixed_team_members", "frozen_identity", "scope", "battle_record_id", "anchor_mode", "critical_policy",

@@ -61,9 +61,10 @@ def verify_postprocess_hard_constraints(request, scorer, baseline_plans, plans, 
 
     blocked = {stat_name(raw) for raw in preference["blacklist"]}
     if not preference["blacklist_zero_weight"] and any(
-        blocked.intersection(stat_name(raw) for raw in drive.sub_stats) for drive in drives
+        blocked.intersection(stat_name(raw) for raw in item.sub_stats)
+        for item in [*drives, *([tape] if tape is not None else [])]
     ):
-        raise NativeAnalysisError("装备后处理违反冻结驱动黑名单")
+        raise NativeAnalysisError("装备后处理违反冻结副词条黑名单")
     old = baseline_plans[selected_role]
     mains = tuple(request.core_main_filters.get(selected_role, ()))
     if old.get("main_filter_fallback"):
@@ -110,7 +111,8 @@ def verify_postprocess_hard_constraints(request, scorer, baseline_plans, plans, 
         maximum = scorer.max_theoretical_weight(weights, zero_weight_stats=zero_weight_stats)
         expected_scores = {item.uid: (scorer.calculate_drive_score(item, weights, maximum, zero_weight_stats=zero_weight_stats)
                            if item.item_type == "drive" else scorer.calculate_cartridge_score(
-                               item, weights, maximum, role.get("main_weights"))) for item in [tape, *drives]}
+                               item, weights, maximum, role.get("main_weights"),
+                               zero_weight_stats=zero_weight_stats)) for item in [tape, *drives]}
     else:
         expected_scores = base_scores
     for item in [tape, *drives]:

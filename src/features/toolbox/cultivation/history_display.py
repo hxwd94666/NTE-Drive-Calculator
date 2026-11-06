@@ -12,7 +12,8 @@ def summary_text(summary: HistorySummary) -> tuple[str, str]:
         names = summary.character_labels or tuple(item["name"] for item in value["characters"])
         name = "、".join(names)
         total = value["total_stamina"]
-        stamina = f"{total:,}" if total is not None else f"已知 {value['known_stamina']:,} · 未完整"
+        prefix = "估算 " if value["version"] >= 2 else ""
+        stamina = prefix + (f"{total:,}" if total is not None else f"已知 {value['known_stamina']:,} · 未完整")
         return name, stamina
     except (ValueError, TypeError, KeyError, RecursionError):
         return "记录摘要异常，仍可勾选删除", "请查看详情或删除"

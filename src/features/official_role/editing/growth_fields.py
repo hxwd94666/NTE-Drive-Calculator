@@ -12,6 +12,7 @@ from src.domain.official_role.advancement import (
     character_growth_choices, select_character_growth,
 )
 from src.domain.official_role.models import world_bonus_property_stats
+from src.domain.official_role.likeability import likeability_unavailable
 from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
 from ..role_calculation import (
     _attribute_name, _mark_dirty, _refresh_role_calculations, _selected_growth,
@@ -83,6 +84,16 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     role_name.setAlignment(Qt.AlignHCenter)
     role_name.setStyleSheet("font-weight:bold;color:#58a6ff;")
     left_layout.addWidget(role_name)
+    if detail.get('image_note'):
+        note = QLabel('临时替代图片')
+        note.setToolTip(detail['image_note'])
+        note.setAlignment(Qt.AlignHCenter)
+        left_layout.addWidget(note)
+        if icon_path and not pixmap.isNull():
+            from src.ui.role_portrait import temporary_role_portrait
+            avatar.setScaledContents(False)
+            avatar.setPixmap(temporary_role_portrait(str(icon_path), 96, avatar.devicePixelRatioF()))
+            avatar.setToolTip(detail['image_note'])
     growth_combo = NoWheelSpinBox()
     growth_combo.setRange(
         min(int(row["level"]) for row in growth_rows),
@@ -115,6 +126,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     right_layout.setContentsMargins(0, 0, 0, 0)
     right_layout.setSpacing(8)
     likeability_bonus = detail.get("likeability_bonus") or {}
+    likeability_unknown = likeability_unavailable(likeability_bonus)
     likeability_properties = {
         str(row.get("property_id") or ""): float(row.get("value") or 0.0)
         for row in likeability_bonus.get("properties") or ()
@@ -129,10 +141,13 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     )
     likeability.setChecked(
         bool(profile.get("likeability_level_10_enabled"))
-        and bool(likeability_properties)
+        and (bool(likeability_properties) or likeability_unknown)
     )
-    likeability.setEnabled(bool(likeability_properties))
-    if not likeability_properties:
+    likeability.setEnabled(bool(likeability_properties) or likeability_unknown)
+    if likeability_unknown:
+        likeability.setText("好感度 10 级（属性资料缺失）")
+        likeability.setToolTip("开启状态保持原选择；属性未知时不生成完整面板与直伤结果。关闭此选项后仅使用其余已证实输入。")
+    if not likeability_properties and not likeability_unknown:
         if str((detail.get("character") or {}).get("logical_character_key")) == "protagonist":
             likeability.setText("玩家角色无好感度系统")
             likeability.setToolTip("零是玩家自身，不提供好感度等级与十级属性加成。")
@@ -201,6 +216,13 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
 
     def update_stats() -> None:
         # 本区是成长/家具/好感的基础展示，不冒充含弧盘和觉醒的完整有效面板。
+        unknown = likeability_unknown and likeability.isChecked()
+        for spin in stat_values.values():
+            spin.setSpecialValueText("未知" if unknown else "")
+            if unknown:
+                spin.setValue(spin.minimum())
+        if unknown:
+            return
         growth = _selected_growth(editor)
         selected = next(
             (

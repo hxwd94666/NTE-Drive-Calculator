@@ -373,11 +373,19 @@ class BattleEncounterCatalogService:
                 )
                 if highest is not None:
                     default_options.append((category_key, str(highest["option_id"])))
-            difficulties = sorted(
-                stage.get("difficulties") or (),
-                key=lambda row: int(row.get("difficulty_id") or 0),
-            )
-            for difficulty in difficulties:
+            grouped = defaultdict(list)
+            for row in stage.get("difficulties") or ():
+                grouped[int(row["difficulty_id"])].append(row)
+            for difficulty_id, rows in sorted(grouped.items()):
+                difficulty = dict(rows[0])
+                if len(rows) > 1 and "targets" not in difficulty:
+                    if any(not row.get("profile_available", True) for row in rows):
+                        continue
+                    difficulty["targets"] = [{
+                        "target_id": row["boss_monster_id"], "monster_class_path": row["boss_monster_id"],
+                        "name_zh": row.get("boss_name_zh"), "monster_level": row["monster_level"],
+                        "profile_set": row.get("profile_set"), "pack_id": row.get("pack_id"), "profile": row,
+                    } for row in rows]
                 for health_category, option_id, health_up in health_options:
                     selected_options = list(default_options)
                     if option_id:
@@ -396,7 +404,6 @@ class BattleEncounterCatalogService:
                     ) for member in members)
                     if not targets or any(target is None for target in targets):
                         continue
-                    difficulty_id = int(difficulty.get("difficulty_id") or 0)
                     option_suffix = (
                         "" if not option_id else f" · 生命 +{health_up * 100:.0f}%"
                     )
@@ -405,7 +412,7 @@ class BattleEncounterCatalogService:
                         environment_ref=str(stage.get("stage_id") or ""),
                         environment_name=(
                             f"争锋赏宴 · {stage.get('name_zh') or stage.get('stage_id')}"
-                            f" · {difficulty.get('name_zh') or difficulty_id}{option_suffix}"
+                            f" · {members[0].get('name_zh') or difficulty_id}{option_suffix}"
                         ),
                         scope_half="",
                         outer_realm_floor=None,

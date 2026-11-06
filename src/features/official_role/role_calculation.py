@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QHeaderView
 
 from src.domain.official_role.advancement import select_character_growth, select_fork_breakthrough
+from src.domain.official_role.likeability import likeability_input_issue
 from src.services.official_role.graduation import graduation_rate, graduation_tooltip as _graduation_tooltip
 from src.services.official_role.marginal_scoring import calculate_official_role_final_weights, calculate_official_role_margins
 from src.services.official_role.panel_explanation import calculate_official_role_damage_breakdown
@@ -232,7 +233,7 @@ def _build_margin_group(
         )
         damage_label.setText(f"直伤评分 : {damage:.2f}" if margins else "直伤评分 : --")
         if not margins:
-            note = QLabel("当前角色状态尚无可计算的官方直伤技能或装备上下文。")
+            note = QLabel(likeability_input_issue(calculation_detail) or "当前角色状态尚无可计算的官方直伤技能或装备上下文。")
             note.setWordWrap(True)
             table_layout.addWidget(note)
             state["initialized"] = True
@@ -276,7 +277,7 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     context_title = detail["equipment_contexts"][context_key]["title"]
     breakdown = calculate_official_role_damage_breakdown(detail, context_key)
     if not breakdown:
-        note = QLabel(f"计算上下文：{context_title}。当前没有可解释的直伤输入。")
+        note = QLabel(likeability_input_issue(detail) or f"计算上下文：{context_title}。当前没有可解释的直伤输入。")
         note.setWordWrap(True)
         layout.addWidget(note)
         return

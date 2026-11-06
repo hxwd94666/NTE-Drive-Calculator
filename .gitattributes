@@ -20,3 +20,9 @@
 /third_party/mods-plugin/** -text
 /third_party/nte-core/** -text
 
+
+# Upstream hashed text is byte-exact, not authored source whitespace.
+/third_party/analysis-core/THIRD_PARTY_NOTICES.txt -whitespace
+/third_party/native-capture/compatibility.json -whitespace
+/third_party/native-capture/component-bundle.json -whitespace
+/third_party/native-capture/core/SOURCE.md -whitespace

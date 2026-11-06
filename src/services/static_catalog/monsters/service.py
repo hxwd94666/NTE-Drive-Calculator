@@ -181,10 +181,10 @@ class StaticCatalogMonsterService(
             return self._manual_detail(parts[0], world_boss=kind == "world_boss")
         if kind == "profile_monster" and len(parts) == 2:
             return self._profile_detail(parts[0], parts[1])
-        if kind == "feast" and len(parts) == 2:
-            return self._feast_detail(parts[0], int(parts[1]))
-        if kind == "feast_period" and len(parts) == 3:
-            return self.get_feast_detail(parts[0], parts[1], int(parts[2]))
+        if kind == "feast" and len(parts) in {2, 3}:
+            return self._feast_detail(parts[0], int(parts[1]), boss_monster_id=parts[2] if len(parts) == 3 else None)
+        if kind == "feast_period" and len(parts) in {3, 4}:
+            return self.get_feast_detail(parts[0], parts[1], int(parts[2]), boss_monster_id=parts[3] if len(parts) == 4 else None)
         if kind == "outer_realm" and len(parts) == 3:
             return self._outer_detail(parts[0], int(parts[1]), parts[2])
         if kind == "outer_member" and len(parts) == 6:

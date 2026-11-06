@@ -19,8 +19,8 @@ from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBa
 
 REQUEST_SCHEMA = "nte-analysis-request-v1"
 RESPONSE_SCHEMA = "nte-analysis-response-v1"
-ENGINE_VERSION = "0.3.9"
-CURRENT_PROTOCOL_ENGINE_VERSIONS = frozenset({"0.3.0", "0.3.1", "0.3.2", "0.3.3", "0.3.4", "0.3.5", "0.3.6", "0.3.7", "0.3.8", ENGINE_VERSION})
+ENGINE_VERSION = "0.3.11"
+CURRENT_PROTOCOL_ENGINE_VERSIONS = frozenset({"0.3.0", "0.3.1", "0.3.2", "0.3.3", "0.3.4", "0.3.5", "0.3.6", "0.3.7", "0.3.8", "0.3.9", "0.3.10", ENGINE_VERSION})
 SUPPORTED_ENGINE_VERSIONS = CURRENT_PROTOCOL_ENGINE_VERSIONS | {"0.2.0"}
 MAX_BYTES = 64 * 1024 * 1024
 MAX_JOBS = 100_000
@@ -189,6 +189,26 @@ class NteAnalysisCoreClient:
             engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "battle_axis_postprocess_v1" in capabilities
         )
+        self.supports_team_axis_graduation_benchmark = (
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS and capabilities is not None
+            and "team_axis_graduation_benchmark_v2" in capabilities
+        )
+        self.supports_team_axis_graduation_current = (
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS and capabilities is not None
+            and "team_axis_graduation_current_v2" in capabilities
+        )
+        self.supports_team_axis_graduation_advice = (
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS and capabilities is not None
+            and "team_axis_graduation_cultivation_advice_v2" in capabilities
+        )
+        self.supports_team_axis_graduation_equipment_advice = (
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS and capabilities is not None
+            and "team_axis_graduation_equipment_advice_v2" in capabilities
+        )
+        self.supports_team_axis_graduation_fixed_axis_ratio = (
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS and capabilities is not None
+            and "team_axis_graduation_fixed_axis_ratio_v1" in capabilities
+        )
         self.supports_native_payload_fragments = (
             capabilities is not None and "battle_native_payload_fragments_v1" in capabilities
         )
@@ -320,13 +340,15 @@ class NteAnalysisCoreClient:
                     raise BuffProjectionBatchTooLarge("Buff 候选计划超过核心工作量限制")
                 if (rejected.get("engine_version") == self.engine_version
                         and rejected.get("schema_version") == RESPONSE_SCHEMA and isinstance(error, dict)):
-                    budget_messages = {
+                    # 只解释身份已匹配的已知错误码，不拼接组件原始错误文本或请求路径。
+                    known_messages = {
                         "damage_job_blueprints_incomplete": "图纸生成已达预算，尚未完成全部候选；请减少参与角色或调整套装后重试，现有方案保持不变。",
                         "damage_job_time_budget": "分配准备已达时间预算；请减少参与角色后重试，现有方案保持不变。",
+                        "battle_static_schema_unsupported": "独立分析组件尚未支持当前静态资料结构；请更新与该资料包匹配的分析组件后重试，原始战报保持不变。",
                     }
-                    budget_code = error.get("code")
-                    if isinstance(budget_code, str) and budget_code in budget_messages:
-                        raise NativeAnalysisError(budget_messages[budget_code])
+                    known_code = error.get("code")
+                    if isinstance(known_code, str) and known_code in known_messages:
+                        raise NativeAnalysisError(known_messages[known_code])
             # Do not surface raw stderr, request JSON or private values.
             raise NativeAnalysisError(
                 f"独立分析核心拒绝请求或执行失败（退出码 {returncode}）"
@@ -383,7 +405,12 @@ class NteAnalysisCoreClient:
             raise NativeAnalysisError("独立分析核心缺少战报轴批量评价能力")
         if self.supports_battle_axis_postprocess and "battle_axis_postprocess_v1" not in value.get("capabilities", []):
             raise NativeAnalysisError("独立分析核心缺少战报轴装备优化能力")
-        for enabled, capability in ((self.supports_battle_axis_team, "battle_axis_team_v1"),
+        for enabled, capability in ((self.supports_team_axis_graduation_benchmark, "team_axis_graduation_benchmark_v2"),
+                                    (self.supports_team_axis_graduation_current, "team_axis_graduation_current_v2"),
+                                    (self.supports_team_axis_graduation_advice, "team_axis_graduation_cultivation_advice_v2"),
+                                    (self.supports_team_axis_graduation_equipment_advice, "team_axis_graduation_equipment_advice_v2"),
+                                    (self.supports_team_axis_graduation_fixed_axis_ratio, "team_axis_graduation_fixed_axis_ratio_v1"),
+                                    (self.supports_battle_axis_team, "battle_axis_team_v1"),
                                     (self.supports_battle_axis_fixed_team, "battle_axis_fixed_team_v1"),
                                     (self.supports_blueprints, "allocation_blueprints_v1"),
                                     (self.supports_equipment_scoring, "equipment_scoring_v1"),
@@ -418,6 +445,10 @@ class NteAnalysisCoreClient:
     def resolve_battle_axis_fixed_team(self, selector, selected_character_ids, anchor_mode, inventory_identities, *, checkpoint=None):
         from src.integrations.axis_fixed_team import resolve_fixed_team
         return resolve_fixed_team(self, selector, selected_character_ids, anchor_mode, inventory_identities, checkpoint=checkpoint)
+
+    def evaluate_team_axis_graduation(self, request, *, checkpoint=None):
+        from src.integrations.team_axis_graduation import evaluate_team_axis_graduation
+        return evaluate_team_axis_graduation(self, request, checkpoint=checkpoint)
 
     def evaluate_battle_axis(self, request: Mapping[str, Any], *, checkpoint=None) -> dict[str, Any]:
         """Reuse the bounded child transport; do not load a page per equipment candidate."""

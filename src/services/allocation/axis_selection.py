@@ -6,10 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.domain.battle_report.history.records import BattleReportHistoryEntry
-from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.domain.static_catalog import StaticCatalogRelease
+from src.integrations.static_catalog_release import StaticCatalogReleaseReader, static_catalog_read_unit
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest
 from src.services.battle_report.history.access import list_history_entries
-from src.services.equipment.saved_state_loadout_bridge import resolve_character_id_for_allocation_role, SavedStateLoadoutError
+from src.services.equipment.saved_state_loadout_bridge import (
+    resolve_character_id_for_allocation_role, SavedStateLoadoutError,
+    character_ids_for_static_role, custom_character_id_for_role,
+)
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -36,6 +40,7 @@ class AxisAllocationSelection:
     damage_priority_groups: tuple[tuple[int, ...], ...] = ()
     damage_priority_reason: str | None = None
     search_mode: str = "fast"
+    expected_source_input_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +50,7 @@ class AxisAllocationChoices:
     active_edit_record_ids: frozenset[int]
     dataset_id: str
     selected_roles: tuple[str, ...]
+    static_release: StaticCatalogRelease | None = None
 
 
 class AxisAllocationSelectionService:
@@ -58,6 +64,7 @@ class AxisAllocationSelectionService:
 
     def choices(self, selected_roles) -> AxisAllocationChoices:
         self.checkpoint()
+        requested_roles = tuple(dict.fromkeys(selected_roles))
         dependencies = self.dependencies
         if dependencies.static_database_path is None:
             raise ValueError("轴优化缺少静态资料身份")
@@ -68,13 +75,22 @@ class AxisAllocationSelectionService:
             entries = list_history_entries(user_dao=dao, static_dataset_id=unit.release.dataset_id,
                                             static_schema_version=unit.release.schema_version)
             snapshot = dao.current_inventory_snapshot_id()
-            if snapshot is None:
-                raise ValueError("轴装备优化需要本账号完整稳定库存")
             roles = []
-            for role in dict.fromkeys(selected_roles):
+            # 冷启动时计算卡片尚未填充；候选身份可来自正式目录，但不据此自动选择计算成员。
+            names = requested_roles or tuple(dict.fromkeys(
+                [str(row["name_zh"]) for row in unit.dao.list_role_template_characters()]
+                + [str(row["name_zh"]) for row in dao.list_custom_characters()]))
+            for role in names:
                 self.checkpoint()
                 try:
-                    character_id = resolve_character_id_for_allocation_role(role, unit.dao, dao, snapshot_id=snapshot)
+                    if snapshot is not None:
+                        character_id = resolve_character_id_for_allocation_role(role, unit.dao, dao, snapshot_id=snapshot)
+                    else:
+                        # 历史发现不要求库存；歧义角色留待正式计算时由稳定快照解析。
+                        character_id = custom_character_id_for_role(role, dao)
+                        if character_id is None:
+                            ids = character_ids_for_static_role(role, unit.dao)
+                            character_id = ids[0] if len(ids) == 1 else None
                 except SavedStateLoadoutError:
                     character_id = None
                 if character_id is not None:
@@ -83,11 +99,13 @@ class AxisAllocationSelectionService:
                 if (dao.load_battle_build_edit(entry.battle_record_id) or {}).get("is_active") is True)
             dataset_id = unit.release.dataset_id
         self.checkpoint()
-        return AxisAllocationChoices(entries, tuple(roles), active, dataset_id, tuple(dict.fromkeys(selected_roles)))
+        return AxisAllocationChoices(entries, tuple(roles), active, dataset_id, requested_roles, unit.release)
 
     def select(self, choices: AxisAllocationChoices, *, battle_record_id, selected_role, detail_scope,
                anchor_mode, start_us=None, end_us=None) -> AxisAllocationSelection:
         self.checkpoint()
+        if choices.static_release is not None:
+            StaticCatalogReleaseReader().ensure_unchanged(choices.static_release)
         dependencies = self.dependencies
         entry = next((row for row in choices.entries if row.battle_record_id == battle_record_id), None)
         character_id = dict(choices.role_character_ids).get(selected_role)

@@ -12,32 +12,36 @@ from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao
 NTE_TEST_TIER = "core"
 
 
-def _legacy_database(path):
-    with UserDataDao(path, account_id="migration-account"):
-        pass
-    with sqlite3.connect(path) as connection:
-        connection.execute("DROP TABLE cultivation_history")
-        connection.execute("DELETE FROM schema_migration WHERE version >= 45")
+def _legacy_database(path, monkeypatch):
+    from src.storage.sqlite import user_data_base
+    # 真正建立 v44；删除新版版本号会残留后续表，不是可升级的旧库。
+    with monkeypatch.context() as patch:
+        patch.setattr(user_data_base, "SCHEMA_VERSION", 44)
+        with UserDataDao(path, account_id="migration-account"):
+            pass
 
 
-def test_existing_v44_backup_and_history_migration(tmp_path):
+def test_existing_v44_backup_and_history_migration(tmp_path, monkeypatch):
     database = tmp_path / "user_data.sqlite3"
-    _legacy_database(database)
+    _legacy_database(database, monkeypatch)
     with UserDataDao(database) as dao:
         assert dao.profile()["account_id"] == "migration-account"
         assert dao.list_cultivation_histories("migration-account").total == 0
     backups = list((tmp_path / ".migration-backups").glob("*.sqlite3"))
-    assert len(backups) == 1
-    with sqlite3.connect(backups[0]) as old:
-        assert old.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == 44
-        assert old.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    versions = set()
+    for backup in backups:
+        with sqlite3.connect(backup) as old:
+            versions.add(old.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0])
+            assert old.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    # 养成历史和队伍简报各自升级前备份，完整保留两个可恢复边界。
+    assert versions == {44, 46, 47, 48, 49}
     with sqlite3.connect(database) as current:
         assert current.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_history_migration_failure_rolls_back_and_can_retry(tmp_path, monkeypatch):
     database = tmp_path / "user_data.sqlite3"
-    _legacy_database(database)
+    _legacy_database(database, monkeypatch)
     execute = UserDataDaoCore._execute_migration_script
 
     def fail(connection, script):

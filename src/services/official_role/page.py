@@ -63,6 +63,7 @@ def load_official_role_index(
             {
                 **character,
                 "icon_path": catalog.character_icon(int(character["character_id"])),
+                "icon_note": catalog.character_image_note(int(character["character_id"]), 'characters'),
                 "persisted": int(character["character_id"]) in profiles,
                 "ordinal": profiles.get(int(character["character_id"]), {}).get("ordinal", 10000),
             }

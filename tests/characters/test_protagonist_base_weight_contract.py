@@ -117,7 +117,7 @@ def test_role_page_and_frozen_comparison_share_base_score_and_keep_actual_id(acc
     engine = ScoringEngine(ROOT / "config", user_database_path=account, static_database_path=STATIC)
     role = engine.roles_db["「零」"]
     old = {"kind": "core", "quality": "gold", "main_stats": [
-        {"property_id": "CritBase", "value": 30, "percent": True},
+        {"property_id": "CritBase", "value": .3, "percent": True},
     ], "sub_stats": [{"property_id": pid, "value": 80} for pid in (
         "DefAdd", "HPMaxUp", "DefUp", "AtkAdd",
     )]}
@@ -136,7 +136,7 @@ def test_role_page_and_frozen_comparison_share_base_score_and_keep_actual_id(acc
         assert scorer.metadata()["weight_source_character_id"] == 1046
         assert scorer.metadata()["character_id"] == cid
         new = {"kind": "core", "quality": "blue", "main_stats": [
-            {"property_id": "AtkUp", "value": 22.5},
+            {"property_id": "AtkUp", "value": .225, "percent": True},
         ], "sub_stats": [{"property_id": pid, "value": 1} for pid in (
             "DamageUpGeneralBase", "CritDamageBase", "AtkUp", "HPMaxAdd",
         )]}

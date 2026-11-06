@@ -4,6 +4,6 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 class ReferenceCharacterQueries(StaticGameDataDao):
     def entries(self):
-        if self._schema_version < 42:
+        if not self._one("SELECT name FROM sqlite_master WHERE type='table' AND name='reference_character'"):
             return []
         return self._rows('SELECT * FROM reference_character ORDER BY character_id')

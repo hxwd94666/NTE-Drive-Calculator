@@ -6,6 +6,7 @@ import json
 
 from src.integrations.nte_analysis_core import ENGINE_VERSION
 from tools.release.app_bundle_validation import CONFIG_RELEASE_FILES, REQUIRED_INTERNAL_FILES, REQUIRED_NOTICES
+from src.integrations.nte_analysis_core import ENGINE_VERSION
 
 
 def add_app_requirements(app_exe, internal):

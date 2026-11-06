@@ -443,6 +443,7 @@ class RolePriorityGroupStrategyMixin:
                     tape.uid in used_tape_uids
                     or not self._tape_matches_core_target(role, tape, custom_sets)
                     or not self._repair_quality_allowed(role, tape, config)
+                    or not self._item_allowed_for_role(tape, config)
                 ):
                     continue
                 if not self._within_crit_rate_cap(role, [tape, *drives], crit_rate_caps):

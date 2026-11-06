@@ -16,7 +16,7 @@ from .user_data_support import (
     UserDataError,
     _utc_now,
 )
-from .user_data_migration_backup import backup_before_history_migration
+from .user_data_migration_backup import backup_before_user_migration
 from .transaction_script import execute_transaction_script
 
 class UserDataDaoCore:
@@ -183,10 +183,10 @@ class UserDataDaoCore:
                 if migration_path is None or not migration_path.is_file():
                     raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")
                 migration_sql = migration_path.read_text(encoding="utf-8")
-                if backup_existing and target_version == 45:
-                    # 备份守住养成历史迁移边界；更早的 v35 默认值物化仍先走原迁移事务，
-                    # 避免把可修复的旧存储形态提前判坏。备份照常完整校验，失败不进入 v45。
-                    backup_before_history_migration(self.database_path, target_version - 1)
+                if backup_existing and target_version in {45, 47, 48, 49, 50}:
+                    # 养成历史与队伍资料各自升级前保全当时完整库；更早默认值迁移仍沿原事务。
+                    # 备份失败不进入本次新增结构，修复后可在同一旧库重试。
+                    backup_before_user_migration(self.database_path, target_version - 1)
                 rebuilds_foreign_key_parent = migration_sql.startswith(
                     "-- requires-foreign-keys-off"
                 )

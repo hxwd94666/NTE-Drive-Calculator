@@ -165,6 +165,8 @@ def _decode(client, request, scorer, sent, value, *, axis):
             facts.append((score, inventory[uid].area, grades[role][uid]))
     scorer._native_scores.accept_grades(facts)
     facts = {"job_policy": value["job_policy"], "scoring_policy": value["scoring_policy"],
+             "baseline_build_sha256": allocation_inputs_digest({"plans": value["baseline_plans"],
+                 "equipment": value.get("baseline_equipment_by_character")}),
              "job_elapsed_millis": value["elapsed_millis"],
              "job_budget": {"max_millis": sent["max_millis"], "response_grace_millis": _response_grace(client), "blueprints": deepcopy(blueprint_budget),
                             "search": deepcopy(sent["postprocess_request"]["budget"])},

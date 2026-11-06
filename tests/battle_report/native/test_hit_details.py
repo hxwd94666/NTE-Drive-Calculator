@@ -7,7 +7,7 @@ import unittest
 
 from tests.battle_report.replay.test_prepared_weave import fixture
 from src.integrations.battle_analysis.hit_details_wire import decode_hit_details
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.nte_analysis_core import ENGINE_VERSION, NativeAnalysisError
 from src.services.battle_report.buffs.hit_explanation import BattleHitBuffExplanationService
 from src.services.battle_report.replay.explanation import BattleHitReplayExplanationService
 from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService
@@ -35,7 +35,7 @@ class NativeHitDetailTests(unittest.TestCase):
         import tempfile
         from src.integrations.nte_analysis_core import NteAnalysisCoreClient
         value,_,hit,_=tables()
-        value.update(schema_version="nte-analysis-response-v1",engine_version="0.3.0",
+        value.update(schema_version="nte-analysis-response-v1",engine_version=ENGINE_VERSION,
                      dataset_version="fixture",batch_kind="buff_projection_v1",compute_elapsed_ns=1)
         value["results"]=[{"job_id":"0","projection_index":1}]
         payload={"hits":[asdict(hit)],"intervals":[],"jobs":[

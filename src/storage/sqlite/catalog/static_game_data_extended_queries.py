@@ -721,6 +721,14 @@ class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
             (int(character_id),),
         )
         if bonus is None:
+            # 正式支持范围内的旧 schema 没有缺项表，保持旧库读取契约；新库显式传递未知。
+            if self._one("SELECT name FROM sqlite_master WHERE type='table' AND name='character_likeability_gap'"):
+                gap = self._one(
+                    "SELECT character_id, required_level, modify_data_id, source_row_id, reason "
+                    "FROM character_likeability_gap WHERE character_id = ?", (int(character_id),),
+                )
+                if gap is not None:
+                    return {**gap, "availability": "unavailable", "properties": None}
             return None
         bonus["properties"] = self._rows(
             """
@@ -735,8 +743,16 @@ class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
 
     def get_character_likeability_identity(self, character_id: int) -> dict[str, Any] | None:
         """Use the source row key, including official alternate character IDs."""
-        return self._one(
+        known = self._one(
             "SELECT r.row_key AS likeability_id, b.required_level "
             "FROM character_likeability_bonus b JOIN source_row r USING(source_row_id) "
+            "WHERE b.character_id = ?", (int(character_id),),
+        )
+        if known is not None or not self._one("SELECT name FROM sqlite_master WHERE type='table' AND name='character_likeability_gap'"):
+            return known
+        # 修改包缺失不抹去正式好感集合身份；实际等级仍可观测，属性是否可计算另行核对。
+        return self._one(
+            "SELECT r.row_key AS likeability_id, b.required_level "
+            "FROM character_likeability_gap b JOIN source_row r USING(source_row_id) "
             "WHERE b.character_id = ?", (int(character_id),),
         )

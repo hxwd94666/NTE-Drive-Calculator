@@ -195,6 +195,7 @@ def materialize_official_role_detail_inputs(
     )
     return {
         "character": character,
+        "image_note": catalog.character_image_note(character_id),
         "catalog_scope": catalog_scope,
         "resolved_static_database_path": resolved_static_database_path,
         "resolved_static_schema_version": resolved_static_schema_version,

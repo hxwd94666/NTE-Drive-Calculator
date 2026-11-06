@@ -6,61 +6,10 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from src.domain.inventory.source_capabilities import is_visual_inventory_source
-from src.storage.sqlite.user_data_dao import UserDataDao
-from src.domain.equipment.virtual_equipment import virtual_equipment_inventory_item
+from src.services.equipment.frozen_loadout import resolve_plan_inventory_items
 from src.services.official_role.static_source import frozen_static_source
 from src.domain.equipment.virtual_equipment import is_virtual_equipment_assignment
 
-
-def _resolved_plan_items(
-    user_dao: UserDataDao,
-    plan: Mapping[str, Any] | None,
-    *,
-    snapshot_items: Sequence[Mapping[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    """Resolve a plan while reusing an already loaded source snapshot.
-
-    The detail model needs both the saved assignments and the replacement pool.
-    They are two views of one immutable snapshot, so issuing a second full
-    ``list_inventory_items`` query only adds UI latency and can obscure the
-    snapshot boundary during a concurrent sync.
-    """
-
-    if not plan or plan.get("source_snapshot_id") is None:
-        return []
-    items = (
-        [dict(item) for item in snapshot_items]
-        if snapshot_items is not None
-        else user_dao.list_inventory_items(int(plan["source_snapshot_id"]))
-    )
-    by_uid = {(int(item["uid_serial"]), int(item["uid_slot"])): item for item in items}
-    resolved = []
-    for assignment in plan.get("assignments") or []:
-        raw_assignment = dict(assignment.get("raw_assignment") or assignment)
-        raw_assignment.update({
-            "uid_serial": int(assignment["uid_serial"]),
-            "uid_slot": int(assignment["uid_slot"]),
-            "kind": assignment["kind"],
-            "target_row": assignment.get("target_row"),
-            "target_column": assignment.get("target_column"),
-        })
-        item = (
-            virtual_equipment_inventory_item(raw_assignment)
-            if is_virtual_equipment_assignment(raw_assignment)
-            else by_uid.get(
-                (int(assignment["uid_serial"]), int(assignment["uid_slot"]))
-            )
-        )
-        if item is not None:
-            row = dict(item)
-            row["equipped"] = False
-            row["equipped_character_id"] = None
-            row["equipped_character_name"] = ""
-            row.pop("equipped_character_icon_path", None)
-            row["target_row"] = assignment.get("target_row")
-            row["target_column"] = assignment.get("target_column")
-            resolved.append(row)
-    return resolved
 
 def _assignment_uids(plan) -> tuple[tuple[int, int], ...]:
     return tuple((int(row["uid_serial"]), int(row["uid_slot"]))
@@ -178,7 +127,7 @@ def load_role_inventory_contexts(user_dao, static_dao, catalog, character, chara
         replacement_items,
         (saved_snapshot or {}).get("source"),
     )
-    saved_items = _resolved_plan_items(
+    saved_items = resolve_plan_inventory_items(
         user_dao,
         saved_plan,
         snapshot_items=replacement_items,
@@ -219,7 +168,7 @@ def load_role_inventory_contexts(user_dao, static_dao, catalog, character, chara
         slot_display_name = _display_loadout_slot_name(character, slot)
         extra_saved_contexts[f"saved:{slot['slot_id']}"] = {
             "title": f"已保存配装 · {slot_display_name}",
-            "items": _resolved_plan_items(
+            "items": resolve_plan_inventory_items(
                 user_dao,
                 plan,
                 snapshot_items=slot_items,

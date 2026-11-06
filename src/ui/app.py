@@ -1,7 +1,7 @@
 # PySide6 主窗口入口和功能模块挂载。
 """组合桌面窗口及功能 owner；数据准备只在显式启动时执行。"""
 import sys, ctypes
-from src.ui.axis_allocation_composition import build_axis_allocation_selection_service
+from src.ui.axis_allocation_composition import build_axis_allocation_selection_service, build_team_report_matching_service
 from src.ui.team_composition import build_team_controller
 from pathlib import Path
 from src.domain.equipment.loadout_management import LoadoutAccount
@@ -229,6 +229,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             role_suit_matching=self.role_suit_matching,
             prepare_calculation=self.prepare_calculation,
             axis_selection_service_provider=lambda: build_axis_allocation_selection_service(self.app_context),
+            team_report_service_provider=lambda: build_team_report_matching_service(self.app_context),
             navigate=self._go,
             work_mode_provider=lambda: self.work_mode_service.settings.mode,
             operation_entry=self.operation_entry,
@@ -295,7 +296,9 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             dialog_parent=self,
         )
         self._unregister_toolbox_lifecycle = register_toolbox_account_lifecycle(self.app_context, self.toolbox_page)
-        self.team_controller = build_team_controller(self.app_context, self)
+        self.team_controller = build_team_controller(self.app_context, self,
+            configure_enhancement=self.scanning_controller.configure_team_enhancement)
+        self.scanning_controller.allocation_saved.connect(self.team_controller.plans_saved)
         static_catalog_controller = StaticCatalogController(
             StaticCatalogService(
                 static_database_path=self.app_context.paths.static_database_path,
@@ -475,8 +478,8 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             self._drag_edges = (False,) * 4
         super().mouseReleaseEvent(e)
 
-    def hide_to_tray(self):
-        self.tray_controller.hide_window()
+    def request_window_close(self):
+        self.tray_controller.request_window_close()
 
     def restore_from_tray(self):
         self.tray_controller.restore()

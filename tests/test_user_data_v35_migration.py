@@ -77,14 +77,26 @@ class UserDataV35MigrationTests(unittest.TestCase):
 
     def _assert_verified_history_backup(self) -> None:
         backups = list((self.database.parent / ".migration-backups").glob("*.sqlite3"))
-        self.assertEqual(1, len(backups))
-        with closing(sqlite3.connect(backups[0])) as backup:
-            # 已发布旧迁移先完成修复；完整性备份仍先于养成历史 v45，而不是跳过门禁。
-            self.assertEqual(44, backup.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0])
-            self.assertEqual([("ok",)], backup.execute("PRAGMA quick_check").fetchall())
-            self.assertIsNone(backup.execute(
-                "SELECT name FROM sqlite_master WHERE name = 'cultivation_history'"
-            ).fetchone())
+        self.assertEqual(5, len(backups))
+        versions = set()
+        for path in backups:
+            with closing(sqlite3.connect(path)) as backup:
+                version = backup.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0]
+                versions.add(version)
+                self.assertEqual([("ok",)], backup.execute("PRAGMA quick_check").fetchall())
+                # 每个新增结构边界均须保全此前修复，后续备份包含已完成的早期迁移。
+                self.assertEqual((0.2, "[]"), backup.execute(
+                    "SELECT resistance_normal, selected_target_profiles_json FROM battle_target_condition"
+                ).fetchone())
+                cultivation = backup.execute(
+                    "SELECT name FROM sqlite_master WHERE name = 'cultivation_history'"
+                ).fetchone()
+                self.assertEqual(version >= 45, cultivation is not None)
+                overview = backup.execute(
+                    "SELECT name FROM sqlite_master WHERE name = 'team_overview_source'"
+                ).fetchone()
+                self.assertEqual(version >= 47, overview is not None)
+        self.assertEqual({44, 46, 47, 48, 49}, versions)
 
     def test_v35_materializes_virtual_default_before_adding_profile_snapshot(self) -> None:
         self._create_v34_with_virtual_normal_resistance()

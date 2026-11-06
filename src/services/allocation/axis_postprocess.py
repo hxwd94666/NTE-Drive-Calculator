@@ -273,7 +273,7 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
 def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=None, batch_rows=None):
     verify_optimization_batch_rows(rows, shared_axis=True)
     sources = {}
-    provided = {row["role_name"] for row in rows}
+    provided = {row["role_name"] for row in (rows if batch_rows is None else batch_rows)}
     # 基础方案已由保存事务独立验真，但仍属于同一批次的构筑依赖。
     batch = rows if batch_rows is None else batch_rows
     by_role = {row["role_name"]: row for row in batch}
@@ -306,6 +306,10 @@ def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=No
                     or metadata.get("shared_build_dependencies_sha256") != allocation_inputs_digest(dependencies)
                     or any(build.get("basis") not in {"accepted", "baseline_assumption"}
                            or not isinstance(build.get("role_state"), Mapping) for build in builds)
+                    or any(build["role"] not in by_role
+                           or by_role[build["role"]].get("character_id") != build["character_id"]
+                           or by_role[build["role"]].get("snapshot_id") != frozen.snapshot_id
+                           or by_role[build["role"]].get("role_state") != build["role_state"] for build in builds)
                     or not any(build["role"] == row["role_name"] and build["basis"] == "accepted"
                                and build["role_state"] == row.get("role_state") for build in builds)):
                 raise RuntimeError("共享轴目标缺少完整冻结构筑依赖或依赖已改变，请重新计算。")

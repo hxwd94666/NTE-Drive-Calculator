@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import math
+from src.domain.allocation.damage_display import fixed_coverage_note, search_is_complete, team_gain_ratio
 
 
 _TERMINATIONS = {
@@ -77,17 +78,7 @@ def _percentage(ratio: float) -> str | None:
 
 
 def _coverage_note(value) -> str:
-    if not isinstance(value, Mapping) or value.get("policy") != "available_fixed_domain_v1":
-        return ""
-    keys = ("basis_damage", "quantified_damage", "estimated_damage", "excluded_damage")
-    if not all(_number(value.get(k)) for k in keys) or value["basis_damage"] <= 0:
-        return ""
-    total = value["basis_damage"]
-    if not math.isclose(sum(value[k] for k in keys[1:]), total, rel_tol=1e-9, abs_tol=1e-9):
-        return ""
-    strict, estimated, excluded = (value[k] / total * 100 for k in keys[1:])
-    return (f"计分覆盖 {strict + estimated:.1f}%：已量化（含已证实不变）{strict:.1f}%、估算 {estimated:.1f}%；"
-            f"未计入 {excluded:.1f}%。")
+    return fixed_coverage_note(value)
 
 
 def damage_optimization_presentation(value) -> DamageOptimizationPresentation | None:
@@ -215,7 +206,7 @@ def _joint_team_presentation(value):
         candidate = report.get("selected_result", {}).get("candidate_value")
         if not _number(baseline) or baseline <= 0 or not _number(candidate):
             return DamageOptimizationPresentation("双队收益待核对", "战报计分记录异常，请重新计算。", "")
-        ratio = candidate / baseline - 1
+        ratio = team_gain_ratio(baseline, candidate)
         if not math.isfinite(ratio):
             return DamageOptimizationPresentation("双队收益待核对", "战报增幅超出可展示范围。", "")
         ratios.append(ratio)
@@ -224,7 +215,7 @@ def _joint_team_presentation(value):
     if not math.isclose(sum(ratios) / 2, after - 1, rel_tol=1e-9, abs_tol=1e-9):
         return DamageOptimizationPresentation("双队收益待核对", "综合增幅与两队结果不一致。", "")
     headline = f"双队综合增幅 {after - 1:+.2%}"
-    if value.get("neighborhood_complete") is not True:
+    if not search_is_complete(value):
         headline += " · 搜索未完成"
     return DamageOptimizationPresentation(headline, "\n".join(lines),
         "两份战报各以本次基础配装的计分伤害为 100，综合增幅为两队相对增幅的等权平均。"

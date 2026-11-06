@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from pathlib import Path
 
-from src.domain.teams import Team, TeamDraft, TeamRole
+from src.domain.teams.models import Team, TeamDraft, TeamRole
 from src.services.official_role.page import load_official_role_index
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -48,7 +48,7 @@ class TeamService:
             rows = load_official_role_index(self.database_path, static_database_path=self.static_database_path,
                                             asset_root=self.asset_root)
             result = tuple(TeamRole(int(row["character_id"]), str(row["name_zh"]),
-                                    str(row.get("icon_path") or "")) for row in rows)
+                                    str(row.get("icon_path") or ""), icon_note=str(row.get('icon_note') or '')) for row in rows)
             with self._database() as dao:
                 known = {role.character_id for role in result}
                 result += tuple(TeamRole(int(row["character_id"]), row["name_zh"], custom=True)

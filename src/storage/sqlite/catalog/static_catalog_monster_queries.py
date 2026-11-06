@@ -75,13 +75,13 @@ catalog_entry AS (
     FROM monster_catalog AS m CROSS JOIN dataset AS d
     WHERE m.enemy_type = 'WeeklyBoss'
     UNION ALL
-    SELECT 'feast', s.stage_id, CAST(fd.difficulty_id AS TEXT), '', 'encounter',
+    SELECT 'feast', s.stage_id, CAST(fd.difficulty_id AS TEXT), {feast_key}, 'encounter',
            'feast', '争锋赏宴', CAST(fd.difficulty_id AS TEXT),
-           d.dataset_id, '', s.name_zh, s.stage_id, s.boss_monster_id,
+           d.dataset_id, '', s.name_zh, s.stage_id, {feast_identity},
            COALESCE(fd.boss_icon_path, ''), s.source_row_id,
-           '20:' || s.stage_id || ':' || printf('%04d', fd.difficulty_id),
+           '20:' || s.stage_id || ':' || printf('%04d', fd.difficulty_id) || ':' || {feast_key},
            lower(COALESCE(s.name_zh, '') || ' ' || COALESCE(fd.boss_name_zh, '') || ' ' ||
-                 s.stage_id || ' ' || s.boss_monster_id || ' ' || fd.profile_set || ' ' || fd.pack_id)
+                 s.stage_id || ' ' || {feast_identity} || ' ' || fd.profile_set || ' ' || fd.pack_id)
     FROM feast_stage AS s
     JOIN feast_stage_difficulty AS fd USING (stage_id)
     CROSS JOIN dataset AS d
@@ -342,16 +342,20 @@ class StaticCatalogMonsterQueries(
         }
         if self._connection is None:
             raise RuntimeError("静态数据库 DAO 已关闭")
+        index_cte = _INDEX_CTE.format(
+            feast_key="CASE WHEN s.boss_monster_id IS NULL THEN fd.boss_monster_id ELSE '' END" if self._has_explicit_feast_targets() else "''",
+            feast_identity="fd.boss_monster_id" if self._has_explicit_feast_targets() else "s.boss_monster_id",
+        )
         total = int(
             self._connection.execute(
-                _INDEX_CTE + "SELECT COUNT(*) AS count FROM catalog_entry " + filters,
+                index_cte + "SELECT COUNT(*) AS count FROM catalog_entry " + filters,
                 parameters,
             ).fetchone()[0]
         )
         rows = [
             dict(row)
             for row in self._connection.execute(
-                _INDEX_CTE
+                index_cte
                 + "SELECT * FROM catalog_entry "
                 + filters
                 + " ORDER BY sort_key LIMIT :limit OFFSET :offset",
@@ -509,8 +513,10 @@ class StaticCatalogMonsterQueries(
         """Return only explicit ID/path references from a template to gameplay rows."""
 
         template_name = str(monster_template_name)
+        feast_identity = "d.boss_monster_id" if self._has_explicit_feast_targets() else "s.boss_monster_id"
+        feast_key = "CASE WHEN s.boss_monster_id IS NULL THEN d.boss_monster_id ELSE '' END" if self._has_explicit_feast_targets() else "''"
         return self._rows(
-            """
+            f"""
             SELECT 'world_boss' AS entity_kind,
                    m.monster_manual_id AS identity_1, '' AS identity_2,
                    '' AS identity_3, 'explicit_template_binding' AS relation_kind,
@@ -520,11 +526,11 @@ class StaticCatalogMonsterQueries(
             WHERE lower(b.monster_template_name) = lower(?)
               AND b.binding_kind = 'world_boss_id'
             UNION ALL
-            SELECT 'feast', s.stage_id, CAST(d.difficulty_id AS TEXT), '',
+            SELECT 'feast', s.stage_id, CAST(d.difficulty_id AS TEXT), {feast_key},
                    'exact_official_template_id', s.name_zh
             FROM feast_stage AS s
             JOIN feast_stage_difficulty AS d USING (stage_id)
-            WHERE lower(s.boss_monster_id) = lower(?)
+            WHERE lower({feast_identity}) = lower(?)
             UNION ALL
             SELECT 'clone', d.clone_id, CAST(d.difficulty_ordinal AS TEXT), '',
                    'exact_official_template_id', a.name_zh
@@ -559,54 +565,11 @@ class StaticCatalogMonsterQueries(
             ),
         )
 
-    def feast_encounter(self, stage_id: str, difficulty_id: int) -> dict[str, Any] | None:
-        row = self._one(
-            """
-            SELECT s.stage_id, s.name_zh, s.boss_monster_id,
-                   s.special_high_difficulty, s.source_row_id,
-                   d.difficulty_id, d.name_zh AS difficulty_name_zh,
-                   d.boss_name_zh, d.base_score, d.score_rate,
-                   d.monster_level, d.profile_set, d.pack_id, d.boss_icon_path
-            FROM feast_stage AS s
-            JOIN feast_stage_difficulty AS d USING (stage_id)
-            WHERE s.stage_id = ? AND d.difficulty_id = ?
-            """,
-            (str(stage_id), int(difficulty_id)),
-        )
-        if row is None:
-            return None
-        row["source"] = self.source_trace(row.get("source_row_id"))
-        row["profile"] = self.combat_profile(row["profile_set"], row["pack_id"])
-        row["options"] = self._feast_option_rows(stage_id)
-        return row
 
-    def feast_setup(self, stage_id: str) -> dict[str, Any] | None:
-        """Return one formal stage with all selectable difficulty and rule choices."""
-
-        stage = self._one(
-            """
-            SELECT stage_id, name_zh, boss_monster_id, special_high_difficulty
-            FROM feast_stage WHERE stage_id = ?
-            """,
-            (str(stage_id),),
-        )
-        if stage is None:
-            return None
-        stage["difficulties"] = self._rows(
-            """
-            SELECT difficulty_id, name_zh, boss_name_zh, score_rate,
-                   monster_level, boss_icon_path
-            FROM feast_stage_difficulty
-            WHERE stage_id = ? ORDER BY difficulty_id
-            """,
-            (str(stage_id),),
-        )
-        stage["options"] = self._feast_option_rows(stage_id)
-        return stage
 
     def _feast_option_rows(self, stage_id: str) -> list[dict[str, Any]]:
         # 同一静态库的正式 ID 连接机制文案；旧目录仍沿用已发布的选项表。
-        current = self._schema_version >= 41
+        current = bool(self._one("SELECT name FROM sqlite_master WHERE type='view' AND name='feast_all_stage_option'"))
         table = "feast_all_stage_option" if current else "feast_stage_option"
         columns = ", d.description_zh,d.player_buffs_json,d.boss_buffs_json,d.option_node_text" if current else ""
         join = "LEFT JOIN feast_mechanism_detail d USING(option_id)" if current else ""

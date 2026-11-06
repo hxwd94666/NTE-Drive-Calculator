@@ -3,8 +3,8 @@ import sqlite3
 
 import pytest
 
-from src.domain.teams import TeamDraft, TeamRole
-from src.services.teams import TeamService, TeamSessionExpired
+from src.domain.teams.models import TeamDraft, TeamRole
+from src.services.teams.management import TeamService, TeamSessionExpired
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.storage.sqlite import user_data_support
 
@@ -81,7 +81,7 @@ def test_v45_upgrade_preserves_existing_data(tmp_path, monkeypatch):
     with UserDataDao(path) as dao:
         assert dao.profile()["account_id"] == "old"
         assert dao.list_teams() == ()
-        assert dao._db().execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == 46
+        assert dao._db().execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == user_data_support.SCHEMA_VERSION
 
 
 def test_failed_migration_rolls_back_and_can_retry(tmp_path, monkeypatch):

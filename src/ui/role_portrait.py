@@ -4,9 +4,28 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap, QRegion
 
 from src.app.theme import current_theme_name
+
+
+def temporary_role_portrait(path: str, size: int, device_pixel_ratio: float = 1.0) -> QPixmap:
+    """只在展示时去掉临时宽画布透明边、等比居中；原始 PNG 和来源哈希不改。"""
+    source = QPixmap(path)
+    if source.isNull():
+        return source
+    bounds = QRegion(source.mask()).boundingRect() if source.hasAlphaChannel() else source.rect()
+    if not bounds.isEmpty():
+        source = source.copy(bounds)
+    pixels = max(size, round(size * device_pixel_ratio))
+    result = QPixmap(pixels, pixels)
+    result.fill(Qt.transparent)
+    scaled = source.scaled(pixels, pixels, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    painter = QPainter(result)
+    painter.drawPixmap((pixels - scaled.width()) // 2, (pixels - scaled.height()) // 2, scaled)
+    painter.end()
+    result.setDevicePixelRatio(device_pixel_ratio)
+    return result
 
 
 def custom_role_portrait(size: int, device_pixel_ratio: float = 1.0) -> QPixmap:

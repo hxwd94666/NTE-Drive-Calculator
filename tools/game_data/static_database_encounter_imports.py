@@ -7,7 +7,7 @@ import re
 from datetime import timedelta
 
 from tools.game_data.static_database_build_support import *
-from tools.game_data.static_database_feast_mechanisms import option_score
+from tools.game_data.static_database_feast_imports import FeastImportMixin
 
 
 _DIVINATION_PROPERTIES = {
@@ -85,35 +85,6 @@ _AUDITED_OUTER_REALM_BUFF_COMPONENTS = {
 }
 
 
-def _boss_id(preview_path: str) -> str:
-    match = re.search(r"/Monster/([^/]+)/", preview_path, re.IGNORECASE)
-    if match is None:
-        raise StaticDatabaseError(f"争锋赏宴预览模型无法解析怪物 ID：{preview_path}")
-    return f"{match.group(1)}_BP_DiyBoss"
-
-
-def _option_effect(option_id: str, buff_path: str | None) -> tuple[str, str | None]:
-    normalized = (buff_path or option_id).casefold()
-    if "timeop" in option_id.casefold():
-        return "time_limit", None
-    if "_hp_" in normalized or option_id.casefold().startswith("lifeop"):
-        return "health_up", None
-    if "_atk_" in normalized or option_id.casefold().startswith("attack"):
-        return "attack_up", None
-    elements = {
-        "resistcosmos": "cosmos",
-        "resistnature": "nature",
-        "resistincantation": "incantation",
-        "resistchaos": "chaos",
-        "resistphyche": "psyche",
-        "resistlakshana": "lakshana",
-    }
-    for marker, damage_type in elements.items():
-        if marker in normalized:
-            return "resistance_up", damage_type
-    return "unknown", None
-
-
 def _mainland_timestamp(value: object) -> str | None:
     if not isinstance(value, dict):
         return None
@@ -132,147 +103,14 @@ def _mainland_timestamp(value: object) -> str | None:
     )
 
 
-class EncounterImportMixin:
+class EncounterImportMixin(FeastImportMixin):
     def _import_encounter_catalogs(self) -> None:
         self._import_outer_realm_rotations()
         self._import_outer_realm_buffs()
         self._import_monster_boss_support()
         self._import_high_risk_commissions()
-        options = self.rows["feast_options"]
-        for option_id, row in sorted(options.items()):
-            node = row.get("OptionNode") or {}
-            buffs = node.get("BossBuffs") or ()
-            buff_path = asset_path(buffs[0]) if buffs else None
-            effect_kind, damage_type = _option_effect(option_id, buff_path)
-            add_percent = node.get("AddPercent")
-            self.connection.execute(
-                "INSERT INTO feast_option VALUES (?,?,?,?,?,?,?,?,?)",
-                (
-                    option_id,
-                    enum_tail(row.get("OptionType")) or "unknown",
-                    effect_kind,
-                    damage_type,
-                    (
-                        float(add_percent) / 100.0
-                        if isinstance(add_percent, (int, float))
-                        else None
-                    ),
-                    optional_int(node.get("LimitSeconds")),
-                    option_score(node),
-                    buff_path,
-                    self.source_row_id("feast_options", option_id),
-                ),
-            )
-
-        from tools.game_data.static_database_feast_mechanisms import import_mechanisms
-        import_mechanisms(self)
-
-        for stage_id, row in sorted(self.rows["feast_stages"].items()):
-            name, _, _ = text_parts(row.get("DescName"))
-            if not name:
-                raise StaticDatabaseError(f"争锋赏宴关卡缺少名称：{stage_id}")
-            previews = row.get("PreviewActorArray")
-            if previews is None:
-                previews = [{"PreviewActorClass": row.get("PreviewActorClass")}]
-            if not isinstance(previews, list) or not previews:
-                raise StaticDatabaseError(f"争锋赏宴缺少预览目标：{stage_id}")
-            preview_members = [asset_path(item.get("PreviewActorClass")) for item in previews]
-            if not all(preview_members):
-                raise StaticDatabaseError(f"争锋预览资源缺失：{stage_id}")
-            # 战斗目标来自同版副本 SpawnID，预览资产目录名不能生成怪物 ID。
-            nodes = self.rows["clone_system"].get(stage_id, {}).get("CloneSystemSubNodes", [])
-            spawn_ids = {optional_text(node.get("SpawnID")) for node in nodes}
-            if len(spawn_ids) != 1 or None in spawn_ids:
-                raise StaticDatabaseError(f"争锋副本目标不唯一或缺失：{stage_id}")
-            boss_id = next(iter(spawn_ids))
-            resolved = self.connection.execute(
-                """
-                SELECT monster_id FROM monster_instance_profile
-                WHERE static_table = 'monster_static_big_world'
-                  AND lower(monster_id) = lower(?)
-                """,
-                (boss_id,),
-            ).fetchone()
-            if resolved is None:
-                raise StaticDatabaseError(f"争锋赏宴怪物未进入实例目录：{boss_id}")
-            boss_id = str(resolved[0])
-            source_row_id = self.source_row_id("feast_stages", stage_id)
-            self.connection.execute(
-                "INSERT INTO feast_stage VALUES (?,?,?,?,?)",
-                (
-                    stage_id,
-                    name,
-                    boss_id,
-                    bool_int(row.get("bSpecialHighDifficulty")),
-                    source_row_id,
-                ),
-            )
-            for ordinal, preview in enumerate(preview_members):
-                self.connection.execute("INSERT INTO feast_stage_member VALUES (?,?,?,?)",
-                                        (stage_id, ordinal, boss_id if ordinal == 0 else None, preview))
-            for ordinal, choice in enumerate(row.get("MechanismOptionChoices") or ()):
-                option_id = choice.get("OptionID")
-                if option_id not in options:
-                    raise StaticDatabaseError(f"争锋机制选项不存在：{stage_id}/{option_id}")
-                self.connection.execute("INSERT INTO feast_stage_mechanism_option VALUES (?,?,?,?,?)",
-                    (stage_id, ordinal, option_id, text_parts(row.get("MechanismCategoryTitle"))[0],
-                     optional_int(row.get("MechanismScoreLimit"))))
-            displays = {
-                int(item["Key"]): item["Value"]
-                for item in row.get("DifficultyDisplayData") or ()
-            }
-            for difficulty in row.get("DifficultyMap") or ():
-                difficulty_id = int(difficulty["Key"])
-                value = difficulty["Value"]
-                description, _, _ = text_parts(value.get("Desc"))
-                display = displays.get(difficulty_id, {})
-                boss_name, _, _ = text_parts(display.get("Desc"))
-                variant = self.connection.execute(
-                    """
-                    SELECT threshold_level, profile_set, pack_id
-                    FROM monster_instance_profile_variant
-                    WHERE static_table = 'monster_static_big_world'
-                      AND monster_id = ? AND variant_kind = 'clone_level'
-                    ORDER BY threshold_level LIMIT 1 OFFSET ?
-                    """,
-                    (boss_id, difficulty_id - 1),
-                ).fetchone()
-                if variant is None:
-                    raise StaticDatabaseError(
-                        f"争锋赏宴难度缺少怪物属性包：{stage_id}/{difficulty_id}"
-                    )
-                self.connection.execute(
-                    "INSERT INTO feast_stage_difficulty VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        stage_id,
-                        difficulty_id,
-                        description or str(difficulty_id),
-                        boss_name or boss_id,
-                        int(value.get("BaseScore") or 0),
-                        float(value.get("ScoreRate") or 0.0),
-                        int(variant[0]),
-                        str(variant[1]),
-                        str(variant[2]),
-                        asset_path(display.get("BossIconMini")),
-                    ),
-                )
-            for category_ordinal, category in enumerate(row.get("OptionChoices") or ()):
-                category_name, _, _ = text_parts(category.get("CategoryDesc"))
-                for option_ordinal, option_id in enumerate(category.get("Options") or ()):
-                    if option_id not in options:
-                        raise StaticDatabaseError(
-                            f"争锋赏宴选项不存在：{stage_id}/{option_id}"
-                        )
-                    self.connection.execute(
-                        "INSERT INTO feast_stage_option VALUES (?,?,?,?,?)",
-                        (
-                            stage_id,
-                            category_ordinal,
-                            option_ordinal,
-                            category_name or f"选项 {category_ordinal + 1}",
-                            option_id,
-                        ),
-                    )
+        self._import_official_activity_catalog()
+        self._import_feast_catalog()
 
         texts = self.rows["divination_text"]
         for curve_id, (name, property_id, is_percent) in _DIVINATION_PROPERTIES.items():
@@ -294,7 +132,6 @@ class EncounterImportMixin:
                     self.source_row_id("divination_curves", curve_id),
                 ),
             )
-        self._import_official_activity_catalog()
 
     def _import_monster_boss_support(self) -> None:
         """仅导入正式 Boss 成员关系，不从编号或名字推断。"""

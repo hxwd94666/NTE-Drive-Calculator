@@ -277,6 +277,11 @@ class CharacterDetailView(QWidget):
         character = detail.character
         self.name.setText(character.name_zh)
         self.identity.setText(f"ID  {character.character_id}")
+        image_note = self._asset_catalog.character_image_note(character_id)
+        if image_note:
+            self.identity.setText(self.identity.text() + ' · 临时替代图片')
+        self.identity.setToolTip(image_note)
+        self.art.setToolTip(image_note)
         self.element_badge.setText(f"{character.element_label}属性")
         acquisition_label = _acquisition_name(release)
         if character.classification == "scheduled_character":

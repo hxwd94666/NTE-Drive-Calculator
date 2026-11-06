@@ -236,6 +236,8 @@ def build_loadout_share_panel(
             virtual=bool(item.get("virtual")),
         ))
     notes = ["角色面板按当前养成配置；装备主属性沿用配装页满级投影。", "模板 / 配置标签代表计算输入，不等同于游戏实测养成。"]
+    if request.character_id is not None and (image_note := catalog.character_image_note(request.character_id)):
+        notes.append(image_note.replace('\n', '；'))
     if not attributes:
         notes.insert(0, "最终面板数据未齐备；本图仅展示已确认的配装与评分。")
     if any(item.virtual for item in equipment):

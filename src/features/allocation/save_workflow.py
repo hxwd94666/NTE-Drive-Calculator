@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from src.app.constants import SUPPORT_US_URL
 from src.app.theme import current_style_sheet, theme_color
 from src.app.window_geometry import fit_dialog_to_available_screen
+from src.domain.equipment.plan_changes import SavedPlansChanged
 from src.features.allocation.save_progress import AllocationSaveProgress
 from src.services.allocation.slot_comparisons import selected_legacy_comparison_diffs
 from src.features.inventory.equipment.display_controller import invalidate_saved_equipment_cache
@@ -94,7 +95,7 @@ def show_allocation_save_success(parent, saved_count: int) -> None:
     dialog.exec()
 
 
-def save_allocation(owner, *, show_message=True):
+def save_allocation(owner, *, show_message=True, on_saved=None):
     from src.features.allocation.runner import (
         _allocation_paths, _select_allocation_save_slots,
         _persistable_plan_diff, _plan_changed_uids, _plan_assignment_scores,
@@ -175,6 +176,7 @@ def save_allocation(owner, *, show_message=True):
                     snapshot_id=snapshot_id, name=f"计算方案：{role}", score=float(plan.get("score", 0.0) or 0.0),
                     slot_id=slot_id, axis_preview_source=plan.get("axis_preview_source"),
                     baseline_preview_source=plan.get("baseline_preview_source"),
+                    team_enhancement_preview=plan.get("team_enhancement_preview"),
                     direct_group_preview_source=plan.get("direct_group_preview_source"), payload={
                         "schema": "allocation-official-snapshot-v1", "source": "allocation",
                         "source_role_name": role, "static_dataset_id": identity[1],
@@ -210,8 +212,22 @@ def save_allocation(owner, *, show_message=True):
             return bool(saved_count)  # 已接受提交保留事实；退出不渲染或弹出成功模态。
         if _allocation_context_identity(owner) != context_identity:
             return False
+        if saved_count and on_saved is not None:
+            # 正式提交且代次仍有效才通知；先失效旧投影，后续渲染异常不撤销已保存事实。
+            team_ids = {entry.team.team_id for plan in plans.values()
+                        if plan.get("team_enhancement_preview") is not None
+                        for entry in plan["team_enhancement_preview"].commit.entries}
+            on_saved(SavedPlansChanged(context_identity[0], context_identity[1], str(context_identity[2]),
+                tuple(sorted({targets[role][0] for role in plans})), tuple(sorted(team_ids)),
+                tuple(sorted({targets[role][1] for role in plans if targets[role][1] is not None}))))
         owner.allocation_plan_diff = diffs
         owner._allocation_dirty = False
+        # 仅正式提交/同一作业确认后更新可丢弃展示标志，不进入方案 payload 或冻结评分。
+        for role, plan in plans.items():
+            if plan.get("team_enhancement_preview") is not None:
+                plan["team_enhancement_saved"] = True
+                if role in owner.final_plan:
+                    owner.final_plan[role]["team_enhancement_saved"] = True
         # Role/equipment pages refresh through navigation when the user opens them.
         # Rebuilding both off-screen pages here used to freeze the save dialog.
         invalidate_saved_equipment_cache(owner.dialog_parent)

@@ -10,7 +10,8 @@ from typing import Any
 
 from src.domain.progression.stamina import project_identification_level
 
-PAYLOAD_VERSION = 1
+PAYLOAD_VERSION = 3
+SUPPORTED_PAYLOAD_VERSIONS = frozenset({1, 2, 3})
 MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
 MAX_COLLECTION_SIZE = 100_000
 
@@ -85,7 +86,7 @@ def _state(value: dict[str, Any]) -> None:
 
 def normalize_configuration(value: object) -> dict[str, Any]:
     data = object_fields(value, "version mode targets hunter_level identification_level material_scope owned_materials")
-    if integer(data["version"]) != PAYLOAD_VERSION or text_value(data["mode"]) not in {"single", "batch"}:
+    if integer(data["version"]) not in SUPPORTED_PAYLOAD_VERSIONS or text_value(data["mode"]) not in {"single", "batch"}:
         raise ValueError("养成历史配置版本或模式无效")
     if text_value(data["material_scope"]) not in {"all", "stamina"}:
         raise ValueError("养成历史材料范围无效")
@@ -95,7 +96,9 @@ def normalize_configuration(value: object) -> dict[str, Any]:
         integer(identification, 0, 7)
     targets = []
     for raw in rows(data["targets"]):
-        target = object_fields(raw, "line_id character_id name current_level current_stage target_level target_stage character_enabled skills_enabled skills fork")
+        fields = "line_id character_id name current_level current_stage target_level target_stage character_enabled skills_enabled skills fork"
+        # v2 已停用字段只用于核验旧记录哈希，新格式不再生成或接受这些目标。
+        target = object_fields(raw, fields + (" passives" if data["version"] == 2 else ""))
         text_value(target["line_id"], maximum=256)
         integer(target["character_id"], 1)
         text_value(target["name"])
@@ -111,6 +114,16 @@ def normalize_configuration(value: object) -> dict[str, Any]:
             skills.append(skill)
         unique(skills, "skill_id")
         target["skills"] = skills
+        if data["version"] == 2:
+            passives = []
+            for raw_passive in rows(target["passives"]):
+                passive = object_fields(raw_passive, "ability_id current_unlocked target_unlocked")
+                text_value(passive["ability_id"], maximum=256)
+                boolean(passive["current_unlocked"])
+                boolean(passive["target_unlocked"])
+                passives.append(passive)
+            unique(passives, "ability_id")
+            target["passives"] = passives
         if target["fork"] is not None:
             fork = object_fields(target["fork"], "fork_id name enabled current_level current_stage target_level target_stage")
             text_value(fork["fork_id"], maximum=256)
@@ -157,7 +170,7 @@ def _stamina_values(value: dict[str, Any]) -> None:
 
 def normalize_snapshot(value: object, configuration: dict[str, Any]) -> dict[str, Any]:
     data = object_fields(value, "version dataset algorithm_version materials target_summaries stamina gaps")
-    if integer(data["version"]) != PAYLOAD_VERSION:
+    if integer(data["version"]) not in SUPPORTED_PAYLOAD_VERSIONS or data["version"] != configuration["version"]:
         raise ValueError("养成历史结果版本无效")
     dataset = object_fields(data["dataset"], "dataset_id schema_version importer_version built_at_utc")
     text_value(dataset["dataset_id"], maximum=256)
@@ -273,7 +286,7 @@ def decode_summary(raw: str) -> dict[str, Any]:
         value = json.loads(raw, object_pairs_hook=_no_duplicate_keys)
         _bounded_tree(value)
         data = object_fields(value, "version characters status known_stamina total_stamina gap_count")
-        if integer(data["version"]) != PAYLOAD_VERSION:
+        if integer(data["version"]) not in SUPPORTED_PAYLOAD_VERSIONS:
             raise ValueError("养成历史摘要版本暂未支持")
         characters = []
         for row in rows(data["characters"]):
@@ -357,6 +370,10 @@ def _target_label(target: dict[str, Any]) -> str:
     if target["skills_enabled"] and target["skills"]:
         levels = [skill["target_level"] for skill in target["skills"]]
         parts.append(f"技能 {len(levels)} 项，目标 {min(levels)}–{max(levels)} 级")
+    if target["skills_enabled"] and target.get("passives"):
+        # 只复现旧 v2 摘要，不参与当前养成计算或目标恢复。
+        count = sum(item["target_unlocked"] and not item["current_unlocked"] for item in target["passives"])
+        parts.append(f"被动解锁 {count} 项")
     fork = target["fork"]
     if fork is not None and fork["enabled"]:
         parts.append(f"弧盘 {fork['current_level']}/{fork['current_stage']}→{fork['target_level']}/{fork['target_stage']}")
@@ -384,7 +401,7 @@ class HistoryPayload:
         if len(config_raw.encode("utf-8")) + len(snapshot_raw.encode("utf-8")) > MAX_PAYLOAD_BYTES:
             raise ValueError("养成历史超出单条大小预算，计算结果保留")
         summary = {
-            "version": PAYLOAD_VERSION,
+            "version": config["version"],
             "characters": [{"character_id": target["character_id"], "name": target["name"],
                             "target_label": _target_label(target)}
                            for target in config["targets"]],

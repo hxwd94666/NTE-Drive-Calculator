@@ -95,6 +95,11 @@ def _prepare_database(path: Path, *, account_id: str, account_name: str) -> None
             raise ValueError("账号包数据库与声明账号身份不一致")
         if profile["account_name"] != account_name:
             dao.rename_account(account_name)
+        dao.validate_team_enhancement_data()
+        dao.validate_team_sources()
+        dao.validate_team_axis_targets()
+        for _result in dao.iter_team_axis_results():
+            pass
     with closing(sqlite3.connect(path)) as connection:
         _validate_structure(path, connection)
         connection.execute("PRAGMA secure_delete = ON")

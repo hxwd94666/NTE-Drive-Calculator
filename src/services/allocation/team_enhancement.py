@@ -3,10 +3,12 @@ from dataclasses import replace
 
 from src.services.allocation.team_axis_selection import verify_team_selection
 from src.storage.sqlite.user_data_dao import UserDataDao
+from src.services.teams.enhancement_results import freeze_team_result_inputs, attach_team_result_preview
 
 
 def execute_team_enhancement(facade, inventory, priority_list, selection, *, mode, options):
     verify_team_selection(selection, facade.user_database_path)
+    result_inputs = freeze_team_result_inputs(selection, facade.user_database_path)
     team_roles = [role for role in selection.roles if role in priority_list]
     remaining = [role for role in priority_list if role not in selection.roles]
     reserved = set(options.get("locked_uids") or ())
@@ -36,7 +38,7 @@ def execute_team_enhancement(facade, inventory, priority_list, selection, *, mod
             **{**options, "locked_uids": reserved, "priority_groups": [g for g in groups if g] if groups is not None else None})
         plans.update(rest)
     verify_team_selection(selection, facade.user_database_path)
-    return plans, None
+    return attach_team_result_preview(plans, result_inputs, facade.user_database_path), None
 
 
 def ranked_team_baseline(selections, priority_list):

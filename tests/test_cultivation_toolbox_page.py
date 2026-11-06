@@ -249,7 +249,7 @@ def test_cultivation_owned_materials_deduct_and_preserve_scope_edits() -> None:
     assert {label.text() for label in totals.findChildren(QLabel, "progressionMaterialCardName")} == {item.name for item in materials}
     rendered = [label.text() for label in totals.findChildren(QLabel)]
     assert "× 7" in rendered
-    assert "最低体力 120" in rendered
+    assert "估算体力 120" in rendered
     page.material_scope.setCurrentIndex(1)
     QApplication.processEvents()
     assert service.stamina_calls == 2
@@ -487,7 +487,7 @@ def test_multi_character_page_calculates_combined_stamina_and_ordered_targets() 
     assert batch._last_plan.saved_stamina == 40
     combined = page.findChild(QFrame, "cultivationBatchCombinedTotals")
     rendered = [label.text() for label in combined.findChildren(QLabel)]
-    assert "最低体力 40" in rendered
+    assert "估算体力 40" in rendered
     assert any("节省 40 体力" in text for text in rendered)
     assert page.copy_button.isEnabled()
     page.material_scope.setCurrentIndex(1)

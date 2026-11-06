@@ -21,6 +21,8 @@ from src.integrations.vision.recognition.shape_recognizer import ShapeRecognizer
 from src.models.equipment import Tape
 from src.optimizer.scoring import ScoringEngine
 from src.services.identification import tasks
+from src.domain.equipment.matching import EquipmentMatchContext
+from src.services.identification.matching_settings import MatchingSettingsService, matching_settings_identity
 from src.services.identification.tasks import IdentificationMatchRequest, IdentificationParsedBatch
 from src.services.inventory import vision_snapshot
 from src.services.inventory.visual_scan_commit import commit_completed_vision_inventory
@@ -306,6 +308,8 @@ def test_independent_match_freezes_once_and_copies_form_items(selected, tmp_path
     resources = freeze(selected)
     item = Tape(uid="fixture", quality="Gold", area=15, set_name="夹具套装",
                 main_stats="攻击力%", sub_stats={})
+    with UserDataDao(tmp_path / "user.sqlite3", account_id="recognition-match-fixture"):
+        pass
     request = IdentificationMatchRequest.freeze(config_dir=selected[0],
         user_database_path=tmp_path/"user.sqlite3", static_database_path=selected[1], items=[item])
     loads = []
@@ -313,10 +317,13 @@ def test_independent_match_freezes_once_and_copies_form_items(selected, tmp_path
                         lambda *args: (loads.append(args), resources)[1])
     def matcher(**kwargs):
         assert kwargs["resources"] is resources
+        # 继续走真实配置身份复核，不把新增门禁 mock 掉。
+        identity = matching_settings_identity(MatchingSettingsService(request.user_database_path).load())
         def identify(candidate):
             candidate.set_name = "changed privately"
             return {"fixture": True}
-        return SimpleNamespace(identify_items=lambda items, **_kwargs: [identify(item) for item in items])
+        return SimpleNamespace(context=EquipmentMatchContext(settings_identity=identity),
+                               identify_items=lambda items, **_kwargs: [identify(item) for item in items])
     monkeypatch.setattr(tasks.EquipmentIdentificationService, "from_paths", matcher)
     assert tasks.match_identification_items(request) == [{"fixture": True}]
     assert len(loads) == 1 and item.set_name == "夹具套装"

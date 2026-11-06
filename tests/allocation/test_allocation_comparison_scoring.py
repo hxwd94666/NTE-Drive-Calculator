@@ -1,5 +1,6 @@
 # 验证配装变动按本次冻结权重比较且不覆盖历史评分。
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 
@@ -81,6 +82,37 @@ def test_scoring_inputs_are_copied_and_crit_damage_is_not_crit_rate():
     assert basis.metadata()["property_weights"]["CritDamageBase"] == 0
 
 
+def test_warm_native_comparison_freezes_rules_and_quality_without_default_io(monkeypatch):
+    engine = ScoringEngine(roles_db={})
+    engine.quality_map["Purple"] = .4
+    weights, mains = {"攻击力": 1, "暴击率%": 1}, {"暴击率%": .5}
+    maximum = engine.max_theoretical_weight(weights)
+    expected = engine.calculate_cartridge_score(
+        SimpleNamespace(sub_stats={"攻击力": 12}, main_stats="暴击率%", main_value=None, quality="Purple"),
+        weights, maximum, mains,
+    )
+
+    def unexpected_read(*_args):
+        pytest.fail("冻结对比不应重新读取账号或评分规则")
+
+    monkeypatch.setattr(ScoringEngine, "_load_stats", unexpected_read)
+    monkeypatch.setattr(ScoringEngine, "_load_roles_from_sqlite", unexpected_read)
+    basis = FrozenComparisonScorer.from_engine(
+        engine, character_id=1003, weights=weights, main_weights=mains,
+        attributes=ATTRIBUTES, dataset_id="fixture",
+    )
+    before = basis.metadata()
+    assert basis.score_inventory_item(item("core", "purple")) == expected
+    # 原评分器已持有真实组件客户端；后续草稿变化不得重解释本次预览。
+    engine.stat_catalog.gold_base_values["攻击力"] *= 2
+    engine.stat_catalog.tape_main_values["暴击率%"] *= 2
+    engine.quality_map["Purple"] = .9
+    weights.clear()
+    mains.clear()
+    assert basis.score_inventory_item(item("core", "purple")) == expected
+    assert basis.metadata() == before
+
+
 @pytest.mark.parametrize("quality,coefficient", [("orange", 1), ("purple", .8), ("blue", .6)])
 def test_core_main_weight_and_quality_are_shared(quality, coefficient):
     basis = scorer(main_weights={"暴击率%": .5})
@@ -94,6 +126,17 @@ def test_core_main_weight_and_quality_are_shared(quality, coefficient):
 def test_blacklist_zero_weight_matches_public_drive_scorer():
     basis = scorer(zero_weight_stats=("攻击力",))
     assert basis.score_inventory_item(item()) == 0
+
+
+def test_blacklist_zero_weight_matches_public_card_scorer_and_preserves_main():
+    basis = scorer(zero_weight_stats=("攻击力",), main_weights={"暴击率%": 1})
+    core = item("core")
+    expected = basis.engine.calculate_cartridge_score(
+        SimpleNamespace(main_stats="暴击率%", sub_stats={"攻击力": 12}, quality="Gold", main_value=None),
+        dict(basis.weights), basis.max_weight, dict(basis.main_weights), zero_weight_stats=basis.zero_weight_stats)
+    assert basis.score_inventory_item(core) == expected == 50
+    snapshot = dict(type="tape", main_stats="暴击率%", sub_stats={"攻击力": 12}, quality="Gold", score=expected)
+    assert basis.verify_result_score(snapshot)["score"] == expected
 
 
 def test_missing_old_item_preserves_uid_without_fake_zero_score():

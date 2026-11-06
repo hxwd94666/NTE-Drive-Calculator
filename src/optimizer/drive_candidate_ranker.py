@@ -600,6 +600,7 @@ class BaseDispatchStrategy:
                 if (
                     tape.uid not in used_tape_uids
                     and self._tape_matches_core_target(role, tape, custom_sets)
+                    and self._item_allowed_for_role(tape, stat_priority_configs.get(role))
                 )
             ]
             role_tapes = self._deepest_stat_priority_pool(
@@ -650,6 +651,7 @@ class BaseDispatchStrategy:
             for t_idx, tape in enumerate(real_tapes):
                 if (
                     self._tape_matches_core_target(role, tape, custom_sets)
+                    and self._item_allowed_for_role(tape, stat_priority_configs.get(role))
                 ):
                     score = max(0.0, tape.role_scores.get(role, 0.0))
                     rank_score = self._rank_score_for_item(role, tape, score, stat_priority_configs.get(role))

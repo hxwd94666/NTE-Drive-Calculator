@@ -1,4 +1,4 @@
-# 编排多角色养成目标、共享已有材料与跨角色最低体力。
+# 编排多角色养成目标、共享已有材料与跨角色体力估算。
 """Qt-free batch cultivation planning built on the single-target service."""
 
 from __future__ import annotations
@@ -122,11 +122,12 @@ class CultivationBatchPlannerService:
         stages = self._single.load_farming_stages()
         raw_plans = tuple((target, self._single.calculate(target.request))
                           for target in request.ordered_targets)
+        merged = _merge_materials(plan.totals for _target, plan in raw_plans)
         return CultivationBatchPreparation(
             request.account_id, request.generation, request.dataset_identity, request.ordered_targets,
-            raw_plans, _merge_materials(plan.totals for _target, plan in raw_plans),
+            raw_plans, merged,
             _merge_materials(plan.owned_inputs or plan.totals for _target, plan in raw_plans),
-            stages, stamina_material_ids(stages),
+            stages, stamina_material_ids(stages, materials=merged),
         )
 
     def dataset_metadata(self) -> dict[str, object]:
@@ -194,6 +195,7 @@ class CultivationBatchPlannerService:
             stages,
             hunter_level=request.hunter_level,
             effective_identification_level=request.effective_identification_level,
+            material_gaps=tuple(gap.reason_code for gap in gaps),
         )
         trace_cultivation(
             request.trace_id, "worker.combined_solved",
@@ -224,7 +226,7 @@ class CultivationBatchPlannerService:
             gaps=tuple(gaps),
             separate_stamina_total=separate,
             saved_stamina=saved,
-            stamina_item_ids=stamina_material_ids(stages),
+            stamina_item_ids=stamina_material_ids(stages, materials=merged),
             owned_inputs=input_catalog,
             trace_id=request.trace_id,
             preparation=prepared,
@@ -305,6 +307,7 @@ def _calculate_target_stamina(
         stages,
         hunter_level=hunter_level,
         effective_identification_level=identification_level,
+        material_gaps=tuple(gap.reason_code for gap in plan.gaps),
     )
     available = dict(allocated)
     sections: list[CultivationSectionStamina] = []
@@ -323,7 +326,7 @@ def _calculate_target_stamina(
                 effective_identification_level=identification_level,
             ),
         ))
-    return CultivationStaminaPlan(total, tuple(sections))
+    return CultivationStaminaPlan(total, tuple(sections), stamina_material_ids(stages, materials=plan.totals))
 
 
 def _subtract_materials(

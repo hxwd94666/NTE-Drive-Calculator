@@ -16,7 +16,7 @@
 | 怪物模板与等级画像 | `monster_instance_profile`、`monster_instance_profile_variant` | 4,311 个模板画像 |
 | 图鉴与模板身份绑定 | `monster_template_binding` | 85 条显式绑定 |
 | 异象追猎单 Boss | `monster_catalog.enemy_type='WeeklyBoss'` 与 `world_boss_id` | 7 个 Boss |
-| 争锋赏宴 | `feast_stage*`、`clone_activity*`、怪物等级画像与公开排期注解 | 2 个活动期；当前 8 个、往期 7 个挑战，合计 9 个唯一挑战配置 |
+| 争锋赏宴 | `feast_stage*`、`clone_activity*`、怪物等级画像与公开排期注解 | 按当前冻结 dataset 的挑战、各难度全部正式目标与画像读取，不固化行数 |
 | 轨外之境 | `outer_realm_rotation`、`abyss_level*`、`abyss_monster_pool_entry` | 12 个编号配置，含层/上下半场/怪物池；其中 6 个有正式排期 |
 | 材料与养成副本 | `clone_activity*`、`clone_spawn_member` | 56 个活动、218 个难度；159 条展示于冒险手册、59 条隐藏，68 条没有类目 ID |
 | 高危委托 | `high_risk_commission*`、`high_risk_monster_pool_member` | 13 个委托、78 个难度 |
@@ -45,6 +45,14 @@ Buff 与玩法规则同样在当前页完整展示名称、说明、数值与生
 挑战条件或画像。任何关系都不使用中文名、数值画像相似或战报推断来建立怪物身份。
 
 ## 争锋赏宴活动期
+
+新版 `MechanismOptionChoices[].OptionID` 独立于普通条件分类：每个挑战目标独立记录选择，保留正式说明、目标分值、
+关卡 `MechanismScoreLimit` 和全部玩家／敌方效果来源。选择仅记录场景条件，不证明目标完成，不推算结算得分；
+触发时序与受体缺证据时，不从描述或 Buff 路径生成常驻攻防，也不自动勾选这些目标。
+
+目标按正式副本难度的 `SpawnID → clone_spawn_member → monster_instance_profile` 绑定；预览模型数组不承担战斗身份。
+同一关卡可以有多个目标，各自保留等级、属性包与来源。资料页明确选择当前画像，战报配置明确选择主要目标并冻结全部成员画像；
+多目标未选择时不默认取第一项，来源缺失或歧义不按模型名猜测。测试来源使用独立“排期待确认”入口，不套用正式服旧活动期和同名关卡的历史数值。
 
 争锋赏宴先展示活动期，再展示该期挑战对象；`DiyBossStage1` 等是挑战 ID，不是活动期数。大陆服已确认：
 

@@ -56,6 +56,13 @@ class GameUiAssetCatalog:
         """仅返回正式角色身份的已打包默认立绘。"""
         return self._resolve("character_arts", str(character_id))
 
+    def character_image_note(self, character_id: int, group: str | None = None) -> str:
+        """展示临时来源，不把非默认外观图片解释成角色属性或计算输入。"""
+        groups = (group,) if group is not None else ('characters', 'character_arts')
+        substitutions = self._manifest.get('temporary_substitutions', {})
+        return '\n'.join(str(row['notice']) for name in groups
+                         if isinstance(row := substitutions.get(f'{name}:{character_id}'), dict) and row.get('notice'))
+
     def attribute_icon(self, attribute_key: str) -> Path | None:
         return self._resolve("attributes", str(attribute_key))
 
