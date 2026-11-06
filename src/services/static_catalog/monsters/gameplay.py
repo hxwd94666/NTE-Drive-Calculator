@@ -133,7 +133,8 @@ class StaticCatalogMonsterGameplayProjector:
             note=(
                 "挑战时间规则不属于 Buff 乘区。"
                 if effect_kind == "time_limit"
-                else ""
+                else ("仅记录条件，未判定触发、受体或目标完成；不加入常驻画像。"
+                      if effect_kind == "mechanism_goal" else "")
             ),
         )
 

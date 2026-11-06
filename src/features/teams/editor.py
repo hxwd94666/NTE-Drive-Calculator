@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.domain.name_search import match_pinyin
-from src.domain.teams import TeamDraft, TeamRole
+from src.domain.teams.models import TeamDraft, TeamRole
 from src.features.teams.cards import MemberSlots, role_button, set_role
 
 
@@ -40,7 +40,7 @@ class TeamEditor(QDialog):
         for index, button in enumerate(self.member_buttons):
             button.clicked.connect(lambda checked=False, slot=index: self._remove_slot(slot))
         layout.addWidget(members)
-        hint = QLabel("点击角色加入队伍，再次点击可移除。可以先保存名称，稍后补齐成员。")
+        hint = QLabel("点击头像添加或移除成员，最多 4 人。未满员也可保存。")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         self.search = QLineEdit()
@@ -107,7 +107,7 @@ class TeamEditor(QDialog):
 
     def _sync_selection(self):
         size = len(self._selected)
-        self.count.setText(f"队伍成员 · {size}/4" + (" · 已满员" if size == 4 else " · 待补齐"))
+        self.count.setText(f"已选成员 · {size}/4")
         for character_id, button in self.role_buttons.items():
             selected = character_id in self._selected
             button.blockSignals(True)

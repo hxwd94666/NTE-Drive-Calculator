@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Protocol
 
 from src.domain.post_actions import merge_post_action_config
+from src.integrations.team_axis_graduation_archive import validate_saved_axis_result
+from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.accounts.settings import AccountSettingsService, SETTING_GROUPS
 from src.services.identification.matching_settings import MatchingSettingsService
 from src.integrations.accounts.index_file import locked_account_index
@@ -60,6 +62,10 @@ def _portable_config(source: Path, target: Path) -> None:
 def _prepare_settings(staged: Path) -> None:
     # schema/JSON 合法不代表业务设置可用。复用运行时的迁移和规范化入口，
     # 在候选目录内读完全部分组；失败时旧 owner/索引/数据库均尚未触碰。
+    # 逐份校验可迁移轴伤历史的完整协议语义；纯校验不打开战报或启动分析组件。
+    with UserDataDao(staged / USER_DATABASE_FILENAME) as dao:
+        for result in dao.iter_team_axis_results():
+            validate_saved_axis_result(result)
     settings = AccountSettingsService(staged / USER_DATABASE_FILENAME,
                                       legacy_config_dir=staged / "config")
     settings.migrate_legacy_settings()

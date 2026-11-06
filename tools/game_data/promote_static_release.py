@@ -18,6 +18,7 @@ try:
     from .static_database_build_support import (
         IMPORTER_VERSION,
         SCHEMA_VERSION,
+        graduation_template_gaps,
         write_static_manifest,
     )
     from .upgrade_static_database import (
@@ -44,6 +45,7 @@ except ImportError:  # 支持直接运行
     from static_database_build_support import (
         IMPORTER_VERSION,
         SCHEMA_VERSION,
+        graduation_template_gaps,
         write_static_manifest,
     )
     from upgrade_static_database import (
@@ -293,6 +295,7 @@ def refresh_final_report(
 ) -> dict[str, Any]:
     with closing(_readonly_connection(database_path)) as connection:
         counts = _table_counts(connection)
+        gaps = graduation_template_gaps(connection)
     finalized_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     report = {
         "schema_version": summary["schema_version"],
@@ -314,6 +317,7 @@ def refresh_final_report(
         },
         "source_payloads_included": False,
         "database_counts": counts,
+        "graduation_template_gaps": gaps,
         "foreign_key_violations": [],
     }
     _write_text_atomic(
@@ -336,6 +340,10 @@ def refresh_final_report(
         "",
     ]
     lines.extend(f"- `{table}`：{count}" for table, count in counts.items())
+    lines.extend(["", "## 毕业模板资料缺项", ""])
+    lines.extend(f"- 角色 `{row['character_id']}`：`{row['reason']}`，来源行 `{row['source_row_id']}`。" for row in gaps)
+    if not gaps:
+        lines.append("本用途无此类记录，不代表已具备毕业计算能力。")
     _write_text_atomic(markdown_path, "\n".join(lines) + "\n")
     return report
 
@@ -350,6 +358,7 @@ def validate_final_report(
     report = _read_json_object(report_path, "候选最终报告")
     with closing(_readonly_connection(database_path)) as connection:
         counts = _table_counts(connection)
+        gaps = graduation_template_gaps(connection)
     expected = {
         "schema_version": summary["schema_version"],
         "dataset_id": summary["dataset_id"],
@@ -360,6 +369,7 @@ def validate_final_report(
         "database_size_mib": round(database_path.stat().st_size / MIB_BYTES, 2),
         "source_payloads_included": False,
         "database_counts": counts,
+        "graduation_template_gaps": gaps,
         "foreign_key_violations": [],
     }
     actual = {key: report.get(key) for key in expected}

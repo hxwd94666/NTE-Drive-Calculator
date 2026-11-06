@@ -69,9 +69,9 @@ class NativeEquipmentScorer:
     def _score_key(item, profile, maximum):
         # 副词条顺序影响浮点加法次序，和权重别名顺序一样保留，不按集合排序。
         return _key([item["item_type"], item["area"], item["quality"], list(item["sub_stats"]),
-                     item["main_stats"], item["main_value"], profile["weights"], maximum,
+                     item["main_stats"], item["main_value"], profile["weights"], float(maximum),
                      profile.get("main_weights") if item["item_type"] == "tape" else None,
-                     list(profile.get("zero_weight_stats") or ()) if item["item_type"] == "drive" else []])
+                     list(profile.get("zero_weight_stats") or ())])
 
     def batch(self, items, profiles, *, queries=(), grade_queries=(), checkpoint=None):
         self._sync()

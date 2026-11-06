@@ -189,6 +189,7 @@ class RolePriorityStrategy(
         if (
             isinstance(primary, Tape)
             and primary.uid not in used_tape_uids
+            and self._item_allowed_for_role(primary, stat_priority_config)
         ):
             candidates.append(primary)
         for tape in tapes_pool.get(role_name, []):
@@ -196,6 +197,7 @@ class RolePriorityStrategy(
                 tape.uid in used_tape_uids
                 or tape.uid in reserved_elsewhere
                 or not self._tape_matches_core_target(role_name, tape, custom_sets)
+                or not self._item_allowed_for_role(tape, stat_priority_config)
             ):
                 continue
             if all(not isinstance(existing, Tape) or existing.uid != tape.uid for existing in candidates):
@@ -242,6 +244,7 @@ class RolePriorityStrategy(
                     if (
                         tape.uid not in used_tape_uids
                         and self._tape_matches_core_target(role, tape, custom_sets)
+                        and self._item_allowed_for_role(tape, stat_priority_configs.get(role))
                     )
                 ]
                 legal_tapes = self._deepest_stat_priority_pool(
@@ -263,7 +266,8 @@ class RolePriorityStrategy(
             tapes_by_uid = {}
             role_tape_uids = {}
             for role in group:
-                role_tape_uids[role] = {tape.uid for tape in tapes_pool.get(role, [])}
+                role_tape_uids[role] = {tape.uid for tape in tapes_pool.get(role, [])
+                                        if self._item_allowed_for_role(tape, stat_priority_configs.get(role))}
                 for tape in tapes_pool.get(role, []):
                     if tape.uid in used_tape_uids:
                         continue

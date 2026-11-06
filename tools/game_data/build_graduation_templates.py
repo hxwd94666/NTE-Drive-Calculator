@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.domain.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
+from src.domain.official_role.likeability import likeability_unavailable
 from src.domain.official_role.graduation_shape import graduation_extra_shape_stats
 from src.services.official_role.marginal_scoring import calculate_official_role_margins
 from src.services.official_role.detail_inputs import materialize_official_role_detail_inputs
@@ -209,6 +210,9 @@ def populate_graduation_templates(
         }
         for character in characters:
             character_id = int(character["character_id"])
+            if likeability_unavailable(static_dao.get_character_likeability_bonus(character_id)):
+                # 满练度基准必须含十级好感；保留正式字段缺项，不为该角色造零伤害或假毕业模板。
+                continue
             detail = assemble_official_role_detail(materialize_official_role_detail_inputs(
                 static_dao, character_id, include_inventory_contexts=False,
                 include_replacement_candidates=False,

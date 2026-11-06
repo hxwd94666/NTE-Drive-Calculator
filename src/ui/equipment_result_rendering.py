@@ -194,6 +194,8 @@ def _render_results(self, plan):
 
         optimization_panel = damage_optimization_panel(
             p.get("damage_optimization"), object_name="allocationDamageOptimization",
+            save_state=("本次队伍增强与方案已保存" if p.get("team_enhancement_saved") else "队伍增强预览，尚未保存")
+                if p.get("team_enhancement_preview") is not None else None,
         )
         if optimization_panel is not None:
             gl.addWidget(optimization_panel)

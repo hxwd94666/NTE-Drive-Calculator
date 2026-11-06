@@ -26,6 +26,7 @@ from tools.game_data.static_database_character_progression_imports import (
 from tools.game_data.static_database_fork_progression_imports import (
     fork_exp_material_spec,
 )
+from tools.game_data.static_database_lottery_sources import lottery_character_ids
 
 
 _COST_TOKEN_ALIASES = {
@@ -217,7 +218,7 @@ class ProgressionImportMixin(_ProgressionImportContext):
         permanent = self.rows["lottery_permanent"].get("Properties")
         if not isinstance(permanent, dict):
             raise StaticDatabaseError("常驻角色 Lottery DataAsset 缺少 Properties")
-        for raw_character_id in permanent.get("CharacterIDs") or ():
+        for raw_character_id in lottery_character_ids(permanent, "lottery_permanent"):
             character_id = int(raw_character_id)
             if character_id not in official_rows:
                 raise StaticDatabaseError(f"常驻卡池引用未知角色：{character_id}")
@@ -238,7 +239,7 @@ class ProgressionImportMixin(_ProgressionImportContext):
             properties = self.rows[source_name].get("Properties")
             if not isinstance(properties, dict):
                 raise StaticDatabaseError(f"限定角色 Lottery DataAsset 缺少 Properties：{source_name}")
-            character_ids = properties.get("CharacterIDs") or ()
+            character_ids = lottery_character_ids(properties, source_name)
             drops = properties.get("ModuleDropDatas") or ()
             if (
                 properties.get("bActivityPool") is not True

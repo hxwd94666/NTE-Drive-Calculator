@@ -393,6 +393,7 @@ class CultivationPlannerService:
             stages,
             hunter_level=hunter_level,
             effective_identification_level=effective_identification_level,
+            material_gaps=tuple(gap.reason_code for gap in plan.gaps),
         )
         available = dict(normalized_owned)
         section_results: list[CultivationSectionStamina] = []
@@ -412,14 +413,16 @@ class CultivationPlannerService:
                 ),
             ))
         return CultivationStaminaPlan(
-            total, tuple(section_results), stamina_material_ids(stages)
+            total, tuple(section_results), stamina_material_ids(stages, materials=plan.totals)
         )
 
     def prepare(self, request: CultivationRequest) -> CultivationPreparedTarget:
         """只准备需求、可上合输入和副本分类，不运行体力求解。"""
         plan = self.calculate(request)
         stages = self.load_farming_stages()
-        return CultivationPreparedTarget(request, plan, stages, stamina_material_ids(stages))
+        return CultivationPreparedTarget(
+            request, plan, stages, stamina_material_ids(stages, materials=plan.totals)
+        )
 
     def load_farming_stages(self) -> tuple[FarmingStage, ...]:
         """Freeze the deterministic farming-stage dataset for one calculation."""

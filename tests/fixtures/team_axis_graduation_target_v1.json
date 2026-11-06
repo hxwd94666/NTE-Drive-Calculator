@@ -1,0 +1,480 @@
+{
+  "format": "team_axis_graduation_target_v1",
+  "target_id": "fixture-target",
+  "team_id": "fixture-team",
+  "revision": 1,
+  "character_ids": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "dataset_id": "fixture",
+  "static_schema": 42,
+  "static_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "scoring_rule_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "equipment_policy": "calc_full_value_distinct_substats_v1",
+  "world_bonus": {
+    "yaodao_attack_add": 1e-05,
+    "quantao_crit_damage": 0.04
+  },
+  "presets": [
+    {
+      "preset_id": "fixed-a",
+      "members": [
+        {
+          "character_id": 1,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 0,
+          "selected_awaken_effect_ids": [],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        },
+        {
+          "character_id": 2,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 0,
+          "selected_awaken_effect_ids": [],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        },
+        {
+          "character_id": 3,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 0,
+          "selected_awaken_effect_ids": [],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        },
+        {
+          "character_id": 4,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 0,
+          "selected_awaken_effect_ids": [],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        }
+      ],
+      "layouts": [
+        {
+          "character_id": 1,
+          "core_piece_id": "core-1",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-1-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        },
+        {
+          "character_id": 2,
+          "core_piece_id": "core-2",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-2-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        },
+        {
+          "character_id": 3,
+          "core_piece_id": "core-3",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-3-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        },
+        {
+          "character_id": 4,
+          "core_piece_id": "core-4",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-4-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        }
+      ]
+    },
+    {
+      "preset_id": "fixed-b",
+      "members": [
+        {
+          "character_id": 1,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 1,
+          "selected_awaken_effect_ids": [
+            "Effect1"
+          ],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        },
+        {
+          "character_id": 2,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 1,
+          "selected_awaken_effect_ids": [
+            "Effect1"
+          ],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        },
+        {
+          "character_id": 3,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 1,
+          "selected_awaken_effect_ids": [
+            "Effect1"
+          ],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        },
+        {
+          "character_id": 4,
+          "character_level": 80,
+          "breakthrough_stage": 6,
+          "awakening_level": 1,
+          "selected_awaken_effect_ids": [
+            "Effect1"
+          ],
+          "likeability_level_10_enabled": false,
+          "fork": null,
+          "skill_levels": [
+            {
+              "skill_id": "GA_Test",
+              "level": 1
+            }
+          ]
+        }
+      ],
+      "layouts": [
+        {
+          "character_id": 1,
+          "core_piece_id": "core-1",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-1-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-1-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        },
+        {
+          "character_id": 2,
+          "core_piece_id": "core-2",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-2-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-2-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        },
+        {
+          "character_id": 3,
+          "core_piece_id": "core-3",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-3-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-3-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        },
+        {
+          "character_id": 4,
+          "core_piece_id": "core-4",
+          "core_item_id": "C",
+          "pieces": [
+            {
+              "piece_id": "piece-4-1",
+              "item_id": "M",
+              "row": 1,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-2",
+              "item_id": "M",
+              "row": 2,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-3",
+              "item_id": "M",
+              "row": 3,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-4",
+              "item_id": "M",
+              "row": 4,
+              "column": 2
+            },
+            {
+              "piece_id": "piece-4-5",
+              "item_id": "M",
+              "row": 5,
+              "column": 2
+            }
+          ],
+          "minimum_set_count": 0,
+          "extra_shape_ids": []
+        }
+      ]
+    }
+  ],
+  "assumption_codes": [
+    "fixture-假设"
+  ]
+}

@@ -1,7 +1,7 @@
 # 冻结最多两支互斥队伍及各自战报选择，队伍名仅展示，修订和正式成员身份参与复核。
 from dataclasses import dataclass, replace
 
-from src.domain.teams import Team
+from src.domain.teams.models import Team
 from src.services.allocation.axis_selection import AxisAllocationSelection
 from src.storage.sqlite.user_data_dao import UserDataDao
 

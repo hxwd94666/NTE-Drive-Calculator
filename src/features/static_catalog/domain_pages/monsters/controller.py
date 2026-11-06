@@ -113,10 +113,12 @@ class MonsterCatalogPageController:
         stage_id: str,
         difficulty_id: int,
         selected_option_ids: tuple[str, ...],
+        boss_monster_id: str | None = None,
     ) -> CatalogDetail | None:
         return self._service.get_feast_detail(
             period_id,
             stage_id,
             difficulty_id,
             selected_option_ids=selected_option_ids,
+            boss_monster_id=boss_monster_id,
         )

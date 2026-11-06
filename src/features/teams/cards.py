@@ -4,10 +4,10 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QGridLayout, QSizePolicy, QToolButton, QWidget
 
 from src.app.theme import themed_style
-from src.ui.role_portrait import custom_role_portrait
+from src.ui.role_portrait import custom_role_portrait, temporary_role_portrait
 
 
-def role_button(role=None, *, parent=None, checkable=False):
+def role_button(role=None, *, parent=None, checkable=False, compact=False):
     button = QToolButton(parent)
     button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
     button.setIconSize(QSize(36, 36))
@@ -23,6 +23,19 @@ def role_button(role=None, *, parent=None, checkable=False):
         "QToolButton:focus{border:2px solid #58a6ff;}"
         "QToolButton:disabled{color:#6e7681;background:#0d1117;border-color:#30363d;}"
     ))
+    if compact:
+        # 列表只保留头像与名称，不把每名成员画成一张大卡；编辑选人仍沿用可选卡片。
+        button.setMinimumSize(72, 74)
+        button.setMaximumWidth(88)
+        button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        button.setIconSize(QSize(44, 44))
+        button.setStyleSheet(themed_style(
+            "QToolButton{background:transparent;color:#c9d1d9;border:1px solid transparent;"
+            "border-radius:5px;padding:4px;font-size:12px;font-weight:500;}"
+            "QToolButton:hover{background:#161b22;border-color:#30363d;}"
+            "QToolButton:focus{border-color:#58a6ff;}"
+            "QToolButton:disabled{color:#6e7681;}"))
     set_role(button, role)
     return button
 
@@ -33,27 +46,37 @@ def set_role(button, role):
         button.setIcon(QIcon())
         return
     button.setText(role.name)
-    button.setToolTip(role.name)
+    button.setToolTip(role.name + ('\n' + role.icon_note if role.icon_note else ''))
     button.setAccessibleName(role.name)
     icon = QIcon(custom_role_portrait(72, button.devicePixelRatioF())) if role.custom else QIcon(role.icon_path)
+    if role.icon_note and not role.custom:
+        icon = QIcon(temporary_role_portrait(role.icon_path, 36, button.devicePixelRatioF()))
     button.setIcon(icon)
 
 
 class MemberSlots(QWidget):
     """四个成员位置随可用宽度换行，不把弹窗最小宽度撑出屏幕。"""
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, compact=False):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setSpacing(8)
-        self.buttons = [role_button(parent=self) for _ in range(4)]
+        if compact:
+            # 成员按钮按内容宽度成组靠左，窗口变宽不再把额外空间摊进头像之间。
+            self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+            self.grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self._minimum_column = 80 if compact else 148
+        self.buttons = [role_button(parent=self, compact=compact) for _ in range(4)]
         self._columns = 0
-        # 隐藏控件初始宽度只有 100px；先用两列，避免四行的最小高度撑大弹窗。
-        self._reflow(columns=2)
+        # 编辑弹窗先用两列限高；列表先按完整四人组给出尺寸提示，再随实际宽度换行。
+        self._reflow(columns=4 if compact else 2)
 
     def _reflow(self, columns=None):
-        columns = columns or max(1, min(4, (self.width() + 8) // 148))
+        columns = columns or max(1, min(4, (self.width() + 8) // self._minimum_column))
+        # 四人成组只用 4/2/1 列，避免窄屏出现三人一行、第四人孤立一行。
+        if columns == 3:
+            columns = 2
         if columns == self._columns:
             return
         self._columns = columns

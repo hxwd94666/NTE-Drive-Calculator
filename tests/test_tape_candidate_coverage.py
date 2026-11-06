@@ -417,7 +417,7 @@ class TapeCandidateCoverageTests(unittest.TestCase):
             [drive.uid for drive in plan["assigned_extra_drives"]],
         )
 
-    def test_substat_blacklist_hard_filters_drives_but_not_tapes(self) -> None:
+    def test_substat_blacklist_hard_filters_drives_and_tapes(self) -> None:
         strategy = RolePriorityStrategy(
             {"A": {"default_set": "Set"}},
             {"Set": {"shapes": []}},
@@ -480,7 +480,7 @@ class TapeCandidateCoverageTests(unittest.TestCase):
 
         self.assertIsNotNone(picked)
         self.assertEqual("allowed-drive", picked[1].uid)
-        self.assertEqual("blocked-tape", assigned["A"].uid)
+        self.assertEqual("allowed-tape", assigned["A"].uid)
         self.assertEqual(-10000.0, profit_matrix[0, 0])
         self.assertEqual(-10000.0, ranking_matrix[0, 0])
         self.assertEqual(1.0, profit_matrix[0, 1])

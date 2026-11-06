@@ -49,6 +49,7 @@ def assemble_official_role_detail(inputs: Mapping[str, Any]) -> dict[str, Any]:
     main_ids = tuple((equipment_plan or {}).get("core_attribute_ids") or ())
     return {
         "character": character,
+        "image_note": inputs.get('image_note', ''),
         "catalog_scope": catalog_scope,
         "static_database_path": resolved_static_database_path,
         "static_schema_version": resolved_static_schema_version,

@@ -46,7 +46,7 @@ def test_invalid_team_stops_before_blueprints_and_baseline(tmp_path, kind):
     case["selection"] = service.select(service.choices(case["selected_roles"]), battle_record_id=case["battle_record_id"],
         selected_role="灵可" if kind == "old_single_scope" else "__all_groups__", detail_scope="all", anchor_mode="original")
     with patch("src.app.facade.create_allocation_executor", side_effect=AssertionError("baseline must not start")) as allocate, \
-            patch("src.app.facade.create_blueprint_executor", side_effect=AssertionError("blueprints must not start")) as blueprints:
+            patch("src.app.facade.DeferredDamageBlueprints", side_effect=AssertionError("blueprints must not start")) as blueprints:
         with pytest.raises(ValueError, match=expected):
             run_axis_facade(case)
         allocate.assert_not_called()

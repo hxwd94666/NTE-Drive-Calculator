@@ -1,201 +1,232 @@
-# 使用队伍名和四人头像卡片选择战报增强目标，每队独立选择战报及半场。
-from datetime import datetime
+# 后台发现并复核队伍增强范围，显式战报优先于旧草稿，取消不提交局部选择。
 from concurrent.futures import CancelledError
+from dataclasses import replace
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.domain.teams import TeamRole
-from src.features.teams.cards import MemberSlots, set_role
-from src.integrations.bundled_resources import bundled_game_ui_asset_root
-from src.integrations.game_assets.catalog import GameUiAssetCatalog
-from src.services.allocation.team_axis_selection import select_team_axes
-from src.ui.widgets import NoWheelComboBox
-
-
-def report_label(entry, names):
-    try:
-        saved = datetime.fromisoformat(entry.saved_at_utc.replace("Z", "+00:00")).astimezone().strftime("%m-%d %H:%M")
-    except ValueError:
-        saved = entry.saved_at_utc
-    scene = entry.environment_name or (f"深渊 {entry.abyss_floor} 层" if entry.abyss_floor else "场景未记录")
-    members = "／".join(names.get(key, str(key)) for key in entry.character_ids)
-    return f"#{entry.battle_record_id} · {scene} · 整份记录 {entry.duration_seconds:.0f} 秒 · {saved} · {members}"
+from src.domain.teams.report_matching import MatchStatus, ReportCandidate, ReportRange, STATUS_LABELS, TeamReportMatch
+from src.features.allocation.team_axis_cards import build_team_axis_card
+from src.features.teams.report_match_controller import ReportMatchController
+from src.features.teams.report_match_dialog import TeamReportMatchDialog, candidate_label
+from src.services.allocation.team_axis_selection import load_team_choices, select_team_axes
 
 
 class TeamAxisDialog(QDialog):
-    def __init__(self, *, service, teams, choices, initial=None, initial_request=None, parent=None):
+    def __init__(self, *, service, matching_service, role_names=(), teams=None, choices=None,
+                 initial=None, initial_request=None, initial_team_id=None, initial_match=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("战报增强 · 选择队伍")
-        self.selection = None
-        self._service, self._choices = service, choices
-        self._rows = []
-        names = {key: name for name, key in choices.role_character_ids}
-        assets = GameUiAssetCatalog(bundled_game_ui_asset_root())
+        self.selection, self.manage_teams = None, False
+        self._service, self._matcher, self._choices = service, matching_service, choices
+        self._initial, self._initial_request = initial, initial_request
+        self._initial_team_id, self._initial_match = initial_team_id, initial_match
+        self._rows, self._picker, self._closing_result = [], None, None
+        self._mode = "load"
+        self._controller = ReportMatchController(self)
+        self._controller.result.connect(self._received)
+        self._controller.error.connect(self._failed)
+        self._controller.progress.connect(self._initial_progress)
+        self._controller.drained.connect(self._drained)
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 18)
-        hint = QLabel("最多选择两支角色不重复的队伍，每队选择一份对应战报。\n先按队内伤害名次分配当前背包：两队同名次并列，再优化综合增幅；其余角色按原策略分配。")
+        hint = QLabel("最多选择两支人物互斥队伍；每队从正式阵容匹配结果选择战报范围。\n"
+                      "阵容匹配后，正式计算仍会检查当前库存、固定队友与伤害输入。")
         hint.setWordWrap(True)
         root.addWidget(hint)
+        self.error = QLabel("正在读取队伍与历史；此步骤不要求当前库存。")
+        self.error.setTextFormat(Qt.PlainText)
+        self.error.setWordWrap(True)
+        root.addWidget(self.error)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         content = QWidget()
-        cards = QVBoxLayout(content)
-        cards.setAlignment(Qt.AlignTop)
-        if not teams:
-            cards.addWidget(QLabel("还没有队伍，请先到侧栏「队伍」新建并配置四名成员。"))
-        for team in teams:
-            card = QWidget()
-            card.setObjectName("axisTeamCard")
-            layout = QVBoxLayout(card)
-            layout.setContentsMargins(14, 12, 14, 12)
-            check = QCheckBox(team.name)
-            check.setAccessibleName(f"选择队伍 {team.name}")
-            layout.addWidget(check)
-            slots = MemberSlots(card)
-            for index, button in enumerate(slots.buttons):
-                if index < len(team.character_ids):
-                    key = team.character_ids[index]
-                    set_role(button, TeamRole(key, names.get(key, f"角色 {key}"), str(assets.character_icon(key) or "")))
-                button.clicked.connect(check.toggle)
-            layout.addWidget(slots)
-            reason = QLabel()
-            reason.setWordWrap(True)
-            layout.addWidget(reason)
-            config = QWidget()
-            form = QFormLayout(config)
-            report = NoWheelComboBox()
-            report.setSizeAdjustPolicy(NoWheelComboBox.AdjustToMinimumContentsLengthWithIcon)
-            report.setMinimumContentsLength(20)
-            report.addItem("请选择对应战报", None)
-            report.setAccessibleName(f"{team.name}的参考战报")
-            for entry in choices.entries:
-                # 摘要仅帮助挑选；正式四人匹配仍由计算前的原生队伍证据校验。
-                report.addItem(report_label(entry, names), entry.battle_record_id)
-                report.setItemData(report.count() - 1, report.itemText(report.count() - 1), Qt.ToolTipRole)
-            scope = NoWheelComboBox()
-            scope.setAccessibleName(f"{team.name}的战报范围")
-            anchor = NoWheelComboBox()
-            anchor.setAccessibleName(f"{team.name}的战报配置")
-            form.addRow("参考战报", report)
-            form.addRow("使用范围", scope)
-            form.addRow("角色养成", anchor)
-            time_widget = QWidget()
-            time_layout = QHBoxLayout(time_widget)
-            time_layout.setContentsMargins(0, 0, 0, 0)
-            start, end = QDoubleSpinBox(), QDoubleSpinBox()
-            for control, name in ((start, "开始秒"), (end, "结束秒")):
-                control.setRange(0, 86400)
-                control.setDecimals(6)
-                control.setSuffix(" 秒")
-                control.setAccessibleName(team.name + name)
-                time_layout.addWidget(control)
-            time_label = QLabel("指定时段")
-            form.addRow(time_label, time_widget)
-            layout.addWidget(config)
-            row = dict(team=team, card=card, check=check, config=config, reason=reason,
-                       report=report, scope=scope, anchor=anchor, slots=slots,
-                       start=start, end=end, time=time_widget, time_label=time_label)
-            self._rows.append(row)
-            report.currentIndexChanged.connect(lambda _index, current=row: self._report_changed(current))
-            scope.currentIndexChanged.connect(lambda _index, current=row: self._scope_changed(current))
-            check.toggled.connect(self._update_selection)
-            self._report_changed(row)
-            cards.addWidget(card)
+        self._content = content
+        self._cards = QVBoxLayout(content)
+        self._cards.setAlignment(Qt.AlignTop)
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
-        self.error = QLabel()
-        self.error.setTextFormat(Qt.PlainText)
-        self.error.setWordWrap(True)
-        root.addWidget(self.error)
-        self.buttons = buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("应用战报增强")
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
-        buttons.accepted.connect(self._accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
-        self._update_selection()
-        if initial is not None:
-            for row in self._rows:
-                binding = next((b for b in initial.teams if b.team.team_id == row["team"].team_id), None)
-                if binding:
-                    row["check"].setChecked(True)
-                    row["report"].setCurrentIndex(row["report"].findData(binding.axis.battle.battle_record_id))
-                    row["scope"].setCurrentIndex(row["scope"].findData("range" if binding.axis.battle.start_us is not None else binding.axis.battle.detail_scope or "all"))
-                    row["start"].setValue((binding.axis.battle.start_us or 0) / 1_000_000)
-                    row["end"].setValue((binding.axis.battle.end_us or 0) / 1_000_000)
-                    row["anchor"].setCurrentIndex(row["anchor"].findData(binding.axis.anchor_mode))
-        elif initial_request is not None:
-            for row in self._rows:
-                row["report"].setCurrentIndex(row["report"].findData(initial_request.battle_record_id))
-                row["scope"].setCurrentIndex(row["scope"].findData("range" if initial_request.start_us is not None else initial_request.detail_scope or "all"))
-                row["start"].setValue((initial_request.start_us or 0) / 1_000_000)
-                row["end"].setValue((initial_request.end_us or 0) / 1_000_000)
-        fit_dialog_to_available_screen(self, QSize(940, 720))
-
-    def _report_changed(self, row):
-        record_id = row["report"].currentData()
-        entry = next((e for e in self._choices.entries if e.battle_record_id == record_id), None)
-        scope, anchor = row["scope"], row["anchor"]
-        scope.clear()
-        anchor.clear()
-        if entry is None:
-            scope.addItem("先选择战报", None)
-            return
-        if entry.has_first_half and entry.has_second_half:
-            scope.addItem("请选择对应队伍的半场", None)
+        manage = QPushButton("前往队伍管理")
+        manage.clicked.connect(self._manage)
+        root.addWidget(manage)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText("应用战报增强")
+        self.buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        self.buttons.accepted.connect(self._accept)
+        self.buttons.rejected.connect(self.reject)
+        root.addWidget(self.buttons)
+        fit_dialog_to_available_screen(self, QSize(900, 700))
+        if teams is not None and choices is not None:
+            self._populate(teams, choices)
         else:
-            scope.addItem("整份战报", "all")
-        if entry.has_first_half:
-            scope.addItem("上半场", "first")
-        if entry.has_second_half:
-            scope.addItem("下半场", "second")
-        scope.addItem("指定时段", "range")
-        anchor.addItem("战报原始配置", "original")
-        if record_id in self._choices.active_edit_record_ids:
-            anchor.addItem("已启用的编辑配置", "effective")
+            def load(cancelled, publish):
+                if cancelled():
+                    raise CancelledError
+                return load_team_choices(self._service, tuple(role_names))
+            self._controller.submit(load)
 
-    def _scope_changed(self, row):
-        visible = row["scope"].currentData() == "range"
-        row["time"].setVisible(visible)
-        row["time_label"].setVisible(visible)
+    def _received(self, value):
+        if self._mode == "load":
+            self._populate(*value)
+        elif self._mode == "accept":
+            self.selection = value
+            self.done(QDialog.Accepted)
+        else:
+            self.error.setText("已定位本次明确指定的战报范围，请确认阵容匹配的队伍。")
+
+    def _populate(self, teams, choices):
+        self._choices = choices
+        self._names = {key: name for name, key in choices.role_character_ids}
+        for team in teams:
+            row = build_team_axis_card(team, self._names)
+            self._rows.append(row)
+            row["choose"].clicked.connect(lambda checked=False, current=row: self._choose_report(current))
+            row["check"].toggled.connect(self._update_selection)
+            self._cards.addWidget(row["card"])
+            self._restore(row)
+        self.error.setText("没有队伍，请先在队伍管理配置。" if not teams else "请选择队伍及明确的战报范围。")
+        self._update_selection()
+        if self._initial_request is not None:
+            self._mode = "initial"
+            frozen = tuple((row["team"], row["match"].candidate) for row in self._rows if row["match"])
+            def read(cancelled, publish):
+                for team, candidate in frozen:
+                    publish(self._matcher.match_page(team, (candidate,), cancelled=cancelled).results[0])
+            self._controller.submit(read)
+
+    def _restore(self, row):
+        team = row["team"]
+        old = next((binding for binding in self._initial.teams if binding.team == team), None) if self._initial else None
+        if (self._initial_request is None and self._initial_match is not None
+                and team.team_id == self._initial_team_id):
+            self.set_report(team.team_id, self._initial_match)
+            row["check"].setChecked(True)
+            return
+        request = self._initial_request or (old.axis.battle if old else None)
+        if request is not None:
+            scope = ReportRange(request.battle_record_id, "range" if request.start_us is not None else request.detail_scope or "all",
+                                request.start_us, request.end_us)
+            entry = next((entry for entry in self._choices.entries if entry.battle_record_id == scope.record_id), None)
+            if entry:
+                self.set_report(team.team_id, TeamReportMatch(team, ReportCandidate(entry, scope), MatchStatus.PENDING))
+        selected = team.team_id == self._initial_team_id if self._initial_team_id is not None else old is not None
+        if self._initial_request is None and selected:
+            row["check"].setChecked(True)
+            if old:
+                row["anchor"].setCurrentIndex(row["anchor"].findData(old.axis.anchor_mode))
+
+    def set_report(self, team_id, result):
+        row = next(row for row in self._rows if row["team"].team_id == team_id)
+        if result.team != row["team"]:
+            raise ValueError("匹配结果的队伍修订已变化")
+        row["match"] = result
+        row["report"].setText(candidate_label(result.candidate) + "\n" + STATUS_LABELS[result.status]
+                               + (" · " + result.reason if result.reason else ""))
+        previous = row["anchor"].currentData()
+        row["anchor"].clear()
+        row["anchor"].addItem("战报原始配置", "original")
+        if result.candidate.range.record_id in self._choices.active_edit_record_ids:
+            row["anchor"].addItem("已启用编辑配置", "effective")
+        if previous is not None and row["anchor"].findData(previous) >= 0:
+            row["anchor"].setCurrentIndex(row["anchor"].findData(previous))
+
+    def _initial_progress(self, result):
+        self.set_report(result.team.team_id, result)
+        self._update_selection()
+        # 显式战报入口先呈现匹配队伍，不代替用户勾选；未知和差异队伍仍可打开详情。
+        for row in sorted(self._rows, key=lambda row: not row["match"] or row["match"].status != MatchStatus.MATCHED):
+            self._cards.removeWidget(row["card"])
+            self._cards.addWidget(row["card"])
+
+    def _choose_report(self, row):
+        self._controller.cancel()
+        dialog = TeamReportMatchDialog(service=self._matcher, team=row["team"], names=self._names,
+            initial_range=row["match"].candidate.range if row["match"] else None, parent=self)
+        self._picker = dialog
+        try:
+            if dialog.exec() == QDialog.Accepted and self._closing_result is None:
+                self.set_report(row["team"].team_id, dialog.selection)
+        finally:
+            self._picker = None
+            dialog.deleteLater()
+            self._drained()
 
     def _update_selection(self):
         chosen = [row for row in self._rows if row["check"].isChecked()]
         used = {key for row in chosen for key in row["team"].character_ids}
-        names = {key: name for name, key in self._choices.role_character_ids}
         for row in self._rows:
-            selected = row["check"].isChecked()
-            team = row["team"]
+            selected, team = row["check"].isChecked(), row["team"]
             conflicts = used.intersection(team.character_ids) if not selected else set()
-            reason = ("请先在队伍菜单补齐四名成员" if len(team.character_ids) != 4 else
-                      "重复成员：" + "、".join(names.get(key, str(key)) for key in sorted(conflicts)) if conflicts else
+            reason = ("请先在队伍管理补齐四名成员" if len(team.character_ids) != 4 else
+                      "重复成员：" + "、".join(self._names.get(key, str(key)) for key in sorted(conflicts)) if conflicts else
                       "最多选择两支队伍" if not selected and len(chosen) >= 2 else "")
             row["check"].setEnabled(selected or not reason)
             for button in row["slots"].buttons:
                 button.setEnabled(selected or not reason)
-            row["reason"].setText(reason)
-            row["reason"].setVisible(bool(reason))
-            row["config"].setVisible(selected)
+            match = row["match"]
+            row["reason"].setText(reason or (match.reason if match and match.status != MatchStatus.MATCHED else ""))
+            row["config"].setVisible(selected or self._initial_request is not None)
             color = "#58a6ff" if selected else "#30363d"
             row["card"].setStyleSheet(themed_style(
                 f"QWidget#axisTeamCard{{border:1px solid {color};border-radius:8px;background:#0d1117;}}"))
 
     def _accept(self):
-        try:
-            self.selection = select_team_axes(self._service, self._choices, [
-                (row["team"], row["report"].currentData(), row["scope"].currentData(), row["anchor"].currentData(),
-                 round(row["start"].value() * 1_000_000), round(row["end"].value() * 1_000_000))
-                for row in self._rows if row["check"].isChecked()])
-        except CancelledError:
-            self.reject()
+        selected = [row for row in self._rows if row["check"].isChecked()]
+        if not selected or any(row["match"] is None for row in selected):
+            self.error.setText("请选择一支或两支队伍，并为每队明确选择匹配战报范围。")
             return
-        except (ValueError, RuntimeError) as error:
-            self.error.setText(str(error))
-            return
-        self.accept()
+        frozen = tuple((row["team"], row["match"].candidate, row["anchor"].currentData()) for row in selected)
+        choices = self._choices
+        self._mode = "accept"
+        self._content.setEnabled(False)
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+        def read(cancelled, publish):
+            configured, digests = [], {}
+            for team, candidate, anchor in frozen:
+                result = self._matcher.match_page(team, (candidate,), cancelled=cancelled).results[0]
+                if result.status != MatchStatus.MATCHED:
+                    raise ValueError(result.reason or "正式阵容未匹配，请重新选择战报范围")
+                scope = candidate.range
+                digests[team.team_id] = result.source_input_digest
+                configured.append((team, scope.record_id, scope.scope, anchor, scope.start_us, scope.end_us))
+            if cancelled():
+                raise CancelledError
+            selection = select_team_axes(self._service, choices, configured)
+            return replace(selection, teams=tuple(replace(binding, axis=replace(binding.axis,
+                expected_source_input_digest=digests[binding.team.team_id])) for binding in selection.teams))
+        self._controller.submit(read)
+
+    def _failed(self, error):
+        self._content.setEnabled(True)
+        self.error.setText(error)
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(True)
+
+    def _manage(self):
+        self.manage_teams = True
+        self.reject()
+
+    def done(self, result):
+        self._closing_result = result
+        self._controller.close()
+        if self.is_running():
+            self.setEnabled(False)
+            self.error.setText("正在结束本次后台读取…")
+        if self._picker is not None:
+            self._picker.reject()
+        self._drained()
+
+    def reject(self):
+        self.done(QDialog.Rejected)
+
+    def closeEvent(self, event):
+        self.reject()
+        event.ignore() if self.is_running() else event.accept()
+
+    def is_running(self):
+        return self._controller.is_running() or self._picker is not None
+
+    def _drained(self):
+        if self._closing_result is not None and not self.is_running():
+            super().done(self._closing_result)

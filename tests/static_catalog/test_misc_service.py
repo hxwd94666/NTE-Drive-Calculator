@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 from pathlib import Path
 
 from src.services.static_catalog.misc.service import (
@@ -106,9 +107,11 @@ class StaticCatalogMiscServiceTests(unittest.TestCase):
     def test_release_metadata_preserves_payload_omission_boundary(self) -> None:
         metadata = self.service.release_metadata()
 
+        # 发行身份以同版正式清单为准；资料更新不意味着读取器应继续报告旧 dataset。
+        manifest = json.loads(STATIC_MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(
             metadata.dataset_id,
-            "cn_retail_20260924_9030b45b",
+            manifest["database"]["dataset_id"],
         )
         self.assertEqual(metadata.schema_version, SCHEMA_VERSION)
         self.assertEqual(metadata.importer_version, IMPORTER_VERSION)

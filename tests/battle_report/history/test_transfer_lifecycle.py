@@ -178,6 +178,11 @@ class BattleHistoryTransferLifecycleTests(TestCase):
         self.assertEqual(1, second.skipped_existing_count)
         with UserDataDao(destination) as dao:
             self.assertEqual(["lifecycle-source"], [row["capture_operation_id"] for row in dao.list_battle_records()])
+        # 队伍 v46 不改变包内战报行；仍按原事实去重，不要求来源库与当前库版本相等。
+        payload["bundle"]["user_database_schema_version"] = 46
+        write_battle_report_bundle_atomic(self.target, payload, before_replace=lambda: None)
+        compatible = service.import_bundle(self.target)
+        self.assertEqual(1, compatible.skipped_existing_count)
 
     def test_future_schema_rejected_and_historical_dataset_not_reinterpreted(self):
         self.service.export_reports([self.record_id], self.target)

@@ -89,7 +89,7 @@ class CatalogDetail:
 class FeastDifficultyChoice:
     difficulty_id: int
     display_name: str
-    monster_level: int
+    monster_level: int | None
     score_rate: float
 
 
@@ -107,6 +107,13 @@ class FeastOptionGroup:
 
 
 @dataclass(frozen=True)
+class FeastTargetChoice:
+    monster_id: str
+    display_name: str
+    difficulties: tuple[FeastDifficultyChoice, ...]
+
+
+@dataclass(frozen=True)
 class FeastSetup:
     period_id: str
     period_label: str
@@ -121,6 +128,8 @@ class FeastSetup:
     difficulties: tuple[FeastDifficultyChoice, ...]
     option_groups: tuple[FeastOptionGroup, ...]
     condition_note: str = ""
+    targets: tuple[FeastTargetChoice, ...] = ()
+    mechanism_score_limit: int | None = None
 
 
 @dataclass(frozen=True)

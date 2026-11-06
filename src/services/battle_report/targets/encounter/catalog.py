@@ -377,36 +377,38 @@ class BattleEncounterCatalogService:
                         resistance_additions[str(highest.get("damage_type") or "")] = (
                             float(highest.get("add_value") or 0.0)
                         )
-            difficulties = sorted(
-                stage.get("difficulties") or (),
-                key=lambda row: int(row.get("difficulty_id") or 0),
-            )
-            for difficulty in difficulties:
+            difficulties: dict[int, list[dict[str, Any]]] = defaultdict(list)
+            for difficulty in stage.get("difficulties") or ():
+                difficulties[int(difficulty["difficulty_id"])].append(difficulty)
+            for difficulty_id, members in sorted(difficulties.items()):
                 for health_category, option_id, health_up in health_options:
-                    row = dict(difficulty)
-                    row["health_up"] = float(row.get("health_up") or 0.0) + health_up
-                    base_resistances = {
-                        key: (
-                            float(value.get("resistance_base") or 0.0)
-                            if isinstance(value, Mapping)
-                            else float(value or 0.0)
-                        )
-                        for key, value in (row.get("resistances") or {}).items()
-                    }
-                    for damage_type, addition in resistance_additions.items():
-                        base_resistances[damage_type] = (
-                            base_resistances.get(damage_type, 0.0) + addition
-                        )
-                    row["resistances"] = base_resistances
-                    target = _target_preset(
-                        row,
-                        target_id=stage.get("boss_monster_id"),
-                        target_name=difficulty.get("boss_name_zh"),
-                        monster_class_path=stage.get("boss_monster_id"),
-                    )
-                    if target is None:
+                    targets = []
+                    for difficulty in members:
+                        row = dict(difficulty)
+                        row["health_up"] = float(row.get("health_up") or 0.0) + health_up
+                        base_resistances = {
+                            key: (
+                                float(value.get("resistance_base") or 0.0)
+                                if isinstance(value, Mapping)
+                                else float(value or 0.0)
+                            )
+                            for key, value in (row.get("resistances") or {}).items()
+                        }
+                        for damage_type, addition in resistance_additions.items():
+                            base_resistances[damage_type] = base_resistances.get(damage_type, 0.0) + addition
+                        row["resistances"] = base_resistances
+                        # 同一难度冻结所有正式成员，各用自己的身份、等级与包；不拆成空身份的单目标。
+                        identity = row.get("boss_monster_id") or stage.get("boss_monster_id")
+                        target = _target_preset(
+                            row, target_id=identity, target_name=row.get("boss_name_zh"),
+                            monster_class_path=identity,
+                        ) if identity and row.get("profile_available", True) else None
+                        if target is None:
+                            targets = []
+                            break  # 任何成员缺画像均不输出一个冒充完整环境的子集。
+                        targets.append(target)
+                    if not targets:
                         continue
-                    difficulty_id = int(difficulty.get("difficulty_id") or 0)
                     option_suffix = (
                         "" if not option_id else f" · 生命 +{health_up * 100:.0f}%"
                     )
@@ -418,13 +420,13 @@ class BattleEncounterCatalogService:
                         environment_ref=str(stage.get("stage_id") or ""),
                         environment_name=(
                             f"争锋赏宴 · {stage.get('name_zh') or stage.get('stage_id')}"
-                            f" · {difficulty.get('name_zh') or difficulty_id}{option_suffix}"
+                            f" · {members[0].get('name_zh') or difficulty_id}{option_suffix}"
                         ),
                         scope_half="",
                         outer_realm_floor=None,
                         difficulty_id=difficulty_id,
                         feast_options=tuple(sorted(selected_options)),
-                        targets=(target,),
+                        targets=tuple(targets),
                     ))
         return tuple(result)
 

@@ -97,6 +97,7 @@ def _module_assignments(
     *,
     equipment_plan: Mapping[str, Any],
     shapes: Mapping[str, Mapping[str, Any]],
+    checkpoint=lambda: None,
 ) -> tuple[dict[str, Any], ...] | None:
     available_cells = frozenset(
         (int(cell["row"]), int(cell["column"]))
@@ -124,6 +125,7 @@ def _module_assignments(
     dead_states: set[tuple[int, frozenset[tuple[int, int]]]] = set()
 
     def place(index: int, occupied: frozenset[tuple[int, int]]) -> bool:
+        checkpoint()
         state = (index, occupied)
         if state in dead_states:
             return False
@@ -175,7 +177,7 @@ class GameLoadoutProjectionService:
         self.user_dao = user_dao
         self.static_dao = static_dao
 
-    def project_current(self) -> GameLoadoutSnapshotProjection:
+    def project_current(self, *, character_ids=None, checkpoint=lambda: None) -> GameLoadoutSnapshotProjection:
         if self.static_dao is None:
             raise GameLoadoutProjectionError("生成游戏配装展示需要冻结静态资料。")
         snapshot_id = self.user_dao.current_inventory_snapshot_id()
@@ -199,8 +201,9 @@ class GameLoadoutProjectionService:
         equipped = self.user_dao.list_inventory_items(snapshot_id, equipped=True)
         grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for item in equipped:
+            checkpoint()
             character_id = item.get("equipped_character_id")
-            if character_id is not None:
+            if character_id is not None and (character_ids is None or character_id in character_ids):
                 grouped[int(character_id)].append(dict(item))
         characters = {
             int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
@@ -220,6 +223,7 @@ class GameLoadoutProjectionService:
             grouped.items(),
             key=lambda row: characters.get(row[0], str(row[0])),
         ):
+            checkpoint()
             role_name = characters.get(character_id, str(character_id))
             modules = sorted(
                 (item for item in items if item.get("kind") == "module"),
@@ -235,6 +239,7 @@ class GameLoadoutProjectionService:
                     modules,
                     equipment_plan=equipment_plan,
                     shapes=shapes,
+                    checkpoint=checkpoint,
                 )
                 if equipment_plan is not None and modules
                 else None

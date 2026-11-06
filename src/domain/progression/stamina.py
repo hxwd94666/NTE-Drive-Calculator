@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import heapq
+import math
 from collections import Counter
 from dataclasses import dataclass
 from enum import StrEnum
@@ -45,7 +46,8 @@ class MaterialRequirement:
 @dataclass(frozen=True, slots=True)
 class MaterialYield:
     item_id: str
-    quantity: int
+    # 静态确定产出为整数；社区估算动作可携带有限的平均件数，不代表单次实物数量。
+    quantity: int | float
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,8 +457,9 @@ def _validate_stages(stages: tuple[FarmingStage, ...]) -> tuple[FarmingStage, ..
         for item in stage.yields:
             if not item.item_id.strip() or item.item_id in yield_ids:
                 raise ValueError("同一副本的材料产出 ID 不能为空或重复")
-            if item.quantity <= 0:
-                raise ValueError("确定材料产出必须为正整数")
+            if (isinstance(item.quantity, bool) or not isinstance(item.quantity, (int, float))
+                    or not math.isfinite(item.quantity) or item.quantity <= 0):
+                raise ValueError("材料平均产出必须为有限正数")
             yield_ids.add(item.item_id)
         seen.add(stage.stage_id)
     return stages

@@ -15,7 +15,12 @@
 | Fork 环境入口、基础权重完整流程与五类修改配方 | [Fork 开发路线](reference/fork-development.md) |
 | 全项目重构、遗漏补做、模块与测试精简、低配及语言预备 | [当前架构复审方案](roadmap/architecture-post-refactor-review.md) |
 | 新版解包驱动数据、素材与新角色逐功能接入 | [版本更新 skill](../skills/nte-game-update/SKILL.md) |
+| 十二套常驻分类、候选录入与全功能接入缺口 | [常驻参考](reference/equipment-suit-permanent.md)、[消费者审查](roadmap/equipment-suit-permanent.md) |
 | 直伤优先、战报轴伤优先及独立后处理开发 | [伤害分配开发方案](roadmap/damage-allocation.md) |
+| 按队伍阵容发现战报、半场定位与明确选择 | [队伍匹配战报方案](roadmap/team-report-matching.md) |
+| 队伍配装来源、成员缺口与已保存增强简报 | [队伍简报方案](roadmap/team-overview.md) |
+| 新队伍轴伤毕业率实现、旧代码/前端清理与验收（不含库存最优搜索） | [队伍轴伤毕业率开发方案](roadmap/team-axis-graduation.md) |
+| 新队伍轴伤毕业率源码专项、失败分类与未覆盖门禁 | [轴伤毕业率验证](validation/team-axis-graduation.md) |
 | 免安装 ZIP、平台原目录覆盖更新及数据升级恢复 | [免安装发行开发方案](roadmap/portable-distribution.md) |
 | 已交付的页面、计算、同步、配装和设置 | [功能原理](features.md) |
 | 界面语言补丁、本机偏好、生效与识别语言边界 | [界面语言预备](features/localization.md) |
@@ -41,6 +46,7 @@
 | 战报导入导出格式 | [战报包格式](reference/battle-report-package.md) |
 | 结构化日志与脱敏字段 | [日志事件规范](reference/logging-events.md) |
 | Windows、插件、扫描、更新与发行 | [Windows 验收](validation/windows.md) |
+| 队伍简报来源、毕业率、事务保存与专项边界 | [简报验证](validation/team-overview.md)、[剩余门禁](roadmap/team-overview.md) |
 
 ## 版本、路线图与发布
 

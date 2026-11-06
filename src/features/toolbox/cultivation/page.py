@@ -332,7 +332,7 @@ class CultivationCalculatorPage(QWidget):
         self.material_scope.addItem("全部", "all")
         self.material_scope.addItem("仅体力", "stamina")
         self.material_scope.setCurrentIndex(1)
-        self.material_scope.setToolTip("仅体力只展示正式副本中消耗体力且有确定产出的材料")
+        self.material_scope.setToolTip("展示已核实消耗体力获取的材料；世界 Boss 掉落效率未知时仍展示材料，总体力标为未知")
         row.addWidget(self.material_scope)
 
         reset = QPushButton("重置", header)

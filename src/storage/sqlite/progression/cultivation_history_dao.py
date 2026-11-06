@@ -8,7 +8,7 @@ from functools import lru_cache
 from typing import Any
 
 from src.domain.progression.history import (
-    PAYLOAD_VERSION, HistoryConflict, HistoryPage, HistoryPayload, HistoryRecord,
+    HistoryConflict, HistoryPage, HistoryPayload, HistoryRecord, SUPPORTED_PAYLOAD_VERSIONS,
     HistorySelection, HistorySummary, integer, text_value,
     MAX_PAYLOAD_BYTES, MAX_COLLECTION_SIZE, configuration_character_labels, configuration_search_names,
 )
@@ -117,7 +117,7 @@ class CultivationHistoryDaoMixin(UserDataDaoMixinHost):
                         "(history_id, mode, revision, first_calculated_at_utc, last_calculated_at_utc, "
                         "payload_version, configuration_json, result_snapshot_json, summary_json, search_text, content_sha256) "
                         "VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (history_id, payload.mode, now, now, PAYLOAD_VERSION, payload.configuration_json,
+                        (history_id, payload.mode, now, now, json.loads(payload.configuration_json)["version"], payload.configuration_json,
                          payload.result_snapshot_json, payload.summary_json, search_text, payload.content_sha256),
                     )
                 else:
@@ -131,7 +131,7 @@ class CultivationHistoryDaoMixin(UserDataDaoMixinHost):
                             "payload_version = ?, configuration_json = ?, result_snapshot_json = ?, "
                             "summary_json = ?, search_text = ?, content_sha256 = ? "
                             "WHERE history_id = ? AND revision = ?",
-                            (_utc_now(), PAYLOAD_VERSION, payload.configuration_json, payload.result_snapshot_json,
+                            (_utc_now(), json.loads(payload.configuration_json)["version"], payload.configuration_json, payload.result_snapshot_json,
                              payload.summary_json, search_text, payload.content_sha256, history_id, expected_revision),
                         )
                         if cursor.rowcount != 1:
@@ -182,10 +182,11 @@ class CultivationHistoryDaoMixin(UserDataDaoMixinHost):
             check()
             if row is None:
                 return None
-            if row["payload_version"] != PAYLOAD_VERSION:
+            if row["payload_version"] not in SUPPORTED_PAYLOAD_VERSIONS:
                 raise ValueError("养成历史格式版本暂未支持")
             payload = HistoryPayload.decode(row["configuration_json"], row["result_snapshot_json"])
-            if (payload.content_sha256 != row["content_sha256"] or payload.mode != row["mode"]
+            if (json.loads(payload.configuration_json)["version"] != row["payload_version"]
+                    or payload.content_sha256 != row["content_sha256"] or payload.mode != row["mode"]
                     or payload.summary_json != row["summary_json"]):
                 raise ValueError("养成历史内容校验失败")
             return HistoryRecord(_summary(row), payload)

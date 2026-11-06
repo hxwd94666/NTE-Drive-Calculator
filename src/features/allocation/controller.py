@@ -6,7 +6,7 @@ from pathlib import Path
 import threading
 from typing import Any
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QPushButton
 
 from src.app.workers import WorkerThread
@@ -16,12 +16,15 @@ from src.services.allocation.filter_settings import AllocationFilterSettings
 from src.services.allocation.locks import AllocationLockSnapshot
 from src.features.allocation.runner import (
     _allocation_context_identity, _confirm_unsaved_allocation_before_recompute,
-    _on_done, _on_exec_error, _run_allocation, _save_alloc, _start_allocation_worker,
+    _on_done, _on_exec_error, _run_allocation, _start_allocation_worker,
 )
+from src.features.allocation.save_workflow import save_allocation
 
 
 class AllocationController(QObject):
     """Own one calculation worker, its frozen request, and save state."""
+
+    plans_saved = Signal(object)
 
     def __init__(
         self,
@@ -222,7 +225,7 @@ class AllocationController(QObject):
         self.allocation_plan_diff = dict(
             self._equipment_presentation.allocation_plan_diff or {}
         )
-        return bool(_save_alloc(self, show_message=show_message))
+        return bool(save_allocation(self, show_message=show_message, on_saved=self.plans_saved.emit))
 
     def _save_ui_preferences(self) -> None:
         self._save_preferences_callback()

@@ -270,10 +270,14 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
         return _keep_baseline(baseline_plans, frozen, client, "基础完成，轴优化响应验收失败，请核对配套组件", status="failed", identity=identity)
 
 
-def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=None):
+def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=None, complete_rows=None):
     verify_optimization_batch_rows(rows, shared_axis=True)
     sources = {}
-    provided = {row["role_name"] for row in rows}
+    complete_rows = rows if complete_rows is None else complete_rows
+    by_role = {row["role_name"]: row for row in complete_rows}
+    if len(by_role) != len(complete_rows):
+        raise RuntimeError("保存集合包含重复角色，请重新计算。")
+    provided = set(by_role)
     for row in rows:
         metadata = (row.get("payload") or {}).get("damage_optimization") or {}
         preview = row.get("axis_preview_source")
@@ -301,6 +305,10 @@ def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=No
                     or metadata.get("shared_build_dependencies_sha256") != allocation_inputs_digest(dependencies)
                     or any(build.get("basis") not in {"accepted", "baseline_assumption"}
                            or not isinstance(build.get("role_state"), Mapping) for build in builds)
+                    or any(build["role"] not in by_role
+                           or by_role[build["role"]].get("character_id") != build["character_id"]
+                           or by_role[build["role"]].get("snapshot_id") != frozen.snapshot_id
+                           or by_role[build["role"]].get("role_state") != build["role_state"] for build in builds)
                     or not any(build["role"] == row["role_name"] and build["basis"] == "accepted"
                                and build["role_state"] == row.get("role_state") for build in builds)):
                 raise RuntimeError("共享轴目标缺少完整冻结构筑依赖或依赖已改变，请重新计算。")

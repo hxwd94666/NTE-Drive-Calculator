@@ -8,7 +8,7 @@ from src.app.theme import themed_style
 from src.features.allocation.damage_result_summary import damage_optimization_presentation
 
 
-def damage_optimization_panel(value, *, object_name: str, parent=None):
+def damage_optimization_panel(value, *, object_name: str, parent=None, save_state=None):
     presentation = damage_optimization_presentation(value)
     if presentation is None:
         return None
@@ -21,6 +21,11 @@ def damage_optimization_panel(value, *, object_name: str, parent=None):
     layout = QVBoxLayout(panel)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(4)
+    if save_state is not None:
+        state = QLabel(save_state, panel)
+        state.setTextFormat(Qt.PlainText)
+        state.setWordWrap(True)
+        layout.addWidget(state)
     header = QHBoxLayout()
     header.setContentsMargins(0, 0, 0, 0)
     header.setSpacing(10)

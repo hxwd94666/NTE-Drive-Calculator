@@ -27,8 +27,10 @@
     "1071": "characters/1071.png",
     "1072": "characters/1072.png",
     "1073": "characters/1073.png",
+    "1074": "characters/1074.png",
     "1075": "characters/1075.png",
     "1076": "characters/1076.png",
+    "1090": "characters/1090.png",
     "1091": "characters/1091.png"
   },
   "character_arts": {
@@ -56,7 +58,9 @@
     "1076": "character_arts/1076.png",
     "1075": "character_arts/1075.png",
     "1042": "character_arts/1042.png",
-    "1057": "character_arts/1057.png"
+    "1057": "character_arts/1057.png",
+    "1090": "character_arts/1090.png",
+    "1074": "character_arts/1074.png"
   },
   "attributes": {
     "attack": "attributes/attack.png",
@@ -175,6 +179,8 @@
     "fork_appliance": "forks/fork_appliance.png",
     "fork_bopu": "forks/fork_bopu.png",
     "fork_dustbin": "forks/fork_dustbin.png",
+    "fork_elyms": "forks/fork_elyms.png",
+    "fork_exe": "forks/fork_exe.png",
     "fork_jiaojuan": "forks/fork_jiaojuan.png",
     "fork_jingmotingyuan": "forks/fork_jingmotingyuan.png",
     "fork_koinobori": "forks/fork_koinobori.png",
@@ -266,7 +272,8 @@
     "Worldboss_material_07": "materials/Worldboss_material_07.png",
     "weeklycloneboss_a01_01": "materials/weeklycloneboss_a01_01.png",
     "weeklycloneboss_a02_01": "materials/weeklycloneboss_a02_01.png",
-    "weeklycloneboss_a03_01": "materials/weeklycloneboss_a03_01.png"
+    "weeklycloneboss_a03_01": "materials/weeklycloneboss_a03_01.png",
+    "weeklycloneboss_a04_01": "materials/weeklycloneboss_a04_01.png"
   },
   "monster_icons": {
     "monster_static_big_world:mon_016_BP_Clone": "monsters/monster_static_big_world/mon_16.png",
@@ -316,17 +323,29 @@
     "monster_static_clone:boss_26_BP_Weekly_Lv4": "monsters/monster_static_clone/Boss_26.png",
     "monster_static_clone:boss_26_BP_Weekly_Lv5": "monsters/monster_static_clone/Boss_26.png",
     "monster_static_clone:boss_26_BP_Weekly_Lv6": "monsters/monster_static_clone/Boss_26.png",
-    "monster_static_clone:boss_26_BP_Weekly_Lv7": "monsters/monster_static_clone/Boss_26.png"
+    "monster_static_clone:boss_26_BP_Weekly_Lv7": "monsters/monster_static_clone/Boss_26.png",
+    "monster_static_clone:boss_36_T1_BP_Weekly_Lv1": "monsters/monster_static_clone/Boss_36.png",
+    "monster_static_clone:boss_36_T1_BP_Weekly_Lv2": "monsters/monster_static_clone/Boss_36.png",
+    "monster_static_clone:boss_36_T1_BP_Weekly_Lv3": "monsters/monster_static_clone/Boss_36.png",
+    "monster_static_clone:boss_36_T1_BP_Weekly_Lv4": "monsters/monster_static_clone/Boss_36.png",
+    "monster_static_clone:boss_36_T1_BP_Weekly_Lv5": "monsters/monster_static_clone/Boss_36.png",
+    "monster_static_clone:boss_36_T1_BP_Weekly_Lv6": "monsters/monster_static_clone/Boss_36.png",
+    "monster_static_clone:boss_36_T1_BP_Weekly_Lv7": "monsters/monster_static_clone/Boss_36.png",
+    "monster_static_clone:boss_36_T2_BP_Weekly_Lv1": "monsters/monster_static_clone/Boss_36_2.png",
+    "monster_static_clone:boss_36_T2_BP_Weekly_Lv2": "monsters/monster_static_clone/Boss_36_2.png",
+    "monster_static_clone:boss_36_T2_BP_Weekly_Lv3": "monsters/monster_static_clone/Boss_36_2.png",
+    "monster_static_clone:boss_36_T2_BP_Weekly_Lv4": "monsters/monster_static_clone/Boss_36_2.png",
+    "monster_static_clone:boss_36_T2_BP_Weekly_Lv5": "monsters/monster_static_clone/Boss_36_2.png",
+    "monster_static_clone:boss_36_T2_BP_Weekly_Lv6": "monsters/monster_static_clone/Boss_36_2.png",
+    "monster_static_clone:boss_36_T2_BP_Weekly_Lv7": "monsters/monster_static_clone/Boss_36_2.png"
   },
   "encounter_icons": {
-    "/Game/UI/UI/DiyBoss/Boss_07_icon.Boss_07_icon": "monsters/resources/Boss_07_icon_6e67194d.png",
     "/Game/UI/UI/DiyBoss/Boss_08_icon.Boss_08_icon": "monsters/resources/Boss_08_icon_7dbb9555.png",
     "/Game/UI/UI/DiyBoss/Boss_13_icon.Boss_13_icon": "monsters/resources/Boss_13_icon_8ece5dc9.png",
-    "/Game/UI/UI/DiyBoss/Boss_18_icon.Boss_18_icon": "monsters/resources/Boss_18_icon_97cd5bbb.png",
     "/Game/UI/UI/DiyBoss/Boss_26_icon.Boss_26_icon": "monsters/resources/Boss_26_icon_a1cb6a63.png",
+    "/Game/UI/UI/DiyBoss/YH_UI_zfsw_BOSS100_icon01.YH_UI_zfsw_BOSS100_icon01": "monsters/resources/YH_UI_zfsw_BOSS100_icon01_3e4da49f.png",
+    "/Game/UI/UI/DiyBoss/YH_UI_zfsw_BOSS100_icon02.YH_UI_zfsw_BOSS100_icon02": "monsters/resources/YH_UI_zfsw_BOSS100_icon02_0dc40339.png",
     "/Game/UI/UI/DiyBoss/boss_04_icon.boss_04_icon": "monsters/resources/boss_04_icon_ce74691b.png",
-    "/Game/UI/UI/DiyBoss/boss_103_01_100.boss_103_01_100": "monsters/resources/boss_103_01_100_12ec76b7.png",
-    "/Game/UI/UI/DiyBoss/boss_103_02__100.boss_103_02__100": "monsters/resources/boss_103_02__100_891b4b4b.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_05.Boss_05": "monsters/resources/Boss_05_15c4f400.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_07.Boss_07": "monsters/resources/Boss_07_e7437aa6.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_08.Boss_08": "monsters/resources/Boss_08_7df45414.png",
@@ -370,7 +389,6 @@
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_10.Boss_10": "monsters/resources/Boss_10_d2e9894b.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/Boss_26.Boss_26": "monsters/resources/Boss_26_0788fcc8.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.Boss_13": "monsters/resources/boss_13_a65d48d0.png",
-    "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.boss_13": "monsters/resources/boss_13_e039024a.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_15.Boss_15": "monsters/resources/boss_15_ebff7c18.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_19.boss_19": "monsters/resources/boss_19_b8978bda.png",
     "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_33.boss_33": "monsters/resources/boss_33_c4816359.png",
@@ -416,6 +434,8 @@
     "boss_05": "monsters/monster_static_clone/Boss_05.png",
     "boss_10": "monsters/monster_static_clone/Boss_10.png",
     "boss_26": "monsters/monster_static_clone/Boss_26.png",
+    "boss_36_t1": "monsters/monster_static_clone/Boss_36.png",
+    "boss_36_t2": "monsters/monster_static_clone/Boss_36_2.png",
     "mon_19": "monsters/monster_static_big_world/mon_19.png",
     "mon_2_green": "monsters/monster_static_big_world/mon_02.png",
     "mon_3": "monsters/monster_static_big_world/mon_03.png",
@@ -677,6 +697,14 @@
       "sha256": "C26D34A1D3365C40E33B3458AEC0B238F680B420149818820FACBD8EC1CB6402",
       "source_sha256": "41EFF9D2C9EFFA5EEB18F73436B2804DB59F94821575D31FFFFCF7EB8594D875"
     },
+    "characters/1074.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Appearance/1074/Fashion_1074_0/256_Fashion_1074_0.256_Fashion_1074_0",
+      "width": 256,
+      "height": 256,
+      "bytes": 91611,
+      "sha256": "416E876857DAA4FBF2530A44D0936AF8C167646864D093074FA50DB8891FA421",
+      "source_sha256": "15499BBA54B230468776BA951A6293794B108DCF9215AB0153A89CD232C72347"
+    },
     "characters/1075.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_yiluoyi_256.player_yiluoyi_256",
       "width": 256,
@@ -692,6 +720,14 @@
       "bytes": 132033,
       "sha256": "7504970804C356C4246921A2FF88C4D8F392E6F6979F74A5B1AC30108CAFF40B",
       "source_sha256": "97FDF3FA5857668CDC0ACEA1CDC6AAC32AD172C8143BA64D2B55D7FC21967101"
+    },
+    "characters/1090.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Appearance/1090/Fashion_1090_0/256_Fashion_1090_0.256_Fashion_1090_0",
+      "width": 256,
+      "height": 256,
+      "bytes": 104066,
+      "sha256": "6A944722E7EEB0CC7CE7DEB570396D074571B8F9FC20997EEA5DCFAAF3162CC2",
+      "source_sha256": "369825D78C819EE3BF33268B5633F026AE7190B890E07ED74295AD7CD2CE048B"
     },
     "characters/1091.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_lingke_256.player_lingke_256",
@@ -900,6 +936,22 @@
       "bytes": 202479,
       "sha256": "33E4CF9DE880095105765C09BC664F947140CBC8907AB914FCD50D706346C708",
       "source_sha256": "EC084D1DF13F870159055244968506BA03897D9B17A9BC3B20D7CFCC64BE618E"
+    },
+    "character_arts/1090.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Appearance/1090/Fashion_1090_0/2560_Fashion_1090_0.2560_Fashion_1090_0",
+      "width": 432,
+      "height": 512,
+      "bytes": 185524,
+      "sha256": "C57F80C941831E3FA7C4EA9F0D1403D9F04EE6EA8D276DFA54B900061166614F",
+      "source_sha256": "C45596501633DD3D7E019890810F394FA075079F94936C02C0A6BA786364C0F0"
+    },
+    "character_arts/1074.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Appearance/1074/Fashion_1074_0/2560_Fashion_1074_0.2560_Fashion_1074_0",
+      "width": 432,
+      "height": 512,
+      "bytes": 224443,
+      "sha256": "21B16B4A7B79A291ABE3FA87D26DE05BB21D0DC2DF9E286843F89C5D2E77631B",
+      "source_sha256": "7C08A2C19C078E8A2FB9FA6FC5D84D37A3183F480271E9D48D66C5FDC0F2457E"
     },
     "attributes/attack.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Attribute/icon_attri_gongji.icon_attri_gongji",
@@ -1781,6 +1833,22 @@
       "sha256": "E5083F47E156C9DFD826FA291F3318EEE5DA5C61F24660E75FB5C35488C401CF",
       "source_sha256": "F5CB61EA86604CB6F04A485BCFD2A693D81E4C59D1664BBAE486AE82D5416CE5"
     },
+    "forks/fork_elyms.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Fork/fork_elyms_256.fork_elyms_256",
+      "width": 128,
+      "height": 128,
+      "bytes": 32180,
+      "sha256": "D5649A3F0F8716DFA5EE49D12594802D2C163D3F91845A69733D48319C2C1412",
+      "source_sha256": "D017BF1EFC51516085CB0DD487AFA07A46E04E08B2448352D9B910ED276D2E41"
+    },
+    "forks/fork_exe.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Fork/fork_exe_256.fork_exe_256",
+      "width": 128,
+      "height": 128,
+      "bytes": 26042,
+      "sha256": "0BEEAAD8D5DB7AEE417D39408C30B54F7BCE7A0E9694A77729C39810CDBA282D",
+      "source_sha256": "98136581CA6F9F065E69BEF4F026A5B6D6877434D14DEC972C13685B936BABD4"
+    },
     "forks/fork_jiaojuan.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Fork/fork_jiaojuan_256.fork_jiaojuan_256",
       "width": 128,
@@ -2501,6 +2569,14 @@
       "sha256": "A0C32AD47E5A88C1BFC94473E6878F5F6E61FCB5F9180FFE58954238E8228A18",
       "source_sha256": "274F81B75FA2C9F190D22F77D5BD9C78DAEAC0D77D14FFC7FD6114506EB360D0"
     },
+    "materials/weeklycloneboss_a04_01.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Item/weeklycloneboss_a04_01.weeklycloneboss_a04_01",
+      "width": 128,
+      "height": 128,
+      "bytes": 13003,
+      "sha256": "9871133AB7A5A417A7709BD9BB417052A965AB8154529594FD6DDA054D646AB9",
+      "source_sha256": "EDB0EC20E851F8A358AA4455F626C8AE96E8D741CD328A9041F4428968FD55E8"
+    },
     "monsters/monster_static_big_world/mon_16.png": {
       "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/mon_16.mon_16",
       "width": 128,
@@ -2613,13 +2689,21 @@
       "sha256": "0F0ABA97F388AE574D1B8C95FC0D7FF4AAEFE81209BEB64FFBF425233D1B368C",
       "source_sha256": "DF7C13A45883C0D358C6598A0BB6A2A225FD8D51170D1C3D5066B05AB3F54531"
     },
-    "monsters/resources/Boss_07_icon_6e67194d.png": {
-      "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_07_icon.Boss_07_icon",
-      "width": 100,
-      "height": 100,
-      "bytes": 8992,
-      "sha256": "3B8655DCF287D956F4E2062516C43A92BADFF50683EEDCFC24FF7CA9B1588E6F",
-      "source_sha256": "3CFF4B614A1800CBCD8E2673997D59AD6F86A85F56320DD4053C3750AAE3ADD1"
+    "monsters/monster_static_clone/Boss_36.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_36.Boss_36",
+      "width": 128,
+      "height": 128,
+      "bytes": 32293,
+      "sha256": "E3341A8BCC2EC5ED885CBCC2A7C17CE1A766422619F705805945721BA85462BB",
+      "source_sha256": "5EB79A735DBE2B2939E942FE5D7F0E20D6522760D3EEEE08D86B233B517890C3"
+    },
+    "monsters/monster_static_clone/Boss_36_2.png": {
+      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_36_2.Boss_36_2",
+      "width": 128,
+      "height": 128,
+      "bytes": 23812,
+      "sha256": "9B11A27085A6210B2B8BC2BAFADF14937C78DD9C9BAD5DE787F7DCADF97E3B50",
+      "source_sha256": "00BC869899CED171EC1B11A7DBAE035A995BA8716713A73F33F09B47DE53B44D"
     },
     "monsters/resources/Boss_08_icon_7dbb9555.png": {
       "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_08_icon.Boss_08_icon",
@@ -2637,14 +2721,6 @@
       "sha256": "6FB0256C35D44E347B2FFDF43072444AD6942011A03EBDAEAE51B0D838521F8F",
       "source_sha256": "17C938A11EB05F49F1B7BC47EC20CF983AE018305B7FADDED061D9B567E6DDC2"
     },
-    "monsters/resources/Boss_18_icon_97cd5bbb.png": {
-      "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_18_icon.Boss_18_icon",
-      "width": 100,
-      "height": 96,
-      "bytes": 12952,
-      "sha256": "39C10D2A38E2D65A6E1149867F37DA14213C1173AC11186F3465387F59E04821",
-      "source_sha256": "5EF1B449FE601F325943429B923EFE4AED2E7D274018B418B66BE53C9208D1F9"
-    },
     "monsters/resources/Boss_26_icon_a1cb6a63.png": {
       "source_asset_path": "/Game/UI/UI/DiyBoss/Boss_26_icon.Boss_26_icon",
       "width": 100,
@@ -2653,6 +2729,22 @@
       "sha256": "2E309926077679E4B8955826F4016B3E1FA9F1D5CF9BEDA7F17BBD1FA715281C",
       "source_sha256": "CB132445FF36D96CFF6D6E6DF37414DF1ACC398B98563B780B481663E0F62503"
     },
+    "monsters/resources/YH_UI_zfsw_BOSS100_icon01_3e4da49f.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/YH_UI_zfsw_BOSS100_icon01.YH_UI_zfsw_BOSS100_icon01",
+      "width": 100,
+      "height": 100,
+      "bytes": 15605,
+      "sha256": "322847B27EDC0C8188413F356681BBEC855B3BCFBD08C64716375D0C3A839FF9",
+      "source_sha256": "3994897EEC13CF3D23F7E14416AC167BE2059890F8FACA535550FA456F277A60"
+    },
+    "monsters/resources/YH_UI_zfsw_BOSS100_icon02_0dc40339.png": {
+      "source_asset_path": "/Game/UI/UI/DiyBoss/YH_UI_zfsw_BOSS100_icon02.YH_UI_zfsw_BOSS100_icon02",
+      "width": 100,
+      "height": 100,
+      "bytes": 22369,
+      "sha256": "2371BA93466BDD28619209564E63153ED7287832DEEAEEFC98F0151288F8153E",
+      "source_sha256": "A0E7B39E324D9BE37ABC2B4E0BA79C3F3CC018A069CE3BE4069CF695C7411FE8"
+    },
     "monsters/resources/boss_04_icon_ce74691b.png": {
       "source_asset_path": "/Game/UI/UI/DiyBoss/boss_04_icon.boss_04_icon",
       "width": 99,
@@ -2660,22 +2752,6 @@
       "bytes": 18263,
       "sha256": "3B8ACB1F00ABFB22CD5D7B70CE83CFCEB11DA40382A4EDEF1042DC62AD17C7D1",
       "source_sha256": "E3EA99B63C09A4E2B3DF941611CA46354BDBDCE9D9A3CE2755460B49E9936FC8"
-    },
-    "monsters/resources/boss_103_01_100_12ec76b7.png": {
-      "source_asset_path": "/Game/UI/UI/DiyBoss/boss_103_01_100.boss_103_01_100",
-      "width": 100,
-      "height": 100,
-      "bytes": 17751,
-      "sha256": "19D9273F989A16F257E3E950590D092CC266564364204CEA16B8A92F161C6C59",
-      "source_sha256": "178578D2F71F47005B779C04BDD1D485283FDA9A984685526DC32BA21BF5B975"
-    },
-    "monsters/resources/boss_103_02__100_891b4b4b.png": {
-      "source_asset_path": "/Game/UI/UI/DiyBoss/boss_103_02__100.boss_103_02__100",
-      "width": 100,
-      "height": 100,
-      "bytes": 13792,
-      "sha256": "7F3DCDD672908B57D0B87E5696DCE38E2949ADD927B8472DE914C4243C65B0E6",
-      "source_sha256": "21DF47AAEEA9A045206DDF3BFA839D2F2934E467454BF8282301BF3E2776C254"
     },
     "monsters/resources/Boss_05_15c4f400.png": {
       "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/200x200/Boss_05.Boss_05",
@@ -3015,14 +3091,6 @@
     },
     "monsters/resources/boss_13_a65d48d0.png": {
       "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.Boss_13",
-      "width": 128,
-      "height": 128,
-      "bytes": 25639,
-      "sha256": "0F43DBC5508B03268EB3F86803084E91857D56D7E280D91ADDA97204A883C3DC",
-      "source_sha256": "B43C86796ADB8AA56DCFBDAE4DF0FD2EC095F1AEB367C6D026BA9FE79FF313B6"
-    },
-    "monsters/resources/boss_13_e039024a.png": {
-      "source_asset_path": "/Game/UI/UI/MonsterManual/MonsterHeadIcon/Mapicon_128x128/boss_13.boss_13",
       "width": 128,
       "height": 128,
       "bytes": 25639,
@@ -3581,6 +3649,70 @@
       "height": 256,
       "bytes": 18534
     },
+    "skills/Elyms_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Elyms_Melee.Elyms_Melee",
+      "source_sha256": "60305D23E92D2AED0D6D3BF697D0ED0E2E81D30BF15A0E1F650FFABE27FD1CBF",
+      "sha256": "60305D23E92D2AED0D6D3BF697D0ED0E2E81D30BF15A0E1F650FFABE27FD1CBF",
+      "width": 256,
+      "height": 256,
+      "bytes": 6339
+    },
+    "skills/Elyms_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Elyms_QTE.Elyms_QTE",
+      "source_sha256": "BFF9FC5D72617FFFF990BE055F8AE44B72E345566EA2E04D4C7271FBDE9F1B55",
+      "sha256": "BFF9FC5D72617FFFF990BE055F8AE44B72E345566EA2E04D4C7271FBDE9F1B55",
+      "width": 256,
+      "height": 256,
+      "bytes": 7805
+    },
+    "skills/Elyms_Skill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Elyms_Skill1.Elyms_Skill1",
+      "source_sha256": "04FE76A22EEA39245E68AC9F3F49A593FD6CA566B66FDE96642B98A60EEE4336",
+      "sha256": "04FE76A22EEA39245E68AC9F3F49A593FD6CA566B66FDE96642B98A60EEE4336",
+      "width": 256,
+      "height": 256,
+      "bytes": 9370
+    },
+    "skills/Elyms_UltraSkill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Elyms_UltraSkill1.Elyms_UltraSkill1",
+      "source_sha256": "4A31945CAB0D6BA2EAC7425CFD4D4B0CB04472F4EB0F35515430EB857DF700FA",
+      "sha256": "4A31945CAB0D6BA2EAC7425CFD4D4B0CB04472F4EB0F35515430EB857DF700FA",
+      "width": 256,
+      "height": 256,
+      "bytes": 6915
+    },
+    "skills/Exe_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Exe_Melee.Exe_Melee",
+      "source_sha256": "168E798F557883109703E7718D8CE627A4F2A88D55BB17472D93BC003534E88D",
+      "sha256": "168E798F557883109703E7718D8CE627A4F2A88D55BB17472D93BC003534E88D",
+      "width": 256,
+      "height": 256,
+      "bytes": 9686
+    },
+    "skills/Exe_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Exe_QTE.Exe_QTE",
+      "source_sha256": "B13599337E50AB07CC0E97A717364B180FC4BDB60E11B2975B9F014AAA44F812",
+      "sha256": "B13599337E50AB07CC0E97A717364B180FC4BDB60E11B2975B9F014AAA44F812",
+      "width": 256,
+      "height": 256,
+      "bytes": 13370
+    },
+    "skills/Exe_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Exe_Skill.Exe_Skill",
+      "source_sha256": "76E633C430405FD711EC518F8686035639580C65BEA70401777927B2623131B0",
+      "sha256": "76E633C430405FD711EC518F8686035639580C65BEA70401777927B2623131B0",
+      "width": 256,
+      "height": 256,
+      "bytes": 8713
+    },
+    "skills/Exe_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Exe_UltraSkill.Exe_UltraSkill",
+      "source_sha256": "D5415069C7656CB10A5748AB94589E0293BE8A62642209A6B1366A9E0A1D9EC6",
+      "sha256": "D5415069C7656CB10A5748AB94589E0293BE8A62642209A6B1366A9E0A1D9EC6",
+      "width": 256,
+      "height": 256,
+      "bytes": 13483
+    },
     "skills/Fadia_Melee.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Skill/Fadia_Melee.Fadia_Melee",
       "source_sha256": "303A9362B1B66DCA503ADCC58A30691A1BD8945C569FE167EB4B5AADF4E49E8A",
@@ -4094,10 +4226,10 @@
       "bytes": 9113
     }
   },
-  "total_files": 451,
-  "total_bytes": 15846236,
-  "dataset_id": "cn_reference_20261017_fcf6c959",
-  "database_sha256": "7451BF108A1CEA2682719BB61764C61488EF9ACAAD40177F4756DBA91D52CF45",
+  "total_files": 465,
+  "total_bytes": 16613739,
+  "dataset_id": "cn_formal_20261105_usmap0798cff8",
+  "database_sha256": "33191874E0655F17ECED566700F67C200DE58369FBEBF36097E5C00AB2F576F1",
   "unresolved_assets": [],
   "skills": {
     "GA_Adler_Melee": "skills/Adler_Melee.png",
@@ -4132,6 +4264,14 @@
     "GA_Edgar_QTE": "skills/Edgar_QTE.png",
     "GA_Edgar_Skill": "skills/Edgar_Skill.png",
     "GA_Edgar_UltraSkill": "skills/Edgar_UltraSkill.png",
+    "GA_Elyms_Melee": "skills/Elyms_Melee.png",
+    "GA_Elyms_QTE": "skills/Elyms_QTE.png",
+    "GA_Elyms_Skill": "skills/Elyms_Skill1.png",
+    "GA_Elyms_UltraSkill": "skills/Elyms_UltraSkill1.png",
+    "GA_Exe_Melee": "skills/Exe_Melee.png",
+    "GA_Exe_QTE": "skills/Exe_QTE.png",
+    "GA_Exe_Skill": "skills/Exe_Skill.png",
+    "GA_Exe_UltraSkill": "skills/Exe_UltraSkill.png",
     "GA_Fadia_Melee": "skills/Fadia_Melee.png",
     "GA_Fadia_QTE": "skills/Fadia_QTE.png",
     "GA_Fadia_Skill": "skills/Fadia_Skill.png",

@@ -5,6 +5,7 @@ import hashlib
 import json
 
 from tools.release.app_bundle_validation import CONFIG_RELEASE_FILES, REQUIRED_INTERNAL_FILES, REQUIRED_NOTICES
+from src.integrations.nte_analysis_core import ENGINE_VERSION
 
 
 def add_app_requirements(app_exe, internal):
@@ -18,7 +19,7 @@ def add_app_requirements(app_exe, internal):
             path.write_bytes(b"synthetic public release resource")
     digest = hashlib.sha256((internal / "nte-analysis-core.exe").read_bytes()).hexdigest()
     (internal / "analysis-core-meta/component.json").write_text(json.dumps({
-        "engine": "nte-analysis-core", "engine_version": "0.3.0", "sha256": digest,
+        "engine": "nte-analysis-core", "engine_version": ENGINE_VERSION, "sha256": digest,
         "capabilities": ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1"],
     }), encoding="utf-8")
     (internal / "third_party/presentmon/component.json").write_text(json.dumps({

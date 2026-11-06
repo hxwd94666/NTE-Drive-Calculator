@@ -15,9 +15,9 @@ from src.storage.sqlite.user_data_support import UserDataError
 MIGRATION_BACKUP_DIRECTORY = ".migration-backups"
 
 
-def backup_before_history_migration(database_path: Path, version: int) -> Path:
+def backup_before_user_migration(database_path: Path, version: int) -> Path:
     """只操作确切账号库，备份提交前完成校验，不覆盖或清理旧备份。"""
-    # 更早版本可能已按原事务完成升级；本备份失败仅保证尚未进入养成历史迁移。
+    # 更早版本可能已按原事务完成升级；本备份失败守住当前被保护的结构迁移边界。
     root = database_path.parent.resolve()
     directory = root / MIGRATION_BACKUP_DIRECTORY
     if directory.resolve().parent != root:
@@ -32,7 +32,7 @@ def backup_before_history_migration(database_path: Path, version: int) -> Path:
 
         def progress(_status: int, _remaining: int, _total: int) -> None:
             if monotonic() > deadline:
-                raise UserDataError("账号升级备份超时，尚未进行养成历史结构升级")
+                raise UserDataError("账号升级备份超时，尚未进行本次结构升级")
 
         with closing(sqlite3.connect(f"{database_path.as_uri()}?mode=ro", uri=True)) as source:
             with closing(sqlite3.connect(temporary)) as destination:
@@ -48,7 +48,7 @@ def backup_before_history_migration(database_path: Path, version: int) -> Path:
         temporary = None
         return target
     except (OSError, sqlite3.Error) as error:
-        raise UserDataError("账号升级备份失败，尚未进行养成历史结构升级") from error
+        raise UserDataError("账号升级备份失败，尚未进行本次结构升级") from error
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

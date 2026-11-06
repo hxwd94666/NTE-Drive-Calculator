@@ -340,7 +340,8 @@ def test_alias_percent_blacklist_and_main_weights_match_the_direct_sole_engine(q
         maximum = engine.max_theoretical_weight(weights, zero_weight_stats=zeros)
         items, by_uid = adapter.legacy_items(context)
         expected = {by_uid[i.uid].uid: (engine.calculate_drive_score(i, weights, maximum, zero_weight_stats=zeros)
-                    if isinstance(i, Drive) else engine.calculate_cartridge_score(i, weights, maximum, {"Main": .6})) for i in items}
+                    if isinstance(i, Drive) else engine.calculate_cartridge_score(
+                        i, weights, maximum, {"Main": .6}, zero_weight_stats=zeros)) for i in items}
         actual = adapter.score_allocation_candidates(context, role, context.candidates)
         assert actual == expected == {c.uid: adapter.score_allocation_candidate(context, role, c) for c in context.candidates}
         assert all(i.sub_stats["AliasPercent%"] == 3. for i in items)

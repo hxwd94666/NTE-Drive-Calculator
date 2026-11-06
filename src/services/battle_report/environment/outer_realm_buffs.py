@@ -161,7 +161,7 @@ class BattleOuterRealmBuffService:
     ) -> tuple[BattleInferredBuffInterval, ...]:
         if config is None or battle_end_us <= 0:
             return ()
-        if any(row.trigger_kind in {"whole_battle_qte", "observed_recipient_effect"}
+        if any(row.trigger_kind in {"whole_battle_qte", "whole_battle_summon", "observed_recipient_effect"}
                for row in config.components):
             raise ValueError("新赛季模型需要独立战报分析组件的逐击角色证据入口")
         if (backend := available_battle_compute(compute_backend)) is not None:

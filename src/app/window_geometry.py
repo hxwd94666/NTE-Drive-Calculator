@@ -55,7 +55,15 @@ def fit_dialog_to_available_screen(
     if available.isEmpty():
         return dialog.size()
     requested = preferred_size or dialog.size().expandedTo(dialog.minimumSize())
-    target = constrained_window_size(requested, available, margin=margin)
+    # resize使用客户区尺寸，move使用顶层边框坐标；原生标题栏必须占用可用屏幕预算。
+    # 未创建原生框架时差值可能为零；首次显示后调用同一helper可获得当前屏幕/DPI的实际值。
+    frame, client = dialog.frameGeometry(), dialog.geometry()
+    frame_width = max(0, frame.width() - client.width())
+    frame_height = max(0, frame.height() - client.height())
+    client_area = QRect(available.topLeft(), QSize(max(1, available.width() - frame_width),
+                                                  max(1, available.height() - frame_height)))
+    target = constrained_window_size(requested, client_area, margin=margin)
+    outer = QSize(target.width() + frame_width, target.height() + frame_height)
 
     old_minimum = dialog.minimumSize()
     old_maximum = dialog.maximumSize()
@@ -76,21 +84,21 @@ def fit_dialog_to_available_screen(
         if anchor is not None and anchor.isVisible()
         else available.center()
     )
-    x = center.x() - target.width() // 2
-    y = center.y() - target.height() // 2
+    x = center.x() - outer.width() // 2
+    y = center.y() - outer.height() // 2
     requested_margin = max(0, int(margin))
     horizontal_margin = min(
         requested_margin,
-        max(0, (available.width() - target.width()) // 2),
+        max(0, (available.width() - outer.width()) // 2),
     )
     vertical_margin = min(
         requested_margin,
-        max(0, (available.height() - target.height()) // 2),
+        max(0, (available.height() - outer.height()) // 2),
     )
     minimum_x = available.left() + horizontal_margin
-    maximum_x = available.right() - horizontal_margin - target.width() + 1
+    maximum_x = available.right() - horizontal_margin - outer.width() + 1
     minimum_y = available.top() + vertical_margin
-    maximum_y = available.bottom() - vertical_margin - target.height() + 1
+    maximum_y = available.bottom() - vertical_margin - outer.height() + 1
     x = max(minimum_x, min(x, maximum_x))
     y = max(minimum_y, min(y, maximum_y))
     dialog.move(x, y)

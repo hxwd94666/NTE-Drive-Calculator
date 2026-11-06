@@ -18,6 +18,7 @@ from tools.release.game_component_bundle_build import ComponentBuildInput, Prepa
 from tools.release.ocr_build_inputs import OcrBuildInputs
 from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport
 from src.app.constants import APP_VERSION
+from src.integrations.nte_analysis_core import ENGINE_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -213,7 +214,7 @@ def executable_inputs(tmp_path, monkeypatch):
     payload_hash = hashlib.sha256(b"synthetic input").hexdigest()
     (root / "third_party/presentmon/component.json").write_text(json.dumps({"sha256": payload_hash}))
     build.ANALYSIS_CORE_MANIFEST_PATH.write_text(json.dumps({
-        "engine": "nte-analysis-core", "engine_version": "0.3.0", "sha256": payload_hash,
+        "engine": "nte-analysis-core", "engine_version": ENGINE_VERSION, "sha256": payload_hash,
         "capabilities": ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1"],
     }))
     role = SimpleNamespace(database_path=root / "data/role_catalog/game_static.sqlite3",

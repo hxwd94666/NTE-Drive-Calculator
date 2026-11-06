@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from src.domain.official_role.advancement import select_fork_breakthrough
+from src.domain.official_role.likeability import likeability_unavailable
 from src.services.official_role.native_profiles import project_native_role_profile
 from src.services.official_role.awakening import resolve_awakening_profile
 
@@ -118,7 +119,7 @@ def resolve_official_role_profile(
         character, growth_rows, forks, skills, awakenings, 0,
     )
     if saved_profile is None:
-        profile['likeability_level_10_enabled'] = likeability_bonus is not None
+        profile['likeability_level_10_enabled'] = likeability_bonus is not None and not likeability_unavailable(likeability_bonus)
     profile = project_native_role_profile(profile, observation, persisted=saved_profile is not None)
     profile = resolve_awakening_profile(profile, awakenings)
     profile['persisted'] = saved_profile is not None

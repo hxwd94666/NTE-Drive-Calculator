@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.domain.progression.history import PAYLOAD_VERSION
 from src.features.toolbox.cultivation.single_result import CultivationSingleResultMixin
 from src.features.toolbox.cultivation.history_binding import CultivationHistoryDraftBinding, CultivationHistorySaveStatus
 from src.features.toolbox.cultivation.history_draft import capture_target, apply_target_values
@@ -562,7 +563,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
             raise ValueError("请先选择角色")
         hunter, identification = self._stamina_controls.values()
         return {
-            "version": 1, "mode": "single", "hunter_level": hunter, "identification_level": identification,
+            "version": PAYLOAD_VERSION, "mode": "single", "hunter_level": hunter, "identification_level": identification,
             "material_scope": self._material_scope, "owned_materials": self._owned_materials.export_history_materials(),
             "targets": [capture_target(self._editor, self._seed, self._fork_seed, self._skill_inputs, line_id="single")],
         }

@@ -8,7 +8,6 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QLabel,
@@ -24,6 +23,7 @@ from src.services.battle_report.targets.profile_snapshot import (
     battle_target_profile_snapshots,
 )
 from src.ui.widgets import NoWheelComboBox
+from .feast_conditions import FeastConditionMixin
 
 
 _DAMAGE_TYPES = (
@@ -32,7 +32,7 @@ _DAMAGE_TYPES = (
 )
 
 
-class BattleTargetConditionSelector(QGroupBox):
+class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
     preset_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -147,25 +147,6 @@ class BattleTargetConditionSelector(QGroupBox):
         self.outer_primary_combo.currentIndexChanged.connect(self._emit_preset)
         self.stack.addWidget(page)
 
-    def _build_feast_page(self) -> None:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        selectors = QGridLayout()
-        selectors.addWidget(QLabel("挑战对象"), 0, 0)
-        self.feast_stage_combo = NoWheelComboBox()
-        selectors.addWidget(self.feast_stage_combo, 0, 1)
-        selectors.addWidget(QLabel("难度"), 0, 2)
-        self.feast_difficulty_combo = NoWheelComboBox()
-        selectors.addWidget(self.feast_difficulty_combo, 0, 3)
-        layout.addLayout(selectors)
-        self.feast_options_widget = QWidget()
-        self.feast_options_layout = QFormLayout(self.feast_options_widget)
-        self.feast_options_layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.feast_options_widget)
-        self.feast_stage_combo.currentIndexChanged.connect(self._feast_stage_changed)
-        self.feast_difficulty_combo.currentIndexChanged.connect(self._emit_preset)
-        self.stack.addWidget(page)
 
     def set_catalog(self, catalog: dict[str, Any]) -> None:
         self._loading = True
@@ -471,34 +452,6 @@ class BattleTargetConditionSelector(QGroupBox):
         self.outer_targets_label.setText(targets_text)
         self._emit_preset()
 
-    def _feast_stage_changed(self) -> None:
-        stage = self.feast_stage_combo.currentData() or {}
-        previous_difficulty = self.feast_difficulty_combo.currentData()
-        self.feast_difficulty_combo.clear()
-        for difficulty in stage.get("difficulties") or ():
-            self.feast_difficulty_combo.addItem(
-                f"{difficulty['name_zh']}（Lv.{difficulty['monster_level']}）",
-                difficulty,
-            )
-        if isinstance(previous_difficulty, dict):
-            self._set_combo_data(
-                self.feast_difficulty_combo,
-                previous_difficulty.get("difficulty_id"),
-                "difficulty_id",
-            )
-        while self.feast_options_layout.rowCount():
-            self.feast_options_layout.removeRow(0)
-        self._feast_option_combos.clear()
-        for category in stage.get("option_categories") or ():
-            key = str(category["category_ordinal"])
-            combo = NoWheelComboBox()
-            combo.addItem("不选择", None)
-            for option in category.get("options") or ():
-                combo.addItem(self._option_label(option), option)
-            combo.currentIndexChanged.connect(self._emit_preset)
-            self._feast_option_combos[key] = combo
-            self.feast_options_layout.addRow(category["name_zh"], combo)
-        self._emit_preset()
 
     def _restore_open_world(self, condition: BattleTargetCondition) -> None:
         wanted = set(condition.selected_target_ids)
@@ -562,15 +515,6 @@ class BattleTargetConditionSelector(QGroupBox):
             "target_id",
         )
 
-    def _restore_feast(self, condition: BattleTargetCondition) -> None:
-        if condition.environment_kind != "feast":
-            return
-        self._set_combo_data(self.feast_stage_combo, condition.environment_ref, "stage_id")
-        self._feast_stage_changed()
-        self._set_combo_data(self.feast_difficulty_combo, condition.difficulty_id, "difficulty_id")
-        selected = dict(condition.feast_options)
-        for key, combo in self._feast_option_combos.items():
-            self._set_combo_data(combo, selected.get(key), "option_id")
 
     def _open_world_preset(self) -> dict[str, Any]:
         selected = self._checked_open_world_targets()
@@ -632,56 +576,6 @@ class BattleTargetConditionSelector(QGroupBox):
             options={},
         )
 
-    def _feast_preset(self) -> dict[str, Any]:
-        stage = self.feast_stage_combo.currentData() or {}
-        difficulty = self.feast_difficulty_combo.currentData()
-        target = None
-        if difficulty:
-            target = {
-                "target_id": str(stage.get("boss_monster_id") or ""),
-                "name_zh": f"争锋赏宴·{stage.get('name_zh', '目标')}",
-                "monster_level": float(difficulty.get("monster_level") or 1.0),
-                "profile": {
-                    key: difficulty.get(key)
-                    for key in (
-                        "health_base", "health_up", "health_add", "defense_base",
-                        "defense_up", "defense_add", "topple_limit", "resistances",
-                    )
-                },
-            }
-        options = {
-            key: combo.currentData()
-            for key, combo in self._feast_option_combos.items()
-            if combo.currentData()
-        }
-        if target is not None:
-            for option in options.values():
-                if option.get("effect_kind") == "health_up":
-                    target["profile"]["health_up"] = (
-                        float(target["profile"].get("health_up") or 0.0)
-                        + float(option.get("add_value") or 0.0)
-                    )
-        preset = self._preset(
-            kind="feast",
-            ref=str(stage.get("stage_id") or ""),
-            selected=[] if target is None else [target],
-            primary=target,
-            difficulty=None if not difficulty else int(difficulty["difficulty_id"]),
-            options={key: value["option_id"] for key, value in options.items()},
-        )
-        for option in options.values():
-            if option.get("effect_kind") == "resistance_up" and option.get("damage_type"):
-                damage_type = str(option["damage_type"])
-                preset["resistances"][damage_type] = (
-                    preset["resistances"].get(damage_type, 0.0)
-                    + float(option.get("add_value") or 0.0)
-                )
-                for profile in preset["selected_target_profiles"]:
-                    profile["resistances"][damage_type] = (
-                        profile["resistances"].get(damage_type, 0.0)
-                        + float(option.get("add_value") or 0.0)
-                    )
-        return preset
 
     @staticmethod
     def _preset(*, kind, ref, selected, primary, difficulty, options) -> dict[str, Any]:
@@ -736,6 +630,8 @@ class BattleTargetConditionSelector(QGroupBox):
     @staticmethod
     def _option_label(option: dict[str, Any]) -> str:
         effect = str(option.get("effect_kind") or "")
+        if effect == "mechanism_goal":
+            return f"{option.get('description_zh') or '目标说明暂未提供'}（目标分值 {option.get('score', 0)}，未判定完成）"
         if effect == "time_limit":
             text = f"{option.get('limit_seconds', 0)} 秒"
         elif effect in {"health_up", "attack_up", "resistance_up"}:

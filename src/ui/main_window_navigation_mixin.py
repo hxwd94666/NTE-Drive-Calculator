@@ -43,7 +43,7 @@ class MainWindowNavigationMixin:
         for text, oid, slot in [
             ("—", "", self.showMinimized),
             ("□", "", self._toggle_max),
-            ("✕", "btnClose", self.hide_to_tray),
+            ("✕", "btnClose", self.request_window_close),
         ]:
             b = QPushButton(text)
             b.setObjectName(oid)
@@ -194,6 +194,8 @@ class MainWindowNavigationMixin:
                 deactivate_official_role_page(self)
             elif current == "config":
                 self.basic_weight_page.deactivate()
+            elif current == "teams":
+                self.team_controller.deactivate()
         self.stack.setCurrentIndex(indexes.get(item.key, 0))
         self.topbar_title.setText(item.label)
         self.topbar_catalog_return.setVisible(item.key == "static_catalog")

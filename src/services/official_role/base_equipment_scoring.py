@@ -60,11 +60,8 @@ def score_official_role_equipment(
             {},
         )
         main_stat = _attribute_name(detail, str(main_entry.get("property_id") or ""))
-        raw_main_value = main_entry.get("value")
-        try:
-            main_value = float(raw_main_value) if raw_main_value is not None else None
-        except (TypeError, ValueError):
-            main_value = None
+        # 基础评分与鉴定/计算同口径：None在公共核中表示按品质的满级主词条，
+        # 不是库存百分比原值（例如0.6）或实际强化等级；原始item仍供伤害计算使用。
         return score_tape_stats(
             engine,
             main_stat_name=main_stat,
@@ -72,7 +69,6 @@ def score_official_role_equipment(
             weights=weights,
             quality=quality,
             main_weights=main_weights,
-            main_value=main_value,
         )
     geometry = str(item.get("geometry") or "")
     try:

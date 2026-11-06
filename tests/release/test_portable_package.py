@@ -109,6 +109,14 @@ def test_required_notice_and_analysis_capability_are_shared_release_gates(packag
     license_file.write_text("public license", encoding="utf-8")
     manifest = case["app_dir"] / "_internal/analysis-core-meta/component.json"
     value = json.loads(manifest.read_text())
+    # 有效夹具跟随当前正式版本；版本不匹配仍须在成品共同门禁被拒绝。
+    engine_version = value["engine_version"]
+    value["engine_version"] = engine_version + "-other"
+    manifest.write_text(json.dumps(value), encoding="utf-8")
+    write_onedir_receipt(case["app_dir"], case["receipt_path"], version=case["version"])
+    with pytest.raises(RuntimeError, match="分析组件"):
+        build_portable_archive(**case)
+    value["engine_version"] = engine_version
     capabilities = value["capabilities"]
     for missing in capabilities:
         value["capabilities"] = [name for name in capabilities if name != missing]

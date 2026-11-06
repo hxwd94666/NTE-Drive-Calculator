@@ -9,6 +9,24 @@ from typing import Any
 class StaticCatalogHistoricalFeastQueriesMixin:
     """投影历史宴飨关卡，不补造已经移除的规则选项。"""
 
+    def feast_setup(self, stage_id: str):
+        return self.get_feast_stage_data(stage_id)
+
+    def feast_encounter(self, stage_id: str, difficulty_id: int, *, boss_monster_id: str | None = None):
+        stage = self.get_feast_stage_data(stage_id)
+        if stage is None:
+            return None
+        target = boss_monster_id or stage["boss_monster_id"]
+        if not target:
+            return None  # 多目标没有默认画像；调用方必须显式指定当前目标。
+        difficulty = next((row for row in stage["difficulties"]
+                           if int(row["difficulty_id"]) == int(difficulty_id) and row["boss_monster_id"] == target), None)
+        if difficulty is None:
+            return None
+        return {**stage, **difficulty, "difficulty_name_zh": difficulty["name_zh"], "target_count": len(stage["targets"]),
+                "name_zh": stage["name_zh"], "source": self.source_trace(stage.get("source_row_id")),
+                "profile": self.combat_profile(difficulty["profile_set"], difficulty["pack_id"])}
+
     def historical_feast_setup(self, stage_id: str) -> dict[str, Any] | None:
         stage = self._one(
             """

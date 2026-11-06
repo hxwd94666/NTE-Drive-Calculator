@@ -82,8 +82,9 @@ class CultivationHistoryDetail(QScrollArea):
             return ""
         stamina = self._snapshot["stamina"]
         total = stamina["total_stamina"]
-        return (f"合并体力：{total:,}" if total is not None
-                else f"合并已知体力：{stamina['known_stamina']:,}")
+        prefix = "估算" if self._snapshot["version"] >= 2 else ""
+        return (f"合并{prefix}体力：{total:,}" if total is not None
+                else f"合并已知{prefix}体力：{stamina['known_stamina']:,} · 总体力未知")
 
     def _new_content(self) -> tuple[QWidget, QVBoxLayout]:
         old = self.takeWidget()
@@ -168,8 +169,10 @@ class CultivationHistoryDetail(QScrollArea):
         self._empty_materials.setVisible(not materials)
 
     def _result_notes(self, content: QWidget, layout: QVBoxLayout) -> None:
+        if self._snapshot["version"] == 2:
+            layout.addWidget(_label("此记录包含已停用的养成项；仅保留原始结果，恢复草稿不带入已停用项目。", content, muted=True))
         if self._snapshot["stamina"]["total_stamina"] is None:
-            layout.addWidget(_label("完整体力未知；以上仅为当时有确定产出的部分。", content, muted=True))
+            layout.addWidget(_label("完整体力未知；以上仅为当时资料可计算的部分。", content, muted=True))
         if self._snapshot["gaps"]:
             layout.addWidget(_label(f"当时结果有 {len(self._snapshot['gaps'])} 项资料缺口。", content, muted=True))
 

@@ -122,7 +122,7 @@ def test_two_real_report_jobs_use_one_inventory_and_preserve_two_objectives(tmp_
 
 
 def test_eight_members_use_ranked_current_inventory_baseline(tmp_path):
-    from src.domain.teams import TeamDraft
+    from src.domain.teams.models import TeamDraft
     from src.services.allocation.team_axis_selection import select_team_axes
     first, second, first_ids, second_ids = two_team_case(tmp_path)
     with static_catalog_read_unit(first["dependencies"].static_database_path) as unit, UserDataDao(first["dependencies"].user_database_path) as dao:
@@ -166,3 +166,25 @@ def test_eight_members_use_ranked_current_inventory_baseline(tmp_path):
     uids = [item.uid for plan in plans.values() for item in
             [plan["assigned_tape"], *plan["assigned_set_drives"], *plan["assigned_extra_drives"]]]
     assert len(uids) == len(set(uids))
+    # 两队增强的轻量记录与八人成员方案一起提交；一队子集不能冒充联合作业完成。
+    from team_enhancement_fixture import enhancement_rows
+    from src.services.allocation.locks import build_allocation_lock_snapshot
+    from src.services.allocation.plan_save import save_allocation_plans
+    pairs = tuple((name, key) for binding in first["selection"].teams
+                  for name, key in zip(binding.roles, binding.team.character_ids))
+    rows = enhancement_rows(plans, pairs, snapshot)
+    assert all(row["team_enhancement_preview"] is not None for row in rows)
+    with static_catalog_read_unit(first["dependencies"].static_database_path) as unit, UserDataDao(first["dependencies"].user_database_path) as dao:
+        release = unit.release
+        locks = build_allocation_lock_snapshot(dao, inventory_snapshot_id=snapshot)
+    arguments = dict(database_path=first["dependencies"].user_database_path, static_database_path=release.database_path,
+        static_identity=(release.database_path, release.dataset_id), static_release=release, lock_snapshot=locks,
+        checkpoint=lambda: None, progress=lambda _: None)
+    with pytest.raises(ValueError, match="完整构筑"):
+        save_allocation_plans(rows=rows[:4], **arguments)
+    assert save_allocation_plans(rows=rows, **arguments) == 8
+    with UserDataDao(first["dependencies"].user_database_path) as dao:
+        saved = [dao.list_team_enhancements(team.team_id)[0] for team in teams]
+        assert saved[0].run_id == saved[1].run_id
+        assert all(len(value.members) == 4 and value.joint_summary_json for value in saved)
+        assert {value.payload["scope"]["record_id"] for value in saved} == {first["battle_record_id"], second["battle_record_id"]}

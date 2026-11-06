@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton, QWidget
 
 from src.app.context import AppContext
@@ -78,6 +78,8 @@ __all__ = ["ScanningController"]
 
 class ScanningController(QObject):
     """Own the calculation page, scanning workers, and their frozen state."""
+
+    allocation_saved = Signal(object)
 
     result_card: Any
     result_content_layout: Any
@@ -151,6 +153,7 @@ class ScanningController(QObject):
         operation_unavailable: Callable[[str, str, str], None] | None = None,
         prepare_calculation: Callable[[Callable[[], None]], None] | None = None,
         axis_selection_service_provider: Callable[[], Any] | None = None,
+        team_report_service_provider: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(dialog_parent)
         self.app_context = app_context
@@ -161,6 +164,8 @@ class ScanningController(QObject):
         self.operation_generation = operation_generation
         self._prepare_calculation = prepare_calculation
         self._axis_selection_service_provider = axis_selection_service_provider
+        self._team_report_service_provider = team_report_service_provider
+        self._team_axis_dialog = None
         self.dialog_parent = dialog_parent
         self.navigate = navigate
         self.work_mode_provider = work_mode_provider
@@ -225,6 +230,7 @@ class ScanningController(QObject):
             refresh_equipment=refresh_equipment,
             hotkey_manager=hotkey_manager,
         )
+        self._allocation_controller.plans_saved.connect(self.allocation_saved.emit)
 
     def build_page(self) -> QWidget:
         if self._page is not None:
@@ -243,7 +249,23 @@ class ScanningController(QObject):
         return self._page
 
     def is_running(self) -> bool:
-        return self._vision_commit.is_running() or _scanning_is_running(self) or self._allocation_controller.is_running()
+        return (self._vision_commit.is_running() or _scanning_is_running(self) or self._allocation_controller.is_running()
+                or self._team_axis_dialog is not None and self._team_axis_dialog.is_running())
+
+    def configure_team_enhancement(self, team, match=None):
+        """队伍页窄导航只配置增强，不启动计算、同步或游戏操作。"""
+        if self.is_running():
+            QMessageBox.warning(self.dialog_parent, "计算进行中", "请先结束当前任务。")
+            return
+        self.build_page()
+        self.navigate("execute")
+        from src.features.allocation.team_axis_controls import configure_team_axes
+        def configure():
+            configure_team_axes(self, initial_team_id=team.team_id, initial_match=match)
+        if self._prepare_calculation is None:
+            configure()
+        else:
+            self._prepare_calculation(configure)
 
     def _do_exec(self):
         if self.is_running():
@@ -270,6 +292,8 @@ class ScanningController(QObject):
 
     def request_stop(self) -> None:
         """Revoke active input/parse work without waiting on the GUI thread."""
+        if self._team_axis_dialog is not None:
+            self._team_axis_dialog.reject()
         self._manual_recovery.cancel()
         self._vision_commit.cancel()
         clear_capture_recovery(self)
@@ -310,10 +334,8 @@ class ScanningController(QObject):
 
     def reset_account_state(self) -> None:
         self.request_stop()
-        self.team_axis_selection = None
-        if hasattr(self, "team_axis_check"):
-            self.team_axis_check.setChecked(False)
-            self.team_axis_summary.clear()
+        from src.features.allocation.team_axis_controls import reset_team_axis_controls
+        reset_team_axis_controls(self)
         self._vision_commit.reset_account_state()
         self._pending_archive_paths = []
         self._pending_parse_only = False

@@ -4,12 +4,12 @@
   "layout": "native-plugins-v3",
   "source_commits": {
     "capture": "f2763e4aab676c613dbfe51fb1877aba9d13ec1b",
-    "core": "35079db716c6d37d883136d6d879aa1b061e26be",
+    "core": "351bf29b1a8ed2ccbe1e51abf687b54ea583ecb2",
     "loader": "3974e6ec1875b94320c9511860f27c809c060722"
   },
   "input_digests": {
     "capture": "e32f1f5417559d7ca7ae755ea10fb8a18e4c1958989ba31482538902012a3fc0",
-    "core": "7a5334f923d1109948f73c7cf2b78b75abc3eb4858f99899db5ea1419ac2623a"
+    "core": "eaa262c3b88eb5ae435c7d0772dd094cd7485715c1cc2094e4b44843ef53c074"
   },
   "capabilities": [
     "hud.configure.v1",
@@ -39,7 +39,7 @@
     "calc.quick_wheel.v2"
   ],
   "core_version": {
-    "core_version": "0.4.6",
+    "core_version": "0.4.7",
     "protocol_version": 1,
     "data_version": "1"
   },
@@ -81,11 +81,11 @@
     "third_party/native-capture/capture/plugins/NTE_PluginCombat.dll.sig": "1533ebc19380487add6f92166eea052777ff448d77c450c68100226e3ae97a68",
     "third_party/native-capture/capture/plugins/NTE_PluginUser.dll": "4f2cb71144ec893f2e15144c79ddb31607bd6e869ad8574ac4cdfe91021cf37d",
     "third_party/native-capture/capture/plugins/NTE_PluginUser.dll.sig": "95c79f18baffd24faf7e8abe400297c87540bfa0045b998812230af9aa978df9",
-    "third_party/native-capture/compatibility.json": "8e2df5f37ffc3cecbb19797d89daf8ff68e899e9700d3f634f4530e7a01ad42b",
+    "third_party/native-capture/compatibility.json": "034d9ef794c6a4d884f1654e73cd8703a17ff1c19904984278dc9abcece1389a",
     "third_party/native-capture/core/LICENSE": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e",
     "third_party/native-capture/core/LICENSING.md": "7e83c455171b2136f989916e0ad51c9dcb5362903b174a54b70859cf6f1654b8",
     "third_party/native-capture/core/NOTICE.md": "ff43855bc4c61098c737b38e6b22d5b53f4461984ac96daccfd4883e0eb049e4",
-    "third_party/native-capture/core/SOURCE.md": "00705573384019828a51b0697d511155985907c794d65d908af61cc28f14f485",
+    "third_party/native-capture/core/SOURCE.md": "6d2f5a91c118f066ecf2850e6fbd31385adaacb92ea563d81000d35370e097cd",
     "third_party/native-capture/core/THIRD_PARTY_LICENSES.md": "8252a00678a0991dd08e5e7249f3248740879598de595950f69363835d22b345",
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-APACHE": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5",
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-MIT": "f7e8ab639afef15573680c97f796166835cbeb3865175882fea41c60d106b733",
@@ -184,7 +184,7 @@
     "third_party/native-capture/core/licenses/winresource-0.1.31/LICENSE": "3564da09711c475669c15346bb25a1530a7de683c13f4a51489c15a6d74438fa",
     "third_party/native-capture/core/licenses/zlib-rs-0.6.6/LICENSE": "e72111c52b7d96ebe25348dee19f0744f444d3c95ae6b1ecb6ccaecc5bce05ba",
     "third_party/native-capture/core/licenses/zmij-1.0.21/LICENSE-MIT": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
-    "third_party/native-capture/core/nte-core.exe": "0c4b54e670f0a3d8f859dfd7e3f941f6c254af2b83f64a8c7dad9606990a9f08",
+    "third_party/native-capture/core/nte-core.exe": "de3a49aa171c51e47138382411d65378da88fd043299f6d67ead3c04089834af",
     "third_party/native-capture/capture/plugins/NTE_PluginPerformance.dll": "1daa01d785030183e1c1f8cccda638009b65be801b2f7fe0c9ae71433d8f9180",
     "third_party/native-capture/capture/plugins/NTE_PluginPerformance.dll.sig": "ca2fc42d08be79316cfe917c30ed4f333788618bd4f187b33b87e04458299197",
     "third_party/native-capture/capture/plugins/NTE_PluginHUD.dll": "08a7ec0f959150975cdcd545b7f170fff7011ae41bc26221935d2a2542a4dba8",
@@ -209,11 +209,11 @@
     "third_party/native-capture/capture/plugins/NTE_PluginCombat.dll.sig": 384,
     "third_party/native-capture/capture/plugins/NTE_PluginUser.dll": 780800,
     "third_party/native-capture/capture/plugins/NTE_PluginUser.dll.sig": 384,
-    "third_party/native-capture/compatibility.json": 4077,
+    "third_party/native-capture/compatibility.json": 1486,
     "third_party/native-capture/core/LICENSE": 35184,
     "third_party/native-capture/core/LICENSING.md": 3650,
     "third_party/native-capture/core/NOTICE.md": 1733,
-    "third_party/native-capture/core/SOURCE.md": 388,
+    "third_party/native-capture/core/SOURCE.md": 482,
     "third_party/native-capture/core/THIRD_PARTY_LICENSES.md": 2840,
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-APACHE": 10849,
     "third_party/native-capture/core/licenses/aes-0.8.4/LICENSE-MIT": 1057,

@@ -6,7 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient, NativeAnalysisError, NativeAnalysisCancelled
+from src.integrations.nte_analysis_core import (
+    ENGINE_VERSION, NteAnalysisCoreClient, NativeAnalysisError, NativeAnalysisCancelled,
+)
 
 NTE_TEST_TIER = "core"
 
@@ -19,7 +21,8 @@ def selector():
 
 
 def response():
-    return dict(schema_version="nte-analysis-response-v1", engine_version="0.3.0", dataset_version="public",
+    # 正常响应跟随正式客户端版本；错误版本另作反例，避免全部正例先在身份门禁失败。
+    return dict(schema_version="nte-analysis-response-v1", engine_version=ENGINE_VERSION, dataset_version="public",
                 batch_kind="battle_axis_team_v1", version=1, ready=True, reason=None,
                 basis="frozen_native_team_v1", team_character_ids=[1, 2, 3, 4], selected_character_ids=[1],
                 fixed_character_ids=[2, 3, 4], outside_character_ids=[], scopes=["combat"],
@@ -88,7 +91,7 @@ def test_fixed_team_requires_complete_partition_and_inventory_ownership(client):
     {"team_character_ids": [1, 2]}, {"fixed_character_ids": [1, 2, 3]},
     {"selected_character_ids": [2]}, {"outside_character_ids": [1]},
     {"source_input_digest": "unknown"}, {"ready": 1}, {"start_us": 10},
-    {"scopes": ["unknown"]}, {"dataset_version": "other"},
+    {"scopes": ["unknown"]}, {"dataset_version": "other"}, {"engine_version": ENGINE_VERSION + "-other"},
 ])
 def test_malformed_or_stale_result_is_rejected(client, change):
     data = {**response(), **deepcopy(change)}

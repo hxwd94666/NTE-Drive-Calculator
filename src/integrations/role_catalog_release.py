@@ -8,6 +8,8 @@ from pathlib import Path
 import sqlite3
 from contextlib import closing
 
+from src.integrations.game_assets.deferred_images import validate_deferred_images
+
 
 @dataclass(frozen=True, slots=True)
 class RoleCatalogRelease:
@@ -46,13 +48,18 @@ def read_role_catalog(directory: Path) -> RoleCatalogRelease:
             digest = hashlib.file_digest(stream, "sha256").hexdigest().upper()
         if digest != str(metadata["sha256"]).upper() or database.stat().st_size != metadata["size_bytes"]:
             raise ValueError("目录文件校验失败")
+        assets = validate_role_assets(directory / "game_ui", metadata["dataset_id"], digest)
+        deferred_ids = validate_deferred_images(assets)
         with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as connection:
             identities = connection.execute(
                 "SELECT d.dataset_id, s.scope FROM dataset d JOIN dataset_scope s USING(dataset_id)"
             ).fetchall()
+            if deferred_ids:
+                known = {row[0] for row in connection.execute('SELECT character_id FROM character')}
+                if not set(deferred_ids) <= known:
+                    raise ValueError('延期图片角色不在当前正式目录中')
         if identities != [(metadata["dataset_id"], scope)]:
             raise ValueError("目录内部身份不匹配")
-        validate_role_assets(directory / "game_ui", metadata["dataset_id"], digest)
         return RoleCatalogRelease(database, directory / "game_ui", metadata["dataset_id"], digest, scope)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, sqlite3.Error) as exc:
         raise ValueError("独立角色目录不可用，请重新安装完整的角色目录包") from exc
@@ -62,12 +69,11 @@ def validate_role_assets(root: Path, dataset_id: str, database_sha256: str) -> d
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("dataset_id") != dataset_id or manifest.get("database_sha256") != database_sha256:
         raise ValueError("角色图片与目录数据集不一致")
-    if manifest.get("unresolved_assets"):
-        raise ValueError("角色图片来源尚未完整解析")
+    validate_deferred_images(manifest)
     files = manifest["files"]
     if not isinstance(files, dict) or len(files) > 4096:
         raise ValueError("角色图片清单无效")
-    for group in ("characters", "fork_items", "skills"):
+    for group in ("characters", "character_arts", "fork_items", "skills"):
         mapping = manifest.get(group, {})
         if not isinstance(mapping, dict) or any(path not in files for path in mapping.values()):
             raise ValueError("角色图片引用不在清单中")

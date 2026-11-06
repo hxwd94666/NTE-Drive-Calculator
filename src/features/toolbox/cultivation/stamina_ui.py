@@ -19,6 +19,7 @@ from src.domain.progression.stamina import (
     project_identification_level,
 )
 from src.features.toolbox.cultivation.controls import disable_numeric_input_method
+from src.services.progression.stamina_planner import is_world_boss_stamina_material
 
 
 class CultivationStaminaControls(QFrame):
@@ -52,7 +53,8 @@ class CultivationStaminaControls(QFrame):
         self.identification_level = QComboBox(self)
         self.identification_level.setObjectName("cultivationIdentificationLevel")
         row.addWidget(self.identification_level)
-        hint = QLabel("按正式副本确定产出计算；刷怪/Boss 掉落不计副本体力", self)
+        hint = QLabel("产出与体力均为估算，不保证单次掉落；缺资料标未知", self)
+        hint.setWordWrap(True)
         hint.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         row.addWidget(hint, 1)
         self.hunter_level.valueChanged.connect(self._refresh_identification)
@@ -94,19 +96,22 @@ class CultivationStaminaControls(QFrame):
 
 def stamina_summary_text(result: ProgressionStaminaResult | None) -> str:
     if result is None:
-        return "体力数据暂不可用"
+        return "估算体力未知"
     if result.total_stamina is not None:
-        return f"最低体力 {result.total_stamina:,}"
+        return f"估算体力 {result.total_stamina:,}"
+    if any(is_world_boss_stamina_material(item_id) for item_id in result.unresolved_item_ids):
+        known = f"已知估算体力 {result.known_stamina:,} · " if result.known_stamina else ""
+        return known + "世界 Boss 平均产出资料缺失 · 总体力未知"
     if result.known_stamina:
-        return f"已知体力 {result.known_stamina:,} · 部分材料不可计算"
-    return "体力暂不可计算"
+        return f"已知估算体力 {result.known_stamina:,} · 总体力未知"
+    return "估算体力未知"
 
 
 def stamina_runs_text(result: ProgressionStaminaResult | None) -> str:
     if result is None:
         return ""
     if result.runs:
-        return "副本建议：" + "；".join(
+        return "估算刷取：" + "；".join(
             f"{run.label} × {run.runs} 次（{run.total_stamina:,} 体力）"
             for run in result.runs
         )

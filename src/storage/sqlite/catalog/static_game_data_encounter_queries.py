@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 from typing import Any
+from src.storage.sqlite.catalog.static_game_data_feast_queries import FeastTargetQueriesMixin
 
 
-class StaticGameDataEncounterQueriesMixin:
+class StaticGameDataEncounterQueriesMixin(FeastTargetQueriesMixin):
     """查询场景、敌人与战斗入口的正式关系。"""
 
     def get_monster_enemy_type_by_formal_id(
@@ -541,56 +542,6 @@ class StaticGameDataEncounterQueriesMixin:
             """
         )
 
-    def list_feast_stages(self) -> list[dict[str, Any]]:
-        """Return all official feast stages in stable stage order."""
-
-        stages = self._rows(
-            """
-            SELECT stage_id, name_zh, boss_monster_id, special_high_difficulty
-            FROM feast_stage
-            ORDER BY CAST(substr(stage_id, 13) AS INTEGER), stage_id
-            """
-        )
-        for stage in stages:
-            stage_id = stage["stage_id"]
-            difficulties = self._rows(
-                """
-                SELECT d.*, p.health_base, p.health_up, p.health_add,
-                       p.defense_base, p.defense_up, p.defense_add, p.topple_limit
-                FROM feast_stage_difficulty AS d
-                JOIN enemy_combat_profile AS p
-                  ON p.profile_set = d.profile_set AND p.pack_id = d.pack_id
-                WHERE d.stage_id = ? ORDER BY d.difficulty_id
-                """,
-                (stage_id,),
-            )
-            for difficulty in difficulties:
-                profile = self.get_enemy_combat_profile(
-                    difficulty["profile_set"], difficulty["pack_id"]
-                )
-                difficulty["resistances"] = (profile or {}).get("resistances", {})
-            stage["difficulties"] = difficulties
-            categories: dict[int, dict[str, Any]] = {}
-            for row in self._rows(
-                """
-                SELECT s.category_ordinal, s.option_ordinal, s.category_name_zh,
-                       o.option_id, o.option_type, o.effect_kind, o.damage_type,
-                       o.add_value, o.limit_seconds, o.score, o.buff_asset_path
-                FROM feast_stage_option AS s
-                JOIN feast_option AS o USING (option_id)
-                WHERE s.stage_id = ?
-                ORDER BY s.category_ordinal, s.option_ordinal
-                """,
-                (stage_id,),
-            ):
-                category = categories.setdefault(row["category_ordinal"], {
-                    "category_ordinal": row["category_ordinal"],
-                    "name_zh": row["category_name_zh"],
-                    "options": [],
-                })
-                category["options"].append(row)
-            stage["option_categories"] = list(categories.values())
-        return stages
 
     def list_divination_buffs(self) -> list[dict[str, Any]]:
         return self._rows(

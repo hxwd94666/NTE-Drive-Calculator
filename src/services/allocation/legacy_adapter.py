@@ -145,7 +145,8 @@ def score_allocation_candidates(
         "main_weights": mains, "zero_weight_stats": list(zeros)}])
     maximum = scoring.max_theoretical_weight(weights, zero_weight_stats=zeros)
     scores = {uid: float(scoring.calculate_drive_score(item, weights, maximum, zero_weight_stats=zeros)
-                        if isinstance(item, Drive) else scoring.calculate_cartridge_score(item, weights, maximum, mains))
+                        if isinstance(item, Drive) else scoring.calculate_cartridge_score(
+                            item, weights, maximum, mains, zero_weight_stats=zeros))
               for uid, item in items.items()}
 
     return scores

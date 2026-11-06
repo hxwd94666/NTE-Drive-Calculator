@@ -19,6 +19,38 @@ CORE_MODULE_TOKENS = (
 )
 
 
+def _path_key(path: Path) -> str:
+    # 测试文件由本次 rglob 冻结；比较字面绝对路径，不触发 Windows 文件 ID 查询。
+    return os.path.normcase(os.path.abspath(path))
+
+
+class FrozenPythonFiles:
+    """一个目录参数承载完整冻结文件集，避免 Windows 对数百初始参数做二次匹配。"""
+
+    def __init__(self, files: list[Path]) -> None:
+        self.files = {_path_key(path): path for path in files}
+        self.directories = {_path_key(parent) for path in files for parent in path.parents}
+        self.seen: set[str] = set()
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_ignore_collect(self, collection_path: Path):
+        key = _path_key(collection_path)
+        # 与显式文件参数相同：已选文件及祖先不受默认文件名／隐藏目录过滤。
+        # 收集期间新生成的文件不进入本次请求，未选文件也不被顺带导入。
+        return key not in self.files and key not in self.directories
+
+    def pytest_collectstart(self, collector) -> None:
+        key = _path_key(collector.path)
+        if key in self.files:
+            self.seen.add(key)
+
+    def pytest_collection_finish(self, session) -> None:
+        missing = self.files.keys() - self.seen
+        if missing and not session.testsfailed:
+            names = ", ".join(str(self.files[key]) for key in sorted(missing)[:8])
+            raise pytest.UsageError(f"冻结测试文件未完成收集（{len(missing)} 项）：{names}")
+
+
 class TierSelection:
     """只过滤已成功收集的用例；导入与收集错误仍由 pytest 原样传播。"""
 
@@ -98,16 +130,24 @@ def main(argv: list[str] | None = None, *, tests_root: Path | None = None) -> in
     for directory in (ROOT, ROOT / "tests"):
         if str(directory) not in sys.path:
             sys.path.insert(0, str(directory))
-    files = sorted((tests_root or ROOT / "tests").rglob(args.pattern))
+    directory = tests_root or ROOT / "tests"
+    files = sorted(directory.rglob(args.pattern))
     if not files:
         print("没有匹配的测试文件；本次验证未执行", file=sys.stderr)
         return int(pytest.ExitCode.NO_TESTS_COLLECTED)
     selection = TierSelection(args.tier, args.pattern)
-    arguments = ["-v" if args.verbose else "-q", *map(str, files)]
+    plugins = [selection]
+    if all(path.suffix == ".py" for path in files):
+        # 仍以相同 rglob 结果为唯一范围，不改 core/full 规则或漏掉非 core 收集错误。
+        plugins.append(FrozenPythonFiles(files))
+        arguments = ["-v" if args.verbose else "-q", "-o", "python_files=*.py", str(directory)]
+    else:
+        # 非 Python 自定义收集器继续消费原显式目标，不猜测其扩展名语义。
+        arguments = ["-v" if args.verbose else "-q", *map(str, files)]
     if args.collect_only or jobs > 1:
         arguments.insert(0, "--collect-only")
     # pytest 原生支持 TestCase；旧 load_tests 仅是同文件 pytest 包装，无须重复执行。
-    result = int(pytest.main(arguments, plugins=[selection]))
+    result = int(pytest.main(arguments, plugins=plugins))
     if result or args.collect_only or jobs == 1:
         return result
     if not selection.modules:

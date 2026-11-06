@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "core_rebuilt": false,
-  "core_sha256": "c13ecc03af2a689676be6301538916367a5592351b8aadbaac294148687fc99a",
-  "capture_sha256": "f56091763b3b173400af9291ff1e3ba96737d082676d299785976406257d4d96",
-  "proxy_sha256": "5b5a86a65b84976485c23400857dd03d032813604d405941ac5722805a6f5e7c",
+  "core_rebuilt": true,
+  "core_sha256": "de3a49aa171c51e47138382411d65378da88fd043299f6d67ead3c04089834af",
+  "host_sha256": "5b5a86a65b84976485c23400857dd03d032813604d405941ac5722805a6f5e7c",
+  "capture_plugin_sha256": "f56091763b3b173400af9291ff1e3ba96737d082676d299785976406257d4d96",
   "protocol_version": 1,
   "provider_capabilities": [
     "hud.configure.v1",
@@ -32,59 +32,9 @@
     "performance.trace.v1",
     "calc.quick_wheel.v2"
   ],
-  "core_capabilities": [
-    "capture",
-    "battle_summary",
-    "battle_record_v1",
-    "battle_axis_v1",
-    "native_hit_buff_v1",
-    "native_buff_events_v1",
-    "native_context_observation_v1",
-    "native_snapshot_archive_v1",
-    "native_hud_v1",
-    "native_battle_scope_snapshot_v1",
-    "native_snapshot_inline_raw_v1",
-    "character.snapshot.v1",
-    "inventory.snapshot.v1",
-    "team.snapshot.v1",
-    "environment.snapshot.v1",
-    "snapshot.changes.v1",
-    "inventory.all_items.v1",
-    "snapshot.pinned.v1",
-    "equipment",
-    "native_equipment_v1",
-    "native_equipment_state_batch_v1",
-    "native_combat_clock_v1",
-    "native_character_profile_v1",
-    "native_inventory_dto_v1",
-    "native_performance_v1",
-    "native_battle_lifecycle_v1",
-    "native_performance_trace_v1",
-    "native_battle_equipped_v1",
-    "native_quick_wheel_v2"
-  ],
   "validation": {
-    "build": "Six protected DLLs; Training has six selected protected functions; five final-byte signatures.",
-    "isolated_final": "Signed-host lifecycle and Training protection: 2 focused tests passed on matching final DLLs.",
-    "calc": "Wheel persistence, connection change and account lifecycle: 11 focused tests passed; hard Ruff checks passed.",
-    "hud": "User confirmed native Q glow after enabling old ready-cue switch. New Calc removes the independent preference and derives it from cooldown.",
-    "game_protected": "Protected end-to-end Tab selection, app restart and game reconnect acceptance pending. Historical report remains unchanged.",
-    "abyss_exit": "Exit/stale-location regression failed before fix and passed after fix; confirmed whole/half retry and retained-hit fixture passed.",
-    "native_wheel": "Tab edge/escape/focus-loss and lease fixture passed. Native ShowQuickMenu/Remove displayed and closed the original wheel in an Abyss scene."
-  },
-  "limits": [
-    "Counterfactual modifier and formula evidence remains partial; capability advertisement does not prove runtime coverage.",
-    "Unknown restart callbacks do not delete battle data.",
-    "Witch raw evidence is saved; activation remains unverified.",
-    "Conflicting configurations across halves cannot yet be replayed as multiple versions.",
-    "Retail SDK removed OnAbyssStateChangeLogCallBack; only existing supported callbacks are captured.",
-    "All-items collection proves the observed client containers, not complete server account assets.",
-    "Final protected host, plugins and Calc require real-game acceptance."
-  ],
-  "user_sha256": "4f2cb71144ec893f2e15144c79ddb31607bd6e869ad8574ac4cdfe91021cf37d",
-  "performance_sha256": "1daa01d785030183e1c1f8cccda638009b65be801b2f7fe0c9ae71433d8f9180",
-  "layout": "native-plugins-v3",
-  "hud_sha256": "08a7ec0f959150975cdcd545b7f170fff7011ae41bc26221935d2a2542a4dba8",
-  "core_reused": true,
-  "training_sha256": "a9c8b3d03886ecd1fd66904e526fa5283c39a89124c399f1934c4ad97fdb0694"
+    "native_projection": "New formal roles and complete module shapes pass targeted projection tests; unknown roles and incomplete shapes still fail.",
+    "capture_dll_loader": "Unchanged matched runtime files, signatures and licenses retained from the prior bundle.",
+    "game_acceptance": "pending; no game operation performed during this repair"
+  }
 }

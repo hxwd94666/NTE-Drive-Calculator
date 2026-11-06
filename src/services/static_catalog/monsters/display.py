@@ -66,6 +66,8 @@ def display_buff_option(
     """仅投影玩家可读数值，类别名称仍由正式本地化记录决定。"""
 
     score = display_catalog_scalar(option.get("score"))
+    if option.get("effect_kind") == "mechanism_goal":
+        return f"{option.get('description_zh') or '目标说明暂未提供'} · 目标分值 {score}（未判定完成）"
     if str(option.get("effect_kind") or "") == "time_limit":
         seconds = display_catalog_scalar(option.get("limit_seconds"))
         return f"限时 {seconds} 秒 · 额外得分 {score}"

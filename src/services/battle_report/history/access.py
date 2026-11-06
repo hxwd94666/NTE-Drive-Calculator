@@ -95,12 +95,15 @@ def list_history_entries(
     user_dao: UserDataDao,
     static_dataset_id: str | None = None,
     static_schema_version: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> tuple[BattleReportHistoryEntry, ...]:
     """Return stored rows without synchronously inferring old reports."""
 
     # 历史列表只消费持久化事实与已存派生标签，不触发推断或写入。
     result = []
-    for record in user_dao.list_battle_records():
+    records = user_dao.list_battle_records(**({"limit": limit, "offset": offset} if limit is not None else {}))
+    for record in records:
         record_id = int(record["battle_record_id"])
         try:
             condition = resolve_battle_target_condition(

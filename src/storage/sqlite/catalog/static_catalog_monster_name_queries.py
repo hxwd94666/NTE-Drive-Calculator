@@ -50,8 +50,9 @@ class StaticCatalogMonsterNameQueriesMixin:
         identity = _numeric_identity(monster_template_name)
         if identity is None:
             return []
+        feast_identity = "d.boss_monster_id" if self.schema_version >= 41 else "s.boss_monster_id"
         rows = self._rows(
-            """
+            f"""
             SELECT b.monster_template_name AS formal_id, m.name_zh,
                    'manual_binding' AS evidence_kind,
                    b.monster_manual_id AS evidence_id
@@ -59,7 +60,7 @@ class StaticCatalogMonsterNameQueriesMixin:
             JOIN monster_catalog AS m USING (monster_manual_id)
             WHERE lower(b.monster_template_name) LIKE ?
             UNION ALL
-            SELECT s.boss_monster_id, d.boss_name_zh,
+            SELECT {feast_identity}, d.boss_name_zh,
                    'feast_boss_name', s.stage_id
             FROM feast_stage AS s
             JOIN feast_stage_difficulty AS d USING (stage_id)

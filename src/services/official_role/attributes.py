@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from src.domain.official_role.models import DEFAULT_THEORY_PROPERTY_IDS, ELEMENT_DAMAGE_PROPERTY_BY_TYPE, OfficialAttributeSummaryValue
 from src.domain.official_role.advancement import fork_active_panel_stats
+from src.domain.official_role.likeability import enabled_likeability_properties, likeability_input_issue
 from src.domain.equipment.official_stats import calculate_official_equipment_stats
 from src.services.damage_calculation_service import (
     DamageCalculationService,
@@ -61,11 +62,11 @@ def _fork_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
 
 def _likeability_property_stats(detail: Mapping[str, Any]) -> dict[str, float]:
     profile = detail.get("profile") or {}
-    if not bool(profile.get("likeability_level_10_enabled")):
-        return {}
     return {
         str(row.get("property_id") or ""): float(row.get("value") or 0.0)
-        for row in (detail.get("likeability_bonus") or {}).get("properties") or ()
+        for row in enabled_likeability_properties(
+            detail.get("likeability_bonus"), enabled=bool(profile.get("likeability_level_10_enabled")),
+        )
         if str(row.get("property_id") or "")
     }
 
@@ -493,7 +494,7 @@ def _role_panel_damage_inputs(
 ) -> tuple[DirectDamageInput, ...]:
     """Return one 100% attack hit using the role's own element and panel."""
 
-    if context_key == "theory":
+    if context_key == "theory" or likeability_input_issue(detail):
         return ()
     profile = detail.get("profile") or {}
     wanted_growth = (

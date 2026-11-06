@@ -40,15 +40,16 @@ def test_native_public_score_batch_is_one_call_and_keeps_mask_main_reference_and
     with patch.object(client, "score_equipment", wraps=client.score_equipment) as dispatch:
         scoring.prepare_scores([drive, tape], profiles=profiles, assign_scores=True)
         assert drive.role_scores == {"A": 40.0, "B": 40.0}
-        assert tape.role_scores == {"A": 91.67, "B": 225.0}
+        # B的暴击副词条置零，实际半级主词条仍为25分，不再保留旧卡带副词条加分。
+        assert tape.role_scores == {"A": 91.67, "B": 25.0}
         for role, zeros in (("A", ()), ("B", ("暴击率%",))):
             weights = scoring.roles_db[role]["weights"]
             maximum = scoring.max_theoretical_weight(weights, zero_weight_stats=zeros)
             assert scoring.calculate_drive_score(drive, weights, maximum, zero_weight_stats=zeros) == 40.0
-            assert scoring.calculate_cartridge_score(tape, weights, maximum) == tape.role_scores[role]
+            assert scoring.calculate_cartridge_score(tape, weights, maximum, zero_weight_stats=zeros) == tape.role_scores[role]
             assert scoring.flexible_weight("暴击率%", weights) == 2.0
         assert scoring.get_grade_tag(91.67, 15) == "SS"
-        assert scoring.get_grade_tag(225.0, 15) == "ACE"
+        assert scoring.get_grade_tag(25.0, 15) == "D"
         dispatch.assert_called_once()
 
 

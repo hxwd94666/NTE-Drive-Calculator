@@ -1,8 +1,9 @@
 # Native core component source
 
-Version: 0.4.6
-Source commit: 35079db716c6d37d883136d6d879aa1b061e26be
-Build input SHA-256: 7a5334f923d1109948f73c7cf2b78b75abc3eb4858f99899db5ea1419ac2623a
+Version: 0.4.7
+Source commit: 351bf29b1a8ed2ccbe1e51abf687b54ea583ecb2
+Build input SHA-256: eaa262c3b88eb5ae435c7d0772dd094cd7485715c1cc2094e4b44843ef53c074
 Source state: working-tree
 
-Capture Core CLI. Preserve original first-hit references and separately recover archived observations with the same provider, scene roots, and first-hit revision.
+Capture Core CLI with same-batch formal character and equipment-plan mappings. No new runtime RPC or game-write capability.
+Original native identity, shape, completeness and atomic projection checks remain enabled. Runtime game acceptance remains pending.

@@ -36,7 +36,7 @@ def test_ui_restores_each_account_without_overwriting_other_account(tmp_path):
     layout=QVBoxLayout(widget)
     header=QHBoxLayout()
     layout.addLayout(header)
-    build_team_axis_controls(owner,header,layout)
+    build_team_axis_controls(owner,layout)
     try:
         assert owner.team_axis_search.currentData() == 'fast'
         owner.team_axis_search.setCurrentIndex(owner.team_axis_search.findData('deep'))

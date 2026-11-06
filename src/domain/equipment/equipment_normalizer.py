@@ -7,8 +7,13 @@ from copy import deepcopy
 from typing import Any
 
 
+def equipment_quality_coefficient(quality: str) -> float:
+    """评分与理论属性共用既有品质系数；旧未知品质回退语义由原调用方保留。"""
+    return {"Gold": 1.0, "Purple": 0.8, "Blue": 0.6}.get(str(quality), 1.0)
+
+
 def calculate_drive_main_stats(area: int, quality: str) -> dict[str, float]:
-    multiplier = {"Gold": 1.0, "Purple": 0.8, "Blue": 0.6}.get(str(quality), 1.0)
+    multiplier = equipment_quality_coefficient(quality)
     return {
         "攻击力": round(21.0 * int(area or 1) * multiplier, 2),
         "生命值": round(280.0 * int(area or 1) * multiplier, 2),

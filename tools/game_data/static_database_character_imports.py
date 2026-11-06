@@ -390,6 +390,14 @@ class CharacterImportMixin:
             if len(level_ten) != 1:
                 raise StaticDatabaseError(f"角色存在重复好感度 10 级加成：{character_id}")
             modify_data_id = str(level_ten[0].get("Value") or "").strip()
+            if modify_data_id and modify_data_id not in modify_rows:
+                # 角色与已知成长仍有效；持久保留正式缺项引用，消费端不得将其解释为零。
+                self.connection.execute(
+                    "INSERT INTO character_likeability_gap VALUES (?,?,?,?,?)",
+                    (character_id, 10, modify_data_id,
+                     self.source_row_id("likeability_roles", role_row_key), "missing_modifier_source"),
+                )
+                continue
             modifier = modify_rows.get(modify_data_id)
             if not modify_data_id or not isinstance(modifier, dict):
                 raise StaticDatabaseError(

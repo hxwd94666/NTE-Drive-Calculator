@@ -9,9 +9,9 @@ from src.utils.logger import disable_session_log, logger
 class MainWindowLifecycleMixin:
     def closeEvent(self, e):
         tray = getattr(self, "tray_controller", None)
-        if e.spontaneous() and tray is not None and not QApplication.instance().isSavingSession():
-            tray.hide_window()
-            e.ignore()
+        if tray is not None and tray.handle_close_event(
+            e, saving_session=QApplication.instance().isSavingSession(),
+        ):
             return
         from src.ui.controllers.configuration_controller import defer_page_transition
         if defer_page_transition(self, self.close):
@@ -26,6 +26,7 @@ class MainWindowLifecycleMixin:
             wheel.begin_close()
         # 草稿确认通过后、物理等待之前撤权；取消退出不永久关闭视觉 owner。
         self.scanning_controller.begin_close()
+        self.team_controller.deactivate()
         self.workshop_refresh_controller.close()
         self.native_plugin_update_controller.begin_close()
         self.calc_update_controller.begin_close()
@@ -43,7 +44,7 @@ class MainWindowLifecycleMixin:
                       getattr(self, "allocation_catalog_controller", None)):
             if owner is not None:
                 owner.close()
-        if ((wheel is not None and wheel.is_running()) or close_page_tasks(self) or self.workshop_refresh_controller.is_running()
+        if (self.team_controller.is_running() or (wheel is not None and wheel.is_running()) or close_page_tasks(self) or self.workshop_refresh_controller.is_running()
                 or self.scanning_controller.is_running()
                 or self.native_plugin_update_controller.is_running()
                 or self.calc_update_controller.is_running()):

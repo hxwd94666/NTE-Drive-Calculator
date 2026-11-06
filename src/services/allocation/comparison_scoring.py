@@ -30,8 +30,7 @@ class FrozenComparisonScorer:
     @classmethod
     def from_engine(cls, engine, *, character_id, weights, main_weights, attributes,
                     dataset_id, zero_weight_stats=()):
-        frozen = deepcopy(engine)
-        frozen.roles_db = {}
+        frozen = engine.frozen_copy()
         names = {
             str(row["attribute_id"]): legacy_stat_name(str(row["attribute_id"]))
             or ScoringEngine._scoring_property_name(row)
@@ -50,7 +49,7 @@ class FrozenComparisonScorer:
         return dict(
             character_id=self.character_id, static_dataset_id=self.dataset_id,
             weight_source_character_id=base_weight_character_id(self.character_id),
-            scoring_method="base_weights", scoring_rule="ScoringEngine-v1",
+            scoring_method="base_weights", scoring_rule="ScoringEngine-v2",
             rule_sha256=sha256(rules.encode("utf-8")).hexdigest(),
             property_weights={pid: self.engine.flexible_weight(name, dict(self.weights))
                               for pid, name in self.names.items()},
@@ -95,6 +94,7 @@ class FrozenComparisonScorer:
             SimpleNamespace(main_stats=name, main_value=main_value, sub_stats=sub_stats, quality=quality),
             dict(self.weights), self.max_weight,
             dict(self.main_weights) if self.main_weights is not None else None,
+            zero_weight_stats=self.zero_weight_stats,
         ))
 
     def verify_result_score(self, snapshot):
@@ -108,6 +108,7 @@ class FrozenComparisonScorer:
                                 sub_stats=snapshot.get("sub_stats", {}), quality=snapshot.get("quality", "Gold")),
                 dict(self.weights), self.max_weight,
                 dict(self.main_weights) if self.main_weights is not None else None,
+                zero_weight_stats=self.zero_weight_stats,
             )
         else:
             expected = self.engine.calculate_drive_score(

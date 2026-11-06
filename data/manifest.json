@@ -3,15 +3,15 @@
   "catalog_scope": "game",
   "database": {
     "filename": "game_static.sqlite3",
-    "dataset_id": "cn_retail_20261017_fcf6c959",
-    "schema_version": 39,
-    "size_bytes": 93851648,
-    "sha256": "F60544CB75496E48CCF8EC20ECB667889BEAD61EC65CCAF0022BAC78BBCDE534",
-    "generated_at_utc": "2026-10-16T18:27:01+00:00",
+    "dataset_id": "cn_formal_20261105_usmap0798cff8",
+    "schema_version": 43,
+    "size_bytes": 99364864,
+    "sha256": "5403937C85AA57C94E0B1CAA159E619C413EE973E95EC4F0DFB34183FD69CAE3",
+    "generated_at_utc": "2026-11-05T10:42:12+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_static_database.py",
-    "importer_version": 52
+    "importer_version": 54
   }
 }

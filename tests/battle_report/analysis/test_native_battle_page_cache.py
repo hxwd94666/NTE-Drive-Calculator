@@ -315,7 +315,7 @@ class NativePageIdentityClientTests(unittest.TestCase):
             path.touch()
             client = NteAnalysisCoreClient(path, 'fixture', capabilities=frozenset({
                 'battle_page_v1', 'battle_page_identity_v1'}))
-            identity = {'engine': 'nte-analysis-core', 'engine_version': '0.3.0',
+            identity = {'engine': 'nte-analysis-core', 'engine_version': client.engine_version,
                         'capabilities': ['battle_page_v1']}
             with patch.object(client, '_run', return_value=json.dumps(identity).encode()):
                 with self.assertRaisesRegex(NativeAnalysisError, '输入身份能力'):

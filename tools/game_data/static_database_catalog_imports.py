@@ -379,6 +379,10 @@ class CatalogImportMixin:
                     raise StaticDatabaseError(
                         f"推荐弧盘不是对象：{character_id}/{ordinal}"
                     )
+                # UE 的显式 None 表示此项没有推荐弧盘，不是一个可引用的物品 ID。
+                # 原来源行仍完整保留；其余未知 ID 继续受正式外键约束，避免吞掉资料错误。
+                if recommendation.get("ForkItemId") == "None":
+                    continue
                 self.connection.execute(
                     """
                     INSERT INTO character_cultivation_fork_recommendation

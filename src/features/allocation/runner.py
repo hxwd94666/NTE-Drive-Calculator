@@ -531,11 +531,6 @@ def _select_allocation_save_slots(
     return targets
 
 
-def _save_alloc(self: Any, show_message: bool = True) -> bool:
-    from src.features.allocation.save_workflow import save_allocation
-    return save_allocation(self, show_message=show_message)
-
-
 def _archive_pending_screenshots(self: Any) -> int:
     paths = list(getattr(self, "_pending_archive_paths", []) or [])
     if not paths:

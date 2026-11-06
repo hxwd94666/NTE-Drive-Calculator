@@ -1,7 +1,7 @@
 # 验证显式数据根、进程独占、旧根迁入和升级恢复，不操作真实账号或组件。
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import asdict
 import json
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -21,7 +21,7 @@ from src.integrations.distribution.data_lifecycle import (
 from src.integrations.distribution.lock import DataRootLease
 from src.integrations.distribution.metadata import Distribution, DistributionError, load_distribution, parse_distribution
 from src.services.runtime_data_upgrade import apply_runtime_data_upgrades
-from src.storage.sqlite.user_data_dao import UserDataDao
+from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao
 from src.storage.sqlite.runtime_data_snapshot import database_identity
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,13 +34,11 @@ def portable(**kwargs):
 def account_root(root, ids=("one",), *, old=False, imported=True):
     for key in ids:
         path = root / "accounts" / key / "user_data.sqlite3"
-        with UserDataDao(path, account_id=key) as dao:
-            if imported:
-                dao.mark_legacy_application_settings_imported()
-        if old:
-            with closing(sqlite3.connect(path)) as db, db:
-                db.execute("DROP TABLE cultivation_history")
-                db.execute("DELETE FROM schema_migration WHERE version>=45")
+        # 建立真正的旧版结构，不能只删版本号而残留后续队伍表。
+        with patch("src.storage.sqlite.user_data_base.SCHEMA_VERSION", 44) if old else nullcontext():
+            with UserDataDao(path, account_id=key) as dao:
+                if imported:
+                    dao.mark_legacy_application_settings_imported()
     (root / "accounts/accounts.json").write_text(json.dumps({"active_account_id": ids[0],
         "accounts": [{"id": key, "name": key} for key in ids]}), encoding="utf-8")
     (root / "config").mkdir(exist_ok=True)
@@ -118,7 +116,7 @@ def test_in_place_legacy_migration_preserves_original_and_does_not_copy_loader(t
         with pytest.raises(DistributionError, match="已有"):
             migrate_existing_data(tmp_path, target, lease, confirm_source_closed=True)
     assert source.read_bytes() == before
-    assert database_identity(target / "accounts/one/user_data.sqlite3", "one")["schema"] == 45
+    assert database_identity(target / "accounts/one/user_data.sqlite3", "one")["schema"] == SCHEMA_VERSION
     assert not (target / "config/native-loader").exists()
     assert json.loads((target / "maintenance/last-import.json").read_text())["machine_paths_require_revalidation"]
 
