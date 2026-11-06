@@ -45,13 +45,13 @@
     "team_axis_graduation_fixed_axis_ratio_v1",
     "team_axis_context_snapshot_compact_v1"
   ],
-  "sha256": "a38d5f4d5fc243df6d47c31eac6692ff9f1505aa4569fa5baecf2225c5334c92",
-  "size_bytes": 19799552,
-  "source_base_commit": "a6ae451ce556f65a0238ed9f5c27840dcb7d0bf9",
+  "sha256": "5f8b626a79893715b9a1d8588995cda0beaee3df5ae69506a41c0b29cd2d4441",
+  "size_bytes": 19803136,
+  "source_base_commit": "31e82a334146ddf4a1afd888a9640fa2fa1afd22",
   "source_worktree_modified": false,
   "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
   "license_sha256": "e0eedba615d5cd1b986afb6c5b3a4b1ae33713e7e9dc74d19daec5e3221f9d2e",
   "dependency_notices_sha256": "3a298a7e765f7a401645648d6c887183e9567ecc6e84f0ed802ffa30b538b78c",
   "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel, frozen drive allocation and bounded blueprint generation; Python owns user input, request freezing, process lifecycle and rendering",
-  "source_input_sha256": "86c29c68b1f4938539f075178615792936931e66b03722a44f47369d5ead6f58"
+  "source_input_sha256": "c563be0feef83407594120ff328005c92c14d1db007f6399e831432fd85e3127"
 }

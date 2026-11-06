@@ -199,3 +199,14 @@ def test_graduation_generation_does_not_invent_full_progression_or_close_owner(t
         assert db.execute("SELECT 1").fetchone()[0] == 1
     from src.services.official_role.graduation import graduation_tooltip
     assert '资料缺项' in graduation_tooltip({'likeability_bonus': gap()})
+
+
+def test_old_mainline_missing_affinity_evidence_remains_unknown(inputs):
+    _, db = inputs
+    db.executescript("DROP TRIGGER character_likeability_gap_no_complete; DROP TRIGGER character_likeability_bonus_no_gap; DROP TABLE character_likeability_gap; CREATE TABLE feast_stage_member(stage_id TEXT)")
+    bonus = reader(db, schema=42).get_character_likeability_bonus(1090)
+    assert bonus["availability"] == "unavailable" and bonus["properties"] is None
+    assert bonus["reason"] == "legacy_source_unverified"
+    from src.domain.official_role.likeability import enabled_likeability_properties
+    with pytest.raises(ValueError, match="好感"):
+        enabled_likeability_properties(bonus, enabled=True)

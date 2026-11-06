@@ -480,6 +480,52 @@ def test_saved_rewind_plan_restores_quality_gap_without_another_analysis() -> No
     assert tuple(again._editable_slots) == saved_slots
 
 
+def test_rewind_quality_gap_ceils_to_hundredths_on_render_and_inventory_refresh() -> None:
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from src.features.toolbox.rewind.dialog import _RewindRecommendationDialog
+
+    gaps = (3.55271e-15, 0.0, 12.5, 12.344, 12.346, 1_000_000.0, 0.004, 0.006)
+    expected = ("0.01", "0.00", "12.50", "12.35", "12.35", "1000000.00", "0.01", "0.01")
+
+    class Service:
+        def load_preferences(self):
+            return {
+                "saved_rewind_slots": [
+                    {"shape_id": "EquipmentGeometry_Hen2", "quality_gap": gap}
+                    for gap in gaps
+                ],
+            }
+
+    QApplication.instance() or QApplication([])
+    dialog = _RewindRecommendationDialog(Service(), None, operation_entry=lambda *_: True)
+    try:
+        labels = dialog.findChildren(QLabel, "rewindShapeMetrics")
+        assert len(labels) == len(gaps)
+        for label in labels:
+            index = int(label.property("slotIndex"))
+            assert label.text().split(" · ")[0] == f"缺分 {expected[index]}"
+
+        dialog._set_replacement_inventory_counts({"EquipmentGeometry_Hen2": 77})
+        for label in labels:
+            index = int(label.property("slotIndex"))
+            assert label.text().split(" · ")[:2] == [f"缺分 {expected[index]}", "库存 77"]
+        assert [slot["quality_gap"] for slot in dialog._serialize_rewind_slots()] == list(gaps)
+    finally:
+        dialog.close()
+
+
+def test_rewind_quality_gap_ceiling_preserves_exact_hundredths() -> None:
+    from src.features.toolbox.rewind.slot_ui import _format_quality_gap
+
+    assert _format_quality_gap(0.01) == "0.01"
+    assert _format_quality_gap(0.07) == "0.07"
+    assert _format_quality_gap(0.07000000000000001) == "0.08"
+    assert _format_quality_gap(12.341) == "12.35"
+    assert _format_quality_gap(0.0001) == "0.01"
+
+
+
 def test_generating_another_strategy_replaces_the_current_transient_slots() -> None:
     from PySide6.QtWidgets import QApplication
 

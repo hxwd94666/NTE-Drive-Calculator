@@ -729,6 +729,12 @@ class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
                 )
                 if gap is not None:
                     return {**gap, "availability": "unavailable", "properties": None}
+            elif self._one("SELECT name FROM sqlite_master WHERE type='table' AND name='feast_stage_member'"):
+                # 旧主线缺少缺项表；正式角色缺加成证据仍是未知，不是已确认零值。
+                if self._one("SELECT character_id FROM character WHERE character_id=?", (int(character_id),)):
+                    return {"character_id": int(character_id), "required_level": 10,
+                            "availability": "unavailable", "properties": None,
+                            "reason": "legacy_source_unverified"}
             return None
         bonus["properties"] = self._rows(
             """

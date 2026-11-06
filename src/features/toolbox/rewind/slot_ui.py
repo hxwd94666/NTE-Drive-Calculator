@@ -30,6 +30,13 @@ from src.domain.equipment.shapes import OFFICIAL_SHAPE_LABELS
 REWIND_SLOT_COUNT = 8
 
 
+def _format_quality_gap(value: float) -> str:
+    """Ceil the displayed gap to hundredths without changing the stored score."""
+    # 按十进制文本取整，避免乘以 100 的浮点误差把整百分位再次抬高。
+    rounded = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+    return f"{rounded:.2f}"
+
+
 def all_rewind_shape_candidates() -> tuple[RewindShapeRecommendation, ...]:
     """Return the game's complete twelve-shape custom-pool catalogue."""
 

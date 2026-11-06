@@ -1,5 +1,5 @@
 # Native Core source
 
-Base commit: e9a858791b17adacfeb40ca9995a68143dc0a30f. Modified source input digest: d9a95d6359c666cad86fc7127305491e4dede0922a10831d450898df0ea05255.
+Base commit: a6ae451ce556f65a0238ed9f5c27840dcb7d0bf9. Core build input digest: 9d094fe139604a1ddf7a13a18b37a9ac8afcc3f9c23e78aeafa9bf6824eeccb2.
 
-Release x64 build uses cli features and remapped build paths. Typed menu pause evidence is accepted in capture, replay and persistence. Menu and skill overlap is counted once. Targeted native clock and serialized pause tests passed; real-game capture acceptance remains pending.
+The merged root inputs match this committed tree after Git checkout normalization; analysis-core is a separate workspace and is not a capture build input. Release x64 uses cli features and remapped build paths. New role/equipment projection and typed menu-pause handling are retained. Two formal sync tests and eleven native clock tests passed. The protected native DLLs and signatures are retained from the test bundle; no deployment or real-game acceptance was performed.
