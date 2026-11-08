@@ -5,181 +5,50 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from src.domain.equipment.intelligent_rules import merge_generated, policy_from_rules, remembered_drive_grade
+from src.domain.equipment.management_settings import MatchingScope
 
-from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QFrame,
-    QFormLayout,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.domain.post_actions import (
-    DEFAULT_EXCLUDED_SET_NAMES,
-    DEFAULT_EXCLUDED_SHAPE_IDS,
-    GRADE_ORDER,
     default_post_action_config,
     merge_post_action_config,
     validate_post_action_config,
 )
-from src.domain.role_name_order import role_name_sort_key
-from src.storage.json_store import read_json, write_json
-from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.features.scanning.intelligent_budget_bar import IntelligentBudgetBar
-from src.integrations.bundled_resources import bundled_game_ui_asset_root
-from src.integrations.game_assets.catalog import GameUiAssetCatalog
-from src.services.accounts.settings import AccountSettingsService
-from src.services.allocation.inventory import legacy_shape_id
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.storage.sqlite.user_data_dao import UserDataDao
-from src.ui.widgets import NoWheelComboBox
-from src.features.scanning.preserve_rule_order import RuleOrderController, RuleOrderHandle
+from src.services.scanning.management_settings import load_scan_post_action_config, save_scan_post_action_config
+from src.ui.text_catalog import resolve_text_catalog
 
 
-ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
-QUALITY_SCOPE_OPTIONS = (("全部", "all"), ("仅金品质", "gold"), ("仅金紫品质", "gold_purple"))
-TYPE_SCOPE_OPTIONS = (("全部", "all"), ("仅驱动", "drive"), ("仅卡带", "tape"))
-STATE_ACTION_OPTIONS = (("跳过", "skip"), ("正常处理", "normal"))
 SUB_MATCH_OPTIONS = (("任意一个", 1), ("任意两个", 2), ("任意三个", 3), ("任意四个", 4))
 
 
-def scan_post_action_config_path(user_config_dir: Path) -> Path:
-    if user_config_dir is None:
-        raise ValueError("user_config_dir is required")
-    return Path(user_config_dir) / "scan_post_actions.json"
+from src.ui.equipment_management.rule_actions import PreserveRuleActionsMixin
 
 
-def load_scan_post_action_config(
-    user_config_dir: Path | None,
-    *,
-    user_database_path: Path | None = None,
-) -> dict:
-    if user_database_path is not None:
-        preferences = AccountSettingsService(user_database_path).load("ui")
-        stored = preferences.get("full_scan_post_action_config")
-        if isinstance(stored, dict) and stored:
-            return merge_post_action_config(stored)
-    if user_config_dir is None:
-        return default_post_action_config()
-    legacy = read_json(scan_post_action_config_path(user_config_dir), default=None)
-    config = merge_post_action_config(legacy)
-    if user_database_path is not None and isinstance(legacy, dict) and legacy:
-        save_scan_post_action_config(
-            user_config_dir,
-            config,
-            user_database_path=user_database_path,
-        )
-    return config
+from src.ui.equipment_management.scoring_fields import ScoringFields
 
 
-def save_scan_post_action_config(
-    user_config_dir: Path | None,
-    config: dict,
-    *,
-    user_database_path: Path | None = None,
-) -> None:
-    normalized = merge_post_action_config(config)
-    if user_database_path is not None:
-        settings = AccountSettingsService(user_database_path)
-        preferences = settings.load("ui")
-        preferences["full_scan_post_action_config"] = normalized
-        settings.save("ui", preferences)
-        return
-    if user_config_dir is None:
-        raise ValueError("user_config_dir is required when account storage is unavailable")
-    write_json(scan_post_action_config_path(user_config_dir), normalized, indent=2)
+from src.ui.equipment_management.rule_list_fields import RuleListFields
 
 
-def _set_combo_data(combo: NoWheelComboBox, value: object) -> None:
-    for index in range(combo.count()):
-        if combo.itemData(index) == value:
-            combo.setCurrentIndex(index)
-            return
-
-
-def _combo(options, value: object, width: int = 130) -> NoWheelComboBox:
-    combo = NoWheelComboBox()
-    for label, data in options:
-        combo.addItem(label, data)
-    _set_combo_data(combo, value)
-    combo.setMaximumWidth(width)
-    return combo
-
-
-def _load_drive_shape_options(static_database_path: Path | None = None) -> list[tuple[str, int]]:
-    with (StaticGameDataDao(static_database_path) if static_database_path is not None else StaticGameDataDao()) as static_dao:
-        options = [
-            (legacy_shape_id(shape["shape_id"]), int(shape["cell_count"]))
-            for shape in static_dao.list_shapes()
-        ]
-    return sorted(options, key=lambda item: (item[1], item[0]))
-
-
-def _load_set_name_options(static_database_path: Path | None = None) -> list[str]:
-    with (StaticGameDataDao(static_database_path) if static_database_path is not None else StaticGameDataDao()) as static_dao:
-        return [str(suit["name_zh"]) for suit in static_dao.list_suits()]
-
-
-def _load_role_options(
-    user_database_path: Path | None = None,
-    static_database_path: Path | None = None,
-    asset_root: Path | None = None,
-) -> list[tuple[int, str, str, bool]]:
-    """Return role identity, optional official portrait, and custom-role flag."""
-
-    asset_catalog = GameUiAssetCatalog(asset_root or bundled_game_ui_asset_root())
-    with (StaticGameDataDao(static_database_path) if static_database_path is not None else StaticGameDataDao()) as static_dao:
-        options = [
-            (
-                int(character["character_id"]),
-                str(character.get("name_zh") or character["character_id"]),
-                str(asset_catalog.character_icon(int(character["character_id"])) or ""),
-                False,
-            )
-            for character in static_dao.list_role_template_characters()
-        ]
-    if user_database_path is not None and Path(user_database_path).is_file():
-        with UserDataDao(user_database_path) as user_dao:
-            official_ids = {character_id for character_id, _name, _avatar, _custom in options}
-            options.extend(
-                (
-                    character_id,
-                    str(role.get("name_zh") or character_id),
-                    "",
-                    True,
-                )
-                for role in user_dao.list_custom_characters()
-                if (character_id := int(role["character_id"])) not in official_ids
-            )
-    return sorted(options, key=lambda item: (role_name_sort_key(item[1]), item[0]))
-
-
-from src.features.scanning.post_action_summary import _preserve_rule_summary
-
-
-from src.features.scanning.preserve_rule_actions import PreserveRuleActionsMixin
-
-
-from src.features.scanning.post_action_scope_dialogs import (
-    RoleScopeDialog,
-    TypeRangeDialog,
-    type_range_summary,
+from src.services.inventory.management_choices import (
+    load_drive_shape_options as _load_drive_shape_options, load_set_name_options as _load_set_name_options,
+    load_role_options as _load_role_options, load_role_selection_data as _load_role_selection_data,
 )
 
 
-class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
+class ScanPostActionDialog(ScoringFields, RuleListFields, PreserveRuleActionsMixin, QDialog):
     def __init__(
         self,
         parent,
@@ -192,7 +61,7 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         window_title: str = "全量扫描管理",
         show_server_region_option: bool = True,
         role_suit_matching=None,
-        recommendation_callback=None,
+        catalog=None,
     ):
         super().__init__(parent)
         self.user_config_dir = Path(user_config_dir)
@@ -201,8 +70,7 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         self.static_database_path = static_database_path
         self.asset_root = asset_root
         self._show_server_region_option = show_server_region_option
-        self.recommendation_callback = recommendation_callback
-        self.calculate_requested = False
+        self.catalog = resolve_text_catalog(catalog)
         self.role_suit_matching = role_suit_matching
         self._matching_panel = None
         self._matching_committing = False
@@ -216,6 +84,7 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         self._shape_options = _load_drive_shape_options(self.static_database_path) if self.static_database_path is not None else _load_drive_shape_options()
         self._set_options = _load_set_name_options(self.static_database_path) if self.static_database_path is not None else _load_set_name_options()
         self._role_options = _load_role_options(self.user_database_path, self.static_database_path, self.asset_root) if self.static_database_path is not None else _load_role_options(self.user_database_path)
+        self._role_selection_data = _load_role_selection_data(self.user_database_path, self.static_database_path, self.asset_root)
         self._selected_character_ids = {
             key: list(self.config[key].get("selected_character_ids", [])) for key in ("discard", "lock")
         }
@@ -224,29 +93,6 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         self._build_ui()
         fit_dialog_to_available_screen(self, QSize(980, 700))
 
-    def _style_toggle_button(self, button: QPushButton, checked: bool) -> None:
-        button.setText("开启中" if checked else "关闭中")
-        if checked:
-            button.setStyleSheet(
-                "QPushButton{background:#238636;color:#fff;border:1px solid #2ea043;"
-                "border-radius:12px;padding:4px 14px;font-weight:700;}"
-                "QPushButton:hover{background:#2ea043;}"
-            )
-        else:
-            button.setStyleSheet(
-                "QPushButton{background:#da3633;color:#fff;border:1px solid #f85149;"
-                "border-radius:12px;padding:4px 14px;font-weight:700;}"
-                "QPushButton:hover{background:#f85149;}"
-            )
-
-    def _make_toggle_button(self, checked: bool) -> QPushButton:
-        button = QPushButton()
-        button.setCheckable(True)
-        button.setChecked(checked)
-        button.setFixedWidth(72)
-        self._style_toggle_button(button, checked)
-        button.toggled.connect(lambda value, b=button: self._style_toggle_button(b, value))
-        return button
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -265,7 +111,7 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         self._main_tabs.addTab(self._build_scoring_page(), "评分处理")
         self._main_tabs.addTab(self._build_preserve_rules_page(), "规则处理")
         if self.role_suit_matching is not None:
-            panel = self.role_suit_matching.create_panel(self)
+            panel = self.role_suit_matching.create_panel(self, scope=MatchingScope.SCAN)
             self._matching_panel = panel
             self._main_tabs.addTab(panel, self.role_suit_matching.catalog.render("matching.title"))
         add_button = QPushButton("新增规则")
@@ -278,12 +124,6 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         corner = QWidget()
         corner_layout = QHBoxLayout(corner)
         corner_layout.setContentsMargins(0, 0, 0, 0)
-        if self.recommendation_callback is not None:
-            self._recommend_button = QPushButton('生成智能规则')
-            self._recommend_button.setObjectName('btnPrimary')
-            self._recommend_button.setToolTip('重新生成会移除全部智能规则并追加新规则，人工新增规则保留。')
-            self._recommend_button.clicked.connect(self._open_recommendation)
-            corner_layout.addWidget(self._recommend_button)
         corner_layout.addWidget(add_button)
         self._main_tabs.setCornerWidget(corner, Qt.TopRightCorner)
         corner.setVisible(False)
@@ -295,7 +135,7 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         buttons.button(QDialogButtonBox.Save).setText("保存")
         buttons.button(QDialogButtonBox.Cancel).setText("取消")
         self._buttons = buttons
-        buttons.accepted.connect(self._save_only)
+        buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         bottom = QHBoxLayout()
         if self._matching_panel is not None:
@@ -309,42 +149,8 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
             self._matching_busy(not panel.stack.isEnabled(), False)
         else:
             bottom.addStretch()
-        self._clear_smart_button = QPushButton('清空智能规则')
-        self._clear_smart_button.setToolTip('仅清空智能规则草稿，人工新增规则保留；保存后生效，可重新生成。')
-        self._clear_smart_button.clicked.connect(self._clear_intelligent_rules)
-        self._clear_smart_button.setEnabled(any(r.get('intelligent') for r in self._preserve_rules))
-        self._clear_smart_button.hide()
-        self._main_tabs.currentChanged.connect(lambda index: self._clear_smart_button.setVisible(index == 1))
-        bottom.addWidget(self._clear_smart_button)
         bottom.addWidget(buttons)
-        if self.recommendation_callback is not None:
-            calculate = QPushButton('保存并计算建议')
-            calculate.setObjectName('btnNew')
-            calculate.setEnabled(buttons.button(QDialogButtonBox.Save).isEnabled())
-            calculate.clicked.connect(self._save_for_calculation)
-            bottom.addWidget(calculate)
-            self._calculate_button = calculate
         root.addLayout(bottom)
-
-    def _open_recommendation(self):
-        panel = self._matching_panel
-        try:
-            generated = self.recommendation_callback(self, self._collect_config(), panel.draft if panel else None)
-        except Exception as error:
-            QMessageBox.warning(self, '规则未生成', str(error))
-            return
-        if generated is not None:
-            self._preserve_rules = merge_generated(self._preserve_rules, generated['rules'])
-            self.config['recommendation'] = generated['options']
-            self._render_preserve_rules()
-
-    def _save_for_calculation(self):
-        self.calculate_requested = True
-        self._save()
-
-    def _save_only(self):
-        self.calculate_requested = False
-        self._save()
 
     def _update_matching_footer(self, _index=None):
         panel = self._matching_panel
@@ -352,17 +158,9 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         panel.footer.setVisible(matching_visible)
         # 只有卡带编辑页使用内层保存/返回；其他页面仍走管理窗口的保存/取消。
         self._buttons.setVisible(not (matching_visible and panel.stack.currentIndex() == 1))
-        if hasattr(self, '_calculate_button'):
-            self._calculate_button.setVisible(self._buttons.isVisible())
 
     def _matching_busy(self, busy, committing):
-        if hasattr(self, '_clear_smart_button'):
-            self._clear_smart_button.setEnabled(not busy and any(r.get('intelligent') for r in self._preserve_rules))
-        if hasattr(self, "_recommend_button"):
-            self._recommend_button.setEnabled(not busy)
         self._matching_committing = committing
-        if hasattr(self, '_calculate_button'):
-            self._calculate_button.setEnabled(not busy)
         self._buttons.button(QDialogButtonBox.Save).setEnabled(not busy)
         self._buttons.button(QDialogButtonBox.Cancel).setEnabled(not committing)
         self._main_tabs.setEnabled(not committing)
@@ -383,336 +181,6 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
         else:
             super().closeEvent(event)
 
-    def _build_scoring_page(self) -> QWidget:
-        page = QWidget()
-        root = QVBoxLayout(page)
-        root.setContentsMargins(0, 12, 0, 0)
-        root.setSpacing(12)
-        modules = QHBoxLayout()
-        modules.setSpacing(14)
-        modules.addWidget(self._build_module_panel("discard", "弃置模块", "最高评分低于等于"), 1)
-        modules.addWidget(self._build_module_panel("lock", "锁定模块", "最高评分高于等于"), 1)
-        root.addLayout(modules)
-        root.addLayout(self._scoring_footer)
-        root.addStretch()
-        return page
-
-    def _build_preserve_rules_page(self) -> QWidget:
-        page = QWidget()
-        root = QVBoxLayout(page)
-        root.setContentsMargins(0, 4, 0, 0)
-        root.setSpacing(6)
-        self._budget_bar = IntelligentBudgetBar(lambda: self._preserve_rules, self._render_preserve_rules, page,
-            advice=lambda: self.config.get('recommendation', {}).get('initial_grade_advice'))
-        root.addWidget(self._budget_bar)
-        order_hint = QLabel('规则从上往下执行，首条命中决定动作；拖动可调整优先级，新智能规则追加在人工规则下方。')
-        order_hint.setWordWrap(True)
-        root.addWidget(order_hint)
-
-        scroll = self._rules_scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        content = QWidget()
-        self._preserve_rules_layout = QVBoxLayout(content)
-        self._preserve_rules_layout.setContentsMargins(0, 2, 0, 2)
-        self._preserve_rules_layout.setSpacing(8)
-        scroll.setWidget(content)
-        root.addWidget(scroll, 1)
-        self._rule_order = RuleOrderController(scroll, lambda: self._rule_rows, self._move_preserve_rule)
-        self._render_preserve_rules()
-        return page
-
-    @staticmethod
-    def _clear_layout(layout: QVBoxLayout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.deleteLater()
-
-    def _render_preserve_rules(self) -> None:
-        if hasattr(self, '_clear_smart_button'):
-            self._clear_smart_button.setEnabled(any(r.get('intelligent') for r in self._preserve_rules))
-        self._budget_bar.refresh()
-        self._budget_bar.setVisible(self.recommendation_callback is not None or any(r.get('smart_kind') for r in self._preserve_rules))
-        self._clear_layout(self._preserve_rules_layout)
-        self._rule_rows = []
-        if not self._preserve_rules:
-            empty = QLabel("暂未添加处理规则")
-            empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet("color:#8b949e;padding:48px 0")
-            self._preserve_rules_layout.addWidget(empty)
-        else:
-            for rule in self._preserve_rules:
-                row = self._build_preserve_rule_row(rule)
-                self._rule_rows.append((rule, row))
-                self._preserve_rules_layout.addWidget(row)
-        self._preserve_rules_layout.addStretch()
-
-    def _build_preserve_rule_row(self, rule: dict) -> QWidget:
-        row = QFrame()
-        row.setObjectName("preserveRuleRow")
-        row.setStyleSheet(themed_style("QFrame#preserveRuleRow{background:#161b22;border:1px solid #30363d;border-radius:6px;}QFrame#preserveRuleRow[dragSource=\"true\"]{background:#10243f;border:2px solid #58a6ff;}"))
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(12, 10, 10, 10)
-        layout.setSpacing(10)
-        enabled = QCheckBox()
-        enabled.setToolTip("启用此规则")
-        enabled.setAccessibleName(f"启用规则：{rule.get('name') or '未命名规则'}")
-        layout.addWidget(RuleOrderHandle(self._rule_order, rule))
-        enabled.setChecked(bool(rule.get("enabled", True)))
-        enabled.toggled.connect(lambda checked, current=rule: self._set_preserve_rule_enabled(self._rule_index(current), checked))
-        layout.addWidget(enabled)
-        details = QVBoxLayout()
-        details.setSpacing(3)
-        origin = rule.get('intelligent')
-        source = '（智能生成·已编辑）' if origin and origin.get('edited') else '（智能生成）' if origin else ''
-        name = QLabel(str(rule.get("name") or "未命名规则") + source)
-        name.setWordWrap(True)
-        if origin:
-            enabled.toggled.connect(lambda _checked, label=name, current=rule:
-                label.setText(str(current.get('name') or '未命名规则') + '（智能生成·已编辑）'))
-        name.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
-        summary = QLabel(_preserve_rule_summary(rule))
-        summary.setStyleSheet(themed_style("color:#8b949e"))
-        summary.setWordWrap(True)
-        details.addWidget(name)
-        details.addWidget(summary)
-        layout.addLayout(details, 1)
-        edit_button = QPushButton("编辑")
-        copy_button = QPushButton("复制")
-        delete_button = QPushButton("删除")
-        compact_height = edit_button.sizeHint().height()
-        item_type = "动态" if rule.get('smart_kind') else "卡带" if rule.get("item_type") == "tape" else "驱动"
-        type_badge = QLabel(item_type)
-        type_badge.setFixedHeight(compact_height)
-        type_badge.setStyleSheet(themed_style(
-            "color:#58a6ff;border:1px solid #1f6feb;border-radius:6px;padding:1px 7px"
-        ))
-        action_label = {"lock": "锁定", "discard": "弃置"}.get(rule.get("action"), "仅保留")
-        action_badge = QLabel(action_label)
-        action_badge.setFixedHeight(compact_height)
-        action_badge.setStyleSheet(themed_style(
-            "color:#f85149;border:1px solid #da3633;border-radius:6px;padding:1px 7px"
-            if rule.get("action") == "discard" else
-            "color:#3fb950;border:1px solid #238636;border-radius:6px;padding:1px 7px"
-            if rule.get("action") != "lock"
-            else "color:#d2a8ff;border:1px solid #8957e5;border-radius:6px;padding:1px 7px"
-        ))
-        layout.addWidget(type_badge, 0, Qt.AlignVCenter)
-        layout.addWidget(action_badge, 0, Qt.AlignVCenter)
-        for button, action in ((edit_button, "编辑规则"), (copy_button, "复制规则"), (delete_button, "删除规则")):
-            button.setAccessibleName(f"{action}：{rule.get('name') or '未命名规则'}")
-        edit_button.clicked.connect(lambda _checked=False, current=rule: self._edit_preserve_rule(self._rule_index(current)))
-        copy_button.clicked.connect(lambda _checked=False, current=rule: self._duplicate_preserve_rule(self._rule_index(current)))
-        delete_button.setStyleSheet("QPushButton{color:#f85149}")
-        delete_button.clicked.connect(lambda _checked=False, current=rule: self._delete_preserve_rule(self._rule_index(current)))
-        layout.addWidget(edit_button)
-        layout.addWidget(copy_button)
-        layout.addWidget(delete_button)
-        return row
-
-    def _rule_index(self, rule: dict) -> int:
-        # 回调绑定草稿对象而非易变行号；重排后尚未退场的旧按钮也不会操作相邻规则。
-        return next((i for i, value in enumerate(self._preserve_rules) if value is rule), -1)
-
-    def _move_preserve_rule(self, index: int, offset: int) -> None:
-        target = index + offset
-        if index != target and 0 <= index < len(self._preserve_rules) and 0 <= target < len(self._preserve_rules):
-            rule = self._preserve_rules.pop(index)
-            self._preserve_rules.insert(target, rule)
-            self._render_preserve_rules()
-            # 等新行进入布局后恢复同一规则焦点，连续键盘移动不跳到首行。
-            def restore_focus():
-                row = next((row for value, row in self._rule_rows if value is rule), None)
-                if row is not None:
-                    row.findChild(RuleOrderHandle).setFocus(Qt.TabFocusReason)
-                    self._rules_scroll.ensureWidgetVisible(row)
-            QTimer.singleShot(0, self, restore_focus)
-
-
-    def _module_help_text(self, key: str) -> str:
-        if key == "discard":
-            action = "· 有适用角色且最高评分不高于设定等级时弃置\n· 评分完整且高于门槛时取消弃置\n· 未匹配默认保持原状态，勾选下方开关才按未匹配弃置"
-        else:
-            action = "· 有适用角色且最高评分达到设定等级时锁定\n· 评分完整且低于门槛时解除锁定\n· 未匹配保持原状态"
-        return (
-            f"{action}\n"
-            "· 角色范围：决定按哪些角色评分\n"
-            "· 品质、类别和类型：决定处理哪些装备\n"
-            "· 选择跳过时，会保留装备当前状态\n"
-            "· 评分资料不完整时不执行评分动作；独立处理规则仍按原优先级生效"
-        )
-
-    def _show_module_help(self, key: str, title: str) -> None:
-        QMessageBox.information(self, f"{title}说明", self._module_help_text(key))
-
-    def _build_module_panel(self, key: str, title: str, grade_label: str) -> QWidget:
-        module = self.config[key]
-        panel = QWidget()
-        panel.setObjectName("postActionPanel")
-        panel.setStyleSheet(
-            themed_style("QWidget#postActionPanel{background:#161b22;border:1px solid #30363d;border-radius:8px;}")
-        )
-        outer = QVBoxLayout(panel)
-        outer.setContentsMargins(14, 12, 14, 14)
-        outer.setSpacing(10)
-        header = QHBoxLayout()
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-size:14px;font-weight:700;color:#58a6ff")
-        help_button = QPushButton("?")
-        help_button.setObjectName("btnHelp")
-        help_button.setFixedWidth(28)
-        help_button.clicked.connect(lambda _checked=False, k=key, t=title: self._show_module_help(k, t))
-        enabled = self._make_toggle_button(bool(module.get("enabled")))
-        header.addWidget(title_label)
-        header.addWidget(help_button)
-        header.addStretch()
-        header.addWidget(enabled)
-        outer.addLayout(header)
-
-        form = QFormLayout()
-        grade_combo = _combo([(grade, grade) for grade in GRADE_ORDER], module.get("grade"), 100)
-        role_scope = _combo(ROLE_SCOPE_OPTIONS, module.get("role_scope"), 110)
-        quality_scope = _combo(QUALITY_SCOPE_OPTIONS, module.get("quality_scope"), 130)
-        type_scope = _combo(TYPE_SCOPE_OPTIONS, module.get("type_scope"), 130)
-        on_locked = _combo(STATE_ACTION_OPTIONS, module.get("on_locked"), 130)
-        on_discarded = _combo(STATE_ACTION_OPTIONS, module.get("on_discarded"), 130)
-        self._range_values[key] = {
-            "shape_ids": self._selected_or_default(module.get("shape_ids"), self._default_shape_ids()),
-            "set_names": self._selected_or_default(module.get("set_names"), self._default_set_names()),
-        }
-        type_range_row = QWidget()
-        type_range_layout = QHBoxLayout(type_range_row)
-        type_range_layout.setContentsMargins(0, 0, 0, 0)
-        type_range_layout.setSpacing(8)
-        type_range_summary = QLabel()
-        type_range_summary.setWordWrap(False)
-        type_range_summary.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
-        type_range_button = QPushButton("选择")
-        type_range_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        type_range_button.setStyleSheet(
-            "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
-            "border-radius:6px;padding:3px 12px;font-weight:700;}"
-            "QPushButton:hover{background:#388bfd;}"
-        )
-        type_range_button.clicked.connect(lambda _checked=False, module_key=key: self._open_type_range_dialog(module_key))
-        type_range_layout.addWidget(type_range_summary, 1)
-        type_range_layout.addWidget(type_range_button)
-        role_scope_row = QWidget()
-        role_scope_layout = QHBoxLayout(role_scope_row)
-        role_scope_layout.setContentsMargins(0, 0, 0, 0)
-        role_scope_layout.setSpacing(8)
-        role_scope_summary = QLabel()
-        role_scope_button = QPushButton("选择")
-        role_scope_button.setStyleSheet(
-            "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
-            "border-radius:6px;padding:3px 10px;font-weight:700;}"
-            "QPushButton:hover{background:#388bfd;}"
-        )
-        role_scope_button.clicked.connect(lambda _checked=False, module_key=key: self._open_role_scope_dialog(module_key))
-        role_scope_layout.addWidget(role_scope)
-        role_scope_layout.addWidget(role_scope_summary, 1)
-        role_scope_layout.addWidget(role_scope_button)
-        form.addRow(grade_label, grade_combo)
-        form.addRow("角色范围", role_scope_row)
-        form.addRow("品质范围", quality_scope)
-        form.addRow("处理类别", type_scope)
-        form.addRow("类型范围", type_range_row)
-        form.addRow("遇到锁定", on_locked)
-        form.addRow("遇到弃置", on_discarded)
-        outer.addLayout(form)
-        self._widgets[key] = {
-            "enabled": enabled,
-            "grade": grade_combo,
-            "role_scope": role_scope,
-            "role_scope_summary": role_scope_summary,
-            "role_scope_button": role_scope_button,
-            "quality_scope": quality_scope,
-            "type_scope": type_scope,
-            "type_range_summary": type_range_summary,
-            "on_locked": on_locked,
-            "on_discarded": on_discarded,
-        }
-        role_scope.currentIndexChanged.connect(
-            lambda _index, module_key=key: self._update_role_scope_summary(module_key)
-        )
-        if key == "discard":
-            text = self.role_suit_matching.catalog.render if self.role_suit_matching is not None else None
-            discard_unmatched = QCheckBox(text("matching.discard_unmatched") if text else "未匹配装备也弃置")
-            discard_unmatched.setChecked(module.get("discard_unmatched") is True)
-            discard_unmatched.setToolTip(text("matching.discard_hint") if text else "仅处理所选角色范围内已完整确认未匹配的装备；资料缺失不算未匹配。")
-            outer.addWidget(discard_unmatched)
-            self._widgets[key]["discard_unmatched"] = discard_unmatched
-        self._update_role_scope_summary(key)
-        type_scope.currentIndexChanged.connect(lambda _index, module_key=key: self._update_type_range_summary(module_key))
-        self._update_type_range_summary(key)
-        return panel
-
-    def _update_role_scope_summary(self, key: str) -> None:
-        widgets = self._widgets.get(key, {})
-        combo = widgets.get("role_scope")
-        summary = widgets.get("role_scope_summary")
-        button = widgets.get("role_scope_button")
-        if combo is None or summary is None or button is None:
-            return
-        uses_selected = combo.currentData() == "selected"
-        count = len(self._selected_character_ids[key])
-        summary.setText(f"已选{count}名" if uses_selected else "")
-        summary.setStyleSheet("color:#58a6ff" if count else "color:#f85149")
-        button.setVisible(uses_selected)
-
-    def _open_role_scope_dialog(self, key: str) -> None:
-        dialog = RoleScopeDialog(
-            self,
-            self._role_options,
-            self._selected_character_ids[key],
-        )
-        dialog.setWindowTitle("选择弃置评估角色" if key == "discard" else "选择锁定评估角色")
-        if dialog.exec() != QDialog.Accepted:
-            return
-        self._selected_character_ids[key] = dialog.selected_character_ids()
-        self._update_role_scope_summary(key)
-
-    def _default_shape_ids(self) -> list[str]:
-        return [shape_id for shape_id, _area in self._shape_options if shape_id not in DEFAULT_EXCLUDED_SHAPE_IDS]
-
-    def _default_set_names(self) -> list[str]:
-        return [set_name for set_name in self._set_options if set_name not in DEFAULT_EXCLUDED_SET_NAMES]
-
-    def _selected_or_default(self, values: list[str] | None, defaults: list[str]) -> list[str]:
-        if values is None:
-            return list(defaults)
-        return [str(value) for value in values if str(value)]
-
-    def _type_range_summary(self, key: str) -> str:
-        values = self._range_values[key]
-        return type_range_summary(
-            self._widgets[key]["type_scope"].currentData(),
-            len(values["shape_ids"]), len(self._shape_options), len(values["set_names"]), len(self._set_options),
-        )
-
-    def _update_type_range_summary(self, key: str) -> None:
-        label = self._widgets[key].get("type_range_summary")
-        if label is not None:
-            label.setText(self._type_range_summary(key))
-
-    def _open_type_range_dialog(self, key: str) -> None:
-        values = self._range_values[key]
-        dialog = TypeRangeDialog(
-            self,
-            self._shape_options,
-            self._set_options,
-            values["shape_ids"],
-            values["set_names"],
-            type_scope=self._widgets[key]["type_scope"].currentData(),
-        )
-        if dialog.exec() != QDialog.Accepted:
-            return
-        shape_ids, set_names = dialog.selected_values()
-        self._range_values[key] = {"shape_ids": shape_ids, "set_names": set_names}
-        self._update_type_range_summary(key)
 
     def _collect_config(self) -> dict:
         config = default_post_action_config()
@@ -721,28 +189,21 @@ class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
             module = config[key]
             module["selected_character_ids"] = list(self._selected_character_ids[key])
             module["enabled"] = widgets["enabled"].isChecked()
-            if key == "discard":
-                module["discard_unmatched"] = widgets["discard_unmatched"].isChecked()
+            module["threshold_mode"] = widgets["threshold_mode"].currentData()
+            module["threshold_percent"] = widgets["threshold_percent"].value()
             for field in ("grade", "role_scope", "quality_scope", "type_scope", "on_locked", "on_discarded"):
                 module[field] = widgets[field].currentData()
             module["shape_ids"] = list(self._range_values[key]["shape_ids"])
             module["set_names"] = list(self._range_values[key]["set_names"])
         config["recommendation"] = copy.deepcopy(self.config.get("recommendation", {}))
         config["preserve_rules"] = copy.deepcopy(self._preserve_rules)
-        grade = remembered_drive_grade(config)
-        if grade is None:
-            grade = remembered_drive_grade(self.config)
-        if grade is not None:
-            config['recommendation']['last_drive_grade'] = grade
         return merge_post_action_config(config)
 
     def _save(self) -> None:
         config = self._collect_config()
-        try:
-            policy_from_rules(config['preserve_rules'])
-        except ValueError as error:
-            self.calculate_requested = False
-            QMessageBox.warning(self, '规则无效', str(error))
+        if any(rule.get('smart_kind') for rule in config['preserve_rules']):
+            QMessageBox.warning(self, self.catalog.render('scan.management.invalid_title'),
+                self.catalog.render('scan.management.dynamic_unavailable'))
             return
         error = validate_post_action_config(config)
         if error:
@@ -771,7 +232,7 @@ def show_scan_post_action_dialog(
     window_title: str = "全量扫描管理",
     show_server_region_option: bool = True,
     role_suit_matching=None,
-    recommendation_callback=None,
+    catalog=None,
 ) -> bool:
     dialog = ScanPostActionDialog(
         parent,
@@ -783,6 +244,6 @@ def show_scan_post_action_dialog(
         window_title=window_title,
         show_server_region_option=show_server_region_option,
         role_suit_matching=role_suit_matching,
-        recommendation_callback=recommendation_callback,
+        catalog=catalog,
     )
     return dialog.exec() == QDialog.Accepted

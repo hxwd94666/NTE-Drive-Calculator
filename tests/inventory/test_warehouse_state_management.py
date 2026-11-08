@@ -3,16 +3,11 @@
 NTE_TEST_TIER = "core"
 import unittest
 from contextlib import nullcontext
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import patch
 
 
 class WarehouseStateManagementTests(unittest.TestCase):
-    def test_saved_direct_discard_rule_reaches_uid_plan_writer_and_confirmed_snapshot(self):
-        from src.domain.post_actions import default_post_action_config
-        from src.features.scanning.post_action_dialog import load_scan_post_action_config, save_scan_post_action_config
+    def test_reviewed_preview_target_reaches_uid_plan_writer_and_confirmed_snapshot(self):
         from src.services.inventory.warehouse_state_management import WarehouseStateManagementService
 
         class Dao:
@@ -30,6 +25,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
             def list_inventory_items(self, snapshot_id):
                 return [{"kind": "module", "uid_slot": 1, "uid_serial": 10,
                          "locked": snapshot_id == 7, "discarded": snapshot_id == 8}]
+
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
 
         dao = Dao()
 
@@ -56,29 +54,13 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 dao.snapshot_id = 8
                 return SimpleNamespace(last_snapshot_id=8)
 
-        config = default_post_action_config()
-        config["discard"]["on_locked"] = "normal"
-        config["preserve_rules"] = [
-            {"name": action, "action": action, "item_type": "drive", "sub_stats": ["攻击力"], "sub_match": 1}
-            for action in ("keep", "discard")
-        ]
-        payload = {"item_type": "drive", "uid": "nte-module-1-10", "quality": "Gold", "area": 3,
-                   "shape_id": "H_3", "main_stats": {"攻击力": 1.0, "生命值": 1.0}, "sub_stats": {"攻击力": 1.0}}
         sync = Sync()
-        with TemporaryDirectory() as directory:
-            save_scan_post_action_config(Path(directory), config)
-            stored = load_scan_post_action_config(Path(directory))
-            service = WarehouseStateManagementService(
-                "unused.sqlite3", sync, dao_factory=lambda _path: dao,
-                static_dao_factory=lambda: nullcontext(),
-            )
-            with patch("src.services.inventory.warehouse_state_management.SqliteAllocationInventory") as projection:
-                projection.return_value.build.return_value = SimpleNamespace(snapshot_id=7, items=[payload])
-                plan = service.evaluate(stored)
-            self.assertEqual(7, plan.snapshot_id)
-            self.assertEqual("discarded", plan.changes[0]["target_state"])
-            self.assertEqual({"slot": 1, "serial": 10}, plan.changes[0]["equipment"])
-            result = service.apply(plan)
+        service = WarehouseStateManagementService("unused.sqlite3", sync, dao_factory=lambda _path: dao)
+        plan = service.plan_manual_changes(7, {"nte-module-1-10": "discarded"})
+        self.assertEqual(7, plan.snapshot_id)
+        self.assertEqual("discarded", plan.changes[0]["target_state"])
+        self.assertEqual({"slot": 1, "serial": 10}, plan.changes[0]["equipment"])
+        result = service.apply(plan)
         self.assertEqual([("locked", {"slot": 1, "serial": 10}, False),
                           ("discarded", {"slot": 1, "serial": 10}, True)], sync.calls)
         self.assertTrue(result.verified)
@@ -107,6 +89,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 if snapshot_id != 7:
                     raise AssertionError("unexpected snapshot")
                 return rows
+
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
 
         dao = Dao()
         service = WarehouseStateManagementService("unused.sqlite3", object(), dao_factory=lambda _path: dao)
@@ -158,6 +143,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
                     8: intermediate_rows,
                     9: confirmed_rows,
                 }[snapshot_id]
+
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
 
         dao = Dao()
 
@@ -273,6 +261,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 self.snapshot_id = snapshot_id
                 return rows
 
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
+
         class Sync:
             def equipment_batch(self):
                 from contextlib import nullcontext
@@ -356,6 +347,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 self.projected.append((snapshot_id, projection))
                 return len(projection)
 
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
+
         class Sync:
             def equipment_batch(self):
                 from contextlib import nullcontext
@@ -409,6 +403,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
                 return [{"uid_slot": 1, "uid_serial": 10, "locked": False, "discarded": False}]
             def apply_inventory_command_state_projection(self, *_args): return 1
 
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
+
         class Sync:
             def equipment_batch(self):
                 from contextlib import nullcontext
@@ -459,6 +456,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
             def import_inventory_snapshot(self, packet, *, source):
                 self.imported.append((packet, source))
                 return 8
+
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
 
         class Sync:
             def equipment_batch(self):
@@ -517,6 +517,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
                     "locked": False,
                     "discarded": False,
                 }]
+
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
 
         class Sync:
             def equipment_batch(self):

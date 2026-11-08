@@ -8,6 +8,8 @@ from concurrent.futures import CancelledError
 from src.integrations.vision.recognition.ocr.task_session import OcrTaskSession, use_ocr_session
 
 from src.utils.logger import logger
+from .progress import report_role_progress
+from .input_backends import AssemblyExecutionFailed
 
 DEFAULT_ACTION_PAUSE_SECONDS = 0.5
 FILTER_ACTION_PAUSE_SECONDS = 0.25
@@ -104,16 +106,16 @@ def execute_action_sequence(
                             f"角色={role_name or '未指定'} | 块={action.get('block_id', '未指定')} | "
                             f"分组={action.get('duplicate_group_id') or '未分组'} | 状态={action.get('name')}"
                         )
-                    action_pause_seconds = float(
-                        action.get("post_action_pause_seconds", _default_action_pause_seconds(action, pause_seconds))
-                    )
-                    if action_pause_seconds > 0:
-                        _pause_with_stop(mouse, action_pause_seconds, should_stop)
                     if on_action_executed is not None:
                         try:
                             on_action_executed(dict(action), role_name)
                         except Exception as exc:
                             logger.warning(f"装配动作记录回调失败 | {_action_diagnostic(action)} | 原因={exc}")
+                    action_pause_seconds = float(
+                        action.get("post_action_pause_seconds", _default_action_pause_seconds(action, pause_seconds))
+                    )
+                    if action_pause_seconds > 0:
+                        _pause_with_stop(mouse, action_pause_seconds, should_stop)
                 else:
                     report.skipped_actions.append(dict(action))
                     logger.warning(
@@ -222,14 +224,22 @@ def execute_role_traversal_assembly_plan(
     role_verifier: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None,
     on_action_executed: Callable[[dict[str, Any], str | None], None] | None = None,
     *, ocr_session: OcrTaskSession | None = None,
+    on_role_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> AssemblyExecutionReport:
     """Execute role-list traversal and run the matching assembly plan for each role."""
+
+    report = AssemblyExecutionReport()
+
+    def record_progress(action, role_name):
+        # 输入已完成即累计；后续等待或校验中止仍保留这部分已知动作数。
+        report.partial_actions += 1
+        if on_action_executed is not None:
+            on_action_executed(action, role_name)
 
     try:
         with use_ocr_session(should_stop=should_stop, session=ocr_session) as ocr:
             mouse = backend or PyAutoGuiMouseBackend()
             role_plans = _role_plan_lookup(assembly_plan)
-            report = AssemblyExecutionReport()
             report.missing_roles = list(traversal_plan.get("missing_roles", []) or [])
             report.duplicate_roles = list(traversal_plan.get("duplicates", []) or [])
             report.unrecognized_roles = list(traversal_plan.get("unrecognized", []) or [])
@@ -239,6 +249,8 @@ def execute_role_traversal_assembly_plan(
                 f"缺失={report.missing_roles} | 未识别={report.unrecognized_roles} | 重复角色={report.duplicate_roles}"
             )
             for step in traversal_plan.get("plans", []):
+                report.current_role = str(step.get("role_name") or "")
+                report_role_progress(on_role_progress, report.current_role, "operating")
                 logger.info(
                     "角色路径执行 | "
                     f"角色={step.get('role_name')} | 起始索引={step.get('start_roster_index')} | "
@@ -258,9 +270,10 @@ def execute_role_traversal_assembly_plan(
                             should_stop=should_stop,
                             ocr_session=ocr,
                             role_name=step.get("role_name"),
-                            on_action_executed=on_action_executed,
+                            on_action_executed=record_progress,
                         )
                         report.navigation_actions += action_report.executed_actions
+                        report.partial_actions = 0
                         pending_actions = []
                     role_name = str(action.get("role_name") or step.get("role_name") or "")
                     role_plan = role_plans.get(role_name)
@@ -275,14 +288,22 @@ def execute_role_traversal_assembly_plan(
                         pause_seconds=pause_seconds,
                         should_stop=should_stop,
                         ocr_session=ocr,
-                        on_action_executed=on_action_executed,
+                        on_action_executed=record_progress,
                     )
+                    verification = None
                     if role_verifier is not None:
+                        report_role_progress(on_role_progress, role_name, "waiting", dispatched=True)
                         verification = role_verifier(role_name, role_plan)
                         if verification and not verification.get("ok", True):
                             report.verification_failures.append({"role_name": role_name, **verification})
                             logger.warning(f"角色装配校验失败 | 角色={role_name} | 详情={verification}")
+                    verified = verification is not None and verification.get("ok") is True
+                    if verified:
+                        report.verified_roles.append(role_name)
+                    state = "partial" if role_report.skipped_actions else "confirmed" if verified else "unknown"
+                    report_role_progress(on_role_progress, role_name, state, verified=verified, dispatched=True)
                     report.role_reports.append(role_report)
+                    report.partial_actions = 0
                 if pending_actions:
                     action_report = execute_action_sequence(
                         pending_actions,
@@ -291,17 +312,23 @@ def execute_role_traversal_assembly_plan(
                         should_stop=should_stop,
                         ocr_session=ocr,
                         role_name=step.get("role_name"),
-                        on_action_executed=on_action_executed,
+                        on_action_executed=record_progress,
                     )
                     report.navigation_actions += action_report.executed_actions
+                    report.partial_actions = 0
             logger.info(
                 "装配遍历执行结束 | "
                 f"导航动作={report.navigation_actions} | 角色报告={[(item.role_name, item.executed_actions) for item in report.role_reports]} | "
                 f"跳过角色={report.skipped_roles} | 校验失败={report.verification_failures}"
             )
+            report.current_role = None
             return report
-    except CancelledError as exc:
-        raise AssemblyExecutionStopped("assembly execution stopped") from exc
+    except (CancelledError, AssemblyExecutionStopped) as exc:
+        report.stopped = True
+        raise AssemblyExecutionStopped("assembly execution stopped", report=report) from exc
+    except Exception as exc:
+        report.error = str(exc)
+        raise AssemblyExecutionFailed(str(exc), report=report) from exc
 
 
 def _flatten_role_actions(actions: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:

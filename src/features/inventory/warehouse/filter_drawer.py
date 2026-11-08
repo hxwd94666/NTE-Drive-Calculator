@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.ui.text_catalog import resolve_text_catalog, set_button_text
 from src.domain.inventory.warehouse_filter import (
     WarehouseFilterCatalog,
     WarehouseFilterOption,
@@ -48,8 +49,9 @@ from src.features.inventory.warehouse.cards import (
 class WarehouseFilterDrawer(QFrame):
     applied = Signal(object)
 
-    def __init__(self, parent: QWidget) -> None:
+    def __init__(self, parent: QWidget, *, catalog=None) -> None:
         super().__init__(parent)
+        self.text = resolve_text_catalog(catalog).render
         self.setObjectName("warehouseFilterDrawer")
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet(
@@ -285,6 +287,10 @@ class WarehouseFilterDrawer(QFrame):
                 visual=True,
             )
         self._add_section("状态", self._catalog.statuses, "statuses", self._draft.statuses)
+        self._add_section(self.text('warehouse.management.filter.title'), tuple(
+            WarehouseFilterOption(option.value, self.text('warehouse.management.filter.' + option.value), option.count)
+            for option in self._catalog.management), 'management',
+            frozenset((self._draft.management,)) if self._draft.management else frozenset())
         self._add_section("品质", self._catalog.qualities, "qualities", self._draft.qualities)
         if self._page_kind == "core":
             self._add_section(
@@ -346,6 +352,8 @@ class WarehouseFilterDrawer(QFrame):
             button.setCheckable(True)
             button.setChecked(option.value in selected)
             button.setToolTip(option.label)
+            if group == 'management':
+                set_button_text(button, self.text('warehouse.management.filter.count', label=option.label, count=option.count))
             if visual:
                 button.setIcon(self._visual_option_icon(option))
                 button.setIconSize(QSize(36, 36))
@@ -397,6 +405,13 @@ class WarehouseFilterDrawer(QFrame):
     def _toggle(self, group: str, value: str, checked: bool) -> None:
         if self._draft.kind == "all":
             self._draft = replace(self._draft, kind=self._page_kind)
+        if group == 'management':
+            self._draft = replace(self._draft, management=value if checked else '')
+            for button in self.findChildren(QPushButton, 'warehouseFilterChip'):
+                if button.property('filterGroup') == 'management':
+                    button.setChecked(button.property('filterValue') == self._draft.management)
+            self.summary.setText(f"{self._draft.active_group_count} 项条件")
+            return
         if group == "sub_stat_match_counts":
             counts = set(self._draft.sub_stat_match_counts)
             if checked:

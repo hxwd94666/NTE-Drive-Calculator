@@ -23,7 +23,9 @@
 | 新队伍轴伤毕业率源码专项、失败分类与未覆盖门禁 | [轴伤毕业率验证](validation/team-axis-graduation.md) |
 | 免安装 ZIP、平台原目录覆盖更新及数据升级恢复 | [免安装发行开发方案](roadmap/portable-distribution.md) |
 | 已交付的页面、计算、同步、配装和设置 | [功能原理](features.md) |
+| 扫描／仓库管理拆分与预览的剩余验证 | [管理拆分与预览交付门禁](roadmap/warehouse-management-preview.md) |
 | 界面语言补丁、本机偏好、生效与识别语言边界 | [界面语言预备](features/localization.md) |
+| 角色匹配套装的已交付行为与专项边界 | [功能原理](features.md#角色匹配套装) |
 | 战报当前行为 | [战报功能](features/battle-report.md) |
 | 资料库与养成计算器当前行为 | [工具与游戏资料库](features/tools-and-catalog.md) |
 | 养成历史、材料录入与批量删除开发契约 | [养成历史方案](roadmap/cultivation-history.md) |
@@ -60,11 +62,16 @@
 
 ## 目录与维护规则
 
+文档按四类维护：`features/` 记录已交付行为，`roadmap/` 记录未完成能力与验收门禁，
+`reference/` 记录稳定公式／字段／协议，`validation/` 记录实际验证证据。根目录文件只保留跨领域总览；
+短指针文档并入对应专题，不再为单一链接保留独立文件。
+
 - `architecture.md` 只写结构与数据流；`features.md` 和 `features/` 只写当前产品行为；`roadmap.md` 和
   `roadmap/` 只写未完成能力。首页文档保留稳定入口，细节在对应专题维护。
 - `reference/` 放公式、字段、格式与只读资料域；`reference/damage-calculation.md` 是公式权威索引，
   `reference/damage/` 承载各公式专题；`reference/counterfactual/` 放反事实目录，`reviews/` 按角色保存人工审计。
 - `integrations.md` 是第三方组件、插件、输入与静态构建的唯一集成说明；`validation/` 保留必要验收依据与未覆盖范围，
   隔离运行、真实 Windows、组件和发行证据分别记录。
+- 指向外部私有仓库的路径使用代码样式标注，不在本仓库复制清单，也不作为本地链接检查失败。
 - 一个事实只保留一个权威位置。更新时覆盖相关章节并删除失效内容，不在文末追加补丁式说明。
 - 修改后检查相对链接、UTF-8、敏感信息边界和 `git diff --check`。

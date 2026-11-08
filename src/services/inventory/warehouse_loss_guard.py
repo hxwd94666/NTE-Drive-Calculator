@@ -84,7 +84,7 @@ def repair_known_losses(rows, witnesses, checkpoint, *, max_rounds=4, progress=l
             checkpoint()
             row=lookup.get(uid)
             winner=(row or {}).get('winning_rule') or {}
-            if (not row or row.get('original_locked') or not row.get('state_known',True)
+            if (not row or row.get('predecessor_fixed') or row.get('original_locked') or not row.get('state_known',True)
                     or winner.get('action')=='discard' and not winner.get('smart_kind')):
                 blocked.add(uid)
                 continue

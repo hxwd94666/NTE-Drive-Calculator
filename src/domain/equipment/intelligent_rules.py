@@ -20,7 +20,8 @@ KINDS = {
 
 
 def fingerprint(rule):
-    content = {k: v for k, v in rule.items() if k != 'intelligent'}
+    # 稳定规则身份用于编辑与导航，不属于匹配条件；迁移补入身份不能误报为已编辑。
+    content = {k: v for k, v in rule.items() if k not in {'intelligent', 'rule_id'}}
     return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 

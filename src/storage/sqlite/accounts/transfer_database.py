@@ -13,6 +13,8 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 
 PORTABLE_SETTING_FIELDS = {
     "identification_role_suits": frozenset({"version", "extra_suits", "suit_overrides"}),
+    "scan_management_role_suits": frozenset({"version", "extra_suits", "suit_overrides"}),
+    "warehouse_management_role_suits": frozenset({"version", "extra_suits", "suit_overrides"}),
     "update": frozenset({"never_remind", "ignored_version"}),
     "hotkeys": frozenset({"capture", "finish", "stop", "battle_rerecord"}),
     "sync": frozenset({"inventory_sync_method", "equipment_apply_method",
@@ -20,7 +22,7 @@ PORTABLE_SETTING_FIELDS = {
     "ui": frozenset({"log_enabled", "skip_unsaved_allocation_prompt",
                      "skip_automatic_assembly_duplicate_warning", "full_scan_capture_driver",
                      "full_scan_dual_thread_processing", "full_scan_amd_compatibility",
-                     "full_scan_post_action_config", "protagonist_game_name",
+                     "full_scan_post_action_config", "warehouse_management_config", "protagonist_game_name",
                      "skip_protagonist_name_prompt"}),
 }
 

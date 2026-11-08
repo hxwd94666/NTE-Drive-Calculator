@@ -3,12 +3,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path, PureWindowsPath
+from functools import lru_cache
 
 from src.domain.localization.catalog import BASE_LOCALE, CatalogError, TextCatalog, make_catalog, valid_locale
 from src.integrations.preferences.json_store import PreferencesError, atomic_bytes, decode_json
+from src.integrations.bundled_resources import bundled_root
 
 MAX_CATALOG_BYTES = 256 * 1024
 MAX_LOCAL_CATALOGS = 64
+
+
+@lru_cache(maxsize=1)
+def bundled_text_catalog() -> TextCatalog:
+    """独立窗口与测试消费同一发行中文基线，正常运行由组合根注入已冻结的活动目录。"""
+    return make_catalog(read_catalog_file(bundled_root() / "assets" / "locales" / "zh-CN.json"))
 
 
 def read_catalog_file(path: Path) -> object:

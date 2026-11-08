@@ -7,6 +7,7 @@ import shutil
 from src.services.inventory.warehouse_quality_assessment import assess_quality
 from src.services.inventory.warehouse_recommendation_preview import file_identity, post_config
 from src.services.identification.matching_settings import MatchingSettingsService
+from src.domain.equipment.management_settings import MatchingScope
 from src.services.characters.workshop_weight_template_service import configured_workshop_weight_template_file
 from src.storage.sqlite.accounts.transfer_database import backup_account_database
 from src.storage.sqlite.warehouse_recommendation_inputs import recommendation_account_identity
@@ -26,7 +27,7 @@ def read_warehouse_quality(request, snapshot_id, cancel_check):
         files += (template,)
     identity, version = recommendation_account_identity(database), file_identity(files)
     settings = post_config(database)
-    matching = MatchingSettingsService(database).load()
+    matching = MatchingSettingsService(database, scope=MatchingScope.WAREHOUSE).load()
     with TemporaryDirectory(prefix='nte-warehouse-score-') as temporary:
         root = Path(temporary)
         frozen = root/'account.sqlite3'
@@ -42,6 +43,6 @@ def read_warehouse_quality(request, snapshot_id, cancel_check):
             preserve_rules=settings['preserve_rules'],snapshot_id=snapshot_id)
     checkpoint()
     if (recommendation_account_identity(database)!=identity or file_identity(files)!=version
-            or post_config(database)!=settings or MatchingSettingsService(database).load()!=matching):
+            or post_config(database)!=settings or MatchingSettingsService(database, scope=MatchingScope.WAREHOUSE).load()!=matching):
         raise ValueError('评分期间资料或规则已变化，请刷新仓库重试')
     return quality

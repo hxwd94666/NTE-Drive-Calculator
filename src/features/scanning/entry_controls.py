@@ -24,4 +24,5 @@ def open_scan_post_action_manager(self):
         static_database_path=dependencies.static_database_path,
         asset_root=dependencies.game_ui_asset_root,
         role_suit_matching=self.role_suit_matching,
+        catalog=self.role_suit_matching.catalog if self.role_suit_matching is not None else None,
     )

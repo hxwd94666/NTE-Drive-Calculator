@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.ui.text_catalog import resolve_text_catalog
 from src.domain.teams.models import TeamRole
 from src.features.teams.cards import MemberSlots, set_role
 
@@ -13,8 +14,9 @@ from src.features.teams.cards import MemberSlots, set_role
 class TeamCard(QWidget):
     """只拥有队伍展示；所有操作把稳定 team_id 发回页面，不自行读库或计算。"""
 
-    def __init__(self, team, roles, *, actions, parent=None):
+    def __init__(self, team, roles, *, actions, parent=None, catalog=None):
         super().__init__(parent)
+        catalog = resolve_text_catalog(catalog)
         self.setObjectName('teamCard')
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
@@ -94,11 +96,11 @@ class TeamCard(QWidget):
             'border-radius:6px;padding:6px 10px;}'
             'QToolButton:hover{background:#21262d;}QToolButton:focus{border-color:#58a6ff;}'))
         menu = QMenu(more)
-        for text, key in (('编辑队伍', 'edit'), ('配装来源', 'source'), ('成员配装', 'details'),
-                          ('增强记录', 'enhancement_details'), ('删除队伍', 'delete')):
+        for label_key, key in (('teams.menu.edit', 'edit'), ('teams.menu.loadouts', 'loadouts'),
+                               ('teams.menu.history', 'enhancement_details'), ('teams.menu.delete', 'delete')):
             if key == 'delete':
                 menu.addSeparator()
-            action = menu.addAction(text)
+            action = menu.addAction(catalog.render(label_key))
             action.triggered.connect(lambda checked=False, target=key: actions[target].emit(team.team_id))
         more.setMenu(menu)
         toolbar.addWidget(more, 1)

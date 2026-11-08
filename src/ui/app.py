@@ -119,9 +119,20 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 rebuild=lambda _account: self.equipment_persistence_controller.rebuild(), start=lambda: None),
         )
         self._language_settings = runtime.language_settings
+        self.text_catalog = self._language_settings.startup().catalog
         from src.ui.role_suit_matching.controller import RoleSuitMatchingController
         self.role_suit_matching = RoleSuitMatchingController(
-            self.app_context, self._language_settings.startup().catalog, self)
+            self.app_context, self.text_catalog, self)
+        from src.features.inventory.warehouse.management_controller import WarehouseManagementController
+        from src.features.inventory.warehouse.management_projection import (
+            capture_management_input, project_management_preview, invalidate_management_preview,
+        )
+        self.warehouse_management_controller = WarehouseManagementController(
+            self.app_context, self.text_catalog, self,
+            capture=lambda: capture_management_input(self),
+            project=lambda frozen, result, guard: project_management_preview(self, frozen, result, guard),
+            settings_changed=lambda: invalidate_management_preview(self),
+        )
         self.setWindowTitle("NTE Drive Calc")
         screen_geo = QApplication.primaryScreen().availableGeometry()
         initial_w = min(self.W, max(640, screen_geo.width() - 80))
@@ -284,6 +295,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             navigate=self._go,
         )
         self.toolbox_page = ToolboxPage(
+            text_catalog=self.text_catalog,
             dependencies=build_toolbox_dependencies(
                 self.app_context,
                 operation_entry=self.operation_entry,
@@ -297,7 +309,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         )
         self._unregister_toolbox_lifecycle = register_toolbox_account_lifecycle(self.app_context, self.toolbox_page)
         self.team_controller = build_team_controller(self.app_context, self,
-            configure_enhancement=self.scanning_controller.configure_team_enhancement)
+            configure_enhancement=self.scanning_controller.configure_team_enhancement, text_catalog=self.text_catalog)
         self.scanning_controller.allocation_saved.connect(self.team_controller.plans_saved)
         static_catalog_controller = StaticCatalogController(
             StaticCatalogService(
@@ -318,6 +330,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 self.app_context.paths.static_database_path,
                 self.app_context.paths.game_ui_asset_root,
                 equipment_presentation=self.equipment_presentation,
+                text_catalog=self.text_catalog,
                 role_catalog=self.app_context.paths.role_catalog,
                 equipment_inventory_loader=self._load_static_catalog_inventory,
                 open_catalog_link=lambda link: (

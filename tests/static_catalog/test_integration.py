@@ -14,6 +14,7 @@ from src.services.static_catalog.service import StaticCatalogService
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_DOMAINS = {
     "coverage",
+    "reference_characters",
     "character",
     "fork",
     "monsters",
@@ -50,6 +51,9 @@ class StaticCatalogIntegrationTests(unittest.TestCase):
                     offset=0,
                     limit=1,
                 )
+                if domain.key == "reference_characters" and page.total == 0:
+                    self.assertEqual(page.items, ())
+                    continue
                 self.assertGreater(page.total, 0)
                 self.assertEqual(len(page.items), 1)
                 detail = self.service.detail(

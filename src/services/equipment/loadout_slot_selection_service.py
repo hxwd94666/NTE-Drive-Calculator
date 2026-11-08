@@ -83,6 +83,18 @@ class LoadoutSlotSelectionService:
             defer_equipment_conflicts=defer_equipment_conflicts,
         )
 
+    def assert_current_plans(self, references: Mapping[int, tuple[int, int | None]], *, defer_equipment_conflicts=False) -> None:
+        """确认页返回后只复核正式槽位/方案/来源，不用新方案替换本次冻结装备。"""
+        with self.user_dao.read_consistent_state():
+            # 极速任务先核对冻结身份，真实装备冲突仍由剔除虚拟／缺件后的统一预检负责。
+            self.assert_frozen_selections(self.resolve(references, defer_equipment_conflicts=defer_equipment_conflicts), references)
+
+    @staticmethod
+    def assert_frozen_selections(selections, references):
+        actual = {row.slot_id: (row.plan_id, row.source_snapshot_id) for row in selections}
+        if actual != dict(references):
+            raise UserDataValidationError("所选配装已变化，请重新选择后再装配")
+
     def resolve(
         self,
         slot_ids: Iterable[int],

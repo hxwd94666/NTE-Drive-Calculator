@@ -41,7 +41,7 @@ def _run(context, cancelled, excluded=(), executor=None):
                                  kernel_executor=execute)
 
 
-def freeze_profile_witnesses(account, static, config_dir, snapshot_id, checkpoint, cancelled, *, executor=None):
+def freeze_profile_witnesses(account, static, config_dir, snapshot_id, checkpoint, cancelled, *, executor=None, excluded_uids=frozenset()):
     """只取启用档案的最新版本；历史版本不变成当前约束，失败则禁止本次弃置。"""
     witnesses, issues = [], []
     scoring = read_allocation_scoring_rules(Path(config_dir) / 'stats.json')
@@ -55,6 +55,9 @@ def freeze_profile_witnesses(account, static, config_dir, snapshot_id, checkpoin
             try:
                 context = build_allocation_context(user, data, scoring_rules=scoring, snapshot_id=snapshot_id,
                     profile_id=profile['profile_id'], profile_version=version['version_number'])
+                if excluded_uids:
+                    context = replace(context, candidates=tuple(c for c in context.candidates if
+                        f"nte-{'module' if c.kind == 'module' else 'core'}-{c.uid_slot}-{c.uid_serial}" not in excluded_uids))
                 before = _summary(_run(context, cancelled, executor=executor))
                 if any(not row['valid'] for row in before.values()):
                     issues.append('已保存配装偏好的部分角色无法形成有效方案，本次不产生弃置。')

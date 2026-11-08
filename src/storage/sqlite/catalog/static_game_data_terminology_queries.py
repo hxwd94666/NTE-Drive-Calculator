@@ -268,7 +268,7 @@ class StaticGameDataTerminologyQueriesMixin(_TerminologyQuerySource):
     def _decode_names(self, raw_names: Any, *, description: str) -> dict[str, str]:
         try:
             names = json.loads(str(raw_names or "{}"))
-        except json.JSONDecodeError as exc:
+        except json.JSONDecodeError:
             self._raise_static_data_error(
                 f"{description} 的本地化名称不是有效 JSON"
             )

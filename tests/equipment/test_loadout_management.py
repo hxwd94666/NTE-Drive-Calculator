@@ -55,14 +55,14 @@ def prepared(database, *, plan_id=None):
     return service, operation, service.prepare(operation, plan_id=plan_id)
 
 
-def test_clear_skips_locked_and_preserves_historical_source_scores(database):
+def test_batch_delete_preserves_unselected_locked_and_historical_source_scores(database):
     account, plans = database
     with UserDataDao(account.database_path) as dao:
         dao.set_allocation_lock(plans[1], True)
         history = [dao.get_loadout_plan(plan) for plan in plans]
     service, operation, snapshot = prepared(database)
-    result = service.mutate(operation, LoadoutMutation("clear", snapshot))
-    assert len(result.skipped) == 1
+    service.mutate(operation, LoadoutMutation("delete_batch", snapshot,
+        slot_ids=(snapshot.plan(plans[0]).slot_id,)))
     with UserDataDao(account.database_path) as dao:
         current = dao.list_current_loadout_slot_plans()
         assert [row["plan"]["plan_id"] for row in current] == [plans[1]]
@@ -95,14 +95,14 @@ def test_stale_confirmation_does_not_mutate_a_changed_current_scope(database, ch
         assert dao.get_loadout_slot(slot.slot_id) == before
 
 
-def test_clear_failure_after_first_update_rolls_back_the_entire_batch(database):
+def test_batch_delete_failure_after_first_update_rolls_back_the_entire_batch(database):
     account, plans = database
     service, operation, snapshot = prepared(database)
     second = snapshot.plan(plans[1]).slot_id
     with sqlite3.connect(account.database_path) as connection:
         connection.execute(f"CREATE TRIGGER injected_failure BEFORE UPDATE OF current_plan_id ON role_loadout_slot WHEN OLD.slot_id = {second} BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
     with pytest.raises(sqlite3.IntegrityError, match="injected failure"):
-        service.mutate(operation, LoadoutMutation("clear", snapshot))
+        service.mutate(operation, LoadoutMutation("delete_batch", snapshot, slot_ids=tuple(slot.slot_id for slot in snapshot.slots)))
     with UserDataDao(account.database_path) as dao:
         assert {row["plan"]["plan_id"] for row in dao.list_current_loadout_slot_plans()} == set(plans)
         assert dao.integrity_check()["ok"]

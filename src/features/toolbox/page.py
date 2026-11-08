@@ -69,9 +69,10 @@ class _RewindPercentInput(QDoubleSpinBox):
 class ToolboxPage:
     """Builds a tile-based toolbox without introducing another primary domain."""
 
-    def __init__(self, *, dependencies: ToolboxDependencies, dialog_parent: QWidget) -> None:
+    def __init__(self, *, dependencies: ToolboxDependencies, dialog_parent: QWidget, text_catalog=None) -> None:
         self._dependencies = dependencies
         self._dialog_parent = dialog_parent
+        self.text_catalog = text_catalog
         self._page: QWidget | None = None
         self._stack: QStackedWidget | None = None
         self._home: QWidget | None = None
@@ -179,7 +180,7 @@ class ToolboxPage:
         except Exception as exc:
             QMessageBox.warning(self._dialog_parent, "倒带推荐", f"读取倒带分析数据失败：{exc}")
             return
-        dialog = _RewindRecommendationDialog(service, self._dialog_parent, operation_guard=self._dependencies.operation_guard, operation_generation=self._dependencies.operation_generation, operation_entry=self._dependencies.operation_entry, operation_unavailable=self._dependencies.operation_unavailable)
+        dialog = _RewindRecommendationDialog(service, self._dialog_parent, text_catalog=self.text_catalog, operation_guard=self._dependencies.operation_guard, operation_generation=self._dependencies.operation_generation, operation_entry=self._dependencies.operation_entry, operation_unavailable=self._dependencies.operation_unavailable)
         self._rewind_dialog = dialog
         # 为游戏让出前台的 hide 会退出 exec，但不是关闭或物理结束。
         dialog.finished.connect(lambda _code: self._release_rewind_dialog(dialog))
@@ -199,8 +200,10 @@ class _RewindRecommendationDialog(RewindSelectionUiMixin, RewindExecutionUiMixin
         "focused": "少角冲分",
     }
 
-    def __init__(self, service: RewindShapeRecommendationService, parent: QWidget, *, operation_guard: Callable[[str], None] | None = None, operation_generation: Callable[[], object] | None = None, operation_entry: Callable[[str, str], bool] | None = None, operation_unavailable: Callable[[str, str, str], None] | None = None) -> None:
+    def __init__(self, service: RewindShapeRecommendationService, parent: QWidget, *, text_catalog=None, operation_guard: Callable[[str], None] | None = None, operation_generation: Callable[[], object] | None = None, operation_entry: Callable[[str, str], bool] | None = None, operation_unavailable: Callable[[str, str, str], None] | None = None) -> None:
         super().__init__(parent)
+        from src.ui.text_catalog import resolve_text_catalog
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.operation_guard = operation_guard
         self.operation_generation = operation_generation
         self.operation_entry = operation_entry

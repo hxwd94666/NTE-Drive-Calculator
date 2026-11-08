@@ -46,7 +46,7 @@
 | `src/services/teams/source_inputs.py` | 按稳定槽位或完整游戏库存冻结装备并检查冲突 | 复用为当前方案输入，不用最新库存重解释旧方案 |
 | `src/services/official_role/graduation.py` | 角色页个人装备直伤基准与比例 | 保留公共个人能力，不作为新队伍分母 |
 | 已移除的旧队伍个人毕业适配 | 原 `graduation_inputs.py` 和 `graduation_rules.py` 仅服务旧队伍均值，已删除 | 新合法规则按正式来源重新建模，不保留死代码或旧满强化假设；公共个人能力保留 |
-| `src/features/teams/page.py`、`overview_dialogs.py` | 队伍卡片、来源选择、成员详情 | 复用布局与来源交互，替换主指标呈现和状态 |
+| `src/features/teams/page.py`、`loadout_dialog.py`、`loadout_row.py` | 队伍卡片、来源选择、成员配装详情 | 复用布局与来源交互，替换主指标呈现和状态 |
 | `src/services/teams/report_matching.py`、`src/services/allocation/team_axis_selection.py` | 四人阵容核验和明确轴范围选择 | 复用正式身份与范围契约，匹配成功后仍检查量化能力 |
 | `src/services/allocation/team_enhancement.py` | 固定库存中的队伍增强与原分配策略编排 | 既有功能保留；仅审计可复用的评价能力，新毕业功能不接入其库存分配流程 |
 | 独立分析组件 | 冻结战报读取、轴评价、反事实及有界后处理 | 审计现有模式后扩展理论域与整队优化；新请求和能力另行版本化 |
@@ -458,7 +458,7 @@ Controller 状态至少分开：未选择轴、未建基准、输入缺失、组
 | `src/services/official_role/graduation_inputs.py` | 退役前生产调用方仅为旧队伍简报；已删除整个旧适配及 `GRADUATION_RULE_ID`、`materialize_graduation_detail`、`freeze_graduation_equipment`、`calculate_frozen_graduation` | 公共角色面板及实际装备投影另从正式公共入口使用，不移植此文件的满强化假设 |
 | `src/integrations/official_role/graduation_rules.py` | 退役前仅旧简报调用，现已删除；新合法规则按正式证据建模，需要严格JSON/哈希快照时以中性职责实现，不为无消费者的辅助函数留兼容壳 | 仅复用确有消费者的规则读取；`stats.json`/`StatCatalog` 是属性数值来源之一，不自动证明全部档位/次数/互斥规则齐全 |
 | `src/features/teams/page.py` | 删除“平均装备毕业率”文案、成员计数兜底、旧 tooltip 和 `.show_overview` 对毕业率区域的写入；由新 owner 独占新字段 | 卡片成员、编辑/删除、来源、匹配、增强按钮和筛选/可见队伍范围 |
-| `src/features/teams/overview_dialogs.py` | 成员弹窗改为“成员与配装来源”，删除旧成员毕业百分比/解释；不保留折叠的自动旧计算 | `TeamSourceDialog`、稳定槽位选择、成员装备与来源/缺口；个人直伤需要时由独立角色页查看 |
+| `src/features/teams/loadout_dialog.py`、`loadout_row.py` | 成员弹窗改为“成员与配装来源”，删除旧成员毕业百分比/解释；不保留折叠的自动旧计算 | 稳定槽位选择、成员装备与来源/缺口；个人直伤需要时由独立角色页查看 |
 | `src/features/teams/overview_controller.py` | 移除旧毕业回调/缓存/详情字段，确保旧 refresh 不写新主指标；来源改变通知新 owner 使对应分子失效 | 来源交互、保存通知、历史入口、账号代次与可见范围生命周期 |
 | `src/ui/team_composition.py` | 删除旧专属参数注入，新增新服务/owner显式注入；完整主库与图片分开 | 当前已正确的主静态来源，不退回独立图鉴 |
 

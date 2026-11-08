@@ -781,7 +781,7 @@ Blueprint 依赖表排除包内 Outer、ClassDefaultObject、Children 和 FuncMa
 解包后的 `Content` 目录只作为登记来源输入，不按目录做数据库全量覆盖；弧盘常驻属性由已规范化的
 `fork_star_parameter`、精炼曲线、Buff Modifier、施加条件和标签证据重新投影。完整重建继续要求登记的
 DataTable、本地化与 Blueprint 来源闭包；仅需验证解析器或更新候选投影时，维护工具
-`tools/game_data/reproject_fork_permanent_properties.py` 从已登记、不可变的发行基线复制候选，补入精炼直接引用且有 Modifier 证据的计算类 Buff、追加 schema、逐弧盘重投影并生成审查报告，不直接改写输入库或 `data/`。完整重建和该定向重投影都使用当前 importer 身份；后者只经 `fork_reprojection_provenance.json` 对当前发行基线数据库/清单哈希、非目标表逐表逻辑等价、精炼 Buff 增量、全部弧盘来源重算结果和完整性复核后才可通过同一晋升入口。未经这些核对的旧加法升级仍保留其旧 importer 身份，不冒充已导入新证据。
+`tools/game_data/reproject_fork_permanent_properties.py` 从已登记、不可变的发行基线复制候选，补入精炼直接引用且有 Modifier 证据的计算类 Buff、追加 schema、逐弧盘重投影并生成审查报告，不直接改写输入库或 `data/`。定向工具接受已支持的 38 至当前 schema 来源：38 只执行 canonical 39 审查迁移并记录真实版本 39；39 及以上保持原 schema，不附带升级争锋或角色结构，也不把源码最大版本写成已完成迁移。报告同时记录输入和输出 schema。定向重投影不代替整库升级；低于当前 schema 的输出仍受正式晋升的 schema 门禁约束，需另行完整升级后重新核对来源，不能直接发布。完整重建和该定向重投影都使用当前 importer 身份；后者只经 `fork_reprojection_provenance.json` 对当前发行基线数据库/清单哈希、非目标表逐表逻辑等价、精炼 Buff 增量、全部弧盘来源重算结果和完整性复核后才可通过同一晋升入口。未经这些核对的旧加法升级仍保留其旧 importer 身份，不冒充已导入新证据。
 来源缺少战斗 Blueprint 时，可用 `build_role_catalog.py` 构建独立 `role_page` 目录，或用
 `build_reference_catalog.py` 构建包含角色、弧盘、装备、怪物和玩法的 `reference` 图鉴。
 每次 `reference` 候选构建完成前和正式晋升预检时，均须核对 `gold` 养成别名精确指向 `Gold`、

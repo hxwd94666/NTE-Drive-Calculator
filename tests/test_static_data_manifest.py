@@ -46,7 +46,10 @@ class StaticDataManifestTests(unittest.TestCase):
         self.assertEqual(generated, loaded)
         committed = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(DATABASE.stat().st_size, generated["database"]["size_bytes"])
-        self.assertEqual(committed, generated)
+        # 生成器只重建库内身份；晋升另附解包质量证据，不能要求库凭空重建外部报告。
+        self.assertEqual(generated, {key: committed[key] for key in generated})
+        self.assertEqual(set(committed) - set(generated), {"export_quality"})
+        validate_static_manifest(DATABASE, MANIFEST)
 
     def test_schema_29_legacy_manifest_is_accepted_but_wrong_size_is_not(self) -> None:
         manifest = validate_static_manifest(DATABASE, MANIFEST)

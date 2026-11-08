@@ -6,6 +6,7 @@ import unittest
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from tests.static_release_fixture import distribution_manifest
 
 from src.domain.static_catalog_terminology import LocalizedTermRecord
 from src.services.static_catalog.monsters.service import (
@@ -26,8 +27,7 @@ from src.storage.sqlite.catalog.static_catalog_monster_queries import (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DATABASE = PROJECT_ROOT / "data" / "game_static.sqlite3"
 MAINLAND_SNAPSHOT = datetime(2026, 8, 30, 12, 0, 0)
-CURRENT_FEAST_PERIOD = "cn_1_3_20260813"
-HISTORICAL_FEAST_PERIOD = "cn_1_1_20260612"
+CURRENT_FEAST_PERIOD = "dataset:" + distribution_manifest()["database"]["dataset_id"]
 
 
 class _MonsterTerminologySource:
@@ -95,10 +95,10 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
 
     def test_release_schema_coverage_is_exposed_without_mutating_static_data(self):
         self.assertEqual(36, self._page("official_illustrated").total)
-        self.assertEqual(10139, self._page("template_profile").total)
+        self.assertEqual(10170, self._page("template_profile").total)
         self.assertEqual(7, self._page("world_boss").total)
         self.assertEqual(32, self._page("feast").total)
-        self.assertEqual(221, self._page("clone").total)
+        self.assertEqual(246, self._page("clone").total)
         self.assertEqual(78, self._page("high_risk").total)
 
         with StaticCatalogMonsterQueries(STATIC_DATABASE) as queries:
@@ -126,13 +126,13 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
             entries.extend(self.service.list_entries(CatalogFilter(
                 play_mode="outer_realm", page_size=200, offset=200,
             )).items)
-        self.assertEqual(284, page.total)
+        self.assertEqual(380, page.total)
         self.assertEqual(
-            {f"Abyss_{ordinal}" for ordinal in range(1, 13)},
+            {f"Abyss_{ordinal}" for ordinal in range(1, 17)},
             {entry.primary_id for entry in entries},
         )
         self.assertEqual(
-            {"Abyss_1", "Abyss_4", "Abyss_7"},
+            {"Abyss_1", "Abyss_4", "Abyss_7", "Abyss_13", "Abyss_16"},
             {
                 entry.primary_id for entry in entries
                 if entry.release_state == "unscheduled"
@@ -375,60 +375,11 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
 
     def test_feast_periods_keep_activity_and_challenge_identity_separate(self):
         periods = self.service.list_feast_periods()
-        self.assertEqual(
-            [CURRENT_FEAST_PERIOD, HISTORICAL_FEAST_PERIOD],
-            [period.period_id for period in periods],
-        )
-        self.assertEqual(["current", "historical"], [
-            period.release_state for period in periods
-        ])
-        self.assertEqual([8, 7], [len(period.challenge_ids) for period in periods])
-        self.assertEqual(
-            "DiyBossStage111", periods[1].challenge_ids[1]
-        )
+        self.assertEqual([CURRENT_FEAST_PERIOD], [period.period_id for period in periods])
+        self.assertEqual(["unscheduled"], [period.release_state for period in periods])
+        self.assertEqual(tuple(f"DiyBossStage{i}" for i in range(1, 9)), periods[0].challenge_ids)
+        self.assertIn("不推定", periods[0].schedule_label)
 
-    def test_historical_feast_restores_formal_boss_profile_and_family_identity(self):
-        setup = self.service.get_feast_setup(
-            HISTORICAL_FEAST_PERIOD, "DiyBossStage111"
-        )
-        self.assertIsNotNone(setup)
-        self.assertEqual(2, setup.challenge_ordinal)
-        self.assertEqual("随心所欲", setup.title)
-        self.assertEqual("随心泥", setup.boss_name)
-        self.assertEqual("Boss_016_BP_DiyBoss", setup.boss_monster_id)
-        self.assertEqual([45, 55, 65, 75], [
-            choice.monster_level for choice in setup.difficulties
-        ])
-        self.assertFalse(setup.option_groups)
-        self.assertIn("未保留", setup.condition_note)
-
-        detail = self.service.get_feast_detail(
-            HISTORICAL_FEAST_PERIOD,
-            setup.stage_id,
-            setup.default_difficulty_id,
-        )
-        self.assertIsNotNone(detail)
-        self.assertEqual("争锋赏宴 · 1.1 往期 · 极难 积分倍率x5", detail.entry.subtitle)
-        activity = next(
-            section for section in detail.sections if section.title == "活动期"
-        )
-        self.assertEqual(
-            "2026-06-12 10:00—2026-07-02 05:59",
-            next(
-                value.value for value in activity.values
-                if value.label == "大陆服排期"
-            ),
-        )
-        profile = next(
-            section for section in detail.sections
-            if section.title == "当前选择画像"
-        )
-        values = {value.label: value.value for value in profile.values}
-        self.assertEqual("Boss_016_BP_DiyBoss_DataPack3", values["pack_id"])
-        self.assertTrue(any(
-            relation.target_key.startswith("profile_monster|")
-            for relation in detail.relations
-        ))
 
     def test_witch_blessings_are_complete_choices_with_direct_descriptions(self):
         blessings = self.service.list_witch_blessings()
@@ -467,7 +418,7 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
 
     def test_every_clone_difficulty_has_an_honest_drop_projection_status(self):
         self.assertEqual(
-            {"complete": 122, "partial": 36, "unavailable": 63},
+            {"complete": 129, "partial": 36, "unavailable": 81},
             self.service.clone_drop_status_counts(),
         )
         entries = []
@@ -518,7 +469,7 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
                         if section.title == "已选挑战条件"
                     ))
         option_values = tuple(option_values)
-        self.assertEqual(144, len(option_values))
+        self.assertEqual(169, len(option_values))
         self.assertTrue(all(
             value.display_label and value.display_value
             for value in option_values

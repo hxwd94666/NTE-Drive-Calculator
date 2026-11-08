@@ -99,11 +99,11 @@ class BattleInferredTargetInstanceResolutionTests(unittest.TestCase):
 
     def test_known_outer_half_builds_per_instance_replay_profiles(self) -> None:
         hits = [
-            _hit("boss", 1_605_157.0, half="upper", time_us=1),
-            _hit("add-a", 740_842.0, half="upper", time_us=2),
-            _hit("add-b", 740_842.0, half="upper", time_us=3),
+            _hit("boss", 3_240_964.0, half="lower", time_us=1),
+            _hit("add-a", 1_574_182.0, half="lower", time_us=2),
+            _hit("add-b", 1_574_182.0, half="lower", time_us=3),
         ]
-        inferred = _infer(10, hits)
+        inferred = _infer(8, hits)
 
         assert inferred is not None
         resolutions, required = resolve_available_target_instances(
@@ -138,8 +138,8 @@ class BattleInferredTargetInstanceResolutionTests(unittest.TestCase):
         hits = [
             _hit(
                 "boss",
-                2_998_629.0,
-                half="upper",
+                3_240_964.0,
+                half="lower",
                 time_us=10,
                 hp_before=2_424_338.0,
                 hp_after=2_408_493.0,
@@ -147,18 +147,18 @@ class BattleInferredTargetInstanceResolutionTests(unittest.TestCase):
             ),
             _hit(
                 "boss-duplicate",
-                2_998_629.0,
-                half="upper",
+                3_240_964.0,
+                half="lower",
                 time_us=12,
                 context=(),
                 hp_before=2_424_338.0,
                 hp_after=2_408_493.0,
                 damage=15_845.0,
             ),
-            _hit("add-a", 1_285_123.0, half="upper", time_us=20),
-            _hit("add-b", 1_285_123.0, half="upper", time_us=30),
+            _hit("add-a", 1_574_182.0, half="lower", time_us=20),
+            _hit("add-b", 1_574_182.0, half="lower", time_us=30),
         ]
-        inferred = _infer(9, hits)
+        inferred = _infer(8, hits)
 
         assert inferred is not None
         self.assertEqual(3, len(inferred.identities))

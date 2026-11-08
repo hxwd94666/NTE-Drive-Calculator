@@ -17,7 +17,7 @@ def test_new_and_existing_teams_have_explicit_account_default(tmp_path):
     with UserDataDao(tmp_path / "one.sqlite3", account_id="one") as dao:
         team = dao.save_team(TeamDraft("队", (1, 2, 3, 4)))
         config = dao.get_team_source(team.team_id)
-        assert config.mode == SourceMode.CURRENT and config.revision == 1 and config.bindings == ()
+        assert config.mode == SourceMode.CALC and config.revision == 1 and config.bindings == ()
     with UserDataDao(tmp_path / "two.sqlite3", account_id="two") as dao:
         with pytest.raises(ValueError, match="队伍"):
             dao.get_team_source(team.team_id)
@@ -28,10 +28,10 @@ def test_bindings_use_slot_identity_and_validate_whole_batch(tmp_path):
         team = dao.save_team(TeamDraft("队", (1, 2)))
         slots = [dao.create_loadout_slot(key, "同名") for key in (1, 2, 3)]
         config = dao.get_team_source(team.team_id)
-        saved = dao.save_team_source(team, config, mode=SourceMode.SLOTS, bindings=((1, slots[0]), (2, slots[1])))
+        saved = dao.save_team_source(team, config, mode=SourceMode.CALC, bindings=((1, slots[0]), (2, slots[1])))
         assert saved.revision == 2
         with pytest.raises(ValueError, match="所属角色"):
-            dao.save_team_source(team, saved, mode=SourceMode.SLOTS, bindings=((1, slots[0]), (2, slots[2])))
+            dao.save_team_source(team, saved, mode=SourceMode.CALC, bindings=((1, slots[0]), (2, slots[2])))
         assert dao.get_team_source(team.team_id) == saved
         with pytest.raises(ValueError, match="已变化"):
             dao.save_team_source(team, config, mode=SourceMode.GAME)
@@ -41,7 +41,7 @@ def test_rename_retains_binding_member_change_does_not_retarget(tmp_path):
     with UserDataDao(tmp_path / "user.sqlite3", account_id="one") as dao:
         team = dao.save_team(TeamDraft("旧名", (1, 2)))
         slot = dao.create_loadout_slot(1, "备用")
-        config = dao.save_team_source(team, dao.get_team_source(team.team_id), mode=SourceMode.SLOTS, bindings=((1, slot),))
+        config = dao.save_team_source(team, dao.get_team_source(team.team_id), mode=SourceMode.CALC, bindings=((1, slot),))
         renamed = dao.save_team(TeamDraft("新名", (2, 1)), existing=team)
         assert dao.get_team_source(team.team_id) == config
         with pytest.raises(ValueError, match="队伍"):
@@ -87,7 +87,7 @@ def test_v46_upgrade_failure_rollback_backup_and_retry(tmp_path, monkeypatch):
     assert list((tmp_path / ".migration-backups").glob("user-data-v46-*.sqlite3"))
     with UserDataDao(path) as dao:
         assert dao.list_teams() == (team,)
-        assert dao.get_team_source(team.team_id).mode == SourceMode.CURRENT
+        assert dao.get_team_source(team.team_id).mode == SourceMode.CALC
 
 
 def test_data_downgrade_preserves_new_database_then_restores_complete_old_backup(tmp_path, monkeypatch):

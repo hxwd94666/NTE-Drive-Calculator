@@ -18,7 +18,10 @@ from src.optimizer.contracts import (
     EQUIP_DISPLAY_NAME,
     EQUIP_UID,
 )
+from src.features.inventory.equipment.batch_selection_dialog import BatchChoice, choose_batch_items
 from src.features.inventory.equipment.display_context import equipment_presentation
+from src.features.inventory.equipment.detail_cache import clear_equipment_detail_cache
+from src.features.inventory.equipment.assembly_surface import release_assembly_surface
 from src.features.inventory.equipment.loadout_scoring import score_equipment_display_state
 from src.features.inventory.equipment.master_detail_view import update_equipment_role_status
 from src.services.equipment.game_loadout_projection_service import (
@@ -26,6 +29,7 @@ from src.services.equipment.game_loadout_projection_service import (
 )
 from src.services.equipment.loadout_management import GameLoadoutMutation, freeze_game_loadout_request
 from src.utils.logger import logger
+from src.ui.text_catalog import resolve_text_catalog
 from src.domain.equipment.loadout_management import LoadoutMutation
 
 
@@ -76,37 +80,47 @@ def _persistence_projection_failure(window, error):
     QMessageBox.warning(window, "配装已保存，页面刷新未完成", "请刷新页面，不要重复提交。\n" + error)
 
 
-def _clear_all_equipment(self):
+def _batch_delete_equipment(self):
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
     controller = self.equipment_persistence_controller
 
     def prepared(snapshot, operation):
-        if not any(slot.plan_id is not None for slot in snapshot.slots):
-            QMessageBox.information(self, "清空配装", "当前没有已保存的配装。")
+        slots = tuple(slot for slot in snapshot.slots if slot.plan_id is not None)
+        if not slots:
+            QMessageBox.information(self, text("batch.delete"), text("batch.delete_empty"))
             return
-        answer = QMessageBox.question(self, "清空配装",
-            "确定要从当前配装页移除所有已保存方案吗？\n方案历史和任务记录会保留，但这些方案不再参与装配。",
+        selected = choose_batch_items(self, [BatchChoice(slot.slot_id,
+            str(slot.role_name or slot.character_id),
+            text("batch.locked") if slot.locked else "", enabled=not slot.locked,
+            character_id=slot.character_id, subtitle=slot.slot_name, score=slot.score)
+            for slot in slots], title=text("batch.delete_title"),
+            description=text("batch.delete_description"),
+            accept_text=text("batch.delete_selected"))
+        if not selected:
+            return
+        answer = QMessageBox.question(self, text("batch.delete"),
+            text("batch.delete_confirm", count=len(selected)),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
 
-        def committed(result):
+        def committed(_result):
             self.refresh_saved_equipment_after_mutation()
-            if result.skipped:
-                QMessageBox.information(self, "清空配装",
-                    "已清空未锁定方案。以下方案因计算锁定而保留：" + "、".join(result.skipped))
-            logger.success("已清空所有未锁定角色配装")
+            logger.success(f"已删除所选配装 count={len(selected)}")
 
-        controller.commit(operation, LoadoutMutation("clear", snapshot), committed,
-            lambda error: _persistence_failure(self, "清空配装", error),
+        controller.commit(operation, LoadoutMutation("delete_batch", snapshot, slot_ids=tuple(selected)),
+            committed, lambda error: _persistence_failure(self, text("batch.delete"), error),
             lambda error: _persistence_projection_failure(self, error))
 
-    controller.prepare(prepared, lambda error: _persistence_failure(self, "清空配装", error))
+    controller.prepare(prepared, lambda error: _persistence_failure(self, text("batch.delete"), error))
 
 
 def invalidate_saved_equipment_cache(self: Any) -> None:
     """Public cross-feature hook after a persisted loadout mutation."""
 
     self._saved_equipment_cache_valid = False
+    # 当前详情可保留至写入回执刷新；隐藏详情先释放，防止回到旧方案/旧锁状态。
+    clear_equipment_detail_cache(self, keep_visible=True)
     # 写操作前启动的读取不得发布过期缓存；变更代次在交付时再次复核。
     self._equip_load_token = object()
     lane = getattr(self, "_equip_read_lane", None)
@@ -119,6 +133,9 @@ def reset_equipment_account_state(self: Any) -> None:
     """Discard account-owned projections before the shell refreshes a page."""
 
     invalidate_saved_equipment_cache(self)
+    release_assembly_surface(self)
+    from .assembly_last_result import clear_assembly_result
+    clear_assembly_result(self)
     self._equipment_graduation_tokens = {}
     self._saved_equipment_states = {}
     self._game_loadout_states = {}
@@ -272,7 +289,7 @@ def _game_import_needs_read(self, snapshot, request):
 
 
 def _commit_game_import(self, operation, snapshot, requests, *, role_name=None, locked_count=0):
-    title = "导入游戏内方案" if role_name is not None else "一键导入"
+    title = "导入游戏内方案" if role_name is not None else "批量导入"
     imported_state = (getattr(self, "_game_loadout_states", {}) or {}).get(role_name)
 
     def committed(plan_ids):
@@ -303,7 +320,7 @@ def _commit_game_import(self, operation, snapshot, requests, *, role_name=None, 
                                   and not state.get("_game_imported") and not state.get("_game_existing_plan_locked")
                                   for state in (getattr(self, "_game_loadout_states", {}) or {}).values())
                 button.setEnabled(ready_count > 0)
-                button.setToolTip(f"导入全部 {ready_count} 套完整且未锁定的游戏内方案")
+                button.setToolTip(f"选择导入：{ready_count} 套完整且未锁定的游戏内方案")
         message = (f"[{role_name}] 已导入为计算器配装方案。" if role_name is not None
                    else f"已导入 {len(plan_ids)} 名角色的游戏内方案。")
         if locked_count:
@@ -360,7 +377,8 @@ def _import_game_loadout(self: Any, role_name: str) -> None:
         lambda error: _persistence_failure(self, title, error))
 
 
-def _import_all_game_loadouts(self: Any) -> None:
+def _batch_import_game_loadouts(self: Any) -> None:
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
     states = getattr(self, "_game_loadout_states", {}) or {}
     eligible = [(role_name, state) for role_name, state in states.items()
                 if isinstance(state, dict) and state.get("_game_importable")
@@ -368,37 +386,50 @@ def _import_all_game_loadouts(self: Any) -> None:
     locked_count = sum(isinstance(state, dict) and bool(state.get("_game_importable"))
                        and bool(state.get("_game_existing_plan_locked")) for state in states.values())
     if not eligible:
-        QMessageBox.information(self, "一键导入", "当前没有待导入的完整游戏内方案。")
+        QMessageBox.information(self, text("batch.import"), text("batch.import_empty"))
         return
     try:
         requests = tuple(_freeze_game_import(self, role_name, state) for role_name, state in eligible)
     except Exception as exc:
-        _persistence_failure(self, "一键导入", str(exc))
+        _persistence_failure(self, text("batch.import"), str(exc))
         return
 
     def prepared(snapshot, operation):
-        selected, skipped = [], locked_count
+        candidates, choices, skipped = {}, [], locked_count
         for request in requests:
             slots = tuple(slot for slot in snapshot.slots if slot.character_id == request.projection.character_id)
             target = next((slot for slot in slots if slot.slot_key == "primary"), next(iter(slots), None))
-            if target is not None and target.locked:
+            locked = target is not None and target.locked
+            character_id = request.projection.character_id
+            choices.append(BatchChoice(character_id, request.projection.role_name,
+                text("batch.locked") if locked else text("batch.import_action"),
+                enabled=not locked, character_id=character_id,
+                subtitle=text("batch.import_target", slot=target.slot_name if target else "主力"),
+                score=request.score, score_source="game"))
+            if locked:
                 skipped += 1
                 continue
-            selected.append(replace(request, slot_id=target.slot_id if target else None,
-                create_slot_name=None if target else request.projection.role_name))
-        if not selected:
-            QMessageBox.information(self, "一键导入", "当前没有待导入的完整游戏内方案。")
+            candidates[character_id] = replace(request, slot_id=target.slot_id if target else None,
+                create_slot_name=None if target else "主力")
+        if not candidates:
+            QMessageBox.information(self, text("batch.import"), text("batch.import_empty"))
             return
-        prompt = f"将导入 {len(selected)} 名角色的游戏内方案。对应角色的现有未锁定方案会被替换，是否继续？"
+        selected_ids = choose_batch_items(self, choices, title=text("batch.import_title"),
+            description=text("batch.import_description"),
+            accept_text=text("batch.import_selected"))
+        if not selected_ids:
+            return
+        selected = tuple(candidates[identity] for identity in selected_ids)
+        prompt = text("batch.import_confirm", count=len(selected))
         if skipped:
-            prompt += f"\n\n另有 {skipped} 名角色因现有方案已锁定而跳过。"
-        answer = QMessageBox.question(self, "一键导入", prompt,
+            prompt += "\n\n" + text("batch.import_skipped", count=skipped)
+        answer = QMessageBox.question(self, text("batch.import"), prompt,
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer == QMessageBox.Yes:
             _commit_game_import(self, operation, snapshot, selected, locked_count=skipped)
 
     self.equipment_persistence_controller.prepare(prepared,
-        lambda error: _persistence_failure(self, "一键导入", error))
+        lambda error: _persistence_failure(self, text("batch.import"), error))
 
 
 class EquipmentDisplayControllerMixin:
@@ -417,10 +448,10 @@ class EquipmentDisplayControllerMixin:
     )
     _saved_plan_diff_text = _saved_plan_diff_text
     _show_saved_plan_diff_dialog = _show_saved_plan_diff_dialog
-    _clear_all_equipment = _clear_all_equipment
+    _batch_delete_equipment = _batch_delete_equipment
     _delete_role_equipment = _delete_role_equipment
     _toggle_role_allocation_lock = _toggle_role_allocation_lock
     _manage_loadout_slot = _manage_loadout_slot
     _import_game_loadout = _import_game_loadout
-    _import_all_game_loadouts = _import_all_game_loadouts
+    _batch_import_game_loadouts = _batch_import_game_loadouts
     _optimize_saved_equipment = _optimize_saved_equipment

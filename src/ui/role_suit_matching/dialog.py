@@ -15,6 +15,7 @@ from src.services.identification.matching_settings import (
     effective_matching_suits, reset_matching_role, set_matching_suits,
 )
 from src.ui.widgets import match_pinyin
+from src.domain.equipment.management_settings import MatchingScope
 
 
 class ImageChoiceDelegate(QStyledItemDelegate):
@@ -109,7 +110,7 @@ class MatchingEditorDialog(QDialog):
     management_save_finished = Signal(bool)
     busy_changed = Signal(bool, bool)
 
-    def __init__(self, catalog, parent=None, *, embedded=False):
+    def __init__(self, catalog, parent=None, *, embedded=False, scope=MatchingScope.IDENTIFICATION):
         super().__init__(parent)
         self.embedded = embedded
         if embedded:
@@ -164,9 +165,9 @@ class MatchingEditorDialog(QDialog):
         self.footer = QWidget()
         footer = QHBoxLayout(self.footer)
         footer.setContentsMargins(0, 0, 0, 0)
-        scope = QLabel(self.text("matching.scope_hint"))
-        scope.setWordWrap(True)
-        footer.addWidget(scope, 1)
+        scope_label = QLabel(self.text(f"matching.scope.{MatchingScope(scope).value}"))
+        scope_label.setWordWrap(True)
+        footer.addWidget(scope_label, 1)
         self.status = _StatusLabel(self.text("matching.loading"))
         self.status.setTextFormat(Qt.PlainText)
         self.status.setWordWrap(True)

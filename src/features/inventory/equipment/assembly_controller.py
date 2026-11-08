@@ -14,15 +14,18 @@ from concurrent.futures import CancelledError
 from threading import Event
 from typing import Any
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtWidgets import QLabel, QMessageBox, QProgressBar, QProgressDialog
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMessageBox
 
 from src.app.workers import WorkerThread
-from src.app.window_geometry import fit_dialog_to_available_screen
+from src.ui.text_catalog import resolve_text_catalog
+from .assembly_surface import AssemblyProgressChannel, assembly_is_running, assembly_surface, deliver_after_finished, release_assembly_surface
+from .assembly_last_result import bind_assembly_result, update_result_button
 from src.observability.context import OperationContext
 from src.integrations.nte_core import is_mods_plugin_unavailable_error
 from src.features.inventory.equipment.assembly_dialogs import assembly_report_dialog as _assembly_report_dialog
 from src.features.inventory.equipment.fast_apply_completion_summary import build_fast_apply_completion_summary
+from src.services.equipment.assembly_progress import freeze_assembly_targets, reconcile_fast_result
 from src.services.equipment.apply import EquipmentApplyService
 from src.services.equipment.bulk_apply import BulkEquipmentApplyService
 from src.domain.inventory.source_capabilities import is_visual_inventory_source
@@ -34,7 +37,7 @@ from src.features.inventory.equipment.automatic_assembly_controller import (
     _preview_automatic_assemble_role,
     _return_to_equipment_after_assembly,
 )
-from src.features.inventory.equipment.slot_selection_dialog import select_assembly_slot_ids
+from src.features.inventory.equipment.slot_selection_dialog import assembly_account_identity, select_assembly_slot_ids
 
 
 __all__ = [
@@ -113,41 +116,6 @@ def _run_nte_core_equipment_apply(
     )
 
 
-def _is_missing_character_instance_request(request: dict) -> bool:
-    reason = str(request.get("reason") or "")
-    return "角色实例缓存均未包含" in reason or "当前稳定背包快照未包含" in reason
-
-
-def _show_fast_apply_identity_gaps(
-    self: Any,
-    requests: list[dict[str, Any]],
-    applied: list[dict[str, Any]],
-    completion_details: str = "",
-) -> None:
-    """Report unresolved UIDs only after every independently runnable role ran."""
-    missing_instances = [request for request in requests if _is_missing_character_instance_request(request)]
-    ambiguous_instances = [request for request in requests if request not in missing_instances]
-    lines = []
-    if applied:
-        lines.append(f"已先下发 {len(applied)} 个可获取角色实例的装配指令。")
-    if completion_details:
-        lines.append(completion_details)
-    if missing_instances:
-        lines.append("以下角色尚未获取到可用的角色实例 UID，未执行极速装配：")
-        lines.extend(f"• {request['role_name']}" for request in missing_instances)
-    if ambiguous_instances:
-        lines.append("以下角色存在无法安全确定的角色实例 UID，未执行极速装配：")
-        lines.extend(f"• {request['role_name']}" for request in ambiguous_instances)
-    lines.extend(
-        (
-            "",
-            "请保持游戏在线后重新启动背包同步，等待新的稳定快照，再重试未完成角色。",
-            "若多次同步仍无法获取这些角色的实例 UID，建议改用自动装配；也可以在游戏内手动完成这些角色的配装。",
-        )
-    )
-    QMessageBox.warning(self, "部分角色未极速装配", "\n".join(lines))
-
-
 def _start_nte_core_equipment_apply(
     self: Any,
     role_names: list[str],
@@ -156,24 +124,25 @@ def _start_nte_core_equipment_apply(
     identity_overrides: dict[str, dict[str, Any]] | None = None,
     job_id: int | None = None,
 ) -> None:
-    if not request_input_entry(self, "native_equipment", "极速装配"):
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
+    if not request_input_entry(self, "native_equipment", text("assembly.fast.title")):
         return
     sync = getattr(self, "_inventory_sync_service", None)
     if sync is None or not sync.is_running:
-        show_sync_required(self, "极速装配")
+        show_sync_required(self, text("assembly.fast.title"))
         return
     current_worker = getattr(self, "_equipment_apply_worker", None)
     if current_worker is not None and current_worker.isRunning():
-        QMessageBox.information(self, "正在装配", "已有装配任务正在执行，请等待指令下发完成。")
+        QMessageBox.information(self, text("assembly.fast.title"), text("assembly.busy"))
         return
     hotkey_manager = getattr(self, "global_hotkey_manager", None)
     hotkey_owner = "fast_equipment_apply"
     if getattr(hotkey_manager, "active_owner", None) not in (None, hotkey_owner):
-        QMessageBox.information(self, "极速装配", "当前全局停止键正由其他任务使用，请先停止该任务。")
+        QMessageBox.information(self, text("assembly.fast.title"), text("assembly.hotkey_busy"))
         return
     configuration = getattr(hotkey_manager, "configuration", None)
     stop_hotkey = str(getattr(configuration, "stop", "F12"))
-    stop_hint = f"关闭此窗口或按 {stop_hotkey} 停止后续装配。"
+    stop_hint = text("assembly.fast.stop_hint", hotkey=stop_hotkey)
 
     # 任务启动前在 Controller 线程冻结账号依赖；worker 不读取会变化的窗口字段。
     app_context = getattr(self, "app_context", None)
@@ -181,12 +150,17 @@ def _start_nte_core_equipment_apply(
     account_id = app_context.account.active_account_id if app_context is not None else None
     database_path = app_context.account.user_database_path if app_context is not None else getattr(self, "user_database_path", None)
     if database_path is None:
-        show_input_unavailable(self, "极速装配", "当前账号数据库尚未就绪")
+        show_input_unavailable(self, text("assembly.fast.title"), text("assembly.database_not_ready"))
         return
     cancel_event = Event()
+    worker = None
 
     def is_current():
-        return app_context is None or (
+        if worker is not None and getattr(self, "_equipment_apply_worker", None) is not worker:
+            return False
+        if app_context is None:
+            return getattr(self, "app_context", None) is None and getattr(self, "user_database_path", None) == database_path
+        return (
             getattr(self, "app_context", None) is app_context
             and app_context.generation == generation
             and app_context.account.active_account_id == account_id
@@ -197,76 +171,44 @@ def _start_nte_core_equipment_apply(
         if not is_current():
             raise CancelledError("账号上下文已变化")
 
+    progress_dialog = assembly_surface(self)
+    bind_assembly_result(self, progress_dialog, assembly_account_identity(self))
+    try:
+        if job_id is None:
+            targets = freeze_assembly_targets(database_path, role_names, slot_ids)
+        else:
+            targets = tuple(row.target for row in progress_dialog.progress_model.rows)
+        progress_dialog.configure_targets(targets)
+    except Exception as exc:
+        progress_dialog.configure_targets(())
+        progress_dialog.show_result(text("assembly.fast.preflight_blocked"), text("assembly.no_dispatch", reason=str(exc)), warning=True)
+        return
+    expected_plans = {row.slot_id: (row.plan_id, row.source_snapshot_id) for row in targets}
+
     service = BulkEquipmentApplyService(
         database_path, sync, dao_factory=UserDataDao, apply_service_factory=EquipmentApplyService,
         operation_guard=getattr(self, "operation_guard", None), cancel_event=cancel_event,
-        check_current=check_current,
+        check_current=check_current, expected_plans=expected_plans,
         operation_context=OperationContext.create("equipment_apply", account_id=account_id,
                                                   context_generation=generation, job_id=job_id),
     )
 
-    progress_state: dict[str, Any] = {
-        "current": 0,
-        "total": max(1, len(slot_ids or role_names)),
-        "message": "正在准备极速装配…",
-        "show_progress_bar": True,
-    }
-    progress_dialog = QProgressDialog(
-        "",
-        "",
-        0,
-        progress_state["total"],
-        self,
-    )
-    progress_dialog.setWindowTitle("极速装配进度")
-    progress_label = QLabel(f"{progress_state['message']}\n{stop_hint}", progress_dialog)
-    progress_label.setWordWrap(True)
-    progress_label.setAlignment(Qt.AlignCenter)
-    progress_dialog.setLabel(progress_label)
-    progress_dialog.setCancelButton(None)
-    progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-    progress_dialog.setAutoClose(False)
-    progress_dialog.setAutoReset(False)
-    progress_dialog.setMinimumDuration(0)
-    progress_dialog.setValue(0)
-    fit_dialog_to_available_screen(progress_dialog, QSize(420, 120))
-
-    progress_timer = QTimer(progress_dialog)
-
-    def update_progress_dialog() -> None:
-        if cancel_event.is_set():
-            progress_timer.stop()
-            progress_dialog.close()
-            return
-        total = max(1, int(progress_state.get("total", 1)))
-        progress_dialog.setMaximum(total)
-        progress_dialog.setValue(min(total, max(0, int(progress_state.get("current", 0)))))
-        progress_dialog.setLabelText(f"{progress_state.get('message') or '正在极速装配…'}\n{stop_hint}")
-        progress_bar = progress_dialog.findChild(QProgressBar)
-        if progress_bar is not None:
-            progress_bar.setVisible(bool(progress_state.get("show_progress_bar", True)))
-
-    progress_timer.timeout.connect(update_progress_dialog)
-    progress_timer.start(80)
-
-    def update_progress(payload: dict) -> None:
-        if is_current():
-            progress_state.update(payload)
+    progress_dialog.begin_running(text("assembly.fast.title"), text("assembly.fast.preparing"))
+    progress_dialog.status_view.notice.setText(stop_hint + " " + text("assembly.status.stop_notice"))
+    channel = AssemblyProgressChannel(progress_dialog, is_current, is_stopping=cancel_event.is_set)
 
     def request_cancel():
         cancel_event.set()
 
-    progress_dialog.canceled.connect(request_cancel)
-    progress_dialog.rejected.connect(request_cancel)
+    progress_dialog.stop_requested.connect(request_cancel)
 
     def close_progress_dialog() -> None:
         if hotkey_manager is not None:
             hotkey_manager.stop(owner=hotkey_owner)
-        progress_dialog.canceled.disconnect(request_cancel)
-        progress_dialog.rejected.disconnect(request_cancel)
-        progress_timer.stop()
-        progress_dialog.close()
-        progress_dialog.deleteLater()
+        progress_dialog.stop_requested.disconnect(request_cancel)
+        channel.close()
+        progress_dialog.end_running()
+        progress_dialog.hide()
 
     worker = WorkerThread(
         target=lambda: _run_nte_core_equipment_apply(
@@ -275,7 +217,7 @@ def _start_nte_core_equipment_apply(
             slot_ids=slot_ids,
             identity_overrides=identity_overrides,
             job_id=job_id,
-            progress_callback=update_progress,
+            progress_callback=channel.publish,
         ),
         parent=self,
     )
@@ -285,106 +227,39 @@ def _start_nte_core_equipment_apply(
         close_progress_dialog()
         if not is_current():
             return
-        preflight_errors = report.get("preflight_errors") or []
-        if preflight_errors:
-            details = "\n".join(
-                f"• [{row.get('role_name', '未知角色')}]：{row.get('error', '方案不可用')}" for row in preflight_errors
-            )
-            QMessageBox.warning(
-                self,
-                "极速装配未开始",
-                "没有向游戏发送任何装配指令。以下已保存方案不能用于极速装配：\n\n"
-                f"{details}\n\n请重新计算并保存完整方案后再试。",
-            )
-            return
+        reconcile_fast_result(progress_dialog.progress_model, report)
         applied = report.get("applied") or []
-        requests = report.get("identity_requests") or []
-        skipped_roles = report.get("skipped_roles") or []
-        summary, role_details = build_fast_apply_completion_summary(applied, skipped_roles=skipped_roles)
-        has_skips = bool(skipped_roles) or any(row.get("skipped_assignments") for row in applied)
-        confirmed_count = sum(bool(row.get("verified")) and not row.get("scoped_verified") for row in applied)
-        partial_summary = f"此前已下发 {len(applied)} 个角色，其中 {confirmed_count} 个已确认"
-        if has_skips:
-            partial_summary = f"{summary}。确认仅针对本次可用装备。\n{role_details}"
+        skipped = report.get("skipped_roles") or []
+        summary, role_details = build_fast_apply_completion_summary(applied, skipped_roles=skipped, catalog=progress_dialog.text_catalog)
+        problems = []
+        for key in ("preflight_errors", "identity_requests", "repair_errors"):
+            for row in report.get(key) or ():
+                problems.append(text("assembly.status.problem", role=row.get("role_name") or text("selector.unknown_role"),
+                                     reason=str(row.get("error") or row.get("reason") or text("assembly.status.skipped"))))
         if report.get("failed_role"):
-            error_message = str(report.get("error") or "未知错误")
-            failure_kind = str(report.get("failure_kind") or "apply_error")
-            if (
-                failure_kind == "plugin_unavailable"
-                or _is_equipment_plugin_unavailable_error(error_message)
-            ):
-                reason = _equipment_failure_details(
-                    "plugin_unavailable",
-                    error_message,
-                )
-                QMessageBox.warning(
-                    self,
-                    "装备插件不可用",
-                    f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n"
-                    f"{reason}\n\n"
-                    "请先确认：\n"
-                    "1. 先完全退出游戏，再在“设置 → 环境配置”重新部署与当前 nte-core 匹配的 "
-                    "原生采集组件；\n"
-                    "2. 部署完成后启动游戏并进入游戏场景，从工作台重启同步，等待“持续监听”；\n"
-                    "3. 完成上述检查后，再点击右上角“极速装配”重新执行。\n\n"
-                    f"{partial_summary}；任务日志已保存。此次不会立即重试。",
-                )
-                return
-            reason = _equipment_failure_details(failure_kind, error_message)
-            if failure_kind in {"cancelled", "outcome_unknown", "core_request_timeout"}:
-                QMessageBox.warning(self, "装配已停止", f"{reason}\n\n{partial_summary}。")
-                return
-            retry = QMessageBox.question(
-                self,
-                "装配暂停",
-                f"任务 #{report.get('job_id')} 在 [{report['failed_role']}] 停止。\n{reason}\n\n"
-                f"{partial_summary}；任务日志已保存。是否重试失败角色并继续？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if retry == QMessageBox.Yes:
-                _start_nte_core_equipment_apply(self, [], job_id=report["job_id"])
-            return
-        if requests:
-            _show_fast_apply_identity_gaps(self, requests, applied, role_details if has_skips else "")
-            refresh = getattr(self, "_refresh_equip", None)
-            if callable(refresh):
-                refresh()
-            return
-        snapshot_failure = report.get("snapshot_wait_failure")
-        if report.get("repair_errors") and not isinstance(snapshot_failure, dict):
-            details = "\n".join(f"• [{row.get('role_name', '未知角色')}]：{row.get('error', '复核不一致')}"
-                                for row in report["repair_errors"])
-            QMessageBox.warning(self, "装配复核未通过", f"{summary}。\n\n{details}\n\n请同步后检查实际装备。")
-            return
-        if isinstance(snapshot_failure, dict):
-            attempt = int(snapshot_failure.get("attempt") or 1)
-            reason = _equipment_failure_details(
-                str(snapshot_failure.get("kind") or "snapshot_error"),
-                snapshot_failure.get("error"),
-            )
-            QMessageBox.warning(
-                self,
-                "装配复核未完成",
-                f"{summary}。\n\n第 {attempt} 次装配后的复核未完成：{reason}\n\n"
-                "由于没有取得可靠的新快照，本次没有继续发送后续装配请求。",
-            )
-            return
-        task_note = f"\n任务 #{report['job_id']} 已保存日志。" if report.get("job_id") is not None else ""
-        message = (
-            f"{summary}。{task_note}"
-            f"\n\n{role_details}"
-        )
-        if applied:
-            message += "\n\n请核对游戏内实际装备；缺件需要补齐或重新计算后再装配。"
-        elif skipped_roles:
-            message += "\n\n请补齐装备或重新计算后再试。"
-        if has_skips:
-            message += "\n\n跳过的装备未装入；本次可用装备的确认不代表原方案完整装配。"
-        title = "部分装配结果" if has_skips and applied else "未执行装配" if skipped_roles else "装配完成"
-        completion_box = QMessageBox(QMessageBox.Icon.Information, title, message, QMessageBox.StandardButton.Ok, self)
-        completion_box.setMinimumWidth(560)
-        completion_box.exec()
+            problems.append(_equipment_failure_details(str(report.get("failure_kind") or "apply_error"), report.get("error")))
+        failure = report.get("snapshot_wait_failure")
+        if isinstance(failure, dict):
+            problems.append(_equipment_failure_details(str(failure.get("kind") or "snapshot_error"), failure.get("error")))
+        if report.get("preflight_errors"):
+            title = text("assembly.fast.preflight_blocked")
+        elif report.get("failure_kind") == "cancelled" or cancel_event.is_set():
+            title = text("assembly.fast.stopped")
+        elif any(row.state == "unknown" for row in progress_dialog.progress_model.rows) or failure:
+            title = text("assembly.fast.result_unknown")
+        elif any(row.state == "failed" for row in progress_dialog.progress_model.rows):
+            title = text("assembly.fast.incomplete")
+        elif not applied and (skipped or problems):
+            title = text("assembly.fast.not_executed")
+        elif skipped or problems or any(row.state in {"partial", "skipped"} for row in progress_dialog.progress_model.rows):
+            title = text("assembly.fast.partial")
+        else:
+            title = text("assembly.fast.completed")
+        message = "\n\n".join(part for part in (summary, role_details, "\n".join(problems), text("assembly.fast.check_equipment")) if part)
+        if report.get("job_id") is not None:
+            message += "\n" + text("assembly.fast.log_saved", job=report["job_id"])
+        progress_dialog.show_result(title, message, warning=bool(problems) or any(
+            row.state in {"unknown", "failed"} for row in progress_dialog.progress_model.rows))
         refresh = getattr(self, "_refresh_equip", None)
         if callable(refresh):
             refresh()
@@ -393,18 +268,20 @@ def _start_nte_core_equipment_apply(
         close_progress_dialog()
         if not is_current():
             return
-        if cancel_event.is_set():
-            QMessageBox.information(self, "装配已停止", "已停止后续装配；已下发的操作保持原状，请同步后检查实际装备。")
-            return
-        show_input_unavailable(self, "极速装配", str(message))
+        started = any(row.dispatched or row.state in {"operating", "waiting", "unknown"}
+                      for row in progress_dialog.progress_model.rows)
+        progress_dialog.progress_model.finish_pending(stopped=True)
+        title = text("assembly.fast.stopped" if cancel_event.is_set() else "assembly.fast.result_unknown" if started else "assembly.fast.preflight_blocked")
+        detail = text("assembly.stopped_detail") + "\n\n" + str(message) if started else text("assembly.no_dispatch", reason=str(message))
+        progress_dialog.show_result(title, detail, warning=True)
 
-    worker.result_ready.connect(on_result)
-    worker.error.connect(on_error)
+    deliver_after_finished(worker, on_result, on_error, no_result=text("assembly.no_result"))
     try:
         if hotkey_manager is not None:
             hotkey_manager.start(owner=hotkey_owner, on_stop=request_cancel)
         progress_dialog.show()
         worker.start()
+        update_result_button(self)
     except Exception:
         close_progress_dialog()
         raise
@@ -434,7 +311,8 @@ def _preview_nte_core_assemble_role(
     confirmed: bool = False,
 ) -> None:
     """确认后通过装备插件极速装配一个已保存角色方案。"""
-    if not request_input_entry(self, "native_equipment", "极速装配"):
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
+    if not request_input_entry(self, "native_equipment", text("assembly.fast.title")):
         return
 
     try:
@@ -495,11 +373,15 @@ def _preview_nte_core_assemble_role(
 def _preview_nte_core_assemble_all_roles(
     self: Any,
     *,
-    confirmed: bool = False,
     role_names: list[str] | None = None,
 ) -> None:
-    if not request_input_entry(self, "native_equipment", "极速装配"):
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
+    if not request_input_entry(self, "native_equipment", text("assembly.fast.title")):
         return
+    if assembly_is_running(self):
+        QMessageBox.information(self, text("assembly.fast.title"), text("assembly.busy"))
+        return
+    identity = assembly_account_identity(self)
     requested_roles = tuple(dict.fromkeys(str(name) for name in (role_names or ())))
     try:
         with UserDataDao(_account_database_path(self)) as user_dao:
@@ -511,8 +393,8 @@ def _preview_nte_core_assemble_all_roles(
                 if missing:
                     QMessageBox.information(
                         self,
-                        "极速装配",
-                        f"以下角色尚未保存当前方案：{'、'.join(missing)}",
+                        text("assembly.fast.title"),
+                        text("assembly.missing_roles", roles="、".join(missing)),
                     )
                     return
                 current_slots = tuple(
@@ -520,8 +402,8 @@ def _preview_nte_core_assemble_all_roles(
                     for selection in current_slots
                     if selection.role_name in requested_roles
                 )
-            selected_slot_ids = select_assembly_slot_ids(self, current_slots)
-            if selected_slot_ids is None:
+            selected_slot_ids = select_assembly_slot_ids(self, current_slots, native=True)
+            if not selected_slot_ids:
                 return
             selections = selection_service.resolve(
                 selected_slot_ids,
@@ -539,11 +421,20 @@ def _preview_nte_core_assemble_all_roles(
                 elif summary and is_visual_inventory_source(summary.get("source")):
                     visual_roles.append(role_name)
     except Exception as exc:
-        QMessageBox.warning(self, "极速装配", f"读取已保存方案失败：{exc}")
+        QMessageBox.warning(self, text("assembly.fast.title"), text("assembly.read_failed", reason=str(exc)))
+        return
+    if assembly_account_identity(self) != identity:
+        return
+    incompatible = [selection.role_name for selection in selections if selection.slot_id not in nte_slot_ids]
+    if nte_slot_ids and incompatible:
+        surface = assembly_surface(self)
+        surface.show_result(text("assembly.fast.preflight_blocked"),
+                            text("assembly.fast.mixed_sources", roles="、".join(incompatible)), warning=True)
         return
     if nte_slot_ids:
         selected_slot_ids = list(nte_slot_ids)
     elif visual_roles:
+        release_assembly_surface(self)
         if _confirm_automatic_assembly_fallback(
             self,
             "当前方案来自视觉扫描，无法取得极速装配所需的游戏装备标识。\n\n"
@@ -552,35 +443,22 @@ def _preview_nte_core_assemble_all_roles(
         ):
             _preview_automatic_assemble_all_roles(
                 self,
-                role_names=list(requested_roles) if requested_roles else None,
+                role_names=visual_roles,
+                slot_ids=[selection.slot_id for selection in selections if selection.role_name in visual_roles],
             )
         return
     else:
-        QMessageBox.information(self, "极速装配", "当前没有基于原生同步背包的已保存方案。请先重新计算并保存。")
+        QMessageBox.information(self, text("assembly.fast.title"), text("assembly.fast.no_native_plans"))
         return
-    if confirmed:
-        _start_nte_core_equipment_apply(self, [], slot_ids=selected_slot_ids)
-        return
-    ret = QMessageBox.question(
-        self,
-        "极速装配",
-        f"将依次向本地组件发送 {len(selected_slot_ids)} 个角色的装配指令，"
-        "虚拟占位和背包中不存在的装备会跳过；有可用装备的角色先卸空再装入，缺件处留空，"
-        "无可用装备的角色不卸装。"
-        "指令下发后会等待新观测复核。"
-        "\n\n是否继续？",
-        QMessageBox.Yes | QMessageBox.No,
-        QMessageBox.No,
-    )
-    if ret == QMessageBox.Yes:
-        _start_nte_core_equipment_apply(self, [], slot_ids=selected_slot_ids)
+    # 角色选择框的“开始极速装配”已是本次执行确认，不再叠加普通确认弹窗。
+    _start_nte_core_equipment_apply(self, [], slot_ids=selected_slot_ids)
 
 
 def _preview_fast_assemble_all_roles(
     self: Any,
     role_names: list[str] | None = None,
 ) -> None:
-    """从配装页右上角启动全部角色的极速装配。"""
+    """从配装页右上角选择角色并启动极速装配。"""
 
     _preview_nte_core_assemble_all_roles(self, role_names=role_names)
 
@@ -591,21 +469,20 @@ def _select_single_role_assembly_mode(
 ) -> str | None:
     """让用户为一个角色显式选择极速或自动装配。"""
 
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
     dialog = QMessageBox(self)
-    dialog.setWindowTitle("选择装配方式")
+    dialog.setTextFormat(Qt.PlainText)
+    dialog.setWindowTitle(text("assembly.method.title"))
     dialog.setIcon(QMessageBox.Question)
     # QMessageBox 会根据标签内容重新收缩；同时设置标签最小宽度和初始尺寸，
     # 确保两种装配方式的说明不会挤在窄弹窗里。
     dialog.setMinimumSize(720, 400)
     dialog.setStyleSheet("QLabel#qt_msgbox_label,QLabel#qt_msgbox_informativelabel{min-width:620px;}")
-    dialog.setText(f"为 [{role_name}] 选择装配方式")
-    dialog.setInformativeText(
-        "极速装配：通过游戏内装备插件直接写入方案，速度快，无需打开配装页。\n\n"
-        "自动装配：模拟游戏内操作逐步完成，无需装备插件，但需停在角色详情页且耗时更长。"
-    )
-    fast_button = dialog.addButton("极速装配", QMessageBox.ActionRole)
-    automatic_button = dialog.addButton("自动装配", QMessageBox.ActionRole)
-    dialog.addButton(QMessageBox.Cancel)
+    dialog.setText(text("assembly.method.summary", role=role_name))
+    dialog.setInformativeText(text("assembly.method.description"))
+    fast_button = dialog.addButton(text("assembly.fast.title"), QMessageBox.ActionRole)
+    automatic_button = dialog.addButton(text("assembly.auto.title"), QMessageBox.ActionRole)
+    dialog.addButton(text("common.cancel"), QMessageBox.RejectRole)
     dialog.resize(720, 400)
     dialog.exec()
     if dialog.clickedButton() is fast_button:

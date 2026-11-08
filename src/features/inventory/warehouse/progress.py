@@ -105,10 +105,8 @@ def update_warehouse_save_state(window: Any) -> None:
     pending_count = len(
         getattr(window, "_warehouse_pending_state_changes", {})
     )
-    owner = getattr(window, "warehouse_read_controller", None)
-    if not pending_count and owner is not None:
-        owner.recommendation_guard = None
-        owner.recommendation_targets = {}
+    # 净差异归零只改变保存数量，不结束本轮预览身份；后续人工改动仍须核对智能见证。
+    # 证据仅由重新生成、输入失效、账号切换或正式快照替换的 owner 撤销。
     if hasattr(window, "warehouse_save_btn"):
         window.warehouse_save_btn.setEnabled(not getattr(window, "_warehouse_management_busy", False))
         window.warehouse_save_btn.setText(

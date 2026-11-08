@@ -91,8 +91,8 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
             floor=12,
             evidence={
                 "hits": (
-                    _hit(1, 3_570_949.0, "enemy-wire:reused", "upper"),
-                    _hit(20, 3_570_949.0, "enemy-wire:reused", "lower"),
+                    _hit(1, 4_605_680.0, "enemy-wire:reused", "upper"),
+                    _hit(20, 4_605_680.0, "enemy-wire:reused", "lower"),
                 )
             },
             range_start_us=0,
@@ -194,9 +194,9 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
                 "hits": (
                     _hit(
                         1,
-                        6_099_744.0,
+                        4_307_845.5,
                         "enemy-wire:feast",
-                        monster_id="boss_05_BP_DiyBoss",
+                        monster_id="mon_48_BP_Diy",
                     ),
                 )
             },
@@ -213,12 +213,12 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         self.assertEqual("LifeOP001_challenge", options["1"])
         self.assertEqual("Attack003_challenge", options["2"])
         self.assertEqual("LightOP003_challenge", options["3"])
-        self.assertEqual("HunOP003_challenge", options["4"])
+        self.assertEqual("LingOP003_challenge", options["4"])
         self.assertEqual("XiangOP003_challenge", options["5"])
         assert inferred.target_condition is not None
         resistances = dict(inferred.target_condition.resistances)
         self.assertGreaterEqual(resistances["cosmos"], 0.3)
-        self.assertGreaterEqual(resistances["psyche"], 0.3)
+        self.assertGreaterEqual(resistances["nature"], 0.3)
         self.assertGreaterEqual(resistances["lakshana"], 0.3)
 
     def test_mixed_halves_resolve_one_season_without_merging_target_profiles(self) -> None:
@@ -228,8 +228,8 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
             floor=12,
             evidence={
                 "hits": (
-                    _hit(1, 3_570_949.0, "enemy-wire:reused", "upper"),
-                    _hit(2, 3_570_949.0, "enemy-wire:reused", "lower"),
+                    _hit(1, 4_605_680.0, "enemy-wire:reused", "upper"),
+                    _hit(2, 4_605_680.0, "enemy-wire:reused", "lower"),
                 )
             },
             range_start_us=0,
@@ -237,7 +237,7 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         )
 
         assert mixed is not None
-        self.assertEqual("Abyss_10|12|mixed", mixed.environment_ref)
+        self.assertEqual("Abyss_14|12|mixed", mixed.environment_ref)
         self.assertEqual("", mixed.scope_half)
         self.assertIsNone(mixed.target_condition)
         self.assertEqual(
@@ -247,6 +247,7 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         self.assertEqual(2, len(mixed.identities))
 
     def test_battle_time_keeps_current_season_when_one_half_target_mapping_conflicts(self) -> None:
+        # 使用本次发行已确认的 14 期排期，不再套用 9 月旧期次。
         inferred = BattleInferredTargetConditionService.infer(
             static_database_path=STATIC_DATABASE,
             combat_context_kind="abyss",
@@ -254,17 +255,17 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
             evidence={
                 "hits": (
                     _hit(1, 999_999.0, "enemy-wire:upper-conflict", "upper"),
-                    _hit(2, 3_210_314.0, "enemy-wire:lower-boss", "lower"),
+                    _hit(2, 4_140_547.0, "enemy-wire:lower-boss", "lower"),
                 )
             },
             range_start_us=None,
             range_end_us=None,
-            battle_occurred_at_utc="2026-09-19T08:16:46.743+00:00",
+            battle_occurred_at_utc="2026-11-20T00:00:00+00:00",
         )
 
         assert inferred is not None
-        self.assertEqual("Abyss_10|10|mixed", inferred.environment_ref)
-        self.assertIn("星流环线", inferred.environment_name)
+        self.assertEqual("Abyss_14|10|mixed", inferred.environment_ref)
+        self.assertIn("霜寒环线", inferred.environment_name)
         self.assertEqual("battle_time_partial_mixed", inferred.selection_mode)
         self.assertEqual("中", inferred.confidence)
         self.assertFalse(inferred.ambiguous)
@@ -273,7 +274,7 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
             {half for half, _condition in inferred.target_conditions_by_half},
         )
         self.assertIn("上半目标映射仍冲突", inferred.inference_basis)
-        self.assertIn("2026-09-19 16:16:46", inferred.inference_basis)
+        self.assertIn("2026-11-20 08:00:00", inferred.inference_basis)
 
     def test_non_unique_signature_does_not_match(self) -> None:
         unknown = BattleInferredTargetConditionService.infer(
@@ -296,9 +297,9 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
                 "hits": (
                     _hit(
                         1,
-                        4_498_005.0,
+                        1_131_744.0,
                         "enemy-wire:boss-07",
-                        monster_id="Boss_07_BP_DiyBoss",
+                        monster_id="boss_13_BP_DiyBoss",
                     ),
                 )
             },
@@ -308,7 +309,7 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
 
         assert inferred is not None
         self.assertEqual("DiyBossStage3", inferred.environment_ref)
-        self.assertEqual("塞润尼缇", inferred.identities[0].target_name)
+        self.assertEqual("无首铁驭", inferred.identities[0].target_name)
         self.assertEqual("unique_hard", inferred.selection_mode)
 
 if __name__ == "__main__":

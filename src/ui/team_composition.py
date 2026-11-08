@@ -9,7 +9,7 @@ from src.services.teams.overview import TeamOverviewService
 from src.ui.axis_allocation_composition import build_team_report_matching_service
 
 
-def build_team_controller(app_context, parent, *, configure_enhancement=None):
+def build_team_controller(app_context, parent, *, configure_enhancement=None, text_catalog=None):
     def service_provider():
         account = app_context.account
         generation = app_context.generation
@@ -39,7 +39,7 @@ def build_team_controller(app_context, parent, *, configure_enhancement=None):
     controller = TeamController(service_provider=service_provider, overview_service_provider=overview_provider,
         axis_graduation_service_provider=axis_graduation_provider,
         matching_service_provider=lambda: build_team_report_matching_service(app_context),
-        configure_enhancement=configure_enhancement, parent=parent)
+        configure_enhancement=configure_enhancement, parent=parent, catalog=text_catalog)
     unregister = app_context.register_account_lifecycle(CallbackAccountLifecycle(
         is_running=controller.is_running, stop=controller.reset_account,
         rebuild=lambda account: controller.reset_account(), start=lambda: None,

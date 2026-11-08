@@ -40,9 +40,9 @@ def _bundle_payload(source_schema: object) -> dict:
 
 
 class BattleReportTransferPolicyTests(unittest.TestCase):
-    def test_import_accepts_only_audited_user_schema_36_through_50(self) -> None:
-        # v48–50仅增改队伍轴伤表；显式逐版接受，仍拒绝未来版本及伪装成整数的值。
-        audited = frozenset({36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50})
+    def test_import_accepts_only_audited_user_schema_36_through_52(self) -> None:
+        # 51/52只改队伍来源和管理配置；逐版接受，仍拒绝未来版本及伪装整数。
+        audited = frozenset({36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52})
         self.assertEqual(
             audited,
             SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS,
@@ -54,7 +54,7 @@ class BattleReportTransferPolicyTests(unittest.TestCase):
                     _bundle_payload(schema)
                 )
                 self.assertEqual(1, len(reports))
-        for schema in (35, 51, "36", 50.0, None, [], True):
+        for schema in (35, 53, "36", 52.0, None, [], True):
             with self.subTest(schema=schema), self.assertRaises(
                 UserDataValidationError
             ):

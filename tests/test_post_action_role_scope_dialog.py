@@ -2,6 +2,7 @@
 import os
 import re
 import tempfile
+from time import monotonic
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,18 +16,25 @@ from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QPushButton, QScrollArea
 
 from src.features.scanning.post_action_dialog import (
-    RoleScopeDialog,
     ScanPostActionDialog,
     _load_role_options,
-    load_scan_post_action_config,
 )
+from src.services.scanning.management_settings import load_scan_post_action_config
+from src.ui.equipment_management.scope_dialogs import RoleScopeDialog
 from src.domain.post_actions import default_post_action_config
-from src.features.scanning.preserve_rule_editor import PreserveRuleEditor
+from src.ui.equipment_management.rule_editor import PreserveRuleEditor
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.theme import apply_app_theme, current_theme_name
 
 
 class PostActionRoleScopeDialogTests(unittest.TestCase):
+    def wait_for(self, condition, *, timeout_ms=2000):
+        # Qt 计时器和布局依赖事件循环；固定多等 20ms 在 Windows 忙时不保证已交付。
+        deadline = monotonic() + timeout_ms / 1000
+        while not condition() and monotonic() < deadline:
+            QTest.qWait(5)
+        self.assertTrue(condition(), 'Qt 交互未在时限内稳定')
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -46,14 +54,26 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                 stack.enter_context(patch(f"src.features.scanning.post_action_dialog.{name}", return_value=value))
             if config is not None:
                 stack.enter_context(patch("src.features.scanning.post_action_dialog.load_scan_post_action_config", return_value=config))
-            dialog = ScanPostActionDialog(None, Path(directory), Path(directory),
-                                          show_server_region_option=not warehouse,
-                                          user_database_path=user_database_path)
-        self.addCleanup(dialog.close)
+            if warehouse:
+                from src.features.inventory.warehouse.management_dialog import WarehouseManagementDialog
+                from src.integrations.preferences.locale_files import bundled_text_catalog
+                from tests.test_warehouse_management_ui import editor_data
+                dialog = WarehouseManagementDialog(bundled_text_catalog(), config_dir=Path(directory))
+                data = list(editor_data(config))
+                data[3] = ([("H_3", 3), ("V_3", 3)], ["套装甲", "套装乙"],
+                           [(1003, "早雾", "", False), (1004, "安魂曲", "", False)])
+                dialog.install(tuple(data))
+            else:
+                dialog = ScanPostActionDialog(None, Path(directory), Path(directory), user_database_path=user_database_path)
+        def close_owner():
+            QDialog.done(dialog, QDialog.Rejected)
+            dialog.deleteLater()
+            self.app.processEvents()
+        self.addCleanup(close_owner)
         return dialog
 
     def test_effective_type_counts_change_without_losing_inactive_choices_in_both_entries(self):
-        from src.features.scanning.post_action_scope_dialogs import TypeRangeDialog
+        from src.ui.equipment_management.scope_dialogs import TypeRangeDialog
 
         with tempfile.TemporaryDirectory() as directory:
             for warehouse in (False, True):
@@ -71,6 +91,17 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                         picker.shape_buttons[1][0].click()
                         picker.set_checks[1][0].click()
                         self.assertEqual((["H_3", "V_3"], ["套装甲", "套装乙"]), picker.selected_values())
+                        # 未生效类别也能编辑记忆值；单点与全选必须使用相同选择口径。
+                        controls = [button for button, *_ in picker.shape_buttons + picker.set_checks]
+                        self.assertTrue(all(button.isEnabled() for button in controls))
+                        for button in controls:
+                            button.click()
+                        self.assertEqual(([], []), picker.selected_values())
+                        for button in picker.findChildren(QPushButton):
+                            if button.text() == "全选":
+                                button.click()
+                        self.assertEqual((["H_3", "V_3"], ["套装甲", "套装乙"]), picker.selected_values())
+                        self.assertIn(f"{inactive} 0/0", widgets["type_range_summary"].text())
                     widgets["type_scope"].setCurrentIndex(widgets["type_scope"].findData("all"))
                     self.assertIn("驱动 2/2", widgets["type_range_summary"].text())
                     self.assertIn("卡带 2/2", widgets["type_range_summary"].text())
@@ -107,15 +138,14 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             with UserDataDao(database_path, account_id="synthetic-rules"):
                 pass
             manager = self.make_manager(directory, config, user_database_path=database_path)
-            with patch("src.features.scanning.post_action_dialog.RoleScopeDialog") as picker:
+            with patch("src.ui.equipment_management.scoring_fields.RoleScopeDialog") as picker:
                 picker.return_value.exec.return_value = QDialog.Accepted
                 for module, selected in (("discard", [1003]), ("lock", [1004])):
                     combo = manager._widgets[module]["role_scope"]
                     combo.setCurrentIndex(combo.findData("selected"))
                     picker.return_value.selected_character_ids.return_value = selected
                     manager._widgets[module]["role_scope_button"].click()
-            self.assertFalse(manager._widgets["discard"]["discard_unmatched"].isChecked())
-            manager._widgets["discard"]["discard_unmatched"].setChecked(True)
+            self.assertNotIn("discard_unmatched", manager._widgets["discard"])
             manager._main_tabs.setCurrentIndex(1)
             self.assertEqual("规则处理", manager._main_tabs.tabText(1))
             manager.show()
@@ -132,8 +162,24 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             self.assertEqual([1004], saved["lock"]["selected_character_ids"])
             self.assertEqual(["第二条", "第一条", "第三条"], [rule["name"] for rule in saved["preserve_rules"]])
             self.assertFalse((Path(directory) / "scan_post_actions.json").exists())
-            reopened = self.make_manager(directory, warehouse=True, user_database_path=database_path)
+            reopened = self.make_manager(directory, user_database_path=database_path)
             self.assertEqual(saved, reopened._collect_config())
+
+    def test_both_managements_hide_unmatched_switch_and_ignore_old_disabled_value(self):
+        config = default_post_action_config()
+        config['discard']['discard_unmatched'] = False
+        with tempfile.TemporaryDirectory() as directory:
+            for warehouse in (False, True):
+                manager = self.make_manager(directory, config, warehouse=warehouse)
+                self.assertNotIn('discard_unmatched', manager._widgets['discard'])
+                self.assertFalse(any('未匹配装备也弃置' in widget.text()
+                                     for widget in manager.findChildren(QCheckBox)))
+                value = manager.collect()[0] if warehouse else manager._collect_config()
+                if warehouse:
+                    self.assertNotIn('discard_unmatched', value['discard'])
+                else:
+                    self.assertIs(value['discard']['discard_unmatched'], True)
+                self.assertNotIn('勾选', manager._module_help_text('discard'))
 
     def test_rule_long_hold_drag_and_keyboard_reorder_keep_action_identity_and_persist(self):
         config = default_post_action_config()
@@ -169,7 +215,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             QTest.keyClick(self.app.focusWidget(), Qt.Key_Up, Qt.ControlModifier)
             self.app.processEvents()
             self.assertEqual(["第二条", "第一条", "第三条"], [r["name"] for r in manager._collect_config()["preserve_rules"]])
-            with patch("src.features.scanning.preserve_rule_actions.PreserveRuleEditor") as editor:
+            with patch("src.ui.equipment_management.rule_actions.PreserveRuleEditor") as editor:
                 editor.return_value.exec.return_value = QDialog.Accepted
                 editor.return_value.result_rule.return_value = dict(config["preserve_rules"][0], name="改名第一条")
                 button("编辑规则", "第一条").click()
@@ -216,7 +262,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                     self.assertIn("锁定", labels)
                     self.assertIn("弃置", labels)
                     self.assertFalse(any("直接" in text for text in labels))
-                    with patch("src.features.scanning.preserve_rule_actions.PreserveRuleEditor") as editor:
+                    with patch("src.ui.equipment_management.rule_actions.PreserveRuleEditor") as editor:
                         editor.return_value.exec.return_value = QDialog.Rejected
                         button.setFocus(Qt.TabFocusReason)
                         QTest.keyClick(button, Qt.Key_Space)
@@ -262,7 +308,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                         point = target_row.mapToGlobal(QPoint(target_row.width() // 2,
                             1 if direction == "before" else target_row.height()-2))
                     QTest.mousePress(source, Qt.LeftButton)
-                    QTest.qWait(QApplication.startDragTime() + 20)
+                    self.wait_for(lambda: source._armed, timeout_ms=QApplication.startDragTime() + 2000)
                     QTest.mouseMove(source, source.mapFromGlobal(point))
                     if direction == "edge":
                         QTest.qWait(360)
@@ -300,7 +346,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                     source, target = handles[0], handles[2]
                     endpoint = source.mapFromGlobal(target.mapToGlobal(target.rect().center()))
                     QTest.mousePress(source, Qt.LeftButton)
-                    QTest.qWait(QApplication.startDragTime() + 20)
+                    self.wait_for(lambda: source._armed, timeout_ms=QApplication.startDragTime() + 2000)
                     QTest.mouseMove(source, endpoint)
                     self.assertTrue(source._armed)
                     self.assertTrue(any(row.property("dragSource") for _rule, row in manager._rule_rows))
@@ -330,7 +376,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                 apply_app_theme(self.app, theme)
                 editor = PreserveRuleEditor(None, {"item_type": "drive", "sub_match": 2}, [("H_3", 3)], [], Path("config"))
                 self.addCleanup(editor.close)
-                with patch("src.features.scanning.preserve_rule_editor.fit_dialog_to_available_screen",
+                with patch("src.ui.equipment_management.rule_editor.fit_dialog_to_available_screen",
                            side_effect=lambda dialog: fit_dialog_to_available_screen(dialog, available_geometry=QRect(0, 0, 1000, 1100))):
                     editor.show()
                     QTest.qWait(20)
@@ -348,6 +394,8 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                 self.assertLessEqual(editor.frameGeometry().bottom(), 360)
                 self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
                 editor.drive_sub_stat_list.item(0).setSelected(True)
+                self.wait_for(lambda: all(widget.verticalScrollBar().maximum() == 0 for widget in
+                    (editor.drive_sub_stat_list, editor.drive_required_sub_stat_list)))
                 for widget in (editor.drive_sub_stat_list, editor.drive_required_sub_stat_list):
                     self.assertEqual(0, widget.verticalScrollBar().maximum())
                     widget.setFocus(Qt.TabFocusReason)
@@ -369,7 +417,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                 for action in (QDialogButtonBox.Save, QDialogButtonBox.Cancel):
                     widget = buttons.button(action)
                     self.assertTrue(editor.rect().contains(widget.mapTo(editor, widget.rect().center())))
-                with patch("src.features.scanning.preserve_rule_editor.QMessageBox.warning") as warning:
+                with patch("src.ui.equipment_management.rule_editor.QMessageBox.warning") as warning:
                     buttons.button(QDialogButtonBox.Save).click()
                     warning.assert_not_called()
                 self.assertEqual(QDialog.Accepted, editor.result())
@@ -389,7 +437,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                     editor = PreserveRuleEditor(None, {"item_type": "tape", "sub_match": 2},
                                                 [("H_3", 3), ("V_3", 3)], [], Path("config"))
                     self.addCleanup(editor.close)
-                    with patch("src.features.scanning.preserve_rule_editor.fit_dialog_to_available_screen",
+                    with patch("src.ui.equipment_management.rule_editor.fit_dialog_to_available_screen",
                                side_effect=lambda dialog: fit_dialog_to_available_screen(dialog,
                                    available_geometry=QRect(0, 0, 1200, 1200))):
                         editor.show()
@@ -432,7 +480,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                         for action in (QDialogButtonBox.Save, QDialogButtonBox.Cancel):
                             button = buttons.button(action)
                             self.assertTrue(editor.rect().contains(button.mapTo(editor, button.rect().center())))
-                        with patch("src.features.scanning.preserve_rule_editor.QMessageBox.warning") as warning:
+                        with patch("src.ui.equipment_management.rule_editor.QMessageBox.warning") as warning:
                             buttons.button(QDialogButtonBox.Save).click()
                             warning.assert_not_called()
                         result = editor.result_rule()
@@ -462,38 +510,16 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
         self.assertEqual([1003], dialog.selected_character_ids())
 
 
-    def test_warehouse_context_hides_region_option_without_resetting_it(self):
+    def test_warehouse_has_no_region_option_and_does_not_change_scanning_region(self):
         config = default_post_action_config()
         config["server_region"] = "hmt"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with (
-                patch(
-                    "src.features.scanning.post_action_dialog.load_scan_post_action_config",
-                    return_value=config,
-                ),
-                patch(
-                    "src.features.scanning.post_action_dialog._load_drive_shape_options",
-                    return_value=[],
-                ),
-                patch(
-                    "src.features.scanning.post_action_dialog._load_set_name_options",
-                    return_value=[],
-                ),
-                patch(
-                    "src.features.scanning.post_action_dialog._load_role_options",
-                    return_value=[],
-                ),
-            ):
-                dialog = ScanPostActionDialog(
-                    None,
-                    Path(temp_dir),
-                    Path(temp_dir),
-                    show_server_region_option=False,
-                )
+        with tempfile.TemporaryDirectory() as directory:
+            warehouse = self.make_manager(directory, config, warehouse=True)
+            scan = self.make_manager(directory, config)
+            self.assertNotIn("server_region", warehouse.collect()[0])
+            self.assertEqual("hmt", scan._collect_config()["server_region"])
+            self.assertFalse(any(check.text() == "港澳台服" for check in warehouse.findChildren(QCheckBox)))
 
-        self.assertTrue(dialog.hmt_region_check.isHidden())
-        self.assertEqual("hmt", dialog._collect_config()["server_region"])
-        dialog.close()
 
     def test_role_options_identify_account_custom_roles_for_portrait(self):
         class StaticDao:
@@ -529,9 +555,9 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             database_path = Path(temp_dir) / "user.sqlite3"
             database_path.touch()
             with (
-                patch("src.features.scanning.post_action_dialog.StaticGameDataDao", StaticDao),
-                patch("src.features.scanning.post_action_dialog.UserDataDao", UserDao),
-                patch("src.features.scanning.post_action_dialog.GameUiAssetCatalog") as catalog,
+                patch("src.services.inventory.management_choices.StaticGameDataDao", StaticDao),
+                patch("src.services.inventory.management_choices.UserDataDao", UserDao),
+                patch("src.services.inventory.management_choices.GameUiAssetCatalog") as catalog,
             ):
                 catalog.return_value.character_icon.return_value = None
                 self.assertEqual(

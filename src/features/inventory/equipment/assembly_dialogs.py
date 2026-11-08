@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+from src.ui.text_catalog import resolve_text_catalog
+
 
 def assembly_report_dialog(
     action_name: str,
     report,
     expected_role_count: int | None = None,
+    catalog=None,
 ):
+    text = resolve_text_catalog(catalog).render
     role_count = len(getattr(report, "role_reports", []) or [])
     action_count = getattr(report, "executed_actions", 0)
     missing = list(getattr(report, "missing_roles", []) or [])
@@ -20,60 +24,69 @@ def assembly_report_dialog(
     )
     incomplete = bool(
         missing or skipped or duplicates or verification_failures
+        or getattr(report, "stopped", False) or getattr(report, "error", "")
+        or any(getattr(row, "skipped_actions", ()) for row in (getattr(report, "role_reports", ()) or ()))
     )
+    verified_roles = getattr(report, "verified_roles", None)
+    if verified_roles is not None and len(verified_roles) < role_count:
+        incomplete = True
     if expected_role_count is not None and role_count < expected_role_count:
         incomplete = True
     if role_count == 0:
         incomplete = True
 
-    title = f"{action_name}未完成" if incomplete else f"{action_name}完成"
+    title = text("assembly.report.incomplete" if incomplete else "assembly.report.completed", action=action_name)
     lines = [
-        f"已装配 {role_count} 个角色，执行 {action_count} 个动作。"
+        text("assembly.report.summary", count=role_count, actions=action_count)
     ]
+    if getattr(report, "error", ""):
+        lines.append(text("assembly.status.problem", role=getattr(report, "current_role", None) or text("selector.unknown_role"),
+                          reason=report.error))
+    if getattr(report, "stopped", False):
+        lines.append(text("assembly.stopped_detail"))
     if expected_role_count is not None and role_count < expected_role_count:
         lines.append(
-            f"预计装配 {expected_role_count} 个角色，还有 "
-            f"{expected_role_count - role_count} 个未完成。"
+            text("assembly.report.remaining", count=expected_role_count, remaining=expected_role_count - role_count)
         )
     if missing:
-        lines.append("未找到角色：" + "、".join(str(role) for role in missing))
+        lines.append(text("assembly.report.missing", roles="、".join(str(role) for role in missing)))
     if skipped:
-        lines.append("跳过角色：" + "、".join(str(role) for role in skipped))
+        lines.append(text("assembly.report.skipped", roles="、".join(str(role) for role in skipped)))
     if duplicates:
-        lines.append(f"重复识别角色槽位：{len(duplicates)} 个。")
+        lines.append(text("assembly.report.duplicates", count=len(duplicates)))
     if unrecognized:
-        lines.append(f"未识别角色槽位：{len(unrecognized)} 个。")
+        lines.append(text("assembly.report.unrecognized", count=len(unrecognized)))
         for entry in unrecognized:
             if not isinstance(entry, dict):
                 lines.append(f"- {entry}")
                 continue
             if entry.get("roster_index") is not None:
-                position = f"第 {int(entry['roster_index']) + 1} 个角色"
+                position = text("assembly.report.roster_position", index=int(entry["roster_index"]) + 1)
             elif (
                 entry.get("page_index") is not None
                 and entry.get("slot_index") is not None
             ):
                 position = (
-                    f"第 {int(entry['page_index']) + 1} 页"
-                    f"第 {int(entry['slot_index']) + 1} 个角色"
+                    text("assembly.report.page_position", page=int(entry["page_index"]) + 1,
+                         index=int(entry["slot_index"]) + 1)
                 )
             else:
-                position = "未知位置"
+                position = text("assembly.report.unknown_position")
             raw_text = (
-                str(entry.get("raw_text") or "").strip() or "未读取到文字"
+                str(entry.get("raw_text") or "").strip() or text("assembly.report.no_text")
             )
-            lines.append(f"- {position}（OCR：{raw_text}）")
+            lines.append(text("assembly.report.ocr_detail", position=position, content=raw_text))
     duplicate_missing: list[tuple[str, str, int | None]] = []
     if verification_failures:
         lines.append(
-            f"图纸截图校验失败：{len(verification_failures)} 个角色。"
+            text("assembly.report.verification_failed", count=len(verification_failures))
         )
         ordinary_missing: list[tuple[str, str]] = []
         empty_screenshots: list[str] = []
         for failure in verification_failures:
             if not isinstance(failure, dict):
                 continue
-            role_name = str(failure.get("role_name") or "未知角色")
+            role_name = str(failure.get("role_name") or text("selector.unknown_role"))
             if failure.get("reason") == "empty_screenshot":
                 empty_screenshots.append(role_name)
                 continue
@@ -98,33 +111,31 @@ def assembly_report_dialog(
                     ordinary_missing.append((role_name, block_id))
         for role_name, block_id, duplicate_count in duplicate_missing:
             count_text = (
-                f"（同条件驱动共 {duplicate_count} 个）"
+                text("assembly.report.duplicate_count", count=duplicate_count)
                 if duplicate_count
                 else ""
             )
             lines.append(
-                f"- {role_name}：重复驱动块 #{block_id}{count_text} 未能确认装入。"
+                text("assembly.report.duplicate_block", role=role_name, block=block_id, detail=count_text)
             )
         for role_name, block_id in ordinary_missing:
             lines.append(
-                f"- {role_name}：驱动块 #{block_id} 未通过截图校验。"
+                text("assembly.report.missing_block", role=role_name, block=block_id)
             )
         for role_name in empty_screenshots:
-            lines.append(f"- {role_name}：未取得游戏截图，无法确认图纸结果。")
+            lines.append(text("assembly.report.empty_screenshot", role=role_name))
         if duplicate_missing:
             lines.append(
-                "原因：这些驱动在游戏筛选器中的形状、品质和词条条件相同，"
-                "自动装配无法唯一定位目标，可能装错同类驱动或留下空位。"
+                text("assembly.report.duplicate_reason")
             )
             lines.append(
-                "处理：请在游戏内手动补装上述驱动；"
-                "也可先让重复驱动的等级、锁定或弃置状态不同后再重试。"
+                text("assembly.report.duplicate_next")
             )
     if incomplete and (missing or skipped or duplicates):
-        lines.append("请检查角色识别结果后重新执行。")
+        lines.append(text("assembly.report.check_roles"))
     elif incomplete and verification_failures and not duplicate_missing:
-        lines.append("请检查游戏画面是否稳定、图纸位置是否正确后重新执行。")
+        lines.append(text("assembly.report.check_screen"))
     elif unrecognized:
-        lines.append("其余未识别槽位不属于本次目标角色，不影响本次装配结果。")
+        lines.append(text("assembly.report.other_slots"))
     return title, "\n".join(lines), not incomplete
 

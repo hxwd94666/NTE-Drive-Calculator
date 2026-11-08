@@ -7,7 +7,8 @@ import sqlite3
 from concurrent.futures import CancelledError
 from pathlib import Path
 
-from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
+from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError, UserDataValidationError
+from src.domain.equipment.management_settings import MatchingScope, normalize_warehouse_config
 
 
 SETTING_KEY = "identification_role_suits"
@@ -77,22 +78,29 @@ def reset_matching_role(settings, character_id):
     settings.get("suit_overrides", {}).pop(key, None)
 
 
-def matching_settings_identity(value: dict) -> str:
+def matching_settings_identity(value: dict, *, scope=MatchingScope.IDENTIFICATION) -> str:
     canonical = normalize_matching_settings(value)
     # 版本升级但没有替换项时，实际匹配集合未变，不使旧结果无谓失效。
     if canonical["version"] == 2 and not canonical["suit_overrides"]:
         canonical = {"version": 1, "extra_suits": canonical["extra_suits"]}
-    return hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode("utf-8")).hexdigest()
+    payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    scope = MatchingScope(scope)
+    if scope != MatchingScope.IDENTIFICATION:
+        payload = scope.value + ":" + payload
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class MatchingSettingsService:
-    def __init__(self, user_database_path: str | Path):
+    def __init__(self, user_database_path: str | Path, *, scope=MatchingScope.IDENTIFICATION):
         self.database_path = Path(user_database_path)
+        self.scope = MatchingScope(scope)
 
     def load(self) -> dict:
         with UserDataDao(self.database_path) as dao:
-            return normalize_matching_settings(dao.list_application_setting_copies().get(SETTING_KEY))
+            return normalize_matching_settings(dao.list_application_setting_copies().get(self.scope.setting_key))
+
+    def identity(self, value):
+        return matching_settings_identity(value, scope=self.scope)
 
     def save(self, draft: dict, *, expected: dict, check_current=None, post_action_config=None) -> bool:
         """UI 草稿按打开时的账号与配置提交；冲突不覆盖，等价内容不推进修订。"""
@@ -102,17 +110,25 @@ class MatchingSettingsService:
             value = expected
         if post_action_config is not None:
             from src.domain.post_actions import merge_post_action_config, validate_post_action_config
-            post_action_config = merge_post_action_config(post_action_config)
+            post_action_config = (normalize_warehouse_config(post_action_config)
+                                  if self.scope == MatchingScope.WAREHOUSE
+                                  else merge_post_action_config(post_action_config))
             error = validate_post_action_config(post_action_config)
             if error:
                 raise ValueError(error)
         # 管理窗口的一次保存同时提交两份草稿；冲突、取消、写入失败整体回滚。
         with UserDataDao(self.database_path) as dao, dao.write_transaction():
+            raw_expected = dao.list_application_setting_copies().get(self.scope.setting_key, normalize_matching_settings(None))
+            if normalize_matching_settings(raw_expected) != expected:
+                raise UserDataValidationError("套装匹配已变化，请重新打开后修改")
             changed = dao.compare_and_replace_application_setting_copy(
-                SETTING_KEY, value, expected=expected,
+                self.scope.setting_key, value, expected=raw_expected,
                 missing_value=normalize_matching_settings(None), check=check_current)
             if post_action_config is not None:
-                dao.patch_application_setting_copy("ui", {"full_scan_post_action_config": post_action_config})
+                key = self.scope.management_key
+                if key is None:
+                    raise ValueError("鉴定作用域不保存管理配置")
+                dao.patch_application_setting_copy("ui", {key: post_action_config})
             if check_current is not None:
                 check_current()
             return changed
@@ -120,7 +136,7 @@ class MatchingSettingsService:
     def require_identity(self, expected: str) -> None:
         """在派发前复核冻结配置；迟到结果不沿用已失效的匹配范围。"""
         try:
-            current = matching_settings_identity(self.load())
+            current = self.identity(self.load())
         except (ValueError, OSError, sqlite3.Error, UserDataError) as exc:
             # 复核缺证同样只撤销后续动作；已接受部分仍由原执行 owner 核对。
             raise CancelledError("角色匹配套装配置读取失败，本批后续处理已停止") from exc

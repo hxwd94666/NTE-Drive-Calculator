@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from src.domain.equipment.loadout_plan_scores import persisted_loadout_total_score
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +26,7 @@ class ManagedSlot:
     locked: bool
     role_name: str
     changed: bool
+    score: float | None = None
 
     @classmethod
     def from_row(cls, row):
@@ -35,7 +37,7 @@ class ManagedSlot:
                    str(row.get("updated_at_utc") or ""), row.get("current_plan_id"),
                    plan.get("source_snapshot_id"), str(plan.get("updated_at_utc") or ""),
                    bool(plan.get("allocation_locked")), str(payload.get("source_role_name") or ""),
-                   bool((payload.get("last_diff") or {}).get("changed")))
+                   bool((payload.get("last_diff") or {}).get("changed")), persisted_loadout_total_score(plan) if plan else None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,7 @@ class LoadoutMutation:
     snapshot: LoadoutManagementSnapshot
     slot_id: int | None = None
     name: str = ""
+    slot_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

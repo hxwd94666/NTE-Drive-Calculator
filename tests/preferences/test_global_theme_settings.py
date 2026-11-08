@@ -9,7 +9,7 @@ from pathlib import Path
 from src.services.accounts.settings import AccountSettingsService
 from src.services.preferences.global_theme_settings_service import GlobalThemeSettingsService
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.features.scanning.post_action_dialog import (
+from src.services.scanning.management_settings import (
     load_scan_post_action_config,
     save_scan_post_action_config,
 )
@@ -115,19 +115,17 @@ class GlobalThemeSettingsTests(unittest.TestCase):
                     "full_scan_capture_driver": "gamepad",
                     "full_scan_dual_thread_processing": False,
                     "full_scan_amd_compatibility": True,
-                    "full_scan_post_action_config": {"discard": {"enabled": True}},
                 },
             )
+            save_scan_post_action_config(None, {"discard": {"enabled": True}},
+                                         user_database_path=first_database)
 
             first_loaded = first.load("ui")
             second_loaded = second.load("ui")
             self.assertEqual("gamepad", first_loaded["full_scan_capture_driver"])
             self.assertFalse(first_loaded["full_scan_dual_thread_processing"])
             self.assertTrue(first_loaded["full_scan_amd_compatibility"])
-            self.assertEqual(
-                {"discard": {"enabled": True}},
-                first_loaded["full_scan_post_action_config"],
-            )
+            self.assertTrue(first_loaded["full_scan_post_action_config"]["discard"]["enabled"])
             self.assertEqual("mouse", second_loaded["full_scan_capture_driver"])
             self.assertTrue(second_loaded["full_scan_dual_thread_processing"])
             self.assertFalse(second_loaded["full_scan_amd_compatibility"])

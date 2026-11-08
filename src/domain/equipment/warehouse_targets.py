@@ -2,6 +2,12 @@
 def recommendation_targets(rows):
     targets={}
     for row in rows:
+        if row.get('predecessor_fixed'):
+            target = row.get('fixed_state_target')
+            before = 'locked' if row.get('original_locked') else 'discarded' if row.get('original_discarded') else 'normal'
+            if row.get('state_known', True) and target in {'normal', 'locked', 'discarded'} and target != before:
+                targets[row['uid']] = target
+            continue
         if row.get('original_locked') or not row.get('state_known',True):
             continue
         if row['decision']=='lock':

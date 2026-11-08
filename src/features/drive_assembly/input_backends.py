@@ -90,14 +90,31 @@ class AssemblyExecutionReport:
     duplicate_roles: list[dict[str, Any]] = field(default_factory=list)
     unrecognized_roles: list[dict[str, Any]] = field(default_factory=list)
     verification_failures: list[dict[str, Any]] = field(default_factory=list)
+    verified_roles: list[str] = field(default_factory=list)
+    current_role: str | None = None
+    stopped: bool = False
+    error: str = ""
+    partial_actions: int = 0
 
     @property
     def executed_actions(self) -> int:
-        return self.navigation_actions + sum(report.executed_actions for report in self.role_reports)
+        return self.navigation_actions + self.partial_actions + sum(report.executed_actions for report in self.role_reports)
 
 
 class AssemblyExecutionStopped(RuntimeError):
     """Raised when the user stops automatic assembly."""
+
+    def __init__(self, message, *, report=None):
+        super().__init__(message)
+        self.report = report
+
+
+class AssemblyExecutionFailed(RuntimeError):
+    """异常仍带回当前任务部分报告，不让已执行角色在界面上消失。"""
+
+    def __init__(self, message, *, report):
+        super().__init__(message)
+        self.report = report
 
 
 def f12_stop_checker() -> Callable[[], bool]:

@@ -399,7 +399,8 @@ def run_streaming_scan_parse(
                     if result_is_current is not None and not result_is_current():
                         raise CancelledError("账号上下文已变化，扫描后管理已停止")
                     if evaluation.matching_identity:
-                        MatchingSettingsService(user_database_path).require_identity(evaluation.matching_identity)
+                        from src.domain.equipment.management_settings import MatchingScope
+                        MatchingSettingsService(user_database_path, scope=MatchingScope.SCAN).require_identity(evaluation.matching_identity)
                 # 部分成功与 issue 原样保留；未知结果不在流水线自动重发。
                 post_action_summary = state_sync_factory(
                     scanner,

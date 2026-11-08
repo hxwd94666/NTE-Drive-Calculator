@@ -6,8 +6,9 @@ from unittest.mock import patch
 import pytest
 
 from src.integrations.inventory.warehouse_state_writer import WarehouseStateWriter
+from src.domain.equipment.management_settings import MatchingScope
 from src.integrations.nte_core_protocol import NteCoreRpcError
-from src.services.identification.matching_settings import MatchingSettingsService, matching_settings_identity
+from src.services.identification.matching_settings import MatchingSettingsService
 from src.services.inventory.warehouse_state_management import (
     WarehouseStateManagementError, WarehouseStateManagementPlan, WarehouseStateManagementService,
 )
@@ -56,9 +57,9 @@ def test_stale_plan_dispatches_nothing_and_partial_unlock_is_confirmed(tmp_path)
     database = tmp_path / "account.sqlite3"
     with UserDataDao(database, account_id="fixture"):
         pass
-    settings = MatchingSettingsService(database)
+    settings = MatchingSettingsService(database, scope=MatchingScope.WAREHOUSE)
     initial = settings.load()
-    frozen = matching_settings_identity(initial)
+    frozen = settings.identity(initial)
     updated = {"version": 1, "extra_suits": {"1001": ["B"]}}
     plan = WarehouseStateManagementPlan(7, (
         {"equipment": {"slot": 8, "serial": 1}, "target_state": "discarded", "current_state": "locked"},
@@ -72,6 +73,9 @@ def test_stale_plan_dispatches_nothing_and_partial_unlock_is_confirmed(tmp_path)
         def list_inventory_items(self, snapshot_id):
             return [{"kind": "module", "uid_slot": 8, "uid_serial": serial,
                      "locked": snapshot_id == 7 or serial == 2, "discarded": False} for serial in (1, 2)]
+
+        def list_inventory_items_with_runtime_state(self, snapshot_id):
+            return self.list_inventory_items(snapshot_id)
 
     class ChangingSync(Sync):
         is_running = True

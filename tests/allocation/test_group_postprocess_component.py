@@ -171,7 +171,9 @@ def test_old_loadout_lock_controls_borrowing_and_atomic_save(tmp_path, mode, joi
             locked_uids=locks.reserved_uids, axis_selection=case["selection"] if mode == "axis_priority" else None)
     plan = plans["灵可"]
     if locked:
-        assert not plan.get("valid") or plan.get("assigned_tape") is None
+        # 锁定只预留这些真实 UID；扩展夹具中的其他未锁定卡带仍可合法使用。
+        tape = plan.get("assigned_tape")
+        assert tape is None or tape.uid not in {"nte-core-4-100", "nte-core-4-101"}
         with UserDataDao(path) as dao:
             assert dao.list_loadout_slots(1003)[0]["current_plan_id"] == old
         return

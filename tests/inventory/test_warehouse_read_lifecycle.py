@@ -15,6 +15,7 @@ from src.features.inventory.warehouse.read_controller import (
     WarehouseReadController, read_warehouse_request, reset_warehouse_account,
 )
 from src.domain.inventory.warehouse_read_request import WarehouseReadRequest
+from src.integrations.preferences.locale_files import bundled_text_catalog
 
 NTE_TEST_TIER = "core"
 
@@ -101,6 +102,7 @@ def make_host(monkeypatch, tmp_path, reader, quality_reader=None):
         pass
 
     host = Host()
+    host.text_catalog = bundled_text_catalog()
     host.app_context = SimpleNamespace(
         account=SimpleNamespace(active_account_id="fixture-a", user_database_path=tmp_path / "a.sqlite3"),
         generation=1,

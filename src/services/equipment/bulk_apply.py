@@ -16,6 +16,7 @@ from src.observability.context import OperationContext
 from src.observability.operation import log_event
 from src.services.equipment.apply_recovery import EquipmentApplyRecovery, RecoveryStopped
 from src.services.equipment.bulk_postcheck import postcheck_and_repair, project_dispatched_loadouts
+from src.services.equipment.assembly_progress import emit_role_progress, emit_verification_progress
 from src.services.equipment.apply import EquipmentApplyError, EquipmentApplyService
 from src.services.equipment.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -72,7 +73,9 @@ class BulkEquipmentApplyService:
         operation_guard: OperationGuard | None = None,
         cancel_event: Event | None = None,
         check_current: Callable[[], None] | None = None,
+        expected_plans: dict[int, tuple[int, int]] | None = None,
     ) -> None:
+        self.expected_plans = expected_plans
         self.operation_guard = operation_guard
         self.database_path = Path(database_path)
         self.sync_service = sync_service
@@ -148,6 +151,8 @@ class BulkEquipmentApplyService:
         pinned_snapshot_id: int | None = None
         with self.dao_factory(self.database_path) as user_dao:
             self._check()
+            if self.expected_plans is not None and job_id is None:
+                LoadoutSlotSelectionService(user_dao).assert_current_plans(self.expected_plans, defer_equipment_conflicts=True)
             apply_service = self.apply_service_factory(
                 user_dao,
                 self.sync_service,
@@ -227,6 +232,7 @@ class BulkEquipmentApplyService:
                     return failure
 
                 self._check()
+                emit_role_progress(progress_callback, {}, None, phase="verifying")
                 postcheck = self._postcheck_and_repair(
                     user_dao,
                     apply_service,
@@ -413,6 +419,9 @@ class BulkEquipmentApplyService:
             require_native_snapshot=True,
             defer_equipment_conflicts=True,
         )
+        if self.expected_plans is not None:
+            # 门禁与方案读取之间可能有保存回执；实际准备结果仍须等于本次冻结身份。
+            selection_service.assert_frozen_selections(native_selections, self.expected_plans)
         for selection in native_selections:
             selected_plans.append((selection.role_name, dict(selection.plan)))
         for role_name, plan in selected_plans:
@@ -594,6 +603,7 @@ class BulkEquipmentApplyService:
                 total=len(prepared),
                 message=f"正在下发 [{role_name}] 的装配指令…",
             )
+            emit_role_progress(progress_callback, role, "operating")
             user_dao.mark_equipment_apply_job_item(
                 role["job_item_id"],
                 status="running",
@@ -640,6 +650,10 @@ class BulkEquipmentApplyService:
                         "scoped_required_uids": role.get("scoped_required_uids"),
                     }
                 )
+                emit_role_progress(progress_callback, role,
+                    "partial" if result.verified and role.get("skipped_assignments") else "confirmed" if result.verified else "waiting",
+                    dispatched=True, verified=bool(result.verified),
+                    scope="subset" if role.get("skipped_assignments") else "full" if result.verified else "none")
                 report_bulk_apply_progress(
                     progress_callback,
                     current=index,
@@ -754,6 +768,7 @@ class BulkEquipmentApplyService:
             check_cancelled=self._check,
             observation_cursor=observation_cursor,
             check_source=check_source,
+            on_verified=lambda row: emit_verification_progress(progress_callback, row),
             report_progress=lambda current, total, message, show_progress_bar: report_bulk_apply_progress(
                 progress_callback,
                 current=current,

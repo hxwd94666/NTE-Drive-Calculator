@@ -149,6 +149,9 @@ class WarehouseStateBatchTests(unittest.TestCase):
             def current_inventory_snapshot_id(self): return self.snapshot_id
             def list_inventory_items(self, snapshot_id):
                 return [{"uid_slot": 8, "uid_serial": 1, "locked": False, "discarded": snapshot_id == 9}]
+
+            def list_inventory_items_with_runtime_state(self, snapshot_id):
+                return self.list_inventory_items(snapshot_id)
         dao = Dao()
         class ConfirmingSync(Sync):
             is_running = True

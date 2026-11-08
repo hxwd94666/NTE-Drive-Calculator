@@ -4,6 +4,8 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import sqlite3
+from tempfile import TemporaryDirectory
+from tests.equipment_suit_review_fixture import build_review_source
 
 import pytest
 
@@ -16,20 +18,32 @@ DATABASE = ROOT / "data/game_static.sqlite3"
 REVIEWS = ROOT / "tools/game_data/equipment_suit_permanent_reviews.json"
 
 
+@pytest.fixture
+def tmp_path():
+    # 工具的输出域是 build；夹具在该域建立独立临时目录，不绕过生产路径门禁。
+    directory = ROOT / "build" / "test-fixtures"
+    directory.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix="suit-case-", dir=directory) as temporary:
+        yield Path(temporary)
+
+
 @pytest.fixture(scope="module")
 def reviewed():
-    before = file_hash(DATABASE)
-    policy = json.loads(REVIEWS.read_text("utf-8"))
-    with closing(sqlite3.connect(DATABASE.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
-        entries = {(r["suit_id"], r["required_count"]):
-                   (effect_evidence(connection, r["suit_id"], r["required_count"]), r)
-                   for r in policy["reviews"]}
-    yield policy, entries
-    assert file_hash(DATABASE) == before
+    directory = ROOT / "build" / "test-fixtures"
+    directory.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix="suit-source-", dir=directory) as temporary:
+        database, reviews, policy = build_review_source(Path(temporary))
+        before = file_hash(database)
+        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+            entries = {(r["suit_id"], r["required_count"]):
+                       (effect_evidence(connection, r["suit_id"], r["required_count"]), r)
+                       for r in policy["reviews"]}
+        yield policy, entries, database, reviews
+        assert file_hash(database) == before
 
 
 def test_all_24_effects_produce_exact_17_unconditional_properties(reviewed):
-    _, entries = reviewed
+    _, entries, _database, _reviews = reviewed
     actual = {}
     classes = {}
     for key, (evidence, policy) in entries.items():
@@ -58,7 +72,7 @@ def test_all_24_effects_produce_exact_17_unconditional_properties(reviewed):
 
 def test_candidate_reopens_with_foreign_keys_provenance_and_explicit_nonrelease_status(tmp_path, reviewed):
     output = tmp_path / "suits.sqlite3"
-    result = build_candidate(DATABASE, REVIEWS, output)
+    result = build_candidate(reviewed[2], reviewed[3], output)
     assert result["release_ready"] is False and result["runtime_integration"] == "pending"
     with closing(sqlite3.connect(output.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
@@ -70,7 +84,7 @@ def test_candidate_reopens_with_foreign_keys_provenance_and_explicit_nonrelease_
         for evidence, expected in connection.execute("SELECT evidence_json,evidence_sha256 FROM equipment_suit_effect_review"):
             assert digest(json.loads(evidence)) == expected
         metadata = {key: json.loads(value) for key, value in connection.execute("SELECT * FROM candidate_metadata")}
-        assert metadata["source_database_sha256"] == file_hash(DATABASE)
+        assert metadata["source_database_sha256"] == file_hash(reviewed[2])
         assert metadata["artifact_kind"] != "game"
 
 
@@ -89,7 +103,7 @@ def test_changed_identity_or_incomplete_review_never_creates_output(tmp_path, re
     path.write_text(json.dumps(policy), encoding="utf-8")
     output = tmp_path / "candidate.sqlite3"
     with pytest.raises(ValueError):
-        build_candidate(DATABASE, path, output)
+        build_candidate(reviewed[2], path, output)
     assert not output.exists()
 
 
@@ -116,7 +130,7 @@ def test_review_file_changing_during_projection_is_not_bound_to_wrong_hash(tmp_p
     monkeypatch.setattr(builder, "effect_evidence", changed)
     output = tmp_path / "candidate.sqlite3"
     with pytest.raises(ValueError, match="输入变化"):
-        build_candidate(DATABASE, path, output)
+        build_candidate(reviewed[2], path, output)
     assert not output.exists()
 
 

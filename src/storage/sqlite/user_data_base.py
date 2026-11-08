@@ -183,7 +183,7 @@ class UserDataDaoCore:
                 if migration_path is None or not migration_path.is_file():
                     raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")
                 migration_sql = migration_path.read_text(encoding="utf-8")
-                if backup_existing and target_version in {45, 47, 48, 49, 50}:
+                if backup_existing and target_version in {45, 47, 48, 49, 50, 51, 52}:
                     # 养成历史与队伍资料各自升级前保全当时完整库；更早默认值迁移仍沿原事务。
                     # 备份失败不进入本次新增结构，修复后可在同一旧库重试。
                     backup_before_user_migration(self.database_path, target_version - 1)
@@ -233,6 +233,9 @@ class UserDataDaoCore:
     ) -> None:
         """在同一迁移事务内修复会阻断后续 DDL 的历史存储形态。"""
 
+        if target_version == 52:
+            from .accounts.management_migration import migrate_management_copies
+            migrate_management_copies(connection, _utc_now())
         if target_version != 35:
             return
         # v32 通过 ADD COLUMN 引入普通抗性；旧行只在读取时获得 0.2 默认值，

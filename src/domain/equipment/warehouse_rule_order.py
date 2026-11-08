@@ -3,6 +3,9 @@
 
 def apply_ordered_rules(result, items, rules, *, matched_by_uid, protected_uids=frozenset(), incomplete=False):
     for row, item in zip(result['rows'], items):
+        # 前序已决定、冲突、未知或受阻项只作固定上下文，不参与智能区优先级仲裁。
+        if row.get('predecessor_fixed'):
+            continue
         matched = matched_by_uid[item.uid]
         dynamic = row.get('dynamic_rule_matches') or {}
         model_reasons = list(row['reasons'])

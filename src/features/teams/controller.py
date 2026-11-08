@@ -16,12 +16,12 @@ from src.features.teams.overview_controller import TeamOverviewController
 
 class TeamController(QObject):
     def __init__(self, *, service_provider, matching_service_provider=None, configure_enhancement=None,
-                 overview_service_provider=None, axis_graduation_service_provider=None, parent=None):
+                 overview_service_provider=None, axis_graduation_service_provider=None, parent=None, catalog=None):
         super().__init__(parent)
         self._service_provider = service_provider
         self._matching_service_provider = matching_service_provider
         self._configure_enhancement = configure_enhancement
-        self.page = TeamPage(parent)
+        self.page = TeamPage(parent, catalog=catalog)
         self._overview = (TeamOverviewController(service_provider=overview_service_provider, page=self.page, parent=self)
                           if overview_service_provider is not None else None)
         self.axis_graduation = (TeamAxisGraduationController(service_provider=axis_graduation_service_provider, parent=self)

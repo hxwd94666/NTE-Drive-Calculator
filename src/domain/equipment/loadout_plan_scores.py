@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
+import math
 
 
 def assignment_score_key(assignment: Mapping[str, Any]) -> str:
@@ -33,3 +34,17 @@ def exact_assignment_score_total(
     if any(key not in assignment_scores for key in keys):
         return None
     return accumulate_assignment_scores(assignment_scores[key] for key in keys)
+
+
+def persisted_loadout_total_score(plan: Mapping[str, Any]) -> float | None:
+    """优先展示完整逐件冻结分之和，旧方案才使用保存总分；不读取当前权重。"""
+    payload = plan.get("payload") or {}
+    scores = payload.get("assignment_scores") or {}
+    value = plan.get("score")
+    if "assignments" in plan:
+        exact = exact_assignment_score_total(plan["assignments"], scores)
+        if exact is not None:
+            value = exact
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)

@@ -5,6 +5,7 @@ from copy import deepcopy
 import pytest
 
 from src.models.equipment import Drive, Tape
+from src.domain.equipment.management_settings import MatchingScope
 from src.optimizer.scoring import ScoringEngine
 from src.services.identification.equipment_service import EquipmentIdentificationService
 from src.services.identification.matching_context import build_equipment_match_context
@@ -103,7 +104,7 @@ def test_management_pair_commit_rolls_back_both_settings(tmp_path, monkeypatch, 
     with UserDataDao(database, account_id="fixture") as dao:
         dao.replace_application_setting_copy("ui", {"other_preference": "keep"})
         before = dao.list_application_setting_copies()
-    service = MatchingSettingsService(database)
+    service = MatchingSettingsService(database, scope=MatchingScope.SCAN)
     original = service.load()
     patch_fields = UserDataDao.patch_application_setting_copy
     def fail_after_write(dao, key, fields):
@@ -129,7 +130,7 @@ def test_management_can_save_rules_without_changing_suits_or_other_preferences(t
     database = tmp_path / "unchanged.sqlite3"
     with UserDataDao(database, account_id="fixture") as dao:
         dao.replace_application_setting_copy("ui", {"other_preference": "keep"})
-    service = MatchingSettingsService(database)
+    service = MatchingSettingsService(database, scope=MatchingScope.SCAN)
     config = default_post_action_config()
     config["server_region"] = "hmt"
     assert not service.save(service.load(), expected=service.load(), post_action_config=config)
@@ -293,9 +294,9 @@ def test_management_uses_same_matches_and_keeps_unmatched_separate_from_failures
     config["discard"].update(enabled=True, grade="ACE", set_names=["额外套装"])
     default = build_equipment_match_context(catalog)
     state, detail = evaluate_target_state_for_item(tape, "normal", config, scoring, score_context=default)
-    assert state == "normal" and detail["discard"]["reason"] == "unmatched"
+    assert state == "discarded" and detail["discard"]["reason"] == "unmatched_explicit_discard"
     assert detail["discard"]["grade"] is None and detail["discard"]["score"] is None
-    config["discard"]["discard_unmatched"] = True
+    config["discard"]["discard_unmatched"] = False
     assert evaluate_target_state_for_item(tape, "normal", config, scoring, score_context=default)[0] == "discarded"
     failed = EquipmentMatchContext(errors=(("测试角色", "B", "资料缺失"),))
     state, detail = evaluate_target_state_for_item(tape, "normal", config, scoring, score_context=failed)
@@ -341,7 +342,7 @@ def test_invalid_selected_scope_does_not_block_other_module_or_explicit_rule():
                           selected_character_ids=[1001], set_names=["额外套装"])
     config["preserve_rules"] = [{"name": "明确锁定", "action": "lock", "item_type": "tape", "main_stats": ["暴击率%"]}]
     items = [plain, rule, scored]
-    with patch("src.services.inventory.post_action_evaluation.EquipmentIdentificationService.from_paths", return_value=matcher):
+    with patch("src.services.identification.scoring_scope.EquipmentIdentificationService.from_paths", return_value=matcher):
         result = PostActionEvaluator(post_actions_config=config, static_database_path="data/game_static.sqlite3").evaluate(
             [(i, item, "normal") for i, item in enumerate(items)], items)
     assert [(c["uid"], c["target_state"]) for c in result.state_changes] == [("rule", "locked"), ("scored", "locked")]
@@ -369,7 +370,7 @@ def test_bad_scores_are_not_zero_and_evaluation_failure_does_not_block_independe
     config["preserve_rules"] = [{"name": "明确保留", "action": "lock", "item_type": "tape",
                                 "main_stats": ["暴击率%"]}]
     rule_item = tape.model_copy(update={"uid": "rule-item", "main_stats": "暴击率%"})
-    with patch("src.services.inventory.post_action_evaluation.EquipmentIdentificationService.from_paths",
+    with patch("src.services.identification.scoring_scope.EquipmentIdentificationService.from_paths",
                side_effect=ValueError("fixture unavailable")):
         result = PostActionEvaluator(post_actions_config=config).evaluate(
             [(1, tape, "normal"), (2, rule_item, "normal")], [tape, rule_item])

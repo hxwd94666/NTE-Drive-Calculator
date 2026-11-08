@@ -31,16 +31,10 @@ from tools.game_data.build_graduation_templates import populate_graduation_templ
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from tools.game_data.static_database_build_support import (
     IMPORTER_VERSION,
-    SCHEMA_VERSION,
     file_sha256,
 )
 from tools.game_data.static_database_buff_imports import BuffImportMixin
-
-
-SCHEMA_039 = (
-    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema"
-    / "039_game_static_fork_permanent_review.sql"
-)
+from tools.game_data.fork_reprojection_schema import ensure_reprojection_schema
 
 
 def reproject_candidate(
@@ -75,22 +69,7 @@ def reproject_candidate(
             importer_version = int(connection.execute(
                 "SELECT importer_version FROM dataset"
             ).fetchone()[0])
-            schema_version = int(connection.execute(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_migration"
-            ).fetchone()[0])
-            if schema_version not in (38, SCHEMA_VERSION):
-                raise RuntimeError(f"候选静态库 schema 不是可升级版本：{schema_version}")
-            if schema_version == 38:
-                connection.executescript(SCHEMA_039.read_text(encoding="utf-8"))
-                connection.execute(
-                    "INSERT INTO schema_migration VALUES (?, ?)",
-                    (SCHEMA_VERSION, datetime.now(timezone.utc).isoformat()),
-                )
-                connection.execute(
-                    "UPDATE dataset SET importer_version = ?", (IMPORTER_VERSION,)
-                )
-                connection.commit()
-                schema_version = SCHEMA_VERSION
+            source_schema_version, schema_version = ensure_reprojection_schema(connection)
             importer = BuffImportMixin()
             importer.connection = connection
             importer._import_buff_definitions(include_links=False)
@@ -224,6 +203,7 @@ def reproject_candidate(
         "input_sha256": file_sha256(source).upper(),
         "output_filename": output.name,
         "output_sha256": file_sha256(output).upper(),
+        "source_schema_version": source_schema_version,
         "schema_version": schema_version,
         "importer_version": importer_version,
         "resolved_forks": len({value.fork_id for value in resolved}),

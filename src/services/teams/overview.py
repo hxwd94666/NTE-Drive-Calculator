@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
+from src.domain.teams.overview import TeamSourceConfig
 from src.integrations.static_catalog_release import static_catalog_read_unit
 from src.services.teams.source_inputs import freeze_team_sources
 from src.services.teams.enhancement_history import associate_enhancement, current_component_provenance, latest_enhancement
@@ -43,6 +44,21 @@ class TeamOverviewService:
         with self._database(cancelled=cancelled, write=True) as dao:
             return dao.save_team_source(team, expected, mode=mode, bindings=bindings,
                                         checkpoint=lambda: self.checkpoint(cancelled))
+
+    def preview_source(self, team, expected, *, mode, bindings=(), cancelled=lambda: False):
+        """草稿只在一致读内解析；不保存来源、不启动同步、理论求解或分析组件。"""
+        draft = TeamSourceConfig(team.team_id, mode, expected.revision, tuple(bindings)).validated()
+        if not {key for key, _ in draft.bindings} <= set(team.character_ids):
+            raise ValueError("草稿含队伍外成员")
+        if self.static_database_path is None:
+            raise ValueError("配装预览缺少明确静态资料")
+        with static_catalog_read_unit(self.static_database_path) as unit:
+            with self._database(cancelled=cancelled) as dao:
+                if team not in dao.list_teams() or dao.get_team_source(team.team_id) != expected:
+                    raise ValueError("队伍或来源已变化，请重新打开队伍配装")
+                value, = freeze_team_sources(dao, unit.dao, (team,),
+                    checkpoint=lambda: self.checkpoint(cancelled), source_overrides={team.team_id: draft})
+                return value
 
     def load(self, teams=None, *, cancelled=lambda: False, publish=None):
         self.checkpoint(cancelled)

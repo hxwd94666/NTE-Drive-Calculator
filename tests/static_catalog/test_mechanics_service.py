@@ -256,7 +256,7 @@ class StaticCatalogMechanicsServiceTests(unittest.TestCase):
 
     def test_structured_owner_and_skill_relation_audit_counts_are_preserved(self) -> None:
         self.assertEqual(
-            (("character_awaken", 200), ("fork_star", 255),
+            (("character_awaken", 216), ("fork_star", 265),
              ("equipment_suit", 24)),
             self.service.owner_resolution_counts(),
         )

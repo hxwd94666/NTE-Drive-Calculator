@@ -358,7 +358,6 @@ class DeferredDriveReservationMixin:
 
         set_drives = list(plan.get("assigned_set_drives") or ())
         extra_drives = list(plan.get("assigned_extra_drives") or ())
-        selected = set_drives if slot_type == "set" else extra_drives
         baseline_items = [*set_drives, *extra_drives]
         baseline_key = self._stat_priority_key_for_items(role_name, baseline_items, config)
         replacement_index = slot_index

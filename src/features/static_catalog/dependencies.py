@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from src.domain.localization.catalog import TextCatalog
 from src.features.static_catalog.contracts import StaticCatalogProvider
 from src.features.static_catalog.domain_pages.characters.page import build_character_catalog_page
 from src.features.static_catalog.domain_pages.mechanics.page import (
@@ -134,6 +135,7 @@ def build_static_catalog_domain_pages(
     equipment_inventory_loader: InventorySnapshotLoader | None = None,
     open_catalog_link: Callable[[Any], None] | None = None,
     role_catalog: RoleCatalogRelease | None = None,
+    text_catalog: TextCatalog | None = None,
 ) -> tuple[StaticCatalogDomainPageSpec, ...]:
     """Build owned UI registrations without exposing DAO lifetime to MainWindow."""
 
@@ -292,7 +294,7 @@ def build_static_catalog_domain_pages(
             service=monster_service,
             terminology_service=role_terminology if reference_path != path else terminology,
             game_ui_asset_root=reference_asset_root,
-            parent=parent,
+            parent=parent, catalog=text_catalog,
         ),
         close=monster_service.close,
     ))

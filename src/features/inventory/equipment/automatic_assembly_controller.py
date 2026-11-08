@@ -4,29 +4,26 @@
 from __future__ import annotations
 
 from src.features.input_operation_entry import (
-    confirm_operation_recommendation,
     request_input_entry,
-    show_input_unavailable,
 )
-from src.domain.work_mode import WorkMode
 
 import threading
+from dataclasses import asdict
+from concurrent.futures import CancelledError
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QMessageBox
 
-from src.app.theme import current_style_sheet
 from src.app.workers import WorkerThread
-from src.features.drive_assembly.input_backends import PyAutoGuiMouseBackend
+from src.ui.text_catalog import resolve_text_catalog
+from .automatic_assembly_dialog import BACK_TO_SELECTION, confirm_automatic_execution
+from .assembly_surface import AssemblyProgressChannel, assembly_is_running, deliver_after_finished
+from .assembly_last_result import bind_assembly_result, update_result_button
+from src.features.drive_assembly.input_backends import PyAutoGuiMouseBackend, AssemblyExecutionFailed, AssemblyExecutionStopped
+from src.domain.equipment.assembly_progress import AssemblyTarget
+from src.domain.equipment.loadout_plan_scores import persisted_loadout_total_score
+from src.services.equipment.assembly_progress import apply_progress_event
 from src.integrations.operation_guard import bind_execution_guard
 from src.features.drive_assembly.ui_bridge import (
     execute_all_roles_from_current_game_page,
@@ -36,10 +33,9 @@ from src.features.inventory.equipment.assembly_dialogs import assembly_report_di
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.equipment.loadout_slot_selection_service import LoadoutSlotSelectionService
-from src.utils.logger import logger
 
 from src.features.inventory.equipment.plan_display_state import _sqlite_plan_display_state
-from src.features.inventory.equipment.slot_selection_dialog import select_assembly_slot_ids
+from src.features.inventory.equipment.slot_selection_dialog import assembly_account_identity, select_assembly_slot_ids
 
 
 def _return_to_equipment_after_assembly(window: Any) -> None:
@@ -57,54 +53,6 @@ def _return_to_equipment_after_assembly(window: Any) -> None:
     activate_window = getattr(window, "activateWindow", None)
     if callable(activate_window):
         activate_window()
-
-
-def _prompt_protagonist_alias_if_needed(
-    window: Any,
-    role_names: list[str],
-) -> dict[str, str]:
-    roles = {str(role).strip() for role in (role_names or []) if str(role).strip()}
-    protagonist_roles = roles.intersection({"主角", "零", "「零」"})
-    if not protagonist_roles:
-        return {}
-    preferences = getattr(window, "_ui_preferences", {}) or {}
-    default_name = str(
-        preferences.get("protagonist_game_name")
-        or getattr(window, "_drive_assembly_protagonist_name", "")
-        or ""
-    ).strip()
-    if default_name:
-        window._drive_assembly_protagonist_name = default_name
-        return {role_name: default_name for role_name in protagonist_roles}
-
-    dialog = QDialog(window)
-    dialog.setWindowTitle("主角名称")
-    dialog.setStyleSheet(current_style_sheet())
-    layout = QVBoxLayout(dialog)
-    layout.addWidget(QLabel("零在游戏内显示为玩家名字，请输入该名字后继续自动装配。"))
-    name_edit = QLineEdit()
-    name_edit.setPlaceholderText("游戏内主角名字")
-    layout.addWidget(name_edit)
-    dont_remind = QCheckBox("记住此名字，不再提醒")
-    layout.addWidget(dont_remind)
-    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-    buttons.accepted.connect(dialog.accept)
-    buttons.rejected.connect(dialog.reject)
-    layout.addWidget(buttons)
-    if dialog.exec() != QDialog.Accepted:
-        return {}
-    player_name = name_edit.text().strip()
-    if not player_name:
-        QMessageBox.warning(window, "主角名称", "需要输入主角在游戏中显示的名字。")
-        return {}
-    window._drive_assembly_protagonist_name = player_name
-    if isinstance(preferences, dict):
-        preferences["protagonist_game_name"] = player_name
-        preferences["skip_protagonist_name_prompt"] = bool(dont_remind.isChecked())
-        saver = getattr(window, "_save_ui_preferences", None)
-        if callable(saver):
-            saver()
-    return {role_name: player_name for role_name in protagonist_roles}
 
 
 def _account_database_path(window: Any) -> Path:
@@ -143,23 +91,27 @@ def _sqlite_automatic_assembly_state(
 
     with UserDataDao(database_path) as user_dao, StaticGameDataDao() as static_dao:
         states: dict[str, dict[str, Any]] = {}
-        if slot_ids:
-            plans_by_role = [
-                (selection.role_name, dict(selection.plan))
-                for selection in LoadoutSlotSelectionService(user_dao).resolve(slot_ids)
-            ]
-        else:
-            plans_by_role = [
-                (selection.role_name, dict(selection.plan))
-                for selection in LoadoutSlotSelectionService(user_dao).resolve_default_roles(role_names)
-            ]
-        for role_name, plan in plans_by_role:
-            states[role_name] = _sqlite_plan_display_state(
-                plan,
+        service = LoadoutSlotSelectionService(user_dao)
+        selections = service.resolve(slot_ids) if slot_ids else service.resolve_default_roles(role_names)
+        for selection in selections:
+            states[selection.role_name] = _sqlite_plan_display_state(
+                dict(selection.plan),
                 user_dao,
                 static_dao,
             )
+            states[selection.role_name]["_assembly_slot_id"] = selection.slot_id
+            states[selection.role_name]["_assembly_target"] = asdict(AssemblyTarget(
+                selection.slot_id, selection.character_id, selection.role_name, selection.slot_name,
+                persisted_loadout_total_score(selection.plan), selection.plan_id, selection.source_snapshot_id))
     return states
+
+
+def _assert_automatic_state_current(database_path, state):
+    references = {int(row["_assembly_slot_id"]): (
+        int(row["_sqlite_plan_id"]), int(row["_sqlite_source_snapshot_id"]),
+    ) for row in state.values()}
+    with UserDataDao(database_path) as dao:
+        LoadoutSlotSelectionService(dao).assert_current_plans(references)
 
 
 def _start_automatic_equipment_assembly(
@@ -168,271 +120,225 @@ def _start_automatic_equipment_assembly(
     *,
     slot_ids: list[int] | None = None,
 ) -> None:
-    """在工作线程中执行逐步游戏界面自动装配。"""
-    if not request_input_entry(window, "interface_input", "自动装配"):
+    """输入与资源释放完成前，确认窗保持隐藏；结果回到同一窗口，不另弹成功框。"""
+    text = resolve_text_catalog(getattr(window, "text_catalog", None)).render
+    if not request_input_entry(window, "interface_input", text("assembly.auto.title")):
         return
-
     current_worker = getattr(window, "_automatic_equipment_apply_worker", None)
     if current_worker is not None and current_worker.isRunning():
-        QMessageBox.information(
-            window,
-            "自动装配",
-            "已有自动装配任务正在执行，请等待它结束。",
-        )
+        QMessageBox.information(window, text("assembly.auto.title"), text("assembly.busy"))
         return
+    identity = assembly_account_identity(window)
+    database_path = _account_database_path(window)
     try:
-        state = _sqlite_automatic_assembly_state(
-            _account_database_path(window),
-            role_names,
-            slot_ids=slot_ids,
-        )
+        state = _sqlite_automatic_assembly_state(database_path, role_names, slot_ids=slot_ids)
+        template_dir, record_root = _assembly_runtime_paths(window)
     except Exception as exc:
-        QMessageBox.warning(window, "自动装配", f"读取已保存方案失败：{exc}")
+        QMessageBox.warning(window, text("assembly.auto.title"), text("assembly.read_failed", reason=str(exc)))
         return
-
-    execution_role_names = list(state)
-    aliases = _prompt_protagonist_alias_if_needed(window, execution_role_names)
-    protagonist_names = {"主角", "零", "「零」"}
-    if {str(role).strip() for role in execution_role_names}.intersection(
-        protagonist_names
-    ) and not aliases:
+    execution_role_names = tuple(state)
+    if not execution_role_names:
+        QMessageBox.information(window, text("assembly.auto.title"), text("assembly.no_plans"))
         return
     hotkey_manager = getattr(window, "global_hotkey_manager", None)
-    configuration = getattr(hotkey_manager, "configuration", None)
-    stop_hotkey = str(getattr(configuration, "stop", "全局停止键"))
-    confirmation = QMessageBox.question(
-        window,
-        "自动装配准备",
-        "将模拟游戏内操作逐步装配。请在 3 秒内切换到游戏的角色详情页，"
-        f"并保持游戏窗口可见；执行期间可按设置中的全局停止键（{stop_hotkey}）停止。\n\n"
-        "请保证游戏里的 C 键角色页面已打开，且游戏分辨率为 1080p 或 2K。",
-        QMessageBox.Ok | QMessageBox.Cancel,
-        QMessageBox.Cancel,
-    )
-    if confirmation != QMessageBox.Ok:
-        return
     hotkey_owner = "automatic_equipment_apply"
-    active_hotkey_owner = getattr(hotkey_manager, "active_owner", None)
-    if active_hotkey_owner not in (None, hotkey_owner):
-        QMessageBox.information(
-            window,
-            "自动装配",
-            "当前全局停止键正由其他任务使用，请先停止该任务后再开始自动装配。",
-        )
+    if getattr(hotkey_manager, "active_owner", None) not in (None, hotkey_owner):
+        QMessageBox.information(window, text("assembly.auto.title"), text("assembly.hotkey_busy"))
+        return
+    stop_hotkey = str(getattr(getattr(hotkey_manager, "configuration", None), "stop", "F12"))
+    confirmed = confirm_automatic_execution(window, execution_role_names, stop_hotkey)
+    if confirmed is BACK_TO_SELECTION:
+        return BACK_TO_SELECTION
+    if confirmed is None:
+        return
+    surface, aliases = confirmed
+    bind_assembly_result(window, surface, identity)
+    targets = tuple(AssemblyTarget(**row["_assembly_target"]) for row in state.values() if "_assembly_target" in row)
+    surface.configure_targets(targets, automatic=True)
+    # 确认只消费本次冻结输入；迟到的账号切换或撤权不使旧选择作用于新账号。
+    if identity != assembly_account_identity(window):
+        surface.hide()
+        return
+    if not request_input_entry(window, "interface_input", text("assembly.auto.title")):
+        return
+    try:
+        _assert_automatic_state_current(database_path, state)
+    except Exception as exc:
+        surface.show_result(text("assembly.auto.not_started"), text("assembly.no_dispatch", reason=str(exc)), warning=True)
+        return
+    if getattr(hotkey_manager, "active_owner", None) not in (None, hotkey_owner):
+        QMessageBox.information(window, text("assembly.auto.title"), text("assembly.hotkey_busy"))
         return
     stop_requested = threading.Event()
-    execution_guard = bind_execution_guard(
-        getattr(window, "operation_guard", None), should_stop=stop_requested.is_set,
-        generation=getattr(window, "operation_generation", None),
-    )
-    if hotkey_manager is not None:
-        hotkey_manager.start(owner=hotkey_owner, on_stop=stop_requested.set)
+    worker = None
+
+    def is_current():
+        return identity == assembly_account_identity(window) and (
+            worker is None or getattr(window, "_automatic_equipment_apply_worker", None) is worker)
+
+    def should_stop():
+        return stop_requested.is_set() or not is_current()
+
+    execution_guard = bind_execution_guard(getattr(window, "operation_guard", None),
+        should_stop=should_stop, generation=getattr(window, "operation_generation", None))
+    surface.stop_requested.connect(stop_requested.set)
+    surface.begin_running(text("assembly.auto.title"), text("assembly.auto.running"), visible=False)
+    channel = AssemblyProgressChannel(surface, is_current, is_stopping=stop_requested.is_set)
+    # legacy 执行器的名字只在本次冻结映射内转为正式槽位；UI 不用名字关联数据库。
+    target_slots = {target.role_name: target.slot_id for target in targets}
+
+    def progress(event):
+        slot_id = target_slots.get(event.get("role_name"))
+        if slot_id is not None:
+            channel.publish({**event, "slot_id": slot_id})
+    surface.hide()
     show_minimized = getattr(window, "showMinimized", None)
     if callable(show_minimized):
         show_minimized()
 
-    def run() -> object:
-        template_dir, record_root = _assembly_runtime_paths(window)
-        if len(execution_role_names) == 1:
-            return execute_selected_role_from_current_game_page(
-                state,
-                execution_role_names[0],
-                backend=PyAutoGuiMouseBackend(operation_guard=execution_guard),
-                template_dir=str(template_dir),
-                record_root=record_root,
-                role_name_aliases=aliases,
-                should_stop=stop_requested.is_set,
-            )
-        return execute_all_roles_from_current_game_page(
-            state,
-            backend=PyAutoGuiMouseBackend(operation_guard=execution_guard),
-            template_dir=str(template_dir),
-            record_root=record_root,
-            role_name_aliases=aliases,
-            should_stop=stop_requested.is_set,
-        )
+    def run():
+        # 模板、记录根、角色、装备和别名均已冻结；worker 不读取 Qt 控件或最新账号。
+        if should_stop():
+            raise CancelledError("装配请求已取消或账号代次失效")
+        _assert_automatic_state_current(database_path, state)
+        arguments = dict(backend=PyAutoGuiMouseBackend(operation_guard=execution_guard),
+            template_dir=str(template_dir), record_root=record_root,
+            role_name_aliases=dict(aliases), should_stop=should_stop, on_role_progress=progress)
+        try:
+            if len(execution_role_names) == 1:
+                return execute_selected_role_from_current_game_page(state, execution_role_names[0], **arguments)
+            return execute_all_roles_from_current_game_page(state, **arguments)
+        except (AssemblyExecutionStopped, AssemblyExecutionFailed) as exc:
+            if exc.report is None:
+                raise
+            return exc.report
 
     worker = WorkerThread(target=run, parent=window)
     window._automatic_equipment_apply_worker = worker
 
-    def on_result(report: object) -> None:
+    def finish(title, message, warning):
+        channel.close()
+        surface.progress_model.finish_pending(stopped=True)
+        surface.stop_requested.disconnect(stop_requested.set)
         if hotkey_manager is not None:
             hotkey_manager.stop(owner=hotkey_owner)
+        surface.end_running()
+        if not is_current():
+            surface.hide()
+            return
         _return_to_equipment_after_assembly(window)
-        title, message, completed = _assembly_report_dialog(
-            "自动装配",
-            report,
-            len(execution_role_names),
-        )
-        (QMessageBox.information if completed else QMessageBox.warning)(
-            window,
-            title,
-            message,
-        )
+        surface.show_result(title, message, warning=warning)
         refresh = getattr(window, "_refresh_equip", None)
         if callable(refresh):
             refresh()
 
-    def on_error(message: str) -> None:
+    def on_result(report):
+        channel.drain()
+        verified = set(getattr(report, "verified_roles", ()))
+        failures = {str(item.get("role_name")): item for item in getattr(report, "verification_failures", ())}
+        for row in getattr(report, "role_reports", ()):
+            role_name = getattr(row, "role_name", "")
+            ok = role_name in verified and role_name not in failures
+            partial = bool(getattr(row, "skipped_actions", ()))
+            detail = text("assembly.status.skipped_actions", count=len(row.skipped_actions)) if partial else ""
+            if role_name in failures:
+                detail = text("assembly.status.visual_failed")
+            apply_progress_event(surface.progress_model, {"slot_id": target_slots.get(role_name), "role_name": role_name,
+                "state": "partial" if partial else "confirmed" if ok else "unknown", "dispatched": True,
+                "verified": ok, "scope": "subset" if partial else "full" if ok else "none", "detail": detail})
+        for role_name in getattr(report, "missing_roles", ()):
+            apply_progress_event(surface.progress_model, {"slot_id": target_slots.get(role_name), "role_name": role_name, "state": "skipped"})
+        current = getattr(report, "current_role", None)
+        if current and getattr(report, "partial_actions", 0):
+            # 当前角色没有完整报告时，也保留已知发生过输入这一事实；不宣称装备已确认。
+            if not any(row.target.role_name == current and row.verified for row in surface.progress_model.rows):
+                apply_progress_event(surface.progress_model, {"slot_id": target_slots.get(current), "role_name": current,
+                    "state": "unknown", "dispatched": True})
+        title, message, completed = _assembly_report_dialog(text("assembly.auto.title"), report, len(execution_role_names), surface.text_catalog)
+        if stop_requested.is_set():
+            title = text("assembly.auto.stopped")
+            message = text("assembly.stopped_detail") + "\n\n" + message
+            completed = False
+        finish(text("assembly.auto.completed" if completed else "assembly.auto.incomplete") if not stop_requested.is_set() else title, message, not completed)
+
+    def on_error(message):
+        if stop_requested.is_set():
+            finish(text("assembly.auto.stopped"), text("assembly.stopped_detail"), True)
+        else:
+            finish(text("assembly.auto.incomplete"), str(message), True)
+
+    deliver_after_finished(worker, on_result, on_error, no_result=text("assembly.no_result"))
+    try:
+        if hotkey_manager is not None:
+            hotkey_manager.start(owner=hotkey_owner, on_stop=stop_requested.set)
+        # 名字在用户确认并通过派发门禁后才记忆；取消统一确认页不改配置。
+        if aliases:
+            name = next(iter(aliases.values()))
+            window._drive_assembly_protagonist_name = name
+            if surface.remember_name is not None and surface.remember_name.isChecked():
+                preferences = getattr(window, "_ui_preferences", None)
+                if isinstance(preferences, dict):
+                    preferences["protagonist_game_name"] = name
+                    saver = getattr(window, "_save_ui_preferences", None)
+                    if callable(saver):
+                        saver()
+        worker.start()
+        update_result_button(window)
+    except Exception as exc:
         if hotkey_manager is not None:
             hotkey_manager.stop(owner=hotkey_owner)
-        _return_to_equipment_after_assembly(window)
-        show_input_unavailable(window, "自动装配", str(message))
-
-    worker.result_ready.connect(on_result)
-    worker.error.connect(on_error)
-    worker.start()
+        if worker.isRunning():
+            stop_requested.set()
+        else:
+            finish(text("assembly.auto.not_started"), str(exc), True)
 
 
-def _confirm_automatic_assembly_duplicate_warning(window: Any) -> bool:
-    """Warn once that UI automation cannot resolve repeated drive placement."""
-
-    preferences = getattr(window, "_ui_preferences", None)
-    if isinstance(preferences, dict) and preferences.get(
-        "skip_automatic_assembly_duplicate_warning"
-    ):
-        return True
-
-    dialog = QMessageBox(window)
-    dialog.setWindowTitle("自动装配提示")
-    dialog.setIcon(QMessageBox.Warning)
-    dialog.setText("自动装配无法完美处理重复驱动情况。")
-    dialog.setInformativeText("运行结束后，请自行填补因重复驱动产生的空缺。")
-    dialog.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-    dialog.setDefaultButton(QMessageBox.Cancel)
-    dont_remind = QCheckBox("不再提醒")
-    dialog.setCheckBox(dont_remind)
-    confirm_button = dialog.button(QMessageBox.Ok)
-    dialog.exec()
-    if dialog.clickedButton() is not confirm_button:
-        return False
-    if dont_remind.isChecked():
-        if not isinstance(preferences, dict):
-            preferences = {}
-            window._ui_preferences = preferences
-        preferences["skip_automatic_assembly_duplicate_warning"] = True
-        saver = getattr(window, "_save_ui_preferences", None)
-        if callable(saver):
-            try:
-                saver()
-            except Exception as exc:
-                logger.warning(f"保存自动装配提示偏好失败: {exc}")
-    return True
+def _preview_automatic_assemble_role(window: Any, role_name: str, *, slot_id=None, confirmed=False):
+    # 单角色的装配方式选择只选择方式；真正执行授权统一由下一页的开始按钮完成。
+    result = _start_automatic_equipment_assembly(window, [role_name] if slot_id is None else [],
+        slot_ids=[int(slot_id)] if slot_id is not None else None)
+    if result is BACK_TO_SELECTION:
+        _preview_automatic_assemble_all_roles(window, role_names=[role_name],
+            initial_slot_ids=[int(slot_id)] if slot_id is not None else None)
 
 
-def _preview_automatic_assemble_role(
-    window: Any,
-    role_name: str,
-    *,
-    slot_id: int | None = None,
-    confirmed: bool = False,
-) -> None:
-    """确认后通过游戏界面自动化装配一个角色。"""
-    if not _confirm_automatic_assembly_recommendation(window):
+def _preview_automatic_assemble_all_roles(window: Any, role_names=None, *, slot_ids=None, initial_slot_ids=None):
+    text = resolve_text_catalog(getattr(window, "text_catalog", None)).render
+    if not request_input_entry(window, "interface_input", text("assembly.auto.title")):
         return
-    if not request_input_entry(window, "interface_input", "自动装配"):
+    if assembly_is_running(window):
+        QMessageBox.information(window, text("assembly.auto.title"), text("assembly.busy"))
         return
-
-    if not confirmed:
-        result = QMessageBox.question(
-            window,
-            "自动装配",
-            f"将模拟游戏内操作逐步装配 [{role_name}]。\n\n"
-            "不需要装备插件，但需切换到游戏角色详情页，耗时更长；"
-            "执行期间可按设置中的全局停止键停止。是否继续？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if result != QMessageBox.Yes:
-            return
-    if not _confirm_automatic_assembly_duplicate_warning(window):
-        return
-    _start_automatic_equipment_assembly(
-        window,
-        [role_name] if slot_id is None else [],
-        slot_ids=[int(slot_id)] if slot_id is not None else None,
-    )
-
-
-def _preview_automatic_assemble_all_roles(
-    window: Any,
-    role_names: list[str] | None = None,
-) -> None:
-    """确认后通过游戏界面自动化装配全部已保存角色。"""
-    if not _confirm_automatic_assembly_recommendation(window):
-        return
-    if not request_input_entry(window, "interface_input", "自动装配"):
-        return
-
-    requested_roles = tuple(
-        dict.fromkeys(str(name) for name in (role_names or ()))
-    )
-    try:
-        with UserDataDao(_account_database_path(window)) as user_dao:
-            selection_service = LoadoutSlotSelectionService(user_dao)
-            current_slots = selection_service.list_current()
-            if requested_roles:
-                available_roles = {selection.role_name for selection in current_slots}
-                missing = [name for name in requested_roles if name not in available_roles]
-                if missing:
-                    QMessageBox.information(
-                        window,
-                        "自动装配",
-                        f"以下角色尚未保存当前方案：{'、'.join(missing)}",
-                    )
+    identity = assembly_account_identity(window)
+    requested_roles = tuple(dict.fromkeys(str(name) for name in (role_names or ())))
+    pending = tuple(initial_slot_ids) if initial_slot_ids is not None else None
+    while identity == assembly_account_identity(window):
+        try:
+            with UserDataDao(_account_database_path(window)) as user_dao:
+                selection_service = LoadoutSlotSelectionService(user_dao)
+                current_slots = selection_service.list_current()
+                if requested_roles:
+                    missing = set(requested_roles) - {selection.role_name for selection in current_slots}
+                    if missing:
+                        QMessageBox.information(window, text("assembly.auto.title"), text("assembly.missing_roles", roles="、".join(sorted(missing))))
+                        return
+                    current_slots = tuple(row for row in current_slots if row.role_name in requested_roles)
+                if slot_ids is not None:
+                    selected = list(slot_ids)
+                elif pending is not None:
+                    selected = select_assembly_slot_ids(window, current_slots, selected_slot_ids=pending)
+                else:
+                    selected = select_assembly_slot_ids(window, current_slots)
+                if not selected:
                     return
-                current_slots = tuple(
-                    selection
-                    for selection in current_slots
-                    if selection.role_name in requested_roles
-                )
-            selected_slot_ids = select_assembly_slot_ids(window, current_slots)
-            if selected_slot_ids is None:
-                return
-            selections = selection_service.resolve(selected_slot_ids)
-    except Exception as exc:
-        QMessageBox.warning(
-            window,
-            "自动装配",
-            f"读取已保存方案失败：{exc}",
-        )
-        return
-    if not selections:
-        QMessageBox.information(
-            window,
-            "自动装配",
-            "当前没有基于原生同步背包的已保存方案。请先重新计算并保存。",
-        )
-        return
-    result = QMessageBox.question(
-        window,
-        "自动装配",
-        f"将模拟游戏内操作，依次装配 {len(selected_slot_ids)} 个角色。\n\n"
-        "无需装备插件，但需切换到游戏角色详情页，耗时更长；"
-        "执行期间可按设置中的全局停止键停止。是否继续？",
-        QMessageBox.Yes | QMessageBox.No,
-        QMessageBox.No,
-    )
-    if (
-        result == QMessageBox.Yes
-        and _confirm_automatic_assembly_duplicate_warning(window)
-    ):
-        _start_automatic_equipment_assembly(window, [], slot_ids=selected_slot_ids)
-
-
-def _confirm_automatic_assembly_recommendation(window: Any) -> bool:
-    policy = getattr(window, "work_mode_service", None)
-    if policy is None or policy.settings.mode != WorkMode.MEDIUM:
-        return True
-    navigate = confirm_operation_recommendation(
-        window, title="自动装配提示",
-        message="当前为中风险工作模式，建议使用极速装配。是否前往仓库？\n"
-                "取消此建议后，仍需确认普通自动装配操作。",
-        action_text="前往仓库",
-    )
-    if not navigate:
-        return True  # 取消、关闭或 Esc 只拒绝建议；后续权限与执行确认仍照常复核。
-    go_to_page = getattr(window, "_go", None)
-    if callable(go_to_page):
-        go_to_page("warehouse")
-    return False  # 前往只导航，不授权或派发本次普通/极速装配。
+                selection_service.resolve(selected)
+        except Exception as exc:
+            QMessageBox.warning(window, text("assembly.auto.title"), text("assembly.read_failed", reason=str(exc)))
+            return
+        if identity != assembly_account_identity(window):
+            return
+        result = _start_automatic_equipment_assembly(window, [], slot_ids=selected)
+        if result is not BACK_TO_SELECTION:
+            return
+        # 返回只保留选择草稿，不启动任务；重新读取正式槽位，失效方案不会被复活。
+        pending, slot_ids = tuple(selected), None

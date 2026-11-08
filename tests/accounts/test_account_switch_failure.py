@@ -51,7 +51,7 @@ def test_switch_result_keeps_account_settings_index_and_automatic_owner_together
             raise OSError("SYNTHETIC_SETTINGS_FAILURE")
         return SimpleNamespace(database_path=database_path)
 
-    context = AppContext(SimpleNamespace(config_dir=tmp_path / "config"), old, settings_factory=settings)
+    context = AppContext(SimpleNamespace(config_dir=tmp_path / "config", data_root=tmp_path), old, settings_factory=settings)
     host = QWidget()
     host.app_context = context
     host._account_manager = manager

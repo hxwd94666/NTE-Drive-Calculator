@@ -3,6 +3,7 @@ from pathlib import Path
 
 from src.domain.equipment.equipment_normalizer import calculate_drive_main_stats
 from src.domain.teams.models import TeamDraft
+from src.domain.teams.overview import SourceMode
 from src.integrations.static_catalog_release import static_catalog_read_unit
 from src.services.equipment.game_loadout_projection_service import GameLoadoutProjectionService
 from src.services.teams.overview import TeamOverviewService
@@ -45,6 +46,8 @@ def overview_case(directory, ids=(1072, 1003, 1004, 1008)):
                     source_snapshot_id=snapshot, status="ready", score=1,
                     payload={"schema": "game-observed-loadout-v1", "source_role_name": role.role_name})
                 slots[role.character_id] = slot
+            dao.save_team_source(team, dao.get_team_source(team.team_id), mode=SourceMode.CALC,
+                                 bindings=tuple(slots.items()))
     service = TeamOverviewService(account_id="overview", generation=1, database_path=path,
         static_database_path=static, context_is_current=lambda: True)
     return service, team, slots

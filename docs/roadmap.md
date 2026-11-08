@@ -9,8 +9,8 @@
 本文件只保留尚未完成且会影响数据结构、外部能力或产品边界的工作。完成并通过公共行为测试后，将稳定
 事实整合进 `features.md` 或 `architecture.md`，随后从本文删除。
 
-仓库智能推荐的源码界面与试算已接入；真实游戏验收、更多仓库与额外分配约束覆盖见
-[仓库智能推荐后续验证](roadmap/warehouse-recommendation.md)。
+扫描／仓库管理拆分、智能推荐与直接预览已接入源码；真实游戏验收、发布级回归、打包、真实 Windows／游戏与迁移恢复演练仍待完成，统一见
+[管理拆分与预览交付门禁](roadmap/warehouse-management-preview.md)。现有行为以[仓库管理](features/warehouse-recommendation.md)为准。
 
 计算文案、头像拖拽与环境检测/升级引导的交互复查纳入[复审方案](roadmap/architecture-post-refactor-review.md)，真实窗口验收仍按 [Windows 验收](validation/windows.md) 记录。
 

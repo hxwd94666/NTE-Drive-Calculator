@@ -529,6 +529,17 @@ class EquipmentPresentation(EquipmentLoadoutComparisonPresentationMixin):
             weight = max(weight, float(flexible_weight(stat, weights)))
         return weight
 
+    def attribute_summary_weights(self, role_name: str, names: tuple[str, ...]) -> dict:
+        """同一次汇总只查询一次独立组件，两种显示模式复用同一别名权重结果。"""
+        weights = ((self.roles_db.get(role_name, {}) or {}).get("weights", {}) or {})
+        prepare = getattr(self.scoring_engine, "prepare_weight_queries", None)
+        if callable(prepare):
+            values = prepare([weights], names)[0]
+            return {(name, mode): max(float(value), float(self._bonus_stat_weight(role_name, name, mode)))
+                    for name, value in zip(names, values) for mode in ("equipment", "character")}
+        return {(name, mode): self.attribute_summary_weight(role_name, name, mode)
+                for name in names for mode in ("equipment", "character")}
+
     def score_drive(self, *args, **kwargs) -> float:
         return float(self._score_drive_dict(*args, **kwargs))
 

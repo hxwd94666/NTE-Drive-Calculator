@@ -3,7 +3,6 @@
 
 import unittest
 from types import SimpleNamespace
-from pathlib import Path
 
 import numpy as np
 
@@ -78,7 +77,7 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.UserDataDao = lambda *_args, **_kwargs: EmptyPlansDao()
             page_module.QMessageBox.information = lambda *_args, **_kwargs: None
             window = _operation_enabled_window(user_database_path="unused.sqlite3")
-            page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
+            page_module._preview_nte_core_assemble_all_roles(window)
         finally:
             page_module._start_nte_core_equipment_apply = old_start
             page_module.UserDataDao = old_dao
@@ -88,6 +87,11 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
 
     def test_all_role_button_executes_current_game_role_flow_when_confirmed(self):
         import src.features.inventory.equipment.assembly_controller as page_module
+        from unittest.mock import patch
+
+        chooser = patch.object(page_module, "select_assembly_slot_ids", return_value=[11])
+        selected = chooser.start()
+        self.addCleanup(chooser.stop)
 
         class PlansDao:
             def __enter__(self):
@@ -137,15 +141,22 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module._start_nte_core_equipment_apply = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
             window = _operation_enabled_window(user_database_path="unused.sqlite3")
-            page_module._preview_nte_core_assemble_all_roles(window, confirmed=True)
+            page_module._preview_nte_core_assemble_all_roles(window)
         finally:
             page_module.UserDataDao = old_dao
             page_module._start_nte_core_equipment_apply = old_start
 
         self.assertEqual([([], {"slot_ids": [11]})], calls)
 
+        selected.assert_called_once()
+
     def test_weighted_result_can_limit_fast_equipment_to_its_selected_roles(self):
         import src.features.inventory.equipment.assembly_controller as page_module
+        from unittest.mock import patch
+
+        chooser = patch.object(page_module, "select_assembly_slot_ids", return_value=[21])
+        selected = chooser.start()
+        self.addCleanup(chooser.stop)
 
         class PlansDao:
             def __enter__(self):
@@ -205,7 +216,6 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
             window = _operation_enabled_window(user_database_path="unused.sqlite3")
             page_module._preview_nte_core_assemble_all_roles(
                 window,
-                confirmed=True,
                 role_names=["当前角色"],
             )
         finally:
@@ -214,8 +224,15 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
 
         self.assertEqual([([], {"slot_ids": [21]})], calls)
 
+        selected.assert_called_once()
+
     def test_weighted_result_can_limit_automatic_equipment_to_its_selected_roles(self):
         import src.features.inventory.equipment.automatic_assembly_controller as page_module
+        from unittest.mock import patch
+
+        chooser = patch.object(page_module, "select_assembly_slot_ids", return_value=[31])
+        selected = chooser.start()
+        self.addCleanup(chooser.stop)
 
         class PlansDao:
             def __enter__(self):
@@ -264,12 +281,10 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         calls = []
         old_dao = page_module.UserDataDao
         old_question = page_module.QMessageBox.question
-        old_warning = page_module._confirm_automatic_assembly_duplicate_warning
         old_start = page_module._start_automatic_equipment_assembly
         try:
             page_module.UserDataDao = lambda *_args, **_kwargs: PlansDao()
             page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Yes
-            page_module._confirm_automatic_assembly_duplicate_warning = lambda _window: True
             page_module._start_automatic_equipment_assembly = lambda _window, roles, **kwargs: calls.append((roles, kwargs))
             window = _operation_enabled_window(user_database_path="unused.sqlite3")
             page_module._preview_automatic_assemble_all_roles(
@@ -279,227 +294,14 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         finally:
             page_module.UserDataDao = old_dao
             page_module.QMessageBox.question = old_question
-            page_module._confirm_automatic_assembly_duplicate_warning = old_warning
             page_module._start_automatic_equipment_assembly = old_start
 
         self.assertEqual([([], {"slot_ids": [31]})], calls)
 
-    def test_confirmed_assembly_minimizes_calculator_before_execution(self):
-        import src.features.inventory.equipment.automatic_assembly_controller as page_module
+        selected.assert_called_once()
 
-        class Signal:
-            def __init__(self):
-                self.callback = None
 
-            def connect(self, callback):
-                self.callback = callback
 
-        class FakeWorker:
-            def __init__(self, *, target, parent):
-                self.target = target
-                self.parent = parent
-                self.result_ready = Signal()
-                self.error = Signal()
-                self.started = False
-
-            def start(self):
-                self.started = True
-
-        class Window:
-            def __init__(self):
-                self.calls = []
-                self.operation_entry = lambda _capability, _label: True
-                self.operation_guard = lambda _capability: None
-
-            def showMinimized(self):
-                self.calls.append("minimized")
-
-            def showNormal(self):
-                self.calls.append("show_normal")
-
-            def _go(self, page):
-                self.calls.append(page)
-
-            def raise_(self):
-                self.calls.append("raise")
-
-            def activateWindow(self):
-                self.calls.append("activate")
-
-            def _refresh_equip(self):
-                self.calls.append("refresh")
-
-        old_worker = page_module.WorkerThread
-        old_state = page_module._sqlite_automatic_assembly_state
-        old_aliases = page_module._prompt_protagonist_alias_if_needed
-        old_report = page_module._assembly_report_dialog
-        old_info = page_module.QMessageBox.information
-        old_question = page_module.QMessageBox.question
-        old_warning = page_module.QMessageBox.warning
-        old_critical = page_module.QMessageBox.critical
-        try:
-            page_module.WorkerThread = FakeWorker
-            page_module._sqlite_automatic_assembly_state = lambda _path, _roles, **_kwargs: {"角色": {}}
-            page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
-            page_module._assembly_report_dialog = lambda *_args: ("完成", "ok", True)
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-            page_module.QMessageBox.question = (
-                lambda *_args, **_kwargs: page_module.QMessageBox.Ok
-            )
-            page_module.QMessageBox.warning = lambda *_args, **_kwargs: None
-            page_module.QMessageBox.critical = lambda *_args, **_kwargs: None
-
-            window = Window()
-            window.user_database_path = "unused.sqlite3"
-            page_module._start_automatic_equipment_assembly(window, ["角色"])
-            worker = window._automatic_equipment_apply_worker
-            self.assertTrue(worker.started)
-            self.assertEqual(["minimized"], window.calls)
-
-            worker.result_ready.callback(SimpleNamespace())
-            self.assertEqual(
-                ["minimized", "show_normal", "equipment", "raise", "activate", "refresh"],
-                window.calls,
-            )
-
-            window.calls.clear()
-            worker.error.callback("失败")
-            self.assertEqual(["show_normal", "equipment", "raise", "activate"], window.calls)
-        finally:
-            page_module.WorkerThread = old_worker
-            page_module._sqlite_automatic_assembly_state = old_state
-            page_module._prompt_protagonist_alias_if_needed = old_aliases
-            page_module._assembly_report_dialog = old_report
-            page_module.QMessageBox.information = old_info
-            page_module.QMessageBox.question = old_question
-            page_module.QMessageBox.warning = old_warning
-            page_module.QMessageBox.critical = old_critical
-
-    def test_automatic_assembly_uses_mouse_only_execution_contract(self):
-        import src.features.inventory.equipment.automatic_assembly_controller as page_module
-
-        class Signal:
-            def connect(self, _callback):
-                return None
-
-        class FakeWorker:
-            def __init__(self, *, target, parent):
-                self.target = target
-                self.result_ready = Signal()
-                self.error = Signal()
-
-            def start(self):
-                return None
-
-        calls = []
-        old_worker = page_module.WorkerThread
-        old_state = page_module._sqlite_automatic_assembly_state
-        old_aliases = page_module._prompt_protagonist_alias_if_needed
-        old_info = page_module.QMessageBox.information
-        old_question = page_module.QMessageBox.question
-        old_execute = page_module.execute_selected_role_from_current_game_page
-        old_paths = page_module._assembly_runtime_paths
-        try:
-            page_module.WorkerThread = FakeWorker
-            page_module._sqlite_automatic_assembly_state = lambda _path, _roles, **_kwargs: {"角色": {}}
-            page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
-            page_module.QMessageBox.information = lambda *_args, **_kwargs: None
-            page_module.QMessageBox.question = (
-                lambda *_args, **_kwargs: page_module.QMessageBox.Ok
-            )
-            page_module.execute_selected_role_from_current_game_page = lambda *_args, **kwargs: calls.append(kwargs)
-            page_module._assembly_runtime_paths = lambda _window: (Path("templates"), Path("record"))
-
-            window = _operation_enabled_window(user_database_path="unused.sqlite3")
-            page_module._start_automatic_equipment_assembly(window, ["角色"])
-            window._automatic_equipment_apply_worker.target()
-        finally:
-            page_module.WorkerThread = old_worker
-            page_module._sqlite_automatic_assembly_state = old_state
-            page_module._prompt_protagonist_alias_if_needed = old_aliases
-            page_module.QMessageBox.information = old_info
-            page_module.QMessageBox.question = old_question
-            page_module.execute_selected_role_from_current_game_page = old_execute
-            page_module._assembly_runtime_paths = old_paths
-
-        self.assertEqual(1, len(calls))
-        self.assertEqual(
-            {
-                "backend",
-                "template_dir",
-                "record_root",
-                "role_name_aliases",
-                "should_stop",
-            },
-            set(calls[0]),
-        )
-
-    def test_automatic_assembly_uses_configured_global_stop_hotkey(self):
-        import src.features.inventory.equipment.automatic_assembly_controller as page_module
-
-        class Signal:
-            def connect(self, _callback):
-                return None
-
-        class FakeWorker:
-            def __init__(self, *, target, parent):
-                self.target = target
-                self.parent = parent
-                self.result_ready = Signal()
-                self.error = Signal()
-
-            def start(self):
-                return None
-
-        class Hotkeys:
-            def __init__(self):
-                self.configuration = SimpleNamespace(stop="F8")
-                self.active_owner = None
-                self.stop_callback = None
-
-            def start(self, *, owner, on_stop):
-                self.active_owner = owner
-                self.stop_callback = on_stop
-
-            def stop(self, *, owner):
-                if owner == self.active_owner:
-                    self.active_owner = None
-
-        calls = []
-        old_worker = page_module.WorkerThread
-        old_state = page_module._sqlite_automatic_assembly_state
-        old_aliases = page_module._prompt_protagonist_alias_if_needed
-        old_question = page_module.QMessageBox.question
-        old_execute = page_module.execute_selected_role_from_current_game_page
-        old_paths = page_module._assembly_runtime_paths
-        try:
-            page_module.WorkerThread = FakeWorker
-            page_module._sqlite_automatic_assembly_state = lambda *_args, **_kwargs: {"角色": {}}
-            page_module._prompt_protagonist_alias_if_needed = lambda *_args: {}
-            page_module.QMessageBox.question = lambda *_args, **_kwargs: page_module.QMessageBox.Ok
-            page_module.execute_selected_role_from_current_game_page = (
-                lambda *_args, **kwargs: calls.append(kwargs)
-            )
-            page_module._assembly_runtime_paths = lambda _window: (Path("templates"), Path("record"))
-
-            hotkeys = Hotkeys()
-            window = _operation_enabled_window(
-                user_database_path="unused.sqlite3",
-                global_hotkey_manager=hotkeys,
-            )
-            page_module._start_automatic_equipment_assembly(window, ["角色"])
-            self.assertEqual("automatic_equipment_apply", hotkeys.active_owner)
-            hotkeys.stop_callback()
-            window._automatic_equipment_apply_worker.target()
-        finally:
-            page_module.WorkerThread = old_worker
-            page_module._sqlite_automatic_assembly_state = old_state
-            page_module._prompt_protagonist_alias_if_needed = old_aliases
-            page_module.QMessageBox.question = old_question
-            page_module.execute_selected_role_from_current_game_page = old_execute
-            page_module._assembly_runtime_paths = old_paths
-
-        self.assertTrue(calls[0]["should_stop"]())
 
     def test_single_role_f12_stop_restores_equipment_page_before_dialog(self):
         from src.features.inventory.equipment.assembly_controller import _return_to_equipment_after_assembly
@@ -556,103 +358,6 @@ class DriveAssemblyUiExecutionTests(unittest.TestCase):
         self.assertEqual([{"block_id": 2, "position": (90, 90)}], result["missing_blocks"])
 
 
-class AutomaticAssemblyRecommendationTests(unittest.TestCase):
-    def test_only_confirmed_medium_mode_offers_fast_assembly_recommendation(self):
-        from unittest.mock import patch
-        from src.domain.work_mode import WorkMode
-        from src.features.inventory.equipment import automatic_assembly_controller as module
-
-        for mode in WorkMode:
-            window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=mode)))
-            with self.subTest(mode=mode), patch.object(module, "confirm_operation_recommendation", return_value=False) as warning:
-                accepted = module._confirm_automatic_assembly_recommendation(window)
-                self.assertTrue(accepted)
-                if mode == WorkMode.MEDIUM:
-                    self.assertEqual(warning.call_args.kwargs["action_text"], "前往仓库")
-                    self.assertIn("建议使用极速装配", warning.call_args.kwargs["message"])
-                else:
-                    warning.assert_not_called()
-
-    def test_medium_warehouse_choice_only_navigates_before_single_and_batch_operations(self):
-        from unittest.mock import patch
-        from src.domain.work_mode import WorkMode
-        from src.features.inventory.equipment import automatic_assembly_controller as module
-
-        navigation = []
-        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)),
-                                 _go=navigation.append)
-        with patch.object(module, "confirm_operation_recommendation", return_value=True) as warning, \
-                patch.object(module, "request_input_entry") as gate, \
-                patch.object(module, "UserDataDao") as dao, \
-                patch.object(module, "_start_automatic_equipment_assembly") as start:
-            module._preview_automatic_assemble_role(window, "角色", confirmed=True)
-            module._preview_automatic_assemble_all_roles(window)
-        self.assertEqual(warning.call_count, 2)
-        self.assertEqual(navigation, ["warehouse", "warehouse"])
-        gate.assert_not_called()
-        dao.assert_not_called()
-        start.assert_not_called()
-
-    def test_medium_recommendation_cancel_preserves_selected_slot_and_existing_execution_guards(self):
-        from unittest.mock import patch
-        from src.domain.work_mode import WorkMode
-        from src.features.inventory.equipment import automatic_assembly_controller as module
-
-        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
-        with patch.object(module, "confirm_operation_recommendation", return_value=False) as warning, \
-                patch.object(module, "request_input_entry", return_value=True) as gate, \
-                patch.object(module, "_confirm_automatic_assembly_duplicate_warning", return_value=True), \
-                patch.object(module, "_start_automatic_equipment_assembly") as start:
-            module._preview_automatic_assemble_role(window, "角色", slot_id=21, confirmed=True)
-        warning.assert_called_once()
-        gate.assert_called_once_with(window, "interface_input", "自动装配")
-        start.assert_called_once_with(window, [], slot_ids=[21])
-
-    def test_recommendation_cancel_does_not_override_real_permissions_or_confirmation(self):
-        from unittest.mock import patch
-        from PySide6.QtWidgets import QMessageBox
-        from src.domain.work_mode import WorkMode
-        from src.features.inventory.equipment import automatic_assembly_controller as module
-
-        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
-        # 建议拒绝不是授权；模式/暂停/未知输入门闩和真正执行确认仍各自决定是否派发。
-        for permitted, answer, duplicate_accepted in (
-            (False, QMessageBox.Yes, True), (True, QMessageBox.No, True), (True, QMessageBox.Yes, False),
-        ):
-            with self.subTest(permitted=permitted, answer=answer, duplicate_accepted=duplicate_accepted), \
-                    patch.object(module, "confirm_operation_recommendation", return_value=False), \
-                    patch.object(module, "request_input_entry", return_value=permitted), \
-                    patch.object(module.QMessageBox, "question", return_value=answer), \
-                    patch.object(module, "_confirm_automatic_assembly_duplicate_warning", return_value=duplicate_accepted), \
-                    patch.object(module, "_start_automatic_equipment_assembly") as start:
-                module._preview_automatic_assemble_role(window, "角色", slot_id=21)
-                start.assert_not_called()
-
-    def test_batch_recommendation_cancel_preserves_slot_selection_and_real_cancellation(self):
-        from unittest.mock import patch
-        from PySide6.QtWidgets import QMessageBox
-        from src.domain.work_mode import WorkMode
-        from src.features.inventory.equipment import automatic_assembly_controller as module
-
-        window = SimpleNamespace(work_mode_service=SimpleNamespace(settings=SimpleNamespace(mode=WorkMode.MEDIUM)))
-        for slots, answer in ((None, QMessageBox.Yes), ([21], QMessageBox.No), ([21], QMessageBox.Yes)):
-            with self.subTest(slots=slots, answer=answer), \
-                    patch.object(module, "confirm_operation_recommendation", return_value=False), \
-                    patch.object(module, "request_input_entry", return_value=True), \
-                    patch.object(module, "_account_database_path", return_value=Path("unused")), \
-                    patch.object(module, "UserDataDao"), \
-                    patch.object(module, "LoadoutSlotSelectionService") as service, \
-                    patch.object(module, "select_assembly_slot_ids", return_value=slots), \
-                    patch.object(module.QMessageBox, "question", return_value=answer), \
-                    patch.object(module, "_confirm_automatic_assembly_duplicate_warning", return_value=True), \
-                    patch.object(module, "_start_automatic_equipment_assembly") as start:
-                service.return_value.list_current.return_value = (SimpleNamespace(role_name="角色"),)
-                service.return_value.resolve.return_value = (object(),)
-                module._preview_automatic_assemble_all_roles(window)
-                if slots is not None and answer == QMessageBox.Yes:
-                    start.assert_called_once_with(window, [], slot_ids=[21])
-                else:
-                    start.assert_not_called()
 
 
 if __name__ == "__main__":

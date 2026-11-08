@@ -27,6 +27,11 @@ class FeastCatalogBrowserMixin:
             self._feast_period_card(period) for period in periods
             if period.release_state == "historical"
         )
+        unscheduled = tuple(
+            self._feast_period_card(period) for period in periods
+            if period.release_state == "unscheduled"
+        )
+        text = self.text_catalog.render
         sections = []
         if active:
             sections.append(BrowseSection(
@@ -40,23 +45,34 @@ class FeastCatalogBrowserMixin:
                 "保留同期正式挑战成员；数值读取发行资源中仍可验证的配置。",
                 history,
             ))
+        if unscheduled:
+            sections.append(BrowseSection(
+                text("catalog.feast.unscheduled_section"),
+                text("catalog.feast.unscheduled_note"), unscheduled,
+            ))
         return BrowseState(
             PLAY_LABELS["feast"],
-            "先选择活动期，再按当期正式顺序查看挑战、难度和敌方画像。",
+            text("catalog.feast.browse_description"),
             tuple(sections),
         )
 
     def _feast_period_card(self, period: FeastPeriod) -> BrowseCard:
-        setup = self._controller.feast_setup(
-            period.period_id, period.challenge_ids[0]
+        setup = (
+            self._controller.feast_setup(period.period_id, period.challenge_ids[0])
+            if period.challenge_ids else None
         )
+        text = self.text_catalog.render
+        unknown = period.release_state == "unscheduled"
         state_label = {
-            "current": "当期", "next": "预计", "scheduled": "预计",
-            "historical": "往期",
+            "current": text("catalog.feast.current_badge"),
+            "next": text("catalog.feast.upcoming_badge"), "scheduled": text("catalog.feast.upcoming_badge"),
+            "historical": text("catalog.feast.historical_badge"),
+            "unscheduled": text("catalog.feast.unscheduled_badge"),
         }
         return BrowseCard(
-            period.display_label,
-            f"{len(period.challenge_ids)} 个挑战 · {period.schedule_label}",
+            text("catalog.feast.source_title") if unknown else period.display_label,
+            (text("catalog.feast.source_summary", count=len(period.challenge_ids)) if unknown
+             else text("catalog.feast.period_summary", count=len(period.challenge_ids), schedule=period.schedule_label)),
             state_label.get(period.release_state, period.release_state),
             self._feast_setup_icon(setup),
             lambda checked=False, value=period: self._open_feast_period(value),
@@ -80,11 +96,14 @@ class FeastCatalogBrowserMixin:
                 formal_id=stage_id,
                 period=period.display_label,
             ))
+        text = self.text_catalog.render
+        unknown = period.release_state == "unscheduled"
         self._show_state(BrowseState(
-            f"争锋赏宴 · {period.display_label}",
-            f"{period.schedule_label} · 选择挑战后查看难度、条件与敌方画像。",
+            text("catalog.feast.source_heading") if unknown else f"争锋赏宴 · {period.display_label}",
+            text("catalog.feast.source_description") if unknown else f"{period.schedule_label} · 选择挑战后查看难度、条件与敌方画像。",
             (BrowseSection(
-                "挑战对象", f"共 {len(cards)} 个，按当期正式顺序展示。",
+                "挑战对象", (text("catalog.feast.source_challenges_note", count=len(cards)) if unknown
+                             else f"共 {len(cards)} 个，按当期正式顺序展示。"),
                 tuple(cards),
             ),),
         ), push=True)
@@ -107,3 +126,14 @@ class FeastCatalogBrowserMixin:
         )
         self.stack.setCurrentWidget(self.feast_view)
         self._catalog_navigation_listener()
+
+    def _feast_home_badge(self) -> str:
+        periods = self._controller.feast_periods()
+        source_count = sum(period.release_state == "unscheduled" for period in periods)
+        period_count = len(periods) - source_count
+        text = self.text_catalog.render
+        if not period_count:
+            return text("catalog.feast.source_home_count", count=source_count)
+        if not source_count:
+            return text("catalog.feast.period_home_count", count=period_count)
+        return text("catalog.feast.mixed_home_count", periods=period_count, sources=source_count)

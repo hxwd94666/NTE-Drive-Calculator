@@ -12,8 +12,6 @@ from src.services.static_catalog.misc.service import (
     StaticCatalogMiscService,
 )
 from src.storage.sqlite.catalog.static_catalog_misc_queries import StaticCatalogMiscDao
-from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION
-from tools.game_data.static_database_build_support import IMPORTER_VERSION
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -80,7 +78,7 @@ class StaticCatalogMiscQueryTests(unittest.TestCase):
             coverage = dao.get_skill_damage_relation_coverage()
 
         self.assertEqual(coverage["missing_ability_targets"], 128)
-        self.assertEqual(coverage["absent_ability_ids"], 80)
+        self.assertEqual(coverage["absent_ability_ids"], 93)
         self.assertEqual(coverage["missing_gameplay_effect_targets"], 9)
 
     def test_montage_notifies_are_paged_independently(self) -> None:
@@ -113,8 +111,8 @@ class StaticCatalogMiscServiceTests(unittest.TestCase):
             metadata.dataset_id,
             manifest["database"]["dataset_id"],
         )
-        self.assertEqual(metadata.schema_version, SCHEMA_VERSION)
-        self.assertEqual(metadata.importer_version, IMPORTER_VERSION)
+        self.assertEqual(metadata.schema_version, manifest["database"]["schema_version"])
+        self.assertEqual(metadata.importer_version, manifest["build_tool"]["importer_version"])
         self.assertTrue(metadata.source_payloads_omitted)
 
     def test_source_trace_does_not_promise_an_omitted_payload(self) -> None:

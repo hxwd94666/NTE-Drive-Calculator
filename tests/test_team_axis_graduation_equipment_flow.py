@@ -14,7 +14,7 @@ from src.features.teams.axis_graduation_dialog import TeamAxisGraduationDialog
 from src.integrations.team_axis_graduation_archive import archive_axis_result
 from src.integrations.team_axis_graduation_equipment_advice import _stat_row
 from src.services.teams.axis_graduation.service import TeamAxisGraduationService, _request_digest
-from src.storage.sqlite.user_data_dao import UserDataDao
+from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao
 from tests.test_team_axis_graduation_history_ui import case, cleanup, wait_for, application
 from tests.test_team_axis_graduation_current import current_response
 
@@ -53,7 +53,7 @@ def test_schema49_upgrade_preserves_selection_payload_and_consistent_backup(tmp_
         old_row = db.execute("SELECT * FROM team_axis_graduation_evaluation").fetchone()
         selected = db.execute("SELECT * FROM team_axis_graduation_selection").fetchone()
     with UserDataDao(path) as dao:
-        assert dao._db().execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == 50
+        assert dao._db().execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == SCHEMA_VERSION
         assert dao._db().execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert dao._db().execute("PRAGMA foreign_key_check").fetchall() == []
         assert tuple(dao._db().execute("SELECT * FROM team_axis_graduation_evaluation").fetchone()) == old_row

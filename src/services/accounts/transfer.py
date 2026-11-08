@@ -13,6 +13,7 @@ from src.integrations.team_axis_graduation_archive import validate_saved_axis_re
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.accounts.settings import AccountSettingsService, SETTING_GROUPS
 from src.services.identification.matching_settings import MatchingSettingsService
+from src.domain.equipment.management_settings import MatchingScope, normalize_warehouse_config
 from src.integrations.accounts.index_file import locked_account_index
 from src.integrations.accounts.mutation_directories import (
     preserve_deleted_account_cleanup, require_account_directory_ready, retired_account_directory,
@@ -70,11 +71,14 @@ def _prepare_settings(staged: Path) -> None:
                                       legacy_config_dir=staged / "config")
     settings.migrate_legacy_settings()
     # 额外套装是账号业务偏好；暂存区校验失败时不切换当前账号。
-    MatchingSettingsService(staged / USER_DATABASE_FILENAME).load()
+    for scope in MatchingScope:
+        MatchingSettingsService(staged / USER_DATABASE_FILENAME, scope=scope).load()
     for key in SETTING_GROUPS:
         value = settings.load(key)
         if key == "ui" and value.get("full_scan_post_action_config"):
             merge_post_action_config(value["full_scan_post_action_config"])
+        if key == "ui" and "warehouse_management_config" in value:
+            normalize_warehouse_config(value["warehouse_management_config"])
 
 
 def export_account_data(manager: AccountTransferStore, account_id: str, target_zip: Path) -> Path:

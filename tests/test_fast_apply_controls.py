@@ -8,14 +8,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QProgressDialog, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QProgressBar, QWidget
 
 from src.features.inventory.equipment import assembly_controller as controller
+from src.features.inventory.equipment.assembly_surface import AssemblySurface
+from src.domain.equipment.assembly_progress import AssemblyTarget
 
 
 class PendingWorker(QObject):
     result_ready = Signal(object)
     error = Signal(str)
+    finished = Signal()
 
     def __init__(self, target, parent=None):
         super().__init__(parent)
@@ -46,25 +49,29 @@ def apply_session(app, monkeypatch, tmp_path):
     )
     service_factory = Mock()
     monkeypatch.setattr(controller, "BulkEquipmentApplyService", service_factory)
+    monkeypatch.setattr(controller, "freeze_assembly_targets", lambda *_args: (AssemblyTarget(11, 1, "测试角色", "主力", 230, 1, 1),))
     monkeypatch.setattr(controller, "WorkerThread", PendingWorker)
     monkeypatch.setattr(controller.QMessageBox, "warning", Mock())
     monkeypatch.setattr(controller.QMessageBox, "information", Mock())
     owner.show()
     controller._start_nte_core_equipment_apply(owner, ["测试角色"])
-    dialog = owner.findChild(QProgressDialog)
+    dialog = owner.findChild(AssemblySurface)
     cancel = service_factory.call_args.kwargs["cancel_event"]
     yield owner, dialog, cancel
     if hasattr(owner, "_equipment_apply_worker"):
-        owner._equipment_apply_worker.error.emit("收尾")
+        worker = owner._equipment_apply_worker
+        worker.error.emit("收尾")
+        worker.running = False
+        worker.finished.emit()
     owner.close()
     owner.deleteLater()
     app.processEvents()
 
 
 @pytest.mark.parametrize("action", ["close", "escape"])
-def test_progress_has_no_stop_button_and_close_cancels_without_reopening(apply_session, app, action):
+def test_progress_close_cancels_without_reopening(apply_session, app, action):
     owner, dialog, cancel = apply_session
-    assert not dialog.findChildren(QPushButton)
+    assert dialog.stop_button.isVisible()
     assert not cancel.is_set()
     if action == "escape":
         QTest.keyClick(dialog, Qt.Key_Escape)
@@ -79,14 +86,15 @@ def test_progress_has_no_stop_button_and_close_cancels_without_reopening(apply_s
     assert owner._inventory_sync_service.is_running
 
 
-def test_global_stop_sets_the_same_token_then_hides_progress(apply_session, app):
+def test_global_stop_sets_the_same_token_and_keeps_stopping_state(apply_session, app):
     owner, dialog, cancel = apply_session
     callback = owner.global_hotkey_manager.start.call_args.kwargs["on_stop"]
     callback()
     assert cancel.is_set()
     QTest.qWait(120)
     app.processEvents()
-    assert not dialog.isVisible()
+    assert dialog.isVisible()
+    assert "正在停止" in dialog.status_label.text()
 
 
 @pytest.mark.parametrize("outcome", ["result", "error"])
@@ -98,6 +106,9 @@ def test_completion_releases_only_its_hotkey_owner_without_cancelling(apply_sess
     else:
         worker.error.emit("测试错误")
     assert not cancel.is_set()
+    owner.global_hotkey_manager.stop.assert_not_called()
+    worker.running = False
+    worker.finished.emit()
     owner.global_hotkey_manager.stop.assert_called_once_with(owner="fast_equipment_apply")
     # Teardown must not emit another outcome for a completed worker.
     del owner._equipment_apply_worker
@@ -113,16 +124,16 @@ def test_other_hotkey_owner_prevents_starting_a_competing_task(app, monkeypatch)
     monkeypatch.setattr(controller.QMessageBox, "information", Mock())
     controller._start_nte_core_equipment_apply(owner, ["测试角色"])
     start.assert_not_called()
-    assert not owner.findChildren(QProgressDialog)
+    assert not owner.findChildren(AssemblySurface)
     owner.close()
 
 
 def test_compact_progress_keeps_status_and_stop_hint_readable(apply_session, app):
     _owner, dialog, cancel = apply_session
     long_status = "正在等待角色装配后取得完整背包观测；等待期间已保存的数据保持不变。"
-    dialog.setLabelText(long_status + "\n关闭此窗口或按 F12 停止后续装配。")
+    dialog.update_progress(long_status + "\n关闭此窗口或按 F12 停止后续装配。", 1, 2)
     app.processEvents()
-    label = dialog.findChild(QLabel)
+    label = dialog.status_label
     progress = dialog.findChild(QProgressBar)
     assert long_status in label.text()
     assert "F12" in label.text()

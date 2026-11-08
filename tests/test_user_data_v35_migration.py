@@ -77,7 +77,7 @@ class UserDataV35MigrationTests(unittest.TestCase):
 
     def _assert_verified_history_backup(self) -> None:
         backups = list((self.database.parent / ".migration-backups").glob("*.sqlite3"))
-        self.assertEqual(5, len(backups))
+        self.assertEqual(7, len(backups))
         versions = set()
         for path in backups:
             with closing(sqlite3.connect(path)) as backup:
@@ -96,7 +96,7 @@ class UserDataV35MigrationTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE name = 'team_overview_source'"
                 ).fetchone()
                 self.assertEqual(version >= 47, overview is not None)
-        self.assertEqual({44, 46, 47, 48, 49}, versions)
+        self.assertEqual({44, 46, 47, 48, 49, 50, 51}, versions)
 
     def test_v35_materializes_virtual_default_before_adding_profile_snapshot(self) -> None:
         self._create_v34_with_virtual_normal_resistance()

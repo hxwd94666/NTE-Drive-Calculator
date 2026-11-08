@@ -31,6 +31,7 @@ def postcheck_and_repair(
     check_cancelled: Callable[[], None] | None = None,
     observation_cursor: int | None = None,
     check_source: Callable[[], None] | None = None,
+    on_verified: Callable[[dict], None] | None = None,
 ) -> dict[str, Any]:
     """优先使用原生完整观测精确复核；局部片段仅作不落库的既有兜底。
     
@@ -123,6 +124,7 @@ def postcheck_and_repair(
                 snapshot_id=full_snapshot_id,
                 check_cancelled=check_cancelled,
                 observed_items=observation.get("items"),
+                on_verified=on_verified,
             )
             output["full_snapshot_verification_count"] = sum(
                 bool(row.get("full_snapshot_verified")) for row in applied
@@ -152,6 +154,7 @@ def postcheck_and_repair(
             pending,
             timeout=max(0.0, round_deadline - time.monotonic()),
             check_cancelled=check_cancelled,
+            on_verified=on_verified,
         )
         output["scoped_verification_count"] = sum(
             bool(row.get("scoped_verified")) for row in applied
@@ -238,6 +241,7 @@ def verify_complete_snapshot(
     snapshot_id: int,
     check_cancelled: Callable[[], None] | None = None,
     observed_items: list[dict] | None = None,
+    on_verified: Callable[[dict], None] | None = None,
 ) -> list[dict]:
     verifier = getattr(apply_service, "verify_plan_in_snapshot", None)
     if not callable(verifier):
@@ -270,6 +274,8 @@ def verify_complete_snapshot(
             continue
         row["verified"] = True
         row["full_snapshot_verified"] = True
+        if on_verified is not None:
+            on_verified(dict(row))
         row["verification_source"] = "full_inventory_snapshot"
         if row.get("repaired"):
             row["repair_verified"] = True
@@ -308,6 +314,7 @@ def verify_scoped_equipment_events(
     *,
     timeout: float,
     check_cancelled: Callable[[], None] | None = None,
+    on_verified: Callable[[dict], None] | None = None,
 ) -> list[dict]:
     waiter = getattr(sync_service, "wait_for_observed_equipment_snapshot", None)
     if not callable(waiter):
@@ -371,6 +378,8 @@ def verify_scoped_equipment_events(
             continue
         row["verified"] = True
         row["scoped_verified"] = True
+        if on_verified is not None:
+            on_verified(dict(row))
         if row.get("repaired"):
             row["repair_verified"] = True
         row["verification_source"] = "scoped_equipment_event"

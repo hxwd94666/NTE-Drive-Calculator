@@ -19,7 +19,7 @@ from src.integrations.battle_report_bundle import read_battle_report_bundle, wri
 from src.services.battle_report.history.transfer import BattleReportTransferService
 from src.services.battle_report.inputs.scopes import scope_changed, validate_first_hit, team_character_ids
 from src.services.battle_report.inputs.settlement import native_world_bonus
-from src.services.native_role_profile_projection import project_native_role_profile, validate_native_cultivation
+from src.services.official_role.native_profiles import project_native_role_profile, validate_native_cultivation
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 EDIT_TABLES = ("battle_build_edit", "battle_character_build_edit",

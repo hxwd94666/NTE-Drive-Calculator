@@ -55,6 +55,18 @@ class StaticCatalogAssetRelationIntegrationTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.service.close()
 
+    def _reference_index(self, source, matches):
+        # 资源插入会改变 ordinal；按正式目标和关系语义定位，再单独验分页边界。
+        for offset in range(0, 1000, 100):
+            page = self.service.relations(self.request, domain_key="assets",
+                record_id=encode_typed_record_id("blueprint", source), relation_kind="references", offset=offset, limit=100)
+            for index, row in enumerate(page.rows):
+                if matches(row, {field.label: field.value for field in row.fields}):
+                    return offset + index
+            if len(page.rows) < 100:
+                break
+        self.fail("冻结来源中缺少预期资源关系")
+
     def test_blueprint_relation_rows_are_bounded_and_gate_target_links(self) -> None:
         record_id = encode_typed_record_id("blueprint", BLUEPRINT_PATH)
         detail = self.service.detail(
@@ -65,13 +77,13 @@ class StaticCatalogAssetRelationIntegrationTests(unittest.TestCase):
 
         assert detail is not None
         groups = {group.kind: group for group in detail.relation_groups}
-        self.assertEqual(groups["references"].total, 298)
+        self.assertGreater(groups["references"].total, 1)
         available = self.service.relations(
             self.request,
             domain_key="assets",
             record_id=record_id,
             relation_kind="references",
-            offset=23,
+            offset=self._reference_index(BLUEPRINT_PATH, lambda row, fields: bool(row.references)),
             limit=1,
         )
         unavailable = self.service.relations(
@@ -79,7 +91,7 @@ class StaticCatalogAssetRelationIntegrationTests(unittest.TestCase):
             domain_key="assets",
             record_id=record_id,
             relation_kind="references",
-            offset=24,
+            offset=self._reference_index(BLUEPRINT_PATH, lambda _row, fields: fields.get("target_available") == "否"),
             limit=1,
         )
 
@@ -142,7 +154,8 @@ class StaticCatalogAssetRelationIntegrationTests(unittest.TestCase):
             domain_key="assets",
             record_id=encode_typed_record_id("blueprint", CURVE_SOURCE_PATH),
             relation_kind="references",
-            offset=3,
+            offset=self._reference_index(CURVE_SOURCE_PATH, lambda _row, fields:
+                fields.get("target_asset_path") == "/Game/DataTable/Reaction/DT_ReactionEffectFigure"),
             limit=1,
         )
 

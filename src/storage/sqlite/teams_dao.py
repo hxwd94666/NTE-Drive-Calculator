@@ -26,7 +26,7 @@ class TeamsDaoMixin(UserDataDaoMixinHost):
             if existing is None:
                 revision = 1
                 db.execute("INSERT INTO team VALUES (?, ?, ?, ?, ?)", (team_id, draft.name, revision, now, now))
-                db.execute("INSERT INTO team_overview_source VALUES(?, 'current', 1)", (team_id,))
+                db.execute("INSERT INTO team_overview_source VALUES(?, 'slots', 1)", (team_id,))
             else:
                 revision = existing.revision + 1
                 cursor = db.execute("UPDATE team SET name=?, revision=?, updated_at_utc=? "

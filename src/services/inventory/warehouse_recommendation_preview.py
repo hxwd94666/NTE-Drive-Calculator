@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 
-from src.domain.post_actions import merge_post_action_config
+from src.domain.equipment.management_settings import MatchingScope, normalize_warehouse_config
+from src.domain.equipment.warehouse_decisions import DecisionStatus, decision_row
 from src.domain.equipment.intelligent_rules import RULE_SCHEME_VERSION
 from src.domain.equipment.warehouse_targets import recommendation_targets
-from src.services.accounts.settings import AccountSettingsService
+from src.services.inventory.management_settings import ManagementSettingsService
+from src.services.inventory.warehouse_predecessors import evaluate_predecessors
+from src.services.inventory.warehouse_conflicts import freeze_conflict_details
 from src.services.identification.matching_settings import MatchingSettingsService
 from src.services.inventory.warehouse_recommendation import run_warehouse_trial
 from src.storage.sqlite.accounts.transfer_database import backup_account_database
@@ -23,7 +27,13 @@ def file_identity(paths):
 
 
 def post_config(path):
-    return merge_post_action_config(AccountSettingsService(path).load("ui").get("full_scan_post_action_config"))
+    return ManagementSettingsService(path, scope=MatchingScope.WAREHOUSE).load()[0]
+
+
+def inventory_state_identity(path, snapshot_id):
+    with UserDataDao(path) as dao:
+        return tuple(sorted((row['kind'], row['uid_slot'], row['uid_serial'], row.get('locked'),
+            row.get('discarded'), row.get('equipped')) for row in dao.list_inventory_items_with_runtime_state(snapshot_id)))
 
 
 @dataclass
@@ -38,6 +48,7 @@ class RecommendationGuard:
     check_context: object
     required_retained_uids: frozenset[str] = frozenset()
     initially_discarded_uids: frozenset[str] = frozenset()
+    state_identity: tuple = ()
 
     def require_targets(self, targets):
         if not any(state=='discarded' for state in targets.values()):
@@ -52,7 +63,7 @@ class RecommendationGuard:
         if (
             recommendation_account_identity(self.database) != self.account_identity
             or file_identity(self.files) != self.file_version
-            or MatchingSettingsService(self.database).load() != self.matching
+            or MatchingSettingsService(self.database, scope=MatchingScope.WAREHOUSE).load() != self.matching
             or post_config(self.database) != self.config
         ):
             raise ValueError("仓库建议的配装、权重、资料或规则已变化，请重新生成建议")
@@ -60,10 +71,12 @@ class RecommendationGuard:
             with UserDataDao(self.database) as dao:
                 if dao.current_inventory_snapshot_id() != self.snapshot_id:
                     raise ValueError("背包快照已更新，请重新生成仓库建议")
+            if self.state_identity and inventory_state_identity(self.database, self.snapshot_id) != self.state_identity:
+                raise ValueError("装备状态已变化，请重新生成预览")
 
     def bind_saved_settings(self, config, matching):
         # 只承认这次编辑器提交的确切设置，不重读最新值冒充旧输入。
-        self.config = merge_post_action_config(config)
+        self.config = normalize_warehouse_config(config)
         self.matching = deepcopy(matching)
         self.require_current()
 
@@ -77,7 +90,8 @@ def preview_targets(result):
 
 
 def build_preview(
-    *, database, static_database, asset_root, config_dir, config, matching, options, check_context, cancel_check
+    *, database, static_database, asset_root, config_dir, config, matching, options=None,
+    check_context, cancel_check, user_targets=None, progress=lambda message: None
 ):
     database, static_database, config_dir = map(Path, (database, static_database, config_dir))
     files = (static_database, static_database.with_name("manifest.json"), config_dir / "stats.json")
@@ -88,12 +102,17 @@ def build_preview(
         files += (asset_manifest,)
     version = file_identity(files)
     check_context()
+    if cancel_check():
+        raise CancelledError()
     identity = recommendation_account_identity(database)
-    stored_matching = MatchingSettingsService(database).load()
+    stored_matching = MatchingSettingsService(database, scope=MatchingScope.WAREHOUSE).load()
     stored_config = post_config(database)
-    if config.get('recommendation', {}).get('rule_scheme_version') != RULE_SCHEME_VERSION:
+    config = normalize_warehouse_config(config)
+    intelligent = tuple(rule for rule in config['preserve_rules'] if rule.get('enabled') and
+                        (rule.get('intelligent') or rule.get('smart_kind')))
+    if intelligent and config.get('recommendation', {}).get('rule_scheme_version') != RULE_SCHEME_VERSION:
         raise ValueError('推荐已改为全角色参与，请重新生成智能规则并保存后再计算。人工规则会保留。')
-    if merge_post_action_config(config) != stored_config:
+    if config != stored_config or matching != stored_matching:
         raise ValueError('规则有未保存修改，请先保存后再计算建议。')
     with TemporaryDirectory(prefix="nte-warehouse-") as folder:
         root = Path(folder)
@@ -101,26 +120,48 @@ def build_preview(
         backup_account_database(database, frozen)
         if recommendation_account_identity(frozen) != identity:
             raise ValueError("冻结期间账号数据变化，请重新生成建议")
+        if (post_config(frozen) != stored_config
+                or MatchingSettingsService(frozen, scope=MatchingScope.WAREHOUSE).load() != stored_matching):
+            raise ValueError("冻结期间管理设置变化，请重新生成预览")
         (root / "data").mkdir()
         (root / "config").mkdir()
         for path in files[:2]:
             shutil.copy2(path, root / "data" / path.name)
         shutil.copy2(files[2], root / "config" / "stats.json")
-        result = run_warehouse_trial(
-            account_snapshot=frozen,
-            static_database=root / "data" / static_database.name,
-            config_dir=root / "config",
-            matching_settings=deepcopy(matching),
-            preserve_rules=deepcopy(config["preserve_rules"]),
-            cancel_check=cancel_check,
-            asset_root=asset_root,
-        )
+        batch = evaluate_predecessors(frozen, root / "data" / static_database.name, root / "config", config,
+                                      user_targets=user_targets, cancel_check=cancel_check)
+        remaining = any(value.status == DecisionStatus.UNDECIDED for value in batch.decisions.values())
+        if intelligent and remaining:
+            result = run_warehouse_trial(account_snapshot=frozen, static_database=root / "data" / static_database.name,
+                config_dir=root / "config", matching_settings=deepcopy(matching),
+                preserve_rules=tuple(rule for rule in config['preserve_rules'] if rule.get('intelligent') or rule.get('smart_kind')),
+                cancel_check=cancel_check, asset_root=asset_root, predecessors=batch.decisions,
+                prepared_scorer=batch.scorer, progress=progress)
+        else:
+            rows = [decision_row(batch.decisions[item.uid], batch.raw_by_uid[item.uid]) for item in batch.items]
+            result = {"rows": rows, "snapshot_id": batch.snapshot_id, "violations": [], "warehouse_score": None,
+                      "loss_check": {"complete": True, "required_retained_uids": [], "scopes": []}}
+        rows = result.get('rows')
+        if (result.get('snapshot_id') != batch.snapshot_id or not isinstance(rows, list)
+                or len(rows) != len(batch.items)
+                or {row.get('uid') for row in rows} != set(batch.raw_by_uid)):
+            raise ValueError('仓库预览结果不完整，不替换已有草稿')
+        for row in rows:
+            decision = batch.decisions[row['uid']]
+            if decision.status != DecisionStatus.UNDECIDED:
+                expected = decision_row(decision, batch.raw_by_uid[row['uid']])
+                if any(row.get(key) != expected[key] for key in (
+                        'predecessor_fixed', 'fixed_state_target', 'decision_status', 'decision_stage')):
+                    raise ValueError('智能结果改变了前序决定，不替换已有草稿')
+        result['conflicts'] = freeze_conflict_details(batch, asset_root)
+        state_identity = inventory_state_identity(frozen, batch.snapshot_id)
     if cancel_check():
-        raise ValueError("已取消仓库建议")
+        raise CancelledError()
     guard = RecommendationGuard(
         database, result["snapshot_id"], identity, files, version, stored_matching, stored_config, check_context
     )
     guard.required_retained_uids=frozenset((result.get('loss_check') or {}).get('required_retained_uids',()))
     guard.initially_discarded_uids=frozenset(r['uid'] for r in result.get('rows',()) if r.get('original_discarded'))
+    guard.state_identity = state_identity
     guard.require_current()
     return result, guard

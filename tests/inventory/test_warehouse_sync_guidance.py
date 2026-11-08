@@ -11,7 +11,7 @@ from src.features.inventory.warehouse import controller as warehouse_controller
 
 
 @pytest.mark.parametrize("sync", [None, SimpleNamespace(is_running=False)])
-@pytest.mark.parametrize("operation", ["fast", "manual", "management"])
+@pytest.mark.parametrize("operation", ["fast", "manual"])
 def test_closed_sync_guidance_preserves_inputs_and_does_not_dispatch(monkeypatch, sync, operation):
     pending = {"test-item": "locked"}
     owner = SimpleNamespace(
@@ -31,15 +31,10 @@ def test_closed_sync_guidance_preserves_inputs_and_does_not_dispatch(monkeypatch
     apply_service = Mock()
     monkeypatch.setattr(warehouse_controller, "WarehouseStateManagementService", warehouse_service)
     monkeypatch.setattr(equipment_assembly_controller, "BulkEquipmentApplyService", apply_service)
-    monkeypatch.setattr(warehouse_controller, "show_scan_post_action_dialog", lambda *_a, **_k: True)
-    monkeypatch.setattr(warehouse_controller, "load_scan_post_action_config", lambda *_a, **_k: {})
-    monkeypatch.setattr(warehouse_controller, "validate_post_action_config", lambda _: None)
     if operation == "fast":
         equipment_assembly_controller._start_nte_core_equipment_apply(owner, ["测试角色"])
-    elif operation == "manual":
-        warehouse_controller._save_warehouse_state_changes(owner)
     else:
-        warehouse_controller._open_warehouse_state_manager(owner)
+        warehouse_controller._save_warehouse_state_changes(owner)
     _label, detail, target = owner.operation_unavailable.call_args.args
     assert "同步连接未开启" in detail and "开启“自动同步”" in detail
     assert "进入游戏场景" in detail and target == "home"
@@ -47,3 +42,14 @@ def test_closed_sync_guidance_preserves_inputs_and_does_not_dispatch(monkeypatch
     warehouse_service.assert_not_called()
     apply_service.assert_not_called()
     assert owner._warehouse_pending_state_changes == pending
+
+
+def test_opening_management_uses_independent_preview_owner_without_live_game_dispatch(monkeypatch):
+    manager = Mock()
+    owner = SimpleNamespace(operation_entry=lambda *_: True, _warehouse_source='nte_core',
+                            warehouse_management_controller=manager)
+    warehouse_service = Mock()
+    monkeypatch.setattr(warehouse_controller, 'WarehouseStateManagementService', warehouse_service)
+    warehouse_controller._open_warehouse_state_manager(owner)
+    manager.open.assert_called_once_with()
+    warehouse_service.assert_not_called()

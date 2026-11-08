@@ -119,12 +119,23 @@ class AccountSettingsService:
     ) -> dict[str, Any]:
         key = self._setting_key(setting_key)
         defaults = self._defaults()[key]
-        normalized = self._normalize(key, {**defaults, **dict(value)}, defaults)
-        with UserDataDao(self.user_database_path) as dao:
+        draft = dict(value)
+        if key == "ui":
+            # 管理字段只经各自 owner 修改；普通偏好草稿可能早于管理提交。
+            for field in ("full_scan_post_action_config", "warehouse_management_config"):
+                draft.pop(field, None)
+        normalized = self._normalize(key, {**defaults, **draft}, defaults)
+        with UserDataDao(self.user_database_path) as dao, dao.write_transaction():
+            current = dao.list_application_setting_copies().get(key, {})
+            if key == "ui":
+                for field in ("full_scan_post_action_config", "warehouse_management_config"):
+                    if field in current:
+                        normalized[field] = current[field]
             if normalized == self._normalize(key, defaults, defaults):
                 dao.delete_application_setting_copy(key)
             else:
-                dao.replace_application_setting_copy(key, normalized)
+                dao.compare_and_replace_application_setting_copy(
+                    key, normalized, expected=current, missing_value={})
         return normalized
 
     def migrate_legacy_settings(self) -> None:
@@ -133,6 +144,7 @@ class AccountSettingsService:
         defaults = self._defaults()
         with UserDataDao(self.user_database_path) as dao:
             if dao.legacy_application_settings_imported():
+                self._initialize_management_settings(dao)
                 return
             existing = dao.list_application_setting_copies()
             candidates: dict[str, Mapping[str, Any]] = {}
@@ -166,6 +178,15 @@ class AccountSettingsService:
                 if normalized != self._normalize(key, defaults[key], defaults[key]):
                     normalized_candidates[key] = normalized
             dao.import_legacy_application_settings(normalized_candidates)
+            self._initialize_management_settings(dao)
+
+    def _initialize_management_settings(self, dao):
+        # 旧独立扫描 JSON 只在账号尚无有效扫描设置时读一次；以后两域独立保存。
+        ui = dao.list_application_setting_copies().get("ui", {})
+        legacy = None
+        if not ui.get("full_scan_post_action_config") and self.legacy_config_dir is not None:
+            legacy = self._read_legacy_json(self.legacy_config_dir / "scan_post_actions.json")
+        dao.initialize_equipment_management_settings(legacy)
 
     @staticmethod
     def _read_legacy_json(path: Path) -> dict[str, Any] | None:
@@ -268,6 +289,12 @@ class AccountSettingsService:
                 normalized.get("mirror_cdk") or ""
             ).strip()
         elif key == "ui":
+            # 仓库管理由独立 Service 保存，但仍位于账号 UI 分组。普通偏好读写须保全
+            # 这个显式字段；缺失时不补空值，以免抢先阻断旧扫描配置的一次拆分迁移。
+            if "warehouse_management_config" in value:
+                from src.domain.equipment.management_settings import normalize_warehouse_config
+                normalized["warehouse_management_config"] = normalize_warehouse_config(
+                    value["warehouse_management_config"])
             for name in (
                 "log_enabled",
                 "skip_unsaved_allocation_prompt",

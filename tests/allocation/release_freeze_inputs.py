@@ -5,9 +5,8 @@ from pathlib import Path
 import sqlite3
 from src.features.weighted_allocation.save_owner import WeightedOwnerIdentity, WeightedSaveOwner
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.allocation.static_release_helpers import ROOT
 
-SCHEMA_PATHS = tuple(sorted((ROOT / "src/storage/sqlite/schema").glob("[0-9][0-9][0-9]_game_static*.sql")))
+from tools.game_data.static_database_build_support import SCHEMA_PATHS
 CHARACTER_ID = 2001
 PROPERTIES = (("CritBase", "暴击率%"), ("CritDamageBase", "暴击伤害%"),
               ("DamageUpGeneralBase", "伤害增加%"), ("AtkUp", "攻击力%"))

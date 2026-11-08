@@ -587,44 +587,6 @@ class InventoryNteCoreRouteTests(unittest.TestCase):
         timed_out = page_module._equipment_failure_details("core_request_timeout", "nte-core request timed out")
         self.assertIn("不是命名管道缺失", timed_out)
 
-    def test_automatic_assembly_uses_duplicate_warning_after_mode_choice(self) -> None:
-        calls = []
-
-        class FakeWindow:
-            operation_entry = staticmethod(lambda _capability, _label: True)
-
-        original_warning = automatic_module._confirm_automatic_assembly_duplicate_warning
-        original_start = automatic_module._start_automatic_equipment_assembly
-        try:
-            automatic_module._confirm_automatic_assembly_duplicate_warning = (
-                lambda _self: calls.append("warning") or True
-            )
-            automatic_module._start_automatic_equipment_assembly = (
-                lambda _self, roles, *, slot_ids=None: calls.append(
-                    (list(roles), slot_ids)
-                )
-            )
-            automatic_module._preview_automatic_assemble_role(
-                FakeWindow(),
-                "测试角色",
-                confirmed=True,
-            )
-        finally:
-            automatic_module._confirm_automatic_assembly_duplicate_warning = original_warning
-            automatic_module._start_automatic_equipment_assembly = original_start
-
-        self.assertEqual(["warning", (["测试角色"], None)], calls)
-
-    def test_duplicate_warning_preference_skips_dialog(self) -> None:
-        class FakeWindow:
-            _ui_preferences = {"skip_automatic_assembly_duplicate_warning": True}
-
-        self.assertTrue(
-            automatic_module._confirm_automatic_assembly_duplicate_warning(
-                FakeWindow()
-            )
-        )
-
     def test_automatic_assembly_preparation_can_be_cancelled(self) -> None:
         class FakeWindow:
             _automatic_equipment_apply_worker = None

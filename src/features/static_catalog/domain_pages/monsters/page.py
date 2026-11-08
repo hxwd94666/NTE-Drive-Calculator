@@ -23,7 +23,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.domain.localization.catalog import TextCatalog
 from src.app.theme import themed_style
+from src.ui.text_catalog import resolve_text_catalog
 from src.features.static_catalog.domain_pages.monsters.browse_models import (
     PLAY_COPY as _PLAY_COPY,
     PLAY_LABELS as _PLAY_LABELS,
@@ -77,8 +79,10 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         controller: MonsterCatalogPageController,
         asset_catalog: GameUiAssetCatalog,
         parent: QWidget | None = None,
+        catalog: TextCatalog | None = None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(catalog)
         self.setObjectName("monsterCatalogPage")
         self.setStyleSheet(themed_style("QWidget#monsterCatalogPage{background:#0d1117;}"))
         self._controller = controller
@@ -145,7 +149,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         self.home_grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         for index, mode in enumerate(_PLAY_LABELS):
             card = ArchiveCard(BrowseCard(
-                _PLAY_LABELS[mode], _PLAY_COPY[mode], self._home_badge(mode),
+                _PLAY_LABELS[mode], self.text_catalog.render("catalog.feast.browse_description") if mode == "feast" else _PLAY_COPY[mode], self._home_badge(mode),
                 self._mode_icon(mode), lambda checked=False, key=mode: self.open_mode(key),
                 formal_id=mode,
             ), host)
@@ -161,11 +165,13 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         root.setContentsMargins(4, 2, 4, 8)
         top = QHBoxLayout()
         self.browser_title = QLabel(page)
+        self.browser_title.setTextFormat(Qt.PlainText)
         self.browser_title.setStyleSheet(themed_style("color:#f0f6fc;font-size:22px;font-weight:900"))
         top.addWidget(self.browser_title)
         top.addStretch(1)
         root.addLayout(top)
         self.browser_subtitle = QLabel(page)
+        self.browser_subtitle.setTextFormat(Qt.PlainText)
         self.browser_subtitle.setWordWrap(True)
         self.browser_subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
         root.addWidget(self.browser_subtitle)
@@ -741,7 +747,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
 
     def _home_badge(self, mode: str) -> str:
         if mode == "feast":
-            return f"{len(self._controller.feast_periods())} 期活动"
+            return self._feast_home_badge()
         return _home_badge(mode, self._controller.entries_for(mode))
 
 def build_monster_catalog_page(
@@ -750,6 +756,7 @@ def build_monster_catalog_page(
     terminology_service: StaticCatalogTerminologyService,
     game_ui_asset_root: str | Path,
     parent: QWidget | None = None,
+    catalog: TextCatalog | None = None,
 ) -> MonsterCatalogPage:
     """Public factory for the shared catalog composition root."""
 
@@ -758,6 +765,6 @@ def build_monster_catalog_page(
     page = MonsterCatalogPage(
         controller=MonsterCatalogPageController(service),
         asset_catalog=GameUiAssetCatalog(game_ui_asset_root),
-        parent=parent,
+        parent=parent, catalog=catalog,
     )
     return page

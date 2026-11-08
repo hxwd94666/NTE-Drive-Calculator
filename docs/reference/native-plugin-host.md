@@ -12,7 +12,7 @@
 | NTE_PluginHUD.dll | 冷却、敌人状态及性能显示，PostRender 与原生资源 | 通过宿主借用服务控制；禁止新调用后等待在途调用和游戏线程资源排空，再卸载 |
 | NTE_PluginPerformance.dll | 有界服务耗时诊断会话、后台汇总和输出 | 默认不采样；停止生产、排空队列与线程后才卸载 |
 
-User 内继续区分 Inventory、Character、Equipment；Combat 内继续区分 Events、Buff、Context。模块独立不要求额外产生 DLL。尚未实现的第三方信任或其他 DLL 不加入加载名单。详细源码 owner 见 [UETools 分类契约](../../../UETools-NTE/docs/plugin_partition.md)。
+User 内继续区分 Inventory、Character、Equipment；Combat 内继续区分 Events、Buff、Context。模块独立不要求额外产生 DLL。尚未实现的第三方信任或其他 DLL 不加入加载名单。详细源码 owner 见外部 UETools 仓库的 `docs/plugin_partition.md`，本仓库不复制该清单。
 
 HUD 显示与战报 writer 分别管理：关闭展示不停止战报、同步或独立诊断记录；卸载 HUD 不移除其他消费者使用的公共 ProcessEvent。数据缺失仍显示未知，不能通过拆分补造来源。
 
@@ -22,7 +22,7 @@ Calc 的显示控制仍经采集 Core 和 Combat 管道转交 `nte.hud.control.v
 
 当前随附包为 `native-plugins-v3`，包含 D3D、User、Combat、独立 HUD、Performance 五 DLL、四份最终字节签名和配套采集 Core。该包来自已冻结输入摘要的未提交工作树，已完成编译、保护及隔离验证，经私有 Toolkit 成套核验后接入本地 Calc；尚未发布或部署到游戏。旧 v2 包只保留明确的兼容读取规则，不能替代当前随附包身份。
 
-全部新交付 DLL 必须带匹配的 VMP 配置：五个 DLL 均为选定函数保护，宿主不启用整文件 Pack／ResourceProtection。声明使用标准 JSON Unicode 转义；它是可审阅的授权说明，不是运行权限、加密或针对 AI 的指令。具体规则维护在 UETools 的[发布保护](../../../UETools-NTE/docs/vmprotect_release.md)和[内嵌声明](../../../UETools-NTE/docs/component_notice.md)。
+全部新交付 DLL 必须带匹配的 VMP 配置：五个 DLL 均为选定函数保护，宿主不启用整文件 Pack／ResourceProtection。声明使用标准 JSON Unicode 转义；它是可审阅的授权说明，不是运行权限、加密或针对 AI 的指令。具体规则维护在外部 UETools 仓库的 `docs/vmprotect_release.md` 与 `docs/component_notice.md`，本仓库只消费已核对的组件清单。
 
 ## 显式更新与回退
 

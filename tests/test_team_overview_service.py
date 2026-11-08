@@ -42,7 +42,7 @@ def test_explicit_secondary_slot_and_own_snapshot_do_not_follow_new_inventory(tm
         dao.save_loadout_plan(name="旧快照方案", character_id=1072, assignments=previous["assignments"],
             source_snapshot_id=previous["source_snapshot_id"], status="ready", payload=previous["payload"], slot_id=secondary)
         bindings = tuple((key, secondary if key == 1072 else value) for key, value in slots.items())
-        dao.save_team_source(team, dao.get_team_source(team.team_id), mode=SourceMode.SLOTS, bindings=bindings)
+        dao.save_team_source(team, dao.get_team_source(team.team_id), mode=SourceMode.CALC, bindings=bindings)
     before, = service.load()
     with UserDataDao(service.database_path) as dao:
         _, items = dao.export_inventory_snapshot(previous["source_snapshot_id"])
@@ -81,9 +81,11 @@ def test_game_source_is_read_only_and_all_four_share_one_snapshot(tmp_path):
 
 
 def test_sources_publish_incrementally_and_allow_unrelated_writes(tmp_path):
-    service, team, _ = overview_case(tmp_path)
+    service, team, slots = overview_case(tmp_path)
     with UserDataDao(service.database_path) as dao:
         second = dao.save_team(TeamDraft("同阵容备用", team.character_ids))
+        dao.save_team_source(second, dao.get_team_source(second.team_id),
+                             mode=SourceMode.CALC, bindings=tuple(slots.items()))
     emitted = []
     def publish(value):
         emitted.append(value)
@@ -95,9 +97,11 @@ def test_sources_publish_incrementally_and_allow_unrelated_writes(tmp_path):
 
 
 def test_cancel_after_first_team_stops_remaining_publication(tmp_path):
-    service, team, _ = overview_case(tmp_path)
+    service, team, slots = overview_case(tmp_path)
     with UserDataDao(service.database_path) as dao:
         second = dao.save_team(TeamDraft("同阵容备用", team.character_ids))
+        dao.save_team_source(second, dao.get_team_source(second.team_id),
+                             mode=SourceMode.CALC, bindings=tuple(slots.items()))
     token, emitted = Event(), []
     def publish(value):
         emitted.append(value)
@@ -162,6 +166,8 @@ def test_missing_static_character_retains_source_evidence_for_later_model_diagno
         dao.save_loadout_plan(name="保留来源", character_id=missing_id, assignments=donor["assignments"],
             source_snapshot_id=donor["source_snapshot_id"], status="ready", payload=donor["payload"], slot_id=slot)
         changed = dao.save_team(TeamDraft("暂缺模型", (missing_id, *team.character_ids[1:])), existing=team)
+        dao.save_team_source(changed, dao.get_team_source(changed.team_id), mode=SourceMode.CALC,
+                             bindings=((missing_id, slot), *((key, slots[key]) for key in team.character_ids[1:])))
     result, = service.load((changed,))
     assert result.ready_count == 4
     assert result.members[0].items and result.members[0].character_id == missing_id
@@ -176,7 +182,7 @@ def test_colliding_team_and_slot_ids_in_other_account_never_reuse_first_account_
         with dao.write_transaction() as db:
             db.execute("INSERT INTO team VALUES(?,?,1,'2026-10-22','2026-10-22')", (team.team_id, team.name))
             db.executemany("INSERT INTO team_member VALUES(?,?,?)", [(team.team_id, i, key) for i, key in enumerate(team.character_ids)])
-            db.execute("INSERT INTO team_overview_source VALUES(?,'current',1)", (team.team_id,))
+            db.execute("INSERT INTO team_overview_source VALUES(?,'slots',1)", (team.team_id,))
         new_slots = [dao.create_loadout_slot(key, "同 ID 空槽") for key in team.character_ids]
         assert set(new_slots) == set(slots.values())
     second = TeamOverviewService(account_id="other", generation=2, database_path=other,

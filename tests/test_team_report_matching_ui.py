@@ -245,7 +245,10 @@ def test_controller_serializes_replacement_discards_old_progress_and_delivers_on
 
 @pytest.mark.parametrize("theme", ["dark", "black", "light"])
 @pytest.mark.parametrize("width,height", [(640, 600), (700, 720)])
-def test_match_dialog_actions_reachable_on_small_screen(theme, width, height):
+def test_match_dialog_actions_reachable_on_small_screen(theme, width, height, monkeypatch):
+    from src.app import window_geometry
+    # Show 过滤器与显式限位必须看到同一合成屏幕，不能混入本机真实屏幕。
+    monkeypatch.setattr(window_geometry, "_available_geometry", lambda _dialog: QRect(0, 0, width, height))
     from src.app.theme import apply_app_theme
     from src.app.window_geometry import fit_dialog_to_available_screen
     apply_app_theme(application(), theme)

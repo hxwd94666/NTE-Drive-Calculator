@@ -6,6 +6,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 from pathlib import Path
+from tests.static_release_fixture import distribution_manifest
 from typing import Any
 
 from src.services.static_catalog.forks.service import (
@@ -13,7 +14,6 @@ from src.services.static_catalog.forks.service import (
     StaticCatalogForkService,
 )
 from src.storage.sqlite.catalog.static_catalog_fork_queries import StaticCatalogForkDao
-from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +32,7 @@ class StaticCatalogForkServiceTests(unittest.TestCase):
     def test_metadata_reports_release_provenance_and_importer_gaps(self) -> None:
         metadata = self.service.metadata()
 
-        self.assertEqual(metadata.schema_version, SCHEMA_VERSION)
+        self.assertEqual(metadata.schema_version, distribution_manifest()["database"]["schema_version"])
         self.assertTrue(metadata.dataset_id)
         self.assertGreaterEqual(dict(metadata.counts)["fork_item"], 1)
         self.assertFalse(metadata.has_fork_skill_tables)

@@ -31,7 +31,7 @@ def test_card_actions_fit_and_keep_team_identity(theme, width, tmp_path):
     page.enhancement_requested.connect(lambda key: events.append(('enhancement', key)))
     page.graduation_requested.connect(lambda key: events.append(('graduation', key)))
     page.edit_requested.connect(lambda key: events.append(('edit', key)))
-    page.source_requested.connect(lambda key: events.append(('source', key)))
+    page.loadouts_requested.connect(lambda key: events.append(('loadouts', key)))
     page.delete_requested.connect(lambda key: events.append(('delete', key)))
     try:
         page.resize(width, 760)
@@ -65,13 +65,13 @@ def test_card_actions_fit_and_keep_team_identity(theme, width, tmp_path):
         next(b for b in actions if b.text() == '战报增强').click()
         next(b for b in actions if b.text() == '毕业率').click()
         menu = next(b.menu() for b in card.findChildren(QToolButton) if b.menu())
-        next(a for a in menu.actions() if a.text() == '配装来源').trigger()
+        next(a for a in menu.actions() if a.text() == '队伍配装').trigger()
         next(a for a in menu.actions() if a.text() == '删除队伍').trigger()
         portraits[0].click()
         assert events == [('match', 'one'), ('enhancement', 'one'), ('graduation', 'one'),
-                          ('source', 'one'), ('delete', 'one'), ('edit', 'one')]
+                          ('loadouts', 'one'), ('delete', 'one'), ('edit', 'one')]
         labels = page._overview_labels[team.team_id]
-        page.show_overview(TeamOverview(team, TeamSourceConfig('one', SourceMode.CURRENT, 1),
+        page.show_overview(TeamOverview(team, TeamSourceConfig('one', SourceMode.CALC, 1),
                            (MemberOverview(1, '角色1', issues=('缺少来源快照',)),)))
         assert '缺项' in labels['source'].text() and '缺少来源快照' in labels['source'].toolTip()
         assert '%' not in labels['axis_graduation'].text()

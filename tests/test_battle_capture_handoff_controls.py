@@ -81,7 +81,7 @@ def test_composition_forwards_cancellation_check_to_native_session(monkeypatch):
 
 @pytest.mark.parametrize("requested,error,phase", [
     (True, CancelledError("cancelled"), "stopped"),
-    (False, CancelledError("unexpected cancellation"), "error"),
+    (False, CancelledError("startup token revoked"), "stopped"),
     (True, RuntimeError("connection failed"), "error"),
 ])
 def test_only_requested_factory_cancellation_is_normal_empty_capture(requested, error, phase):

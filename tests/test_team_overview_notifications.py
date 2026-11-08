@@ -151,7 +151,7 @@ def test_saved_slots_do_not_invalidate_other_bindings_or_game_equipment(tmp_path
         dao.save_loadout_plan(name='备用', character_id=char, source_snapshot_id=plan['source_snapshot_id'],
             assignments=plan['assignments'], status='ready', payload=plan['payload'], slot_id=alternate)
         bindings = tuple((key, alternate if key == char else value) for key, value in slots.items())
-        dao.save_team_source(specified, dao.get_team_source(specified.team_id), mode=SourceMode.SLOTS, bindings=bindings)
+        dao.save_team_source(specified, dao.get_team_source(specified.team_id), mode=SourceMode.CALC, bindings=bindings)
         dao.save_team_source(game, dao.get_team_source(game.team_id), mode=SourceMode.GAME)
     page = TeamPage()
     page.show_teams((team, specified, game), ())

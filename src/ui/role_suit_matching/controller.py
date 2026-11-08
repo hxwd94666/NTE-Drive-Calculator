@@ -15,14 +15,16 @@ from src.services.identification.matching_editor import (
 )
 from src.services.identification.matching_settings import matching_settings_identity, normalize_matching_settings
 from src.ui.role_suit_matching.dialog import MatchingEditorDialog
+from src.domain.equipment.management_settings import MatchingScope
 
 
 class RoleSuitMatchingController(QObject):
     changed = Signal(object)
 
-    def __init__(self, context, catalog, parent):
+    def __init__(self, context, catalog, parent, *, scope=MatchingScope.IDENTIFICATION):
         super().__init__(parent)
         self.context, self.catalog = context, catalog
+        self.scope = MatchingScope(scope)
         self._read = PageTaskLane(self)
         self._commit = PageCommitLane(self)
         self._read.idle.connect(self._retire)
@@ -53,7 +55,7 @@ class RoleSuitMatchingController(QObject):
         account, paths = self.context.account, self.context.paths
         return MatchingEditorRequest(account.active_account_id, self.context.generation,
             account.user_database_path, paths.config_dir, paths.equipment_allocation_database_path,
-            paths.game_ui_asset_root)
+            paths.game_ui_asset_root, scope=self.scope)
 
     def is_running(self):
         return self._preview_timer.isActive() or self._read.is_running() or self._commit.is_running()
@@ -72,7 +74,7 @@ class RoleSuitMatchingController(QObject):
             return
         self._request = self.request()
         self._cancel = Event()
-        dialog = MatchingEditorDialog(self.catalog, parent or self.parent(), embedded=self._embedded)
+        dialog = MatchingEditorDialog(self.catalog, parent or self.parent(), embedded=self._embedded, scope=self.scope)
         self._dialog = dialog
         if not self._embedded:
             dialog.setWindowModality(Qt.WindowModal)
@@ -85,9 +87,10 @@ class RoleSuitMatchingController(QObject):
         dialog.show()
         self._reload()
 
-    def create_panel(self, parent):
+    def create_panel(self, parent, *, scope=None):
         """各窗口有独立草稿和任务 owner，共用同一账号服务及保存通知总线。"""
-        owner = RoleSuitMatchingController(self.context, self.catalog, self)
+        owner = RoleSuitMatchingController(self.context, self.catalog, self,
+                                           scope=self.scope if scope is None else scope)
         owner._embedded = True
         self._panels.add(owner)
         owner.destroyed.connect(lambda: self._panels.discard(owner))

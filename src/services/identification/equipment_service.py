@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable
+from dataclasses import replace
+from src.domain.equipment.management_settings import MatchingScope
 
 from src.integrations.vision.recognition.resources import RecognitionResources, RecognitionResourceError
 from src.services.recognition.resources import load_recognition_resources, check_recognition_resources
@@ -43,6 +45,7 @@ class EquipmentIdentificationService:
         static_database_path: str | Path | None = None,
         cancel_check: Callable[[], bool] | None = None,
         resources: RecognitionResources | None = None,
+        matching_scope=MatchingScope.IDENTIFICATION,
     ) -> "EquipmentIdentificationService":
         """Build a matcher from paths frozen at operation start."""
         resources = resources or load_recognition_resources(config_dir, static_database_path)
@@ -57,8 +60,10 @@ class EquipmentIdentificationService:
             static_database_path=resources.static_database_path,
             expected_dataset=resources.dataset, stat_catalog=catalog,
         )
-        settings = MatchingSettingsService(user_database_path).load()
+        settings_service = MatchingSettingsService(user_database_path, scope=matching_scope)
+        settings = settings_service.load()
         context = build_equipment_match_context(orchestrator, settings, cancel_check=cancel_check)
+        context = replace(context, settings_identity=settings_service.identity(settings))
         scoring = ScoringEngine(
             str(config_dir),
             user_database_path=Path(user_database_path),
@@ -67,7 +72,7 @@ class EquipmentIdentificationService:
             static_database_path=resources.static_database_path, stat_catalog=catalog,
         )
         check_recognition_resources(resources)
-        MatchingSettingsService(user_database_path).require_identity(context.settings_identity)
+        settings_service.require_identity(context.settings_identity)
         return cls(orchestrator, context, scoring)
 
     def identify_item(self, item: Drive | Tape) -> dict[str, Any]:

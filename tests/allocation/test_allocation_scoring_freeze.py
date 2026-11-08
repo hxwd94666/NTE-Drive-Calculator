@@ -232,15 +232,18 @@ def test_public_solve_cancels_at_real_stage_without_partial_success(stage):
 
 def test_inventory_cancel_bounds_formula_work_and_owner_exception_is_unmodified():
     context = full_context()
+    from src.integrations.equipment_score_backend import NativeEquipmentScorer
     calls = []
-    original = ScoringEngine.calculate_drive_score
-    def drive(self, *args, **kwargs):
-        calls.append(args[0].uid)
-        return original(self, *args, **kwargs)
-    with forbid_default_io(), patch.object(ScoringEngine, "calculate_drive_score", drive), pytest.raises(CancelledError):
-        solve_allocation_context(context, top_k=1, include_role_top_k=False, cancel_check=lambda: len(calls) == 2)
-    assert len(calls) == 2
-    print(json.dumps(dict(cancel_stage="inventory-after-work", drive_formula_calls=len(calls), partial_result=False)))
+    original = NativeEquipmentScorer.batch
+    def batch(self, items, *args, **kwargs):
+        result = original(self, items, *args, **kwargs)
+        if items:
+            calls.append(len(items))
+        return result
+    # 原生批量评分完成一块后撤销，不依赖已退出热点路径的逐件 Python 评分方法。
+    with forbid_default_io(), patch.object(NativeEquipmentScorer, "batch", batch), pytest.raises(CancelledError):
+        solve_allocation_context(context, top_k=1, include_role_top_k=False, cancel_check=lambda: bool(calls))
+    assert len(calls) == 1 and calls[0] > 0
     sentinel = CancelledError("owner token revoked")
     def owner(): raise sentinel
     with pytest.raises(CancelledError) as error:

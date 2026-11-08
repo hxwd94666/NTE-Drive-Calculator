@@ -190,7 +190,11 @@ def test_actual_snapshot_rejects_forged_same_area_shape_and_core_main_label(tmp_
     module = next(row for row in case["inventory"] if row.get("shape_id") == "H_2")
     module["shape_id"] = "V_2"
     plans, _ = run_axis_facade(case)
-    assert plans["灵可"]["damage_optimization"]["status"] == "not_ready"
+    metadata = plans["灵可"]["damage_optimization"]
+    assert metadata["status"] == "baseline_only"
+    assert metadata["fallback_status"] == "not_ready"
+    assert metadata.get("candidate_value") is None and metadata.get("delta") is None
+    assert plans["灵可"].get("baseline_preview_source") is not None
     case["inventory"] = original
     for row in case["inventory"]:
         if row["item_type"] == "tape":

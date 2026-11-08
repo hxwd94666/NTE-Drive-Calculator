@@ -225,7 +225,7 @@ def test_plugin_page_uses_inline_options_and_clear_status_labels(tmp_path, monke
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication, QLabel, QPushButton
     from src.features.plugins.page import PluginsPage
-    app = QApplication.instance() or QApplication([])
+    QApplication.instance() or QApplication([])
     service, _, _, _ = make_service(tmp_path)
     service.update(cooldown=True, enemy_bars=True)
     service.observe(SimpleNamespace(game_running=False))
@@ -252,7 +252,7 @@ def test_refresh_button_reports_progress_until_observation_arrives(tmp_path, mon
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
     from src.features.plugins.page import PluginsPage
-    app = QApplication.instance() or QApplication([])
+    QApplication.instance() or QApplication([])
     service, _, _, _ = make_service(tmp_path)
     requested = []
     page = PluginsPage(
@@ -273,7 +273,7 @@ def test_enemy_display_never_stays_enabled_without_content(tmp_path, monkeypatch
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
     from src.features.plugins.page import PluginsPage
-    app = QApplication.instance() or QApplication([])
+    QApplication.instance() or QApplication([])
     service, _, _, _ = make_service(tmp_path)
     service.update(hp=False, unbalance=False)
     page = PluginsPage(

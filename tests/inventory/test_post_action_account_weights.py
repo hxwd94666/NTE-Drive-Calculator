@@ -33,14 +33,14 @@ class PostActionAccountWeightTests(unittest.TestCase):
         config["lock"].update(enabled=True, role_scope="selected", selected_character_ids=[1004])
         item = Drive(uid="module-role-scope", quality="Gold", area=3, shape_id="H_3",
                      main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={}, role_scores={"低分角色": 0.0, "高分角色": 2.0})
-        module = "src.services.inventory.post_action_evaluation"
+        module = "src.services.identification.scoring_scope"
         resolve = lambda _roles, ids, _path: ["低分角色" if value == 1003 else "高分角色" for value in ids]
         context = EquipmentMatchContext(matches=tuple(
             RoleSuitMatch(name, data["character_id"], "suit", "套装", True, frozenset({"H_3"}), frozenset())
             for name, data in Scoring.roles_db.items()))
         with patch(f"{module}.EquipmentIdentificationService.from_paths",
                    return_value=SimpleNamespace(scoring=Scoring(), context=context)), \
-                patch(f"{module}._selected_role_names", side_effect=resolve):
+                patch(f"{module}.selected_role_names", side_effect=resolve):
             evaluator = PostActionEvaluator(post_actions_config=config)
             self.assertEqual("locked", evaluator.evaluate([(1, item, "normal")], [item]).state_changes[0]["target_state"])
             config["lock"]["selected_character_ids"] = [1003]
@@ -49,18 +49,18 @@ class PostActionAccountWeightTests(unittest.TestCase):
             self.assertEqual([], evaluator.evaluate([(1, item, "normal")], [item]).state_changes)
 
     def test_management_character_ids_resolve_avatar_variants_to_scoring_role(self):
-        from src.services.inventory.post_action_evaluation import _selected_role_names
+        from src.services.identification.scoring_scope import selected_role_names
 
         self.assertEqual(
             ["主角"],
-            _selected_role_names(
+            selected_role_names(
                 {"主角": {"character_id": 1046}},
                 [1051],
             ),
         )
 
     def test_management_custom_character_id_resolves_to_its_scoring_role(self):
-        from src.services.inventory.post_action_evaluation import _selected_role_names
+        from src.services.identification.scoring_scope import selected_role_names
 
         class StaticDao:
             def __enter__(self):
@@ -72,10 +72,10 @@ class PostActionAccountWeightTests(unittest.TestCase):
             def get_logical_character_key(self, _character_id):
                 return None
 
-        with patch("src.services.inventory.post_action_evaluation.StaticGameDataDao", StaticDao):
+        with patch("src.services.identification.scoring_scope.StaticGameDataDao", StaticDao):
             self.assertEqual(
                 ["自建角色"],
-                _selected_role_names(
+                selected_role_names(
                     {"自建角色": {"character_id": 9001}},
                     [9001],
                 ),
@@ -93,7 +93,7 @@ class PostActionAccountWeightTests(unittest.TestCase):
             return SimpleNamespace(scoring=scoring, context=EquipmentMatchContext(settings_identity="frozen"))
         config = default_post_action_config()
         config["discard"]["enabled"] = True
-        with patch("src.services.inventory.post_action_evaluation.EquipmentIdentificationService.from_paths",
+        with patch("src.services.identification.scoring_scope.EquipmentIdentificationService.from_paths",
                    side_effect=make_matcher):
             result = PostActionEvaluator(post_actions_config=config, config_dir="test-config",
                 user_database_path="account.sqlite3", static_database_path="static.sqlite3").evaluate([], [])

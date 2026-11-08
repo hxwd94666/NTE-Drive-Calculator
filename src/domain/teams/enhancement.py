@@ -5,7 +5,7 @@ import hashlib
 from math import isclose, isfinite
 
 from src.domain.teams.models import Team
-from src.domain.teams.overview import TeamSourceConfig
+from src.domain.teams.overview import SourceMode, TeamSourceConfig
 from src.domain.teams.report_matching import ReportRange
 
 
@@ -35,7 +35,13 @@ def _validate_team_result_payload(payload):
         raise ValueError("队伍结果必须保存四名正式成员")
     if type(payload["team_revision"]) is not int or payload["team_revision"] < 1:
         raise ValueError("队伍结果修订无效")
-    TeamSourceConfig("validated", payload["source_mode"], payload["source_revision"],
+    # 旧 current 只作为不可改写的历史来源证据读取，不恢复其运行时自动选槽分支。
+    historical_mode = payload["source_mode"]
+    if historical_mode == "current":
+        if payload["source_bindings"]:
+            raise ValueError("旧自动来源历史不应包含槽位绑定")
+        historical_mode = SourceMode.CALC
+    TeamSourceConfig("validated", historical_mode, payload["source_revision"],
                      tuple(tuple(pair) for pair in payload["source_bindings"])).validated()
     if not {pair[0] for pair in payload["source_bindings"]} <= set(ids):
         raise ValueError("历史来源绑定包含冻结队伍外成员")

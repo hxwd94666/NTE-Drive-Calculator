@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
 
 from src.domain.name_search import match_pinyin
 from src.features.teams.team_card import TeamCard
-from src.domain.teams.overview import SOURCE_LABELS
+from src.domain.teams.overview import SourceMode
+from src.ui.text_catalog import plain_tooltip, resolve_text_catalog
 from src.domain.teams.enhancement_presentation import team_enhancement_presentation
 
 
@@ -17,13 +18,14 @@ class TeamPage(QWidget):
     delete_requested = Signal(str)
     match_requested = Signal(str)
     enhancement_requested = Signal(str)
-    source_requested = Signal(str)
-    details_requested = Signal(str)
+    loadouts_requested = Signal(str)
     enhancement_details_requested = Signal(str)
     graduation_requested = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(catalog)
+        self.text = self.text_catalog.render
         self._teams = ()
         self._roles = {}
         self._cards = []
@@ -125,10 +127,10 @@ class TeamPage(QWidget):
         self._overview_labels.clear()
         actions = dict(edit=self.edit_requested, delete=self.delete_requested, match=self.match_requested,
                        enhancement=self.enhancement_requested, graduation=self.graduation_requested,
-                       source=self.source_requested, details=self.details_requested,
+                       loadouts=self.loadouts_requested,
                        enhancement_details=self.enhancement_details_requested)
         for team in self._teams:
-            card = TeamCard(team, self._roles, actions=actions, parent=self.content)
+            card = TeamCard(team, self._roles, actions=actions, parent=self.content, catalog=self.text_catalog)
             self._overview_labels[team.team_id] = card.labels
             self._cards.append((card, card.names))
             self._card_keys[card] = team.team_id
@@ -136,14 +138,18 @@ class TeamPage(QWidget):
         self.status.setText(f"{len(self._teams)} 支队伍")
         self._filter()
 
+    def role_presentations(self):
+        return dict(self._roles)
+
     def show_overview(self, overview):
         if overview.team not in self._teams:
             return
         labels = self._overview_labels[overview.team.team_id]
         gaps = tuple(dict.fromkeys((*overview.issues, *(issue for member in overview.members for issue in member.issues))))
-        labels["source"].setText(f"配装：{SOURCE_LABELS[overview.source.mode]} · {overview.ready_count}/4 人完整"
-                                 + (" · 有缺项" if gaps else ""))
-        labels["source"].setToolTip("；".join(gaps) + "\n在更多 → 成员配装中查看详情；配装来源可单独设置。")
+        source = self.text("teams.loadout.source_calc" if overview.source.mode == SourceMode.CALC else "teams.loadout.source_game")
+        labels["source"].setText(self.text("teams.loadout.overview", source=source, ready=overview.ready_count)
+                                 + (self.text("teams.loadout.overview_gap") if gaps else ""))
+        labels["source"].setToolTip(plain_tooltip("；".join(gaps) + "\n" + self.text("teams.loadout.overview_hint")))
         saved = overview.latest_enhancement
         if saved is None:
             labels["enhancement"].setText("增强：暂无已保存结果")

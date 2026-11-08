@@ -198,7 +198,8 @@ def test_owner_validity_stale_preview_recheck_and_benchmark_change_keep_old_math
 
 def test_plan_notice_checks_session_and_draft_change_clears_old_ui(tmp_path, monkeypatch):
     service, inputs, _client, values, team = prepare(monkeypatch, tmp_path)
-    inputs.current = replace(inputs.current, source=replace(inputs.current.source, mode=SourceMode.CURRENT),
+    inputs.current = replace(inputs.current, source=replace(inputs.current.source, mode=SourceMode.CALC,
+        bindings=tuple((row.character_id, 7+i) for i, row in enumerate(inputs.current.members))),
         members=tuple(replace(row, slot_id=7 + i, plan_id=20 + i) for i, row in enumerate(inputs.current.members)))
     owner = start_owner(service, inputs, values, team)
     dialog = None

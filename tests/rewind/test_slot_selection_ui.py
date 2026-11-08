@@ -35,9 +35,9 @@ def picker(roles, selected=(), slots=None):
 def test_card_score_is_selected_slot_not_highest_and_long_name_does_not_hide_score(application):
     role = role_fixture()
     dialog = picker((role,), (1004,), {1004: role.slots[1].reference})
-    card = dialog.findChild(QToolButton, "rewindRoleSelectionCard")
+    card = dialog.findChild(QToolButton, "roleSelectionCard")
     assert card.property("rewindCalculationScore") == 230
-    assert "230" in card.findChild(QLabel, "rewindRoleCalculationScore").text()
+    assert "230" in card.findChild(QLabel, "roleSelectionScore").text()
     assert "备用" in card.toolTip()
     dialog.reject()
 
@@ -84,7 +84,7 @@ def test_multiple_slots_prompt_and_cancel_preserves_unchecked_state(application,
     dialog = picker((role,))
     previous = dialog.selected_slots()
     monkeypatch.setattr(rewind_role_picker.RewindSlotPicker, "exec", lambda self: QDialog.Rejected)
-    card = dialog.findChild(QToolButton, "rewindRoleSelectionCard")
+    card = dialog.findChild(QToolButton, "roleSelectionCard")
     card.click()
     assert dialog.selected_character_ids() == ()
     assert dialog.selected_slots() == previous
@@ -97,15 +97,15 @@ def test_confirm_slot_and_switch_do_not_require_deselecting_role(application, mo
     dialog = picker((role,))
     monkeypatch.setattr(rewind_role_picker.RewindSlotPicker, "exec", lambda self: QDialog.Accepted)
     monkeypatch.setattr(rewind_role_picker.RewindSlotPicker, "selected_reference", lambda self: role.slots[1].reference)
-    card = dialog.findChild(QToolButton, "rewindRoleSelectionCard")
+    card = dialog.findChild(QToolButton, "roleSelectionCard")
     card.click()
     assert dialog.selected_character_ids() == (1004,)
     assert card.property("rewindCalculationScore") == 230
     monkeypatch.setattr(rewind_role_picker.RewindSlotPicker, "selected_reference", lambda self: role.slots[0].reference)
-    dialog.findChild(QPushButton, "rewindSwitchSlot").click()
+    dialog.findChild(QPushButton, "roleSelectionSlot").click()
     assert dialog.selected_character_ids() == (1004,)
     assert card.property("rewindCalculationScore") == 260
-    assert "260" in card.findChild(QLabel, "rewindRoleCalculationScore").text()
+    assert "260" in card.findChild(QLabel, "roleSelectionScore").text()
     assert "很长的主力槽位名称" in card.toolTip()
     dialog.reject()
 
@@ -336,7 +336,7 @@ def test_single_slot_can_correct_an_invalid_saved_choice_without_a_popup(applica
     role = replace(role, slots=role.slots[:1])
     dialog = picker((role,), slots={1004: None})
     monkeypatch.setattr(RewindSlotPicker, "exec", lambda self: pytest.fail("唯一槽位不应弹窗"))
-    dialog.findChild(QToolButton, "rewindRoleSelectionCard").click()
+    dialog.findChild(QToolButton, "roleSelectionCard").click()
     assert dialog.selected_slots()[1004] == role.slots[0].reference
     dialog.reject()
 
@@ -360,7 +360,7 @@ def test_card_slot_entry_keeps_real_slot_name_even_when_equal_to_role_name(appli
     role = role_fixture()
     role = replace(role, slots=(replace(role.slots[0], slot_name=role.name), role.slots[1]))
     dialog = picker((role,), (1004,))
-    entry = dialog.findChild(QPushButton, "rewindSwitchSlot")
+    entry = dialog.findChild(QPushButton, "roleSelectionSlot")
     assert rewind_role_card_presentation(role, role.slots[0].reference).slot_text == role.name
     assert role.name in entry.toolTip()
     assert dialog.selected_slots()[1004] == role.slots[0].reference
@@ -372,7 +372,7 @@ def test_in_card_slot_entry_preserves_selection_and_can_view_incomplete_slots(ap
     role = role_fixture()
     role = replace(role, slots=(replace(role.slots[0], state="incomplete", reason="驱动未装满"),))
     dialog = picker((role,), (1004,))
-    entry = dialog.findChild(QPushButton, "rewindSwitchSlot")
+    entry = dialog.findChild(QPushButton, "roleSelectionSlot")
     assert entry.isEnabled()
     assert "未装满" in entry.toolTip()
     monkeypatch.setattr(RewindSlotPicker, "exec", lambda self: QDialog.Rejected)
@@ -384,8 +384,8 @@ def test_in_card_slot_entry_preserves_selection_and_can_view_incomplete_slots(ap
 def test_missing_slot_entry_is_disabled_without_disabling_role_selection(application):
     role = RewindTargetRole(9001, "自建角色", None, is_custom=True)
     dialog = picker((role,))
-    card = dialog.findChild(QToolButton, "rewindRoleSelectionCard")
-    entry = dialog.findChild(QPushButton, "rewindSwitchSlot")
+    card = dialog.findChild(QToolButton, "roleSelectionCard")
+    entry = dialog.findChild(QPushButton, "roleSelectionSlot")
     assert not entry.isEnabled()
     card.click()
     assert dialog.selected_character_ids() == (9001,)
@@ -399,8 +399,8 @@ def test_bulk_selection_and_keyboard_toggle_keep_accessible_check_state_in_sync(
     role = role_fixture()
     role = replace(role, slots=role.slots[:1])
     dialog = picker((role,))
-    card = dialog.findChild(QToolButton, "rewindRoleSelectionCard")
-    mark = card.findChild(QLabel, "rewindRoleCheck")
+    card = dialog.findChild(QToolButton, "roleSelectionCard")
+    mark = card.findChild(QLabel, "roleSelectionCheck")
     dialog._set_visible_checked(True)
     assert card.isChecked()
     assert mark.accessibleName() == "已选"
@@ -410,3 +410,38 @@ def test_bulk_selection_and_keyboard_toggle_keep_accessible_check_state_in_sync(
     assert dialog.selected_character_ids() == (1004,)
     assert mark.accessibleName() == "已选"
     dialog.reject()
+
+
+def test_visible_score_sort_tracks_selected_slot_without_changing_rewind_draft(application):
+    from dataclasses import replace
+    from src.ui.role_selection_card import RoleSelectionCard
+    from src.ui.role_selection_sort import RoleSelectionSort
+
+    first = role_fixture(1004, "角色甲")
+    second = replace(role_fixture(1005, "角色乙"), slots=())
+    third = role_fixture(1006, "角色丙")
+    third = replace(third, slots=(replace(third.slots[0], score=240),))
+    dialog = picker((first, second, third), (1004,), {1004: first.slots[1].reference})
+
+    def visual_order():
+        application.processEvents()
+        cards = [card for card in dialog.findChildren(RoleSelectionCard) if not card.isHidden()]
+        return [card.name_label.accessibleName() for card in sorted(cards, key=lambda card: (card.y(), card.x()))]
+
+    try:
+        dialog.show()
+        assert visual_order() == ["角色丙", "角色甲", "角色乙"]
+        dialog._slots[1004] = first.slots[0].reference
+        dialog._wrappers[1004].set_reference(first, first.slots[0].reference)
+        assert visual_order() == ["角色甲", "角色丙", "角色乙"]
+        selector = dialog.findChild(RoleSelectionSort)
+        selector.setCurrentIndex(selector.findData("score_asc"))
+        assert visual_order() == ["角色丙", "角色甲", "角色乙"]
+        dialog.search_edit.setText("角色甲")
+        selector.setCurrentIndex(selector.findData("score_desc"))
+        assert visual_order() == ["角色甲"]
+        assert dialog.selected_character_ids() == (1004,)
+        assert dialog.selected_slots()[1004] == first.slots[0].reference
+    finally:
+        dialog.close()
+        dialog.deleteLater()

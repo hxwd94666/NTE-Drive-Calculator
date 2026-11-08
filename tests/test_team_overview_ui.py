@@ -3,13 +3,13 @@ from time import monotonic, sleep
 
 import pytest
 from PySide6.QtCore import QRect, QSize
-from PySide6.QtWidgets import QDialogButtonBox, QLabel, QTextEdit
+from PySide6.QtWidgets import QDialogButtonBox, QLabel
 
 from auto_sync_ui_fixture import application, dispose
 from src.domain.teams.models import TeamRole
 from src.domain.teams.overview import SourceMode
 from src.features.teams.overview_controller import TeamOverviewController
-from src.features.teams.overview_dialogs import TeamSourceDialog
+from src.features.teams.loadout_dialog import TeamLoadoutDialog
 from src.features.teams.page import TeamPage
 from team_overview_fixture import overview_case
 
@@ -37,24 +37,28 @@ def test_overview_renders_after_skeleton_and_source_save_requires_confirmation(t
         wait_for(lambda: not controller.is_running())
         assert graduation.text() == "毕业率：尚未读取历史"
         assert not any("平均装备毕业率" in label.text() for label in page.findChildren(QLabel))
-        controller.configure_source(team.team_id)
+        controller.configure_loadouts(team.team_id)
         dialog = controller._dialog
         wait_for(lambda: dialog._expected is not None and not dialog.is_running())
-        dialog.mode.setCurrentIndex(dialog.mode.findData(SourceMode.GAME))
-        assert service.source_choices(team)[0].mode == SourceMode.CURRENT
+        assert "4/4" in dialog.ready_count.text()
+        assert len(dialog.mode_buttons) == 2
+        assert not dialog.buttons.button(QDialogButtonBox.Save).isEnabled()
+        dialog.mode_buttons[SourceMode.GAME].click()
+        wait_for(lambda: not dialog.is_running())
+        assert service.source_choices(team)[0].mode == SourceMode.CALC
         dialog.buttons.button(QDialogButtonBox.Save).click()
         wait_for(lambda: controller._dialog is None and not controller.is_running())
         assert service.source_choices(team)[0].mode == SourceMode.GAME
-        assert "当前游戏配装" in page._overview_labels[team.team_id]["source"].text()
-        controller.show_details(team.team_id)
-        assert controller._details
-        details = next(iter(controller._details))
-        assert details.windowTitle().startswith("成员与配装来源")
-        body = details.findChild(QTextEdit).toPlainText()
-        assert "来源快照" in body and "毕业率" not in body
+        assert "当前游戏" in page._overview_labels[team.team_id]["source"].text()
+        controller.configure_loadouts(team.team_id)
+        dialog = controller._dialog
+        wait_for(lambda: dialog._expected is not None and not dialog.is_running())
+        assert dialog.windowTitle().startswith("队伍配装")
+        assert "来源快照" in dialog.diagnostics.text()
         assert graduation.text() == "毕业率：尚未读取历史"
         controller.reset_account()
-        assert not controller._details and not controller._results
+        wait_for(lambda: not controller.is_running())
+        assert not controller._results
     finally:
         controller.deactivate()
         wait_for(lambda: not controller.is_running())
@@ -70,12 +74,12 @@ def test_source_controls_fit_small_screen_and_cancel_never_writes(tmp_path, them
     apply_app_theme(application(), theme)
     service, team, _ = overview_case(tmp_path)
     before = service.source_choices(team)[0]
-    dialog = TeamSourceDialog(service=service, team=team, names={})
+    dialog = TeamLoadoutDialog(service=service, team=team, roles={})
     try:
         fit_dialog_to_available_screen(dialog, QSize(640, 480), available_geometry=QRect(0, 0, 640, 600))
         dialog.show()
         wait_for(lambda: dialog._expected is not None and not dialog.is_running())
-        dialog.mode.setCurrentIndex(dialog.mode.findData(SourceMode.SLOTS))
+        dialog.mode_buttons[SourceMode.CALC].click()
         for combo in dialog.slots.values():
             assert combo.isEnabled()
         for button in (dialog.buttons.button(QDialogButtonBox.Save), dialog.buttons.button(QDialogButtonBox.Cancel)):
@@ -102,3 +106,69 @@ def test_preview_and_saved_status_are_explicit_plain_ui_state():
             assert state in [label.text() for label in panel.findChildren(QLabel)]
         finally:
             dispose(panel)
+
+
+def test_unselected_member_is_preview_only_until_explicit_partial_source_save(tmp_path):
+    application()
+    service, team, _slots = overview_case(tmp_path)
+    before, _ = service.source_choices(team)
+    dialog = TeamLoadoutDialog(service=service, team=team, roles={})
+    try:
+        dialog.show()
+        wait_for(lambda: dialog._expected is not None and not dialog.is_running())
+        dialog.slots[team.character_ids[0]].setCurrentIndex(0)
+        wait_for(lambda: not dialog.is_running())
+        assert "3/4" in dialog.ready_count.text()
+        assert service.source_choices(team)[0] == before
+        assert dialog.buttons.button(QDialogButtonBox.Save).isEnabled()
+        dialog.buttons.button(QDialogButtonBox.Save).click()
+        wait_for(lambda: not dialog.is_running())
+        saved, _ = service.source_choices(team)
+        assert saved.mode == SourceMode.CALC
+        assert saved.bindings == tuple(pair for pair in before.bindings if pair[0] != team.character_ids[0])
+        assert dialog.selection == saved
+    finally:
+        dialog.reject()
+        wait_for(lambda: not dialog.is_running())
+        dispose(dialog)
+
+
+def test_same_named_slots_remain_distinguishable_without_retargeting():
+    from src.features.teams.loadout_row import TeamLoadoutRow
+    from src.integrations.preferences.locale_files import bundled_text_catalog
+    application()
+    row = TeamLoadoutRow(1, TeamRole(1, "成员"), catalog=bundled_text_catalog())
+    try:
+        row.populate((dict(character_id=1, slot_id=11, slot_name="同名"),
+                      dict(character_id=1, slot_id=12, slot_name="同名")), 12)
+        assert row.choice.currentData() == 12
+        assert row.choice.itemText(1) != row.choice.itemText(2)
+    finally:
+        dispose(row)
+
+
+def test_late_saved_dialog_does_not_notify_same_team_after_session_expired(tmp_path):
+    application()
+    service, team, _slots = overview_case(tmp_path)
+    page = TeamPage()
+    page.show_teams((team,), ())
+    controller = TeamOverviewController(service_provider=lambda: service, page=page)
+    notices = []
+    controller.source_changed.connect(notices.append)
+    try:
+        controller.refresh((team,))
+        wait_for(lambda: not controller.is_running())
+        controller.configure_loadouts(team.team_id)
+        dialog = controller._dialog
+        wait_for(lambda: not dialog.is_running())
+        # 模拟旧请求已完成提交，但关闭回执送达前账号代次失效；相同 team_id 也不能刷新新会话。
+        dialog.selection = service.source_choices(team)[0]
+        service._current = lambda: False
+        dialog.reject()
+        wait_for(lambda: controller._dialog is None)
+        assert notices == []
+    finally:
+        controller.deactivate()
+        wait_for(lambda: not controller.is_running())
+        dispose(page)
+        controller.deleteLater()

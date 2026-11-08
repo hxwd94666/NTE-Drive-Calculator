@@ -4,7 +4,7 @@
 
 ## 分离顺序与完成证据
 
-目标 DLL 文件、必需／增强依赖、当前源码映射和阶段验收统一维护于 UETools 的 [DLL 分类与迁移](../../../UETools-NTE/docs/plugin_partition.md)。Calc 不再维护第二份内部文件清单。
+目标 DLL 文件、必需／增强依赖、当前源码映射和阶段验收统一维护于外部 UETools 仓库的 `docs/plugin_partition.md`。Calc 不再维护第二份内部文件清单；该路径不属于本仓库的链接检查范围。
 面向使用者的分组和按钮影响见 [功能地图](../architecture-map.md#dll-分类与目标职责)；背包／角色同步的业务 owner 继续遵守 [同步生命周期](sync-lifecycle.md)。
 
 Calc 侧尚需完成：

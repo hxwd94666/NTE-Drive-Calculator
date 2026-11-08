@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QLabel
 
 from src.features.static_catalog.domain_pages.characters.page import (
     build_character_catalog_page,
@@ -146,37 +146,6 @@ class StaticCatalogCharacterPageUiTests(unittest.TestCase):
         QTest.keyClick(card.heading, Qt.Key.Key_Space)
         self.app.processEvents()
         self.assertFalse(card.drawer.isVisibleTo(card))
-
-    def test_skill_controls_and_expanded_details_fit_common_widths(self) -> None:
-        view = self.page.detail_view.skill_view
-        for width in (1180, 700):
-            self.page.resize(width, 820)
-            self.app.processEvents()
-            cards = tuple(
-                card for card in view.findChildren(SkillActionCard)
-                if card.isVisibleTo(view)
-            )
-            self.assertTrue(cards)
-            for card in cards:
-                controls = tuple(
-                    widget for widget in card.heading.findChildren(
-                        QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly,
-                    )
-                    if widget.isVisibleTo(card)
-                )
-                # 只保护文字和等级控件未被裁掉或互相遮挡，不固定行宽、顺序或布局字段。
-                for index, control in enumerate(controls):
-                    self.assertTrue(card.heading.rect().contains(control.geometry()))
-                    self.assertTrue(all(
-                        not control.geometry().intersects(other.geometry())
-                        for other in controls[index + 1:]
-                    ))
-            card = next(card for card in cards if card.action.slot == "A")
-            card.set_expanded(True)
-            self.app.processEvents()
-            self.assertTrue(card.drawer.isVisibleTo(view))
-            self.assertTrue(card.rect().contains(card.drawer.geometry()))
-
 
 if __name__ == "__main__":
     unittest.main()

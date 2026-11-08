@@ -57,7 +57,7 @@ class DashboardServiceTests(unittest.TestCase):
                     check=lambda: None,
                 )
             dashboard = DashboardService(database, static_database_path=PROJECT_ROOT / "data/game_static.sqlite3").load()
-            self.assertEqual({"catalog_count": 24, "synced_count": 2, "profile_count": 2}, dashboard["characters"])
+            self.assertEqual({"catalog_count": 26, "synced_count": 2, "profile_count": 2}, dashboard["characters"])
 
     def test_aggregates_account_static_data_and_recent_inventory_change(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -81,7 +81,7 @@ class DashboardServiceTests(unittest.TestCase):
             self.assertEqual(1, dashboard["recent_change"]["added_count"])
             self.assertEqual(first, dashboard["recent_change"]["before_snapshot_id"])
             self.assertGreater(dashboard["static"]["counts"]["character"], 0)
-            self.assertEqual({"catalog_count": 24, "synced_count": 0, "profile_count": 0}, dashboard["characters"])
+            self.assertEqual({"catalog_count": 26, "synced_count": 0, "profile_count": 0}, dashboard["characters"])
 
 
 if __name__ == "__main__":

@@ -365,7 +365,7 @@ class GameLoadoutProjectionService:
                     projection.reason or f"[{projection.role_name}] 当前游戏内方案不可导入。"
                 )
             if projection.character_id in character_ids:
-                raise GameLoadoutProjectionError("一键导入中不能重复包含同一角色。")
+                raise GameLoadoutProjectionError("批量导入中不能重复包含同一角色。")
             character_ids.add(projection.character_id)
             exact_score = exact_assignment_score_total(
                 projection.assignments,

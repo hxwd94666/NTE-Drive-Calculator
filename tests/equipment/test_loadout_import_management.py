@@ -182,7 +182,8 @@ def test_real_import_actions_freeze_before_async_and_projection_failure_does_not
     monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
     monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.Yes)
     if many:
-        display._import_all_game_loadouts(host)
+        monkeypatch.setattr(display, "choose_batch_items", lambda _parent, choices, **_kwargs: [choice.key for choice in choices if choice.enabled])
+        display._batch_import_game_loadouts(host)
     else:
         display._import_game_loadout(host, "1003")
     # 工作线程读取期间编辑展示及权重，不影响刚才冻结的正式UID与分数。
@@ -234,7 +235,7 @@ def test_single_game_import_updates_only_its_status_and_keeps_navigation_and_det
     content_layout.addWidget(detail)
     host.equip_scroll.setWidget(host.equip_content)
     layout.addWidget(host.equip_scroll)
-    host.equip_import_all_btn = QPushButton("一键导入")
+    host.equip_import_all_btn = QPushButton("批量导入")
     layout.addWidget(host.equip_import_all_btn)
     host.resize(600, 400)
     host.show()

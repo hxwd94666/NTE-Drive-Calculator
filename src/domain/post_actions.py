@@ -14,6 +14,7 @@ from src.utils.set_name import normalize_set_display_name
 
 
 GRADE_ORDER = ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]
+GRADE_RATIOS = {"D": 0.0, "C": 0.2, "B": 0.3, "A": 0.4, "S": 0.5, "SS": 0.6, "SSS": 0.7, "ACE": 0.8}
 EQUIPMENT_STATES = {"normal", "locked", "discarded"}
 DEFAULT_EXCLUDED_SHAPE_IDS = {"H_2", "V_2"}
 DEFAULT_EXCLUDED_SET_NAMES = {"音速蓝刺猬", "音速索尼克"}
@@ -39,7 +40,9 @@ DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
     "discard": {
         "enabled": False,
         "grade": "S",
-        "discard_unmatched": False,
+        "threshold_mode": "grade",
+        "threshold_percent": 50.0,
+        "discard_unmatched": True,
         "role_scope": "all",
         "selected_character_ids": [],
         "quality_scope": "gold_purple",
@@ -52,6 +55,8 @@ DEFAULT_POST_ACTION_CONFIG: dict[str, Any] = {
     "lock": {
         "enabled": False,
         "grade": "SSS",
+        "threshold_mode": "grade",
+        "threshold_percent": 70.0,
         "role_scope": "all",
         "selected_character_ids": [],
         "quality_scope": "gold_purple",
@@ -113,9 +118,18 @@ def normalize_post_action_config(config: dict[str, Any]) -> dict[str, Any]:
         module["selected_character_ids"] = selected_ids
         module["enabled"] = bool(module.get("enabled", False))
         if module_name == "discard":
-            module["discard_unmatched"] = module.get("discard_unmatched") is True
+            # 两管理统一采用完整未匹配弃置；旧字段仅作格式兼容，不再是用户开关。
+            # 资料缺项、范围无效与状态保护仍先于未匹配分支，不能借此补造低分。
+            module["discard_unmatched"] = True
         if module.get("grade") not in GRADE_ORDER:
             module["grade"] = default_module["grade"]
+        if module.get("threshold_mode") not in {"grade", "percent"}:
+            module["threshold_mode"] = "grade"
+        try:
+            percent = float(module.get("threshold_percent", default_module["threshold_percent"]))
+        except (TypeError, ValueError):
+            percent = float(default_module["threshold_percent"])
+        module["threshold_percent"] = min(100.0, max(0.0, percent))
         if module.get("role_scope") not in {"all", "selected"}:
             module["role_scope"] = default_module["role_scope"]
         if module.get("quality_scope") not in {"all", "gold", "gold_purple"}:
@@ -244,7 +258,12 @@ def validate_post_action_config(config: dict[str, Any] | None, selected_roles: l
     discard = config["discard"]
     lock = config["lock"]
     if discard["enabled"] and lock["enabled"]:
-        if GRADE_ORDER.index(lock["grade"]) >= GRADE_ORDER.index(discard["grade"]):
+        def threshold_ratio(module: dict[str, Any]) -> float:
+            if module.get("threshold_mode") == "percent":
+                return float(module.get("threshold_percent", 0.0)) / 100.0
+            return GRADE_RATIOS.get(str(module.get("grade", "S")).upper(), GRADE_RATIOS["S"])
+
+        if threshold_ratio(lock) < threshold_ratio(discard):
             return "锁定阈值必须高于弃置阈值。"
     for title, module in (("弃置模块", discard), ("锁定模块", lock)):
         if (
@@ -271,8 +290,8 @@ def validate_post_action_config(config: dict[str, Any] | None, selected_roles: l
             return f"{title}：必须包含的副词条必须同时在副词条命中池中。"
         if (selected_count or required_count) and selected_count < match_count:
             return f"{title}：副词条池数量少于命中数量。"
-        if required_count >= match_count:
-            return f"{title}：必须包含的副词条数量必须少于命中数量。"
+        if required_count > match_count:
+            return f"{title}：必须包含的副词条数量不能超过命中数量。"
     return None
 
 
@@ -489,6 +508,17 @@ def _best_score_detail(
     }
 
 
+def _threshold_matches(module_config: dict, item: BaseEquipment, score: float, scoring: ScoringEngine, *, high: bool) -> bool:
+    """Compare a frozen score using either the legacy grade or a normalized percentage."""
+    if module_config.get("threshold_mode") == "percent":
+        maximum = float(getattr(item, "area", 1) or 1) * 10.0
+        ratio = (float(score or 0.0) / maximum * 100.0) if maximum > 0 else 0.0
+        threshold = float(module_config.get("threshold_percent", 0.0))
+        return ratio >= threshold if high else ratio <= threshold
+    grade = _grade_for_score(scoring, item, score)
+    return (GRADE_ORDER.index(grade) <= GRADE_ORDER.index(str(module_config["grade"]))) if high else (GRADE_ORDER.index(grade) >= GRADE_ORDER.index(str(module_config["grade"])))
+
+
 def _discard_module_result(
     item: BaseEquipment,
     current_state: str,
@@ -522,11 +552,9 @@ def _discard_module_result(
             detail.update(result="discarded", reason="unmatched_explicit_discard")
             return "discarded", detail
         return None, detail
-    grade = str(detail["grade"])
-    detail["threshold"] = module_config["grade"]
-    is_low = GRADE_ORDER.index(grade) >= GRADE_ORDER.index(
-        str(module_config["grade"])
-    )
+    detail["threshold"] = (module_config.get("threshold_percent") if module_config.get("threshold_mode") == "percent"
+                            else module_config["grade"])
+    is_low = _threshold_matches(module_config, item, float(detail["score"]), scoring, high=False)
     if is_low:
         detail["result"] = "discarded"
         detail["reason"] = "grade_below_or_equal_threshold"
@@ -565,11 +593,9 @@ def _lock_module_result(
     if detail["match_mode"] in {"incomplete", "unmatched"}:
         detail["reason"] = "evaluation_incomplete" if detail["match_mode"] == "incomplete" else "unmatched"
         return None, detail
-    grade = str(detail["grade"])
-    detail["threshold"] = module_config["grade"]
-    is_high = GRADE_ORDER.index(grade) <= GRADE_ORDER.index(
-        str(module_config["grade"])
-    )
+    detail["threshold"] = (module_config.get("threshold_percent") if module_config.get("threshold_mode") == "percent"
+                            else module_config["grade"])
+    is_high = _threshold_matches(module_config, item, float(detail["score"]), scoring, high=True)
     if is_high:
         detail["result"] = "locked"
         detail["reason"] = "grade_above_or_equal_threshold"

@@ -6,6 +6,9 @@ from pathlib import Path
 import time
 from copy import deepcopy
 from functools import partial
+from concurrent.futures import CancelledError
+from src.domain.equipment.management_settings import MatchingScope
+from src.domain.equipment.warehouse_decisions import predecessor_context, decision_row
 
 from src.domain.post_actions import preserve_rule_matches_item
 from src.domain.equipment.intelligent_rules import automatic_main_supported, policy_from_rules
@@ -75,6 +78,8 @@ def run_warehouse_trial(
     matching_settings=None,
     preserve_rules=(),
     asset_root=None,
+    predecessors=None,
+    prepared_scorer=None,
 ):
     """账号路径必须由离线工具提供一致性副本；全程不连接游戏，也不保存配装。"""
     started = time.monotonic()
@@ -84,13 +89,15 @@ def run_warehouse_trial(
         return cancel_check() or time.monotonic() - started > seconds_budget
 
     def checkpoint():
-        if cancelled():
+        if cancel_check():
+            raise CancelledError()
+        if time.monotonic() - started > seconds_budget:
             raise TimeoutError("仓库试算达到本次时间预算；不生成可执行建议")
 
     with UserDataDao(account_snapshot) as user, StaticGameDataDao(static_database) as static:
         snapshot_id = user.current_inventory_snapshot_id()
         projection = SqliteAllocationInventory(user, static).build(snapshot_id)
-        originals = user.list_inventory_items(snapshot_id)
+        originals = user.list_inventory_items_with_runtime_state(snapshot_id)
         locked_owners = user.list_allocation_locked_equipment_owners()
         # 展示名与计算共用本次冻结静态资料，按正式物品身份关联。
         item_names = {str(row['item_id']): row['name_zh'] for row in static.list_equipment_items()}
@@ -99,6 +106,8 @@ def run_warehouse_trial(
         for row in originals
     }
     items = [Drive(**row) if row["item_type"] == "drive" else Tape(**row) for row in projection.items]
+    originals_by_uid = deepcopy(raw_by_uid)
+    raw_by_uid, fixed, excluded, fixed_retained = predecessor_context(raw_by_uid, predecessors)
     stats = StatCatalog.from_config_dir(config_dir)
     orchestrator = NTEPipelineOrchestrator(
         config_dir, user_database_path=account_snapshot, static_database_path=static_database, stat_catalog=stats
@@ -106,7 +115,7 @@ def run_warehouse_trial(
     settings = (
         deepcopy(matching_settings)
         if matching_settings is not None
-        else MatchingSettingsService(account_snapshot).load()
+        else MatchingSettingsService(account_snapshot, scope=MatchingScope.WAREHOUSE).load()
     )
     # 用户本次确认的跨套装用途只加入试算输入，不回写账号，也不按名字模糊匹配。
     by_id = {v["character_id"]: name for name, v in orchestrator.roles_db.items()}
@@ -121,7 +130,7 @@ def run_warehouse_trial(
         cross.append({"character_id": 1036, "suit_id": "Suit6", "source": "user_confirmed_trial"})
     progress("准备全角色合法套装与蓝图")
     context = build_equipment_match_context(orchestrator, settings, cancel_check=cancelled)
-    scorer = ScoringEngine(
+    scorer = prepared_scorer or ScoringEngine(
         config_dir,
         user_database_path=account_snapshot,
         static_database_path=static_database,
@@ -155,7 +164,7 @@ def run_warehouse_trial(
     }
     drive_limit, tape_limit = estimate_candidate_pool_limits(blueprints, selected)
     request = AllocationKernelRequest(
-        inventory=tuple(items),
+        inventory=tuple(item for item in items if item.uid not in excluded),
         # 本检查没有暴击上下限；未冻结角色暴击面板时明确传未知，不伪造零值。
         roles_db={r: {**data, 'crit_source_known': data.get('crit_source_known', False)}
                   for r, data in orchestrator.roles_db.items()},
@@ -182,7 +191,8 @@ def run_warehouse_trial(
     before = _plan_summary(baseline)
     progress('复核已保存配装偏好的实际约束')
     profile_witnesses, profile_issues = freeze_profile_witnesses(
-        account_snapshot, static_database, config_dir, snapshot_id, checkpoint, cancelled, executor=native_execute)
+        account_snapshot, static_database, config_dir, snapshot_id, checkpoint, cancelled,
+        executor=native_execute, excluded_uids=frozenset(excluded))
     incomplete = bool(
         profile_issues
         or context.errors
@@ -203,6 +213,8 @@ def run_warehouse_trial(
     for item in items:
         raw = raw_by_uid[item.uid]
         roles = {m.role for m in context.for_item(item)}
+        if item.uid in excluded:
+            roles = set()
         main = stats.normalize_tape_main_stat(item.main_stats) if isinstance(item, Tape) else ""
         if isinstance(item, Tape):
             roles = {r for r in roles if main in main_allowed[r]}
@@ -230,7 +242,7 @@ def run_warehouse_trial(
                                            if quality['drive_rate'] is not None else None)
     progress("按当前用途、明确未来组合和备用桶生成建议")
     # 同一匹配结果供保护、预算和最终仲裁共用，避免自动规则在另一条入口绕过主属性用途校验。
-    matched_by_uid = {item.uid: [rule for rule in preserve_rules
+    matched_by_uid = {item.uid: [] if item.uid in fixed else [rule for rule in preserve_rules
         if preserve_rule_matches_item(item, rule) and automatic_main_supported(rule, fact)]
         for item, fact in zip(items, facts)}
     arguments = {
@@ -241,11 +253,12 @@ def run_warehouse_trial(
         "known_shape_multiplicity": dict(multiplicity),
         "policy": rule_policy,
         "target_inventory_size": rule_policy.get('future', {}).get('target_inventory_size', 0),
-        "budget_protected_uids": frozenset(uid for uid, rules in matched_by_uid.items()
-                                          if rules and rules[0].get('action') in {'keep', 'lock'}),
+        "budget_protected_uids": frozenset(fixed_retained | {uid for uid, rules in matched_by_uid.items()
+                                          if rules and rules[0].get('action') in {'keep', 'lock'}}),
         # 只预留首条静态规则的保护；最终动作仍与动态命中按完整列表统一排序。
-        "rule_protection": {item.uid: [(r['action'], str(r.get('name') or '智能规则'))
-                                      for r in matched_by_uid[item.uid][:1] if r.get('intelligent')] for item in items},
+        "rule_protection": {item.uid: ([('keep', '前序决定保留')] if item.uid in fixed_retained else
+            [(r['action'], str(r.get('name') or '智能规则'))
+             for r in matched_by_uid[item.uid][:1] if r.get('intelligent')]) for item in items},
     }
     # 对照计算也消费同一规则输入，只关闭未来储备，用于核对储备没有扩大弃置集合。
     without_future = recommend(facts, **{**arguments, 'policy': {k: v for k, v in rule_policy.items() if k != 'future'},
@@ -253,11 +266,15 @@ def run_warehouse_trial(
     result = recommend(facts, **arguments)
     protected_uids = locked_plan_uids | frozenset(f.uid for f in facts if f.locked or f.equipped)
     for candidate_result in (without_future, result):
+        for row in candidate_result['rows']:
+            if row['uid'] in fixed:
+                row.update(decision_row(fixed[row['uid']], originals_by_uid[row['uid']]))
         apply_ordered_rules(candidate_result, items, preserve_rules, matched_by_uid=matched_by_uid,
                             protected_uids=protected_uids, incomplete=incomplete)
     for row, fact in zip(result['rows'], facts):
-        row.update(original_locked=fact.locked, original_equipped=fact.equipped, original_discarded=fact.discarded,
-                   state_known=all(raw_by_uid[fact.uid].get(k) is not None for k in ('locked','discarded','equipped')))
+        original = originals_by_uid[fact.uid]
+        row.update(original_locked=original['locked'], original_equipped=original['equipped'], original_discarded=original['discarded'],
+                   state_known=all(original.get(k) is not None for k in ('locked','discarded','equipped')))
     progress('冻结全角色、不同优先级及已保存配装的已知基线')
     witnesses = freeze_loss_witnesses(execute,request,before,
                                     profile_witnesses,checkpoint,cancelled,_plan_summary,profile_executor=native_execute)
@@ -307,10 +324,10 @@ def run_warehouse_trial(
             best_current_score=max((fact.score(r) for r in fact.eligible_roles), default=None),
             best_current_grade=(grades[(max(fact.score(r) for r in fact.eligible_roles), fact.area)]
                                 if fact.eligible_roles else None),
-            state_known=all(raw_by_uid[fact.uid].get(k) is not None for k in ("locked", "discarded", "equipped")),
-            original_locked=fact.locked,
-            original_equipped=fact.equipped,
-            original_discarded=fact.discarded,
+            state_known=all(originals_by_uid[fact.uid].get(k) is not None for k in ("locked", "discarded", "equipped")),
+            original_locked=originals_by_uid[fact.uid]['locked'],
+            original_equipped=originals_by_uid[fact.uid]['equipped'],
+            original_discarded=originals_by_uid[fact.uid]['discarded'],
             without_future=ablation[fact.uid],
         )
     result.update(

@@ -154,7 +154,7 @@ from src.integrations.performance.presentmon_lifetime import CollectorJob, _kern
 def main():
     job = CollectorJob()
     child = subprocess.Popen(
-        [sys._base_executable, '-c', 'import os, time; print(os.getpid(), flush=True); time.sleep(30)'],
+        [sys._base_executable, '-c', 'import os, time; print(os.getpid(), flush=True); time.sleep(120)'],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
     job.attach(child)
@@ -175,7 +175,7 @@ if __name__ == '__main__':
     main()
 """
         kernel = _kernel()
-        owner = subprocess.Popen([sys.executable, '-X', 'utf8', '-c', code],
+        owner = subprocess.Popen([sys._base_executable, '-X', 'utf8', '-c', code],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                  text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
         owner_creation = child_creation = child_handle = None
@@ -185,7 +185,8 @@ if __name__ == '__main__':
             ready = Queue()
             reader = Thread(target=lambda: ready.put(owner.stdout.readline()), daemon=True)
             reader.start()
-            child_pid, child_creation, real_pid, member = map(int, ready.get(timeout=5).split())
+            # 冷导入的准备预算与物理退出门禁分开；退出仍严格保留 3 秒句柄确认。
+            child_pid, child_creation, real_pid, member = map(int, ready.get(timeout=30).split())
             self.assertEqual(real_pid, child_pid, 'collector fixture is a launcher, not the worker')
             self.assertEqual(member, 1, 'actual collector is not attached to CollectorJob')
             child_handle = kernel.OpenProcess(0x1000 | 0x100000 | 1, False, child_pid)

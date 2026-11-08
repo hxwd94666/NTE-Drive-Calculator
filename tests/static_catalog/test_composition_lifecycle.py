@@ -179,7 +179,7 @@ class StaticCatalogCompositionLifecycleTests(unittest.TestCase):
             self.assertEqual(1, harness.dao.close_calls)
 
     def test_close_failure_does_not_skip_later_owned_callbacks(self) -> None:
-        with _patched_domain_root() as harness:
+        with _patched_domain_root() as _harness:
             specs = _build_specs()
             fork = _spec(specs, "fork")
             first = fork.build(None)
@@ -239,7 +239,7 @@ class StaticCatalogCompositionLifecycleTests(unittest.TestCase):
             RuntimeError("account-b failed"),
             ("account-b", 5, {"snapshot_id": 1, "rows": ()}),
         ))
-        with _patched_domain_root() as harness:
+        with _patched_domain_root() as _harness:
             specs = _build_specs(inventory_loader=loader)
             equipment = _spec(specs, "equipment")
             page = equipment.build(None)

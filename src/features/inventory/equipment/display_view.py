@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.ui.text_catalog import TextActionButton, plain_tooltip, resolve_text_catalog
 from src.app.page_tasks import PageRequest, PageTaskLane
 from src.features.scanning.file_lifecycle import equipment_compare_signature
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -40,6 +41,7 @@ from src.features.inventory.equipment.loadout_scoring import score_equipment_dis
 from src.features.inventory.equipment.plan_display_state import _sqlite_plan_display_state
 from src.features.inventory.equipment.plan_renderer import _render_equip_batch
 from src.features.inventory.equipment.practice_share_dialog import open_practice_share
+from .assembly_last_result import assembly_result_button
 
 
 EQUIPMENT_INITIAL_RENDER_COUNT = 8
@@ -108,6 +110,7 @@ def build_equipment_mode_switch(self: Any, parent: QWidget | None = None) -> QWi
 
 
 def _page_equipment(self):
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
     page = QWidget()
     l = QVBoxLayout(page)
     l.setContentsMargins(20, 16, 20, 16)
@@ -142,28 +145,29 @@ def _page_equipment(self):
     self.equip_practice_share_btn.setVisible(False)
     self.equip_practice_share_btn.setEnabled(False)
     sh.addWidget(self.equip_practice_share_btn)
-    self.equip_import_all_btn = QPushButton("一键导入")
+    self.equip_import_all_btn = TextActionButton(text("batch.import"))
     self.equip_import_all_btn.setObjectName("btnPrimary")
-    self.equip_import_all_btn.setToolTip("导入全部完整且未锁定的游戏内方案")
+    self.equip_import_all_btn.setToolTip(plain_tooltip(text("batch.import_hint")))
     self.equip_import_all_btn.clicked.connect(
-        lambda _checked=False: self._import_all_game_loadouts()
+        lambda _checked=False: self._batch_import_game_loadouts()
     )
     self.equip_import_all_btn.setVisible(False)
     sh.addWidget(self.equip_import_all_btn)
-    clear_btn = QPushButton("清空配装")
+    clear_btn = TextActionButton(text("batch.delete"))
     clear_btn.setObjectName("btnDanger")
-    clear_btn.clicked.connect(self._clear_all_equipment)
+    clear_btn.clicked.connect(self._batch_delete_equipment)
     sh.addWidget(clear_btn)
-    fast_btn = QPushButton("极速装配")
+    fast_btn = TextActionButton(text("assembly.fast.title"))
     fast_btn.setObjectName("btnPrimary")
     fast_btn.clicked.connect(self._preview_fast_assemble_all_roles)
-    fast_btn.setToolTip("通过游戏内装备插件直接写入已保存方案")
+    fast_btn.setToolTip(plain_tooltip(text("assembly.fast.entry_hint")))
     sh.addWidget(fast_btn)
-    automatic_btn = QPushButton("自动装配")
+    automatic_btn = TextActionButton(text("assembly.auto.title"))
     automatic_btn.setObjectName("btnPrimary")
     automatic_btn.clicked.connect(self._preview_automatic_assemble_all_roles)
-    automatic_btn.setToolTip("模拟游戏内操作，逐步完成已保存方案")
+    automatic_btn.setToolTip(plain_tooltip(text("assembly.auto.entry_hint")))
     sh.addWidget(automatic_btn)
+    sh.addWidget(assembly_result_button(self))
     self._equip_saved_action_buttons = (clear_btn, fast_btn, automatic_btn)
     self._equipment_mode = getattr(self, "_equipment_mode", "saved")
     l.addLayout(sh)
@@ -357,7 +361,7 @@ def _on_game_equipment_display_loaded(self, token, result):
         self.equip_mode_status.setText("")
         self.equip_import_all_btn.setEnabled(ready_count > 0)
         self.equip_import_all_btn.setToolTip(
-            f"导入全部 {ready_count} 套完整且未锁定的游戏内方案"
+            f"选择导入：{ready_count} 套完整且未锁定的游戏内方案"
         )
         self._game_loadout_message = (
             "当前游戏快照中没有已装备驱动或卡带。"

@@ -127,7 +127,7 @@ class PostActionRuleConstraintTests(unittest.TestCase):
         }]
         self.assertIn("少于命中数量", validate_post_action_config(config))
 
-    def test_validation_rejects_too_many_required_stats(self):
+    def test_validation_allows_required_stats_equal_to_match_count(self):
         config = default_post_action_config()
         config["preserve_rules"] = [{
             "enabled": True,
@@ -137,7 +137,7 @@ class PostActionRuleConstraintTests(unittest.TestCase):
             "required_sub_stats": ["攻击力", "暴击率"],
             "sub_match": 2,
         }]
-        self.assertIn("必须包含", validate_post_action_config(config))
+        self.assertIsNone(validate_post_action_config(config))
 
     def test_validation_rejects_required_stat_outside_match_pool(self):
         config = default_post_action_config()

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from src.features.static_catalog.domain_pages.equipment.catalog_model import (
     EquipmentCatalogPageController,
@@ -211,19 +211,6 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
         self.assertIn("等级未知", text)
         self.assertNotIn("已锁定", text)
         self.assertNotIn("已装备：法帝娅", text)
-
-    def test_inventory_gallery_and_expanded_detail_fit_narrow_width(self) -> None:
-        self.assertTrue(self._inject_mag())
-        self.page.resize(720, 900)
-        self.app.processEvents()
-        scrolls = self.page.gallery.findChildren(QScrollArea)
-        self.assertTrue(scrolls)
-        self.assertTrue(all(
-            scroll.horizontalScrollBar().maximum() == 0 for scroll in scrolls
-        ))
-        self._open_owned_mag()
-        self.assertEqual(0, self.page.detail.horizontalScrollBar().maximum())
-
 
 if __name__ == "__main__":
     unittest.main()

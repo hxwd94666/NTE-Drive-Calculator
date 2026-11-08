@@ -4,12 +4,9 @@ from enum import StrEnum
 
 
 class SourceMode(StrEnum):
-    CURRENT = "current"
-    SLOTS = "slots"
+    # 沿用稳定的逐成员槽位存储身份；“当前计算”不再动态猜选主力或备用槽。
+    CALC = "slots"
     GAME = "game"
-
-
-SOURCE_LABELS = {SourceMode.CURRENT: "当前计算配装", SourceMode.SLOTS: "指定计算槽位", SourceMode.GAME: "当前游戏配装"}
 
 
 @dataclass(frozen=True)
@@ -26,7 +23,7 @@ class TeamSourceConfig:
         bindings = tuple(sorted(self.bindings))
         if (len({key for key, _ in bindings}) != len(bindings)
                 or any(type(value) is not int or value <= 0 for pair in bindings for value in pair)
-                or mode != SourceMode.SLOTS and bindings):
+                or mode != SourceMode.CALC and bindings):
             raise ValueError("成员槽位绑定无效")
         return TeamSourceConfig(self.team_id, mode, self.revision, bindings)
 

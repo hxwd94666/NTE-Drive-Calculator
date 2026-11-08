@@ -19,6 +19,7 @@ class WarehouseFilterSpec:
     main_property_ids: frozenset[str] = frozenset()
     sub_property_ids: frozenset[str] = frozenset()
     sub_stat_match_counts: frozenset[int] = frozenset()
+    management: str = ""
 
     def with_search(self, search: str) -> WarehouseFilterSpec:
         return replace(self, search=str(search or ""))
@@ -31,6 +32,7 @@ class WarehouseFilterSpec:
                 bool(self.item_type_ids),
                 bool(self.qualities),
                 bool(self.statuses),
+                bool(self.management),
                 bool(self.main_property_ids),
                 bool(self.sub_property_ids) and bool(self.sub_stat_match_counts),
             )
@@ -52,6 +54,15 @@ class WarehouseFilterCatalog:
     statuses: tuple[WarehouseFilterOption, ...] = ()
     main_properties: tuple[WarehouseFilterOption, ...] = ()
     sub_properties: tuple[WarehouseFilterOption, ...] = ()
+    management: tuple[WarehouseFilterOption, ...] = ()
+
+
+MANAGEMENT_STATES = ('locked', 'discarded', 'normal', 'unchanged')
+
+
+def warehouse_management_state(item):
+    value = item.get('management_state')
+    return value if value in MANAGEMENT_STATES else 'unchanged'
 
 
 _QUALITY_LABELS = {"blue": "蓝色", "purple": "紫色", "gold": "金色"}
@@ -177,11 +188,11 @@ def sort_projected_warehouse_items(
 
 def warehouse_item_statuses(item: Mapping[str, Any]) -> frozenset[str]:
     result: set[str] = set()
-    if item.get("locked"):
+    if item.get("base_locked", item.get("locked")):
         result.add("locked")
-    if item.get("discarded"):
+    if item.get("base_discarded", item.get("discarded")):
         result.add("discarded")
-    if item.get("equipped"):
+    if item.get("base_equipped", item.get("equipped")):
         result.add("equipped")
     if not result:
         result.add("other")
@@ -212,6 +223,8 @@ def filter_projected_warehouse_items(
         if spec.qualities and item.get("quality") not in spec.qualities:
             continue
         if spec.statuses and warehouse_item_statuses(item).isdisjoint(spec.statuses):
+            continue
+        if spec.management and warehouse_management_state(item) != spec.management:
             continue
         if spec.main_property_ids and _property_ids(item, "main_stats").isdisjoint(
             spec.main_property_ids
@@ -244,6 +257,7 @@ def build_warehouse_filter_catalog(
     type_counts: Counter[str] = Counter()
     quality_counts: Counter[str] = Counter()
     status_counts: Counter[str] = Counter({value: 0 for value in _STATUS_LABELS})
+    management_counts: Counter[str] = Counter({value: 0 for value in MANAGEMENT_STATES})
     main_counts: Counter[str] = Counter()
     sub_counts: Counter[str] = Counter()
     for item in rows:
@@ -257,6 +271,7 @@ def build_warehouse_filter_catalog(
         if quality:
             quality_counts[quality] += 1
         status_counts.update(warehouse_item_statuses(item))
+        management_counts.update((warehouse_management_state(item),))
         for field, counter in (("main_stats", main_counts), ("sub_stats", sub_counts)):
             seen: set[str] = set()
             for stat in item.get(field) or ():
@@ -309,6 +324,7 @@ def build_warehouse_filter_catalog(
         statuses=options(status_counts, _STATUS_LABELS, order=_STATUS_ORDER),
         main_properties=options(main_counts, property_labels, order=_MAIN_PROPERTY_ORDER),
         sub_properties=options(sub_counts, property_labels, order=_SUB_PROPERTY_ORDER),
+        management=tuple(WarehouseFilterOption(value, value, management_counts[value]) for value in MANAGEMENT_STATES),
     )
 
 
@@ -332,6 +348,7 @@ def normalize_warehouse_filter_spec(
         item_type_ids=item_type_ids,
         qualities=spec.qualities & available(catalog.qualities),
         statuses=spec.statuses & available(catalog.statuses),
+        management=spec.management if spec.management in MANAGEMENT_STATES else '',
         main_property_ids=(
             spec.main_property_ids & available(catalog.main_properties)
             if kind != "module"

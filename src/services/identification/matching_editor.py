@@ -13,6 +13,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.services.identification.matching_identities import project_matching_settings
 from src.services.recognition.resources import load_recognition_resources, check_recognition_resources
 from src.solver.orchestrator import NTEPipelineOrchestrator
+from src.domain.equipment.management_settings import MatchingScope
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class MatchingEditorRequest:
     config: Path
     static: Path
     asset_root: Path | None = None
+    scope: MatchingScope = MatchingScope.IDENTIFICATION
 
 
 def _source(request, cancel):
@@ -40,7 +42,7 @@ def _source(request, cancel):
 
 def load_matching_editor(request, cancel):
     source, resources = _source(request, cancel)
-    settings = MatchingSettingsService(request.database).load()
+    settings = MatchingSettingsService(request.database, scope=request.scope).load()
     roles = tuple((data["character_id"], name, suit_id_for_target(data.get("default_set"), source.sets_db))
                   for name, data in source.roles_db.items() if type(data.get("character_id")) is int)
     suits = tuple(sorted((str(data["suit_id"]), name) for name, data in source.sets_db.items() if data.get("suit_id")))
@@ -87,5 +89,5 @@ def save_matching_editor(request, draft, expected, cancel, *, post_action_config
         if cancel.is_set():
             raise CancelledError("账号或编辑器已关闭，本次未提交")
     check()
-    return MatchingSettingsService(request.database).save(
+    return MatchingSettingsService(request.database, scope=request.scope).save(
         draft, expected=expected, check_current=check, post_action_config=post_action_config)

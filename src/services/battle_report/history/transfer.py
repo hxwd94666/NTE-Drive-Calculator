@@ -43,8 +43,9 @@ from src.storage.sqlite.user_data_dao import (
 
 BATTLE_REPORT_TRANSFER_FORMAT = "nte-drive-calculator.battle-report-package"
 BATTLE_REPORT_TRANSFER_VERSION = 2
-# v46–47新增队伍/简报；v48–50只增改轴伤目标/结果表，不改变战报行图；未来版本仍逐版审计。
-SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS = frozenset({36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50})
+# 46–50只增改队伍及轴伤表，51调整队伍来源，52分离管理配置；均不改战报白名单行图。
+# 接受版本逐项审计，不随当前库版本自动放行未来包。
+SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS = frozenset({36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52})
 
 
 @dataclass(frozen=True, slots=True)

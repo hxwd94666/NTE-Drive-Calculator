@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 50
+SCHEMA_VERSION = 52
 BASE_SCHEMA_VERSION = 1
 DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema") / "001_user_data.sql"
 USER_MIGRATIONS = {
@@ -64,6 +64,8 @@ USER_MIGRATIONS = {
     48: Path(__file__).with_name("schema") / "049_user_data_v48.sql",
     49: Path(__file__).with_name("schema") / "050_user_data_v49.sql",
     50: Path(__file__).with_name("schema") / "051_user_data_v50.sql",
+    51: Path(__file__).with_name("schema") / "052_user_data_v51.sql",
+    52: Path(__file__).with_name("schema") / "053_user_data_v52.sql",
 }
 SYNC_METHODS = frozenset({"nte_core", "gamepad"})
 SNAPSHOT_SOURCES = frozenset({"nte_core", "vision", "gamepad", "import"})

@@ -240,6 +240,7 @@ def execute_all_roles_from_current_game_page(
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
     should_stop: Callable[[], bool] | None = None,
+    on_role_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> AssemblyExecutionReport:
     """Recognize the current game role list, traverse roles, and execute assembly."""
 
@@ -255,6 +256,7 @@ def execute_all_roles_from_current_game_page(
         role_name_aliases=role_name_aliases,
         record_root=record_root,
         should_stop=should_stop,
+        on_role_progress=on_role_progress,
     )
 
 
@@ -270,6 +272,7 @@ def execute_selected_role_from_current_game_page(
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
     should_stop: Callable[[], bool] | None = None,
+    on_role_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> AssemblyExecutionReport:
     """Find one selected role in the game sidebar and assemble only its blueprint."""
 
@@ -285,6 +288,7 @@ def execute_selected_role_from_current_game_page(
         role_name_aliases=role_name_aliases,
         record_root=record_root,
         should_stop=should_stop,
+        on_role_progress=on_role_progress,
     )
 
 
@@ -300,6 +304,7 @@ def _execute_roles_from_current_game_page(
     role_name_aliases: dict[str, str] | None = None,
     record_root: str | Path | None = None,
     should_stop: Callable[[], bool] | None = None,
+    on_role_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> AssemblyExecutionReport:
     """Shared game-page flow: find target roles first, then assemble their blueprints."""
 
@@ -481,6 +486,7 @@ def _execute_roles_from_current_game_page(
                 ocr_session=ocr_engine,
                 role_verifier=verifier,
                 on_action_executed=recorder.record_action,
+                on_role_progress=on_role_progress,
             )
             logger.info(
                 "驱动装配总结果 | "

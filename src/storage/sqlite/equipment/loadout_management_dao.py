@@ -19,20 +19,26 @@ class LoadoutManagementDaoMixin(UserDataDaoMixinHost):
             action, slot_id = mutation.action, mutation.slot_id
             row = next((row for row in rows if row["slot_id"] == slot_id), None)
             now = _utc_now()
-            if action == "clear":
+            if action == "delete_batch":
                 if scope is not None:
-                    raise UserDataValidationError("清空配装缺少完整冻结范围")
-                skipped = []
-                for current in rows:
+                    raise UserDataValidationError("批量删除缺少完整冻结范围")
+                selected = mutation.slot_ids
+                if not selected or len(set(selected)) != len(selected):
+                    raise UserDataValidationError("请选择不重复的配装槽位")
+                targets = {current["slot_id"]: current for current in rows}
+                if any(identity not in targets for identity in selected):
+                    raise UserDataValidationError("所选配装槽位已失效")
+                # 整批校验与解除指针同属一个事务，任一失败或取消均保留全部旧方案。
+                for identity in selected:
                     checkpoint()
+                    current = targets[identity]
                     plan = current.get("current_plan") or {}
                     if not plan:
-                        continue
+                        raise UserDataValidationError("所选槽位没有已保存方案")
                     if plan.get("allocation_locked"):
-                        skipped.append(f"{(plan.get('payload') or {}).get('source_role_name') or '未知角色'} · {current['slot_name']}")
-                    else:
-                        self._detach_managed_plan(current, now)
-                result = LoadoutMutationResult(action, skipped=tuple(skipped))
+                        raise UserDataValidationError("锁定方案不能删除；请先解除锁定")
+                    self._detach_managed_plan(current, now)
+                result = LoadoutMutationResult(action)
             elif action == "create":
                 if scope is None or not rows:
                     raise UserDataValidationError("新增槽位缺少正式角色身份")

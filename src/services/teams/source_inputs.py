@@ -15,15 +15,12 @@ def input_digest(value):
                                      separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
 
 
-def freeze_team_sources(dao, static_dao, teams, *, checkpoint=lambda: None):
+def freeze_team_sources(dao, static_dao, teams, *, checkpoint=lambda: None, source_overrides=None):
     """调用者持有一致读取；当前指针和每份来源快照均在本次批内只解析一次。"""
     slots = dao.list_visible_loadout_slots_with_plans()
     by_id = {row["slot_id"]: row for row in slots}
-    current = {}
-    for row in sorted(slots, key=lambda row: (row["slot_key"] != "primary", row["sort_order"], row["slot_id"])):
-        # 空主槽不能由已有备用方案静默顶替。
-        current.setdefault(row["character_id"], row)
-    configs = {team.team_id: dao.get_team_source(team.team_id) for team in teams}
+    configs = {team.team_id: ((source_overrides or {}).get(team.team_id) or dao.get_team_source(team.team_id)).validated()
+               for team in teams}
     game_ids = {key for team in teams if configs[team.team_id].mode == SourceMode.GAME for key in team.character_ids}
     game = (GameLoadoutProjectionService(dao, static_dao).project_current(character_ids=game_ids, checkpoint=checkpoint)
             if any(config.mode == SourceMode.GAME for config in configs.values()) else None)
@@ -52,11 +49,11 @@ def freeze_team_sources(dao, static_dao, teams, *, checkpoint=lambda: None):
                 sources[character_id] = game.source
                 identity = (snapshot_id, items)
             else:
-                slot_id = dict(config.bindings).get(character_id) if config.mode == SourceMode.SLOTS else None
-                slot = by_id.get(slot_id) if config.mode == SourceMode.SLOTS else current.get(character_id)
+                slot_id = dict(config.bindings).get(character_id)
+                slot = by_id.get(slot_id)
                 plan = slot.get("current_plan") if slot else None
                 if slot is None or slot["character_id"] != character_id:
-                    issues.append("指定槽位已删除／归档或尚未选择" if config.mode == SourceMode.SLOTS else "缺少当前计算槽位")
+                    issues.append("所选槽位已删除／归档或尚未选择")
                 else:
                     slot_id = slot["slot_id"]
                     if plan is None:

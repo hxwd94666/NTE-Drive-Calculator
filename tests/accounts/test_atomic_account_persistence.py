@@ -115,15 +115,16 @@ def test_settings_migration_is_one_missing_only_transaction(tmp_path, monkeypatc
                                                       "commit": "fault_commit"}[failure])
                 service.migrate_legacy_settings()
                 assert _setting_state(observer)["marker"]
-                assert set(_setting_state(observer)["copies"]) == {"hotkeys", "update", "ui"}
+                assert set(_setting_state(observer)["copies"]) == {"hotkeys", "update", "ui", "scan_management_role_suits", "warehouse_management_role_suits"}
         else:
             service.migrate_legacy_settings()
             state = _setting_state(observer)
             assert state["marker"]
             if failure == "concurrent-marker":
-                assert state["copies"] == {"hotkeys": {"capture": "F2"}}
+                assert set(state["copies"]) == {"hotkeys", "ui", "scan_management_role_suits", "warehouse_management_role_suits"}
+                assert state["copies"]["hotkeys"] == {"capture": "F2"}
             else:
-                assert set(state["copies"]) == {"hotkeys", "update", "ui"}
+                assert set(state["copies"]) == {"hotkeys", "update", "ui", "scan_management_role_suits", "warehouse_management_role_suits"}
                 if failure == "concurrent-explicit":
                     assert state["copies"]["hotkeys"] == {"capture": "F2"}
             before_repeat = state
@@ -132,7 +133,15 @@ def test_settings_migration_is_one_missing_only_transaction(tmp_path, monkeypatc
             print(json.dumps({"scenario": "settings-" + failure, "state": state, "idempotent": True}))
     expected_reads = 2 if failure in {"later-group", "marker", "commit"} else 1
     assert reads.count("hotkeys.json") == expected_reads
-    assert len(reads) == 3 * expected_reads
+    management_reads = 1 if failure == "concurrent-marker" else 0
+    assert reads.count("scan_post_actions.json") == management_reads
+    assert len(reads) == 3 * expected_reads + management_reads
+    if failure != "normalize":
+        with closing(sqlite3.connect(database)) as check:
+            copies = _setting_state(check)["copies"]
+        assert copies["scan_management_role_suits"] == {"version": 1, "extra_suits": {}}
+        assert copies["warehouse_management_role_suits"] == {"version": 1, "extra_suits": {}}
+        assert {"full_scan_post_action_config", "warehouse_management_config"} <= copies["ui"].keys()
     StaticGameDataDao.close_shared_connections(static)
     assert _sha(static) == static_hash
     assert legacy_hashes == {path.name: _sha(path) for path in legacy.iterdir()}

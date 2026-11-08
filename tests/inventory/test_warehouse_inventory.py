@@ -189,6 +189,7 @@ class WarehouseInventoryTests(unittest.TestCase):
 
         window = SimpleNamespace(
             warehouse_model=Model(),
+            warehouse_read_controller=SimpleNamespace(conflict_button=None),
             warehouse_search=TextSurface(),
             warehouse_summary=TextSurface(),
             warehouse_filter_btn=TextSurface(),
@@ -502,7 +503,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         )
 
     def test_local_state_edit_updates_badges_without_writing_snapshot(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_with_state
+        from src.features.inventory.warehouse.item_state import warehouse_item_with_state
 
         item = {
             "uid": "nte-module-1-2", "equipped": True, "locked": False,

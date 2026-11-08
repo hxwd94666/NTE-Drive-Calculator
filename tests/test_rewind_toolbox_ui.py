@@ -483,7 +483,7 @@ def test_saved_rewind_plan_restores_quality_gap_without_another_analysis() -> No
 def test_rewind_quality_gap_ceils_to_hundredths_on_render_and_inventory_refresh() -> None:
     from PySide6.QtWidgets import QApplication, QLabel
 
-    from src.features.toolbox.rewind.dialog import _RewindRecommendationDialog
+    from src.features.toolbox.page import _RewindRecommendationDialog
 
     gaps = (3.55271e-15, 0.0, 12.5, 12.344, 12.346, 1_000_000.0, 0.004, 0.006)
     expected = ("0.01", "0.00", "12.50", "12.35", "12.35", "1000000.00", "0.01", "0.01")

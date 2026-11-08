@@ -29,7 +29,7 @@ from src.features.scanning.operation_logging import (
     begin_scan_operation as _begin_scan_operation,
     scan_event as _scan_event,
 )
-from src.features.scanning.post_action_dialog import load_scan_post_action_config
+from src.services.scanning.management_settings import load_scan_post_action_config
 from src.features.scanning.scan_contracts import (
     offline_scope_replaces_inventory,
     vision_cancel_message,

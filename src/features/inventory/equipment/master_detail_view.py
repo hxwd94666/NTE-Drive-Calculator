@@ -24,7 +24,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.features.inventory.equipment.plan_renderer import _allocation_lock_icon, _render_equip_role
+from src.features.inventory.equipment.plan_renderer import _allocation_lock_icon
+from src.features.inventory.equipment.detail_cache import (
+    clear_equipment_detail_cache, hide_equipment_detail, show_equipment_role_detail,
+)
 from src.optimizer.contracts import DIFF_CHANGED, ROLE_LAST_DIFF, ROLE_TOTAL_SCORE
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.ui.role_portrait import custom_role_portrait
@@ -404,6 +407,7 @@ def build_equipment_master_detail(window: Any, root: QVBoxLayout) -> None:
 
 
 def clear_equipment_master_detail(window: Any) -> None:
+    clear_equipment_detail_cache(window)
     detail_layout = getattr(window, "equip_content_layout", None)
     if detail_layout is not None:
         _clear_layout(detail_layout)
@@ -414,7 +418,7 @@ def clear_equipment_master_detail(window: Any) -> None:
 
 
 def _empty_detail(window: Any, message: str) -> None:
-    _clear_layout(window.equip_content_layout)
+    hide_equipment_detail(window)
     label = QLabel(message)
     label.setAlignment(Qt.AlignCenter)
     label.setWordWrap(True)
@@ -428,6 +432,7 @@ def select_equipment_role(
     role_name: str,
     *,
     restore_detail_scroll_value: int | None = None,
+    force_refresh: bool = False,
 ) -> None:
     state = (getattr(window, "_equip_role_states", {}) or {}).get(role_name)
     if not isinstance(state, dict):
@@ -436,14 +441,7 @@ def select_equipment_role(
     window._equip_selected_role_by_mode[mode] = role_name
     for name, button in getattr(window, "_equip_role_buttons", {}).items():
         button.setChecked(name == role_name)
-    _clear_layout(window.equip_content_layout)
-    _render_equip_role(
-        window,
-        role_name,
-        state,
-        target_layout=window.equip_content_layout,
-    )
-    window.equip_content_layout.addStretch(1)
+    show_equipment_role_detail(window, role_name, state, force_refresh=force_refresh)
     if restore_detail_scroll_value is None:
         window.equip_scroll.verticalScrollBar().setValue(0)
     _restore_equipment_navigation(

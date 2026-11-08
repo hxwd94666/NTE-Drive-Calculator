@@ -77,7 +77,7 @@ class JsonStoreTests(unittest.TestCase):
                     read_json(path, default)
 
     def test_scanning_config_keeps_explicit_paths_and_propagates_failed_save(self):
-        from src.features.scanning import post_action_dialog as consumer
+        from src.services.scanning import management_settings as consumer
         with tempfile.TemporaryDirectory() as directory:
             a, b = (Path(directory) / name for name in ("a", "b"))
             consumer.save_scan_post_action_config(a, {})

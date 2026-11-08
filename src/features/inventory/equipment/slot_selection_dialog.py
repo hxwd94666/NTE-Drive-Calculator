@@ -1,67 +1,43 @@
-# 提供配装槽位选择对话框。
-"""Shared named-slot chooser for multi-role equipment assembly."""
-
+# 批量装配必须显式勾选角色，每个角色只允许选择一个已保存槽位。
 from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QLabel,
-    QMessageBox,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QMessageBox
+from src.ui.text_catalog import resolve_text_catalog
+from src.domain.equipment.loadout_plan_scores import persisted_loadout_total_score
+
+from .batch_selection_dialog import BatchChoice, choose_batch_items
+from .assembly_surface import release_assembly_surface
 
 
-def select_assembly_slot_ids(parent: Any, selections: tuple[Any, ...]) -> list[int] | None:
-    """Return one current slot per character, prompting only multi-slot roles."""
+def assembly_account_identity(parent):
+    context = getattr(parent, "app_context", None)
+    account = getattr(context, "account", None)
+    return (getattr(context, "generation", None), getattr(account, "active_account_id", None),
+            str(getattr(account, "user_database_path", getattr(parent, "user_database_path", ""))))
 
+
+def select_assembly_slot_ids(parent: Any, selections: tuple[Any, ...], *, native=False, selected_slot_ids=()) -> list[int] | None:
+    text = resolve_text_catalog(getattr(parent, "text_catalog", None)).render
     by_character: dict[int, list[Any]] = {}
     for selection in selections:
         by_character.setdefault(int(selection.character_id), []).append(selection)
     if not by_character:
-        QMessageBox.information(parent, "装配", "当前没有已保存的配装槽位方案。")
+        QMessageBox.information(parent, text("assembly.select_title"), text("assembly.no_saved_slots"))
         return None
-
-    defaults: dict[int, Any] = {
-        character_id: next(
-            (row for row in slots if row.slot_key == "primary"),
-            slots[0],
-        )
-        for character_id, slots in by_character.items()
-    }
-    if all(len(slots) == 1 for slots in by_character.values()):
-        return [selection.slot_id for selection in defaults.values()]
-
-    dialog = QDialog(parent)
-    dialog.setWindowTitle("选择装配槽位")
-    dialog.setModal(True)
-    dialog.setMinimumWidth(390)
-    layout = QVBoxLayout(dialog)
-    layout.addWidget(QLabel("请选择多槽位角色本次要装配的方案。", dialog))
-    form = QFormLayout()
-    selectors: dict[int, QComboBox] = {}
+    choices = []
     for character_id, slots in by_character.items():
-        if len(slots) == 1:
-            continue
-        selector = QComboBox(dialog)
-        for slot in slots:
-            selector.addItem(str(slot.slot_name), int(slot.slot_id))
-        default_slot_id = int(defaults[character_id].slot_id)
-        selector.setCurrentIndex(max(0, selector.findData(default_slot_id)))
-        form.addRow(f"{slots[0].role_name}：", selector)
-        selectors[character_id] = selector
-    layout.addLayout(form)
-    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
-    buttons.accepted.connect(dialog.accept)
-    buttons.rejected.connect(dialog.reject)
-    layout.addWidget(buttons)
-    if dialog.exec() != QDialog.Accepted:
-        return None
-    return [
-        int(selectors[character_id].currentData()) if character_id in selectors else int(default.slot_id)
-        for character_id, default in defaults.items()
-    ]
+        default = next((row for row in slots if row.slot_key == "primary"), slots[0])
+        choices.append(BatchChoice(character_id, str(default.role_name),
+            options=tuple((int(slot.slot_id), str(slot.slot_name)) for slot in slots),
+            default_id=int(default.slot_id), character_id=character_id,
+            option_scores=tuple((int(slot.slot_id), persisted_loadout_total_score(slot.plan)) for slot in slots)))
+    identity = assembly_account_identity(parent)
+    release_assembly_surface(parent)
+    selected = choose_batch_items(parent, choices, title=text("assembly.fast.title" if native else "selector.choose_title"),
+        description="" if native else text("selector.choose_description"),
+        accept_text=text("assembly.fast.start" if native else "common.next"), retain=native, show_hints=not native,
+        initial_ids=tuple(selected_slot_ids))
+    # 模态选择期间迟到的账号切换回调也会使这次选择失效，不将槽位ID用于新账号。
+    return selected if assembly_account_identity(parent) == identity else None

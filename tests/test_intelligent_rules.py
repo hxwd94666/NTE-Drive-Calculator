@@ -1,7 +1,6 @@
 # 验证智能规则的持久化、用户所有权、重新生成和实际计算边界。
 from copy import deepcopy
 from dataclasses import replace
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +9,8 @@ from src.domain.equipment.intelligent_rules import generated_rules, merge_genera
 from src.domain.post_actions import merge_post_action_config, validate_post_action_config
 from src.domain.equipment.warehouse_recommendation import recommend
 from tests.test_warehouse_recommendation import item
-from src.features.scanning.post_action_dialog import save_scan_post_action_config, load_scan_post_action_config
+from src.domain.equipment.management_settings import MatchingScope, normalize_warehouse_config
+from src.services.inventory.management_settings import ManagementSettingsService
 
 
 def rules():
@@ -24,8 +24,14 @@ def test_regeneration_replaces_all_intelligent_rules_and_preserves_manual_rules(
     original = merge_post_action_config({'preserve_rules': [manual, generated[0], edited, *generated[2:]],
                                          'recommendation': {'rule_scheme_version': 3, 'characters': [1003]}})
     assert validate_post_action_config(original) is None
-    save_scan_post_action_config(tmp_path, original)
-    loaded = load_scan_post_action_config(tmp_path)
+    from src.storage.sqlite.user_data_dao import UserDataDao
+    with UserDataDao(tmp_path / 'user.sqlite3', account_id='test'):
+        pass
+    service = ManagementSettingsService(tmp_path / 'user.sqlite3', scope=MatchingScope.WAREHOUSE)
+    expected, matching = service.load()
+    original = normalize_warehouse_config(original)
+    service.save(original, matching, expected_config=expected, expected_matching=matching)
+    loaded = service.load()[0]
     assert loaded == original
     regenerated = merge_generated(loaded['preserve_rules'], rules())
     assert regenerated == [original['preserve_rules'][0], *rules()]
@@ -139,52 +145,35 @@ def test_rule_plans_are_account_local_and_cancel_does_not_persist(tmp_path):
         with UserDataDao(tmp_path / (name + '.sqlite3'), account_id=name):
             pass
     first, second = (tmp_path / (name + '.sqlite3') for name in ('one', 'two'))
-    config = merge_post_action_config({'preserve_rules': rules(), 'recommendation': {'rule_scheme_version': 3}})
-    save_scan_post_action_config(None, config, user_database_path=first)
-    loaded = load_scan_post_action_config(None, user_database_path=first)
+    service = ManagementSettingsService(first, scope=MatchingScope.WAREHOUSE)
+    config = normalize_warehouse_config({'preserve_rules': rules(), 'recommendation': {'rule_scheme_version': 3}})
+    expected, matching = service.load()
+    service.save(config, matching, expected_config=expected, expected_matching=matching)
+    loaded = service.load()[0]
     assert loaded == config
     loaded['preserve_rules'][0]['enabled'] = False  # 未保存的编辑不影响账号库。
-    assert load_scan_post_action_config(None, user_database_path=first) == config
-    assert not load_scan_post_action_config(None, user_database_path=second)['preserve_rules']
+    assert service.load()[0] == config
+    assert not ManagementSettingsService(second, scope=MatchingScope.WAREHOUSE).load()[0]['preserve_rules']
 
 
 def test_stale_recommendation_clears_only_generated_pending_targets():
     from unittest.mock import Mock
-    from src.features.inventory.warehouse.recommendation_controller import WarehouseRecommendationFlow
+    from src.features.inventory.warehouse.management_projection import invalidate_management_preview
     guard = Mock()
     guard.require_current.side_effect = ValueError('rules changed')
-    owner = SimpleNamespace(recommendation_guard=guard, recommendation_targets={'generated': 'discarded'}, score_label=Mock())
+    owner = SimpleNamespace(recommendation_guard=guard, recommendation_targets={'generated': 'discarded'}, manual_targets={'manual':'locked'}, conflicts=[], score_label=Mock())
     host = SimpleNamespace(warehouse_read_controller=owner,
         _warehouse_pending_state_changes={'generated': 'discarded', 'manual': 'locked'},
         _warehouse_base_states={'generated': 'normal', 'manual': 'normal'},
         _warehouse_all_items=[{'uid': 'generated', 'discarded': True, 'locked': False}, {'uid': 'manual', 'discarded': False, 'locked': True}],
         _apply_warehouse_filters=Mock(), _update_warehouse_save_state=Mock())
-    WarehouseRecommendationFlow.invalidate_staged(host)
+    invalidate_management_preview(host)
     assert host._warehouse_pending_state_changes == {'manual': 'locked'}
     assert not host._warehouse_all_items[0]['discarded']
     assert host._warehouse_all_items[1]['locked']
     assert owner.recommendation_guard is None and not owner.recommendation_targets
 
 
-def test_replacing_recommendation_preserves_same_target_manual_ownership():
-    from unittest.mock import Mock
-    from src.features.inventory.warehouse.recommendation_controller import WarehouseRecommendationFlow
-    owner = SimpleNamespace(recommendation_guard=Mock(), recommendation_targets={'old': 'discarded'}, score_label=Mock(),cancel_quality=Mock())
-    host = SimpleNamespace(warehouse_read_controller=owner, _warehouse_snapshot_id=1,
-        _warehouse_pending_state_changes={'old': 'discarded', 'manual': 'locked'},
-        _warehouse_base_states={'old': 'normal', 'manual': 'normal', 'new': 'normal'},
-        _warehouse_all_items=[{'uid': key, 'discarded': key == 'old', 'locked': key == 'manual'} for key in ('old', 'manual', 'new')],
-        _apply_warehouse_filters=Mock(), _update_warehouse_save_state=Mock())
-    flow = WarehouseRecommendationFlow(SimpleNamespace(account=SimpleNamespace(active_account_id='test', user_database_path=Path('unused')), generation=1))
-    guard = Mock(snapshot_id=1)
-    flow.preview = ({'warehouse_score': 300}, guard, {'manual': 'locked', 'new': 'discarded'}, {}, {})
-    assert flow.stage(host)
-    assert host._warehouse_pending_state_changes == {'manual': 'locked', 'new': 'discarded'}
-    assert owner.recommendation_targets == {'new': 'discarded'}
-    assert not host._warehouse_all_items[0]['discarded']
-    guard.require_current.side_effect = ValueError('changed')
-    flow.invalidate_staged(host)
-    assert host._warehouse_pending_state_changes == {'manual': 'locked'}
 
 
 def test_empty_saved_policy_does_not_restore_hidden_default_protection():
@@ -200,7 +189,7 @@ def test_preview_rejects_unsaved_rules_before_running_solver(monkeypatch):
     monkeypatch.setattr(module, 'post_config', lambda _: saved)
     monkeypatch.setattr(module, 'file_identity', lambda _: ())
     monkeypatch.setattr(module, 'recommendation_account_identity', lambda _: 'same')
-    monkeypatch.setattr(module, 'MatchingSettingsService', lambda _: SimpleNamespace(load=lambda: {}))
+    monkeypatch.setattr(module, 'MatchingSettingsService', lambda _, **kwargs: SimpleNamespace(load=lambda: {}))
     monkeypatch.setattr(module, 'run_warehouse_trial', lambda **_: pytest.fail('未保存时不可计算'))
     edited = deepcopy(saved)
     edited['preserve_rules'][0]['enabled'] = False
@@ -215,75 +204,9 @@ def test_old_unordered_scheme_requires_regeneration_without_running_solver(monke
     monkeypatch.setattr(module, 'post_config', lambda _: old)
     monkeypatch.setattr(module, 'file_identity', lambda _: ())
     monkeypatch.setattr(module, 'recommendation_account_identity', lambda _: 'same')
-    monkeypatch.setattr(module, 'MatchingSettingsService', lambda _: SimpleNamespace(load=lambda: {}))
+    monkeypatch.setattr(module, 'MatchingSettingsService', lambda _, **kwargs: SimpleNamespace(load=lambda: {}))
     monkeypatch.setattr(module, 'run_warehouse_trial', lambda **_: pytest.fail('旧规则不可直接计算'))
     with pytest.raises(ValueError, match='重新生成'):
         module.build_preview(database='unused', static_database='unused', asset_root='unused', config_dir='unused', config=old,
                              matching={}, options={}, check_context=lambda: None, cancel_check=lambda: False)
     assert old['recommendation']['rule_scheme_version'] == 1
-
-
-def test_manager_generation_is_draft_and_save_only_persists(app, tmp_path, monkeypatch):
-    import src.features.scanning.post_action_dialog as module
-    for name, value in [('_load_drive_shape_options', [('H_3', 3)]), ('_load_set_name_options', ['失落光芒']),
-                        ('_load_role_options', [(1003, '早雾', '', False)])]:
-        monkeypatch.setattr(module, name, lambda *args, result=value, **kwargs: result)
-    manual = merge_post_action_config({'preserve_rules': [{'name': '手写', 'main_stats': ['生命值%']}]})
-    save_scan_post_action_config(tmp_path, manual)
-    d = module.ScanPostActionDialog(None, tmp_path, Path('config'), recommendation_callback=lambda *args: {
-        'rules': rules(), 'options': {'rule_scheme_version': 3, 'characters': [1003]}})
-    try:
-        d._open_recommendation()
-        assert d.result() == 0
-        assert len(load_scan_post_action_config(tmp_path)['preserve_rules']) == 1
-        assert d._preserve_rules[0] == manual['preserve_rules'][0]
-        d._budget_bar.amount.setValue(1200)
-        assert len(load_scan_post_action_config(tmp_path)['preserve_rules']) == 1
-        d._save_only()
-        loaded = load_scan_post_action_config(tmp_path)
-        assert len(loaded['preserve_rules']) == len(rules()) + 1
-        assert loaded['recommendation']['rule_scheme_version'] == 3
-        assert not d.calculate_requested
-        future = next(r for r in loaded['preserve_rules'] if r.get('smart_kind') == 'future')
-        assert future['target_inventory_size'] == 1200
-        assert future['intelligent']['edited']
-        assert next(r for r in merge_generated(loaded['preserve_rules'], rules()) if r.get('smart_kind') == 'future')['target_inventory_size'] == 1000
-    finally:
-        d.close()
-        d.deleteLater()
-        app.processEvents()
-
-
-def test_clear_intelligent_rules_only_changes_draft_until_saved(app, tmp_path, monkeypatch):
-    import src.features.scanning.post_action_dialog as module
-    for name, value in [('_load_drive_shape_options', [('H_3', 3)]), ('_load_set_name_options', ['失落光芒']),
-                        ('_load_role_options', [(1003, '早雾', '', False)])]:
-        monkeypatch.setattr(module, name, lambda *args, result=value, **kwargs: result)
-    generated = rules()
-    generated[0] = preserve_origin(generated[0], {**generated[0], 'name': '编辑后的智能规则'})
-    manual = {'name': '人工规则', 'main_stats': ['生命值%']}
-    original = merge_post_action_config({'preserve_rules': [generated[0], manual, *generated[1:]]})
-    save_scan_post_action_config(tmp_path, original)
-    for save in (False, True):
-        dialog = module.ScanPostActionDialog(None, tmp_path, Path('config'))
-        try:
-            dialog._main_tabs.setCurrentIndex(1)
-            dialog._clear_smart_button.click()
-            assert dialog._preserve_rules == [original['preserve_rules'][1]]
-            assert not dialog._clear_smart_button.isEnabled()
-            assert load_scan_post_action_config(tmp_path) == original
-            if save:
-                dialog._save_only()
-                assert load_scan_post_action_config(tmp_path)['preserve_rules'] == [original['preserve_rules'][1]]
-            else:
-                dialog.reject()
-        finally:
-            dialog.close()
-            dialog.deleteLater()
-            app.processEvents()
-
-
-@pytest.fixture
-def app():
-    from PySide6.QtWidgets import QApplication
-    return QApplication.instance() or QApplication([])

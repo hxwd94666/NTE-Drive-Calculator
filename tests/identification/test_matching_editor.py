@@ -16,6 +16,7 @@ from src.app.theme import apply_app_theme, current_theme_name
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.integrations.preferences.locale_files import LocaleFiles
 from src.services.identification.matching_settings import MatchingSettingsService
+from src.domain.equipment.management_settings import MatchingScope
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.role_suit_matching.controller import RoleSuitMatchingController
 from src.ui.role_suit_matching.dialog import MatchingEditorDialog
@@ -349,7 +350,7 @@ def test_editor_actions_and_keyboard_navigation_remain_reachable_on_small_screen
 
 
 @pytest.mark.parametrize("comparison", [False, True])
-def test_three_actual_entry_views_open_same_owner_and_old_result_is_marked_stale(app, tmp_path, comparison):
+def test_identification_entries_keep_owner_and_scan_requests_its_scope(app, tmp_path, comparison):
     from PySide6.QtCore import QObject, Signal
     from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QDialog, QLabel, QScrollArea
     from src.features.identification.controller import IdentificationController
@@ -365,7 +366,8 @@ def test_three_actual_entry_views_open_same_owner_and_old_result_is_marked_stale
             self.catalog = catalog(tmp_path)
             self.parents = []
         def open(self, parent): self.parents.append(parent)
-        def create_panel(self, parent):
+        def create_panel(self, parent, *, scope):
+            assert scope == MatchingScope.SCAN
             self.parents.append(parent)
             panel = MatchingEditorDialog(self.catalog, parent, embedded=True)
             panel.load(data({"version": 1, "extra_suits": {}}))
@@ -469,10 +471,12 @@ def test_embedded_matching_stays_visible_after_tab_switch_and_hidden_load(app, t
         app.processEvents()
 
 
-def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tmp_path):
-    from src.features.scanning.post_action_dialog import ScanPostActionDialog, load_scan_post_action_config
+def test_scan_management_is_atomic_but_isolated_from_identification(app, tmp_path):
+    from src.features.scanning.post_action_dialog import ScanPostActionDialog
+    from src.services.scanning.management_settings import load_scan_post_action_config
     ctx = context(tmp_path)
-    service = MatchingSettingsService(ctx.account.user_database_path)
+    service = MatchingSettingsService(ctx.account.user_database_path, scope=MatchingScope.SCAN)
+    identification = MatchingSettingsService(ctx.account.user_database_path)
     parent = QWidget()
     owner = RoleSuitMatchingController(ctx, catalog(tmp_path), parent)
     managers, accepted = [], []
@@ -488,16 +492,16 @@ def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tm
         wait_until(settled)
         return manager, manager._main_tabs.widget(2)
     try:
-        with patch("src.ui.role_suit_matching.controller.load_matching_editor", side_effect=lambda *_: data(service.load())), \
+        with patch("src.ui.role_suit_matching.controller.load_matching_editor", side_effect=lambda request, *_: data(MatchingSettingsService(request.database, scope=request.scope).load())), \
              patch("src.ui.role_suit_matching.controller.preview_matching_role", return_value={"A": "matched"}), \
              patch("src.features.scanning.post_action_dialog._load_drive_shape_options", return_value=[]), \
              patch("src.features.scanning.post_action_dialog._load_set_name_options", return_value=[]), \
              patch("src.features.scanning.post_action_dialog._load_role_options", return_value=[]):
-            first_manager, first = open_manager("仓库弃置/锁定管理")
+            first_manager, first = open_manager("扫描管理副本")
             second_manager, second = open_manager("全量扫描管理")
             owner.open(parent)
             wait_until(settled)
-            # 计算管理的内层保存同步到仓库与鉴定；随后外层取消不撤销已保存套装。
+            # 扫描内层保存只同步同域窗口；鉴定域不变，外层取消不撤销扫描已保存套装。
             second.role_list.itemClicked.emit(second.role_list.item(1))
             wait_until(settled)
             extra = next(second.suit_list.item(i) for i in range(second.suit_list.count())
@@ -506,7 +510,8 @@ def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tm
             second.buttons.button(QDialogButtonBox.Save).click()
             wait_until(settled)
             assert accepted == [] and second_manager.isVisible()
-            assert first.draft == owner._dialog.draft == service.load()
+            assert first.draft == service.load()
+            assert owner._dialog.draft == identification.load() == {"version": 1, "extra_suits": {}}
             assert service.load()["extra_suits"] == {"1002": ["A"]}
             second_manager._buttons.button(QDialogButtonBox.Cancel).click()
             wait_until(settled)
@@ -529,7 +534,8 @@ def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tm
             assert accepted == [] and first_manager.isVisible()
             assert first.stack.currentIndex() == 0 and first_manager._buttons.isVisible()
             assert not first.buttons.button(QDialogButtonBox.Save).isVisible()
-            assert second.draft == owner._dialog.draft == service.load()
+            assert second.draft == service.load()
+            assert owner._dialog.draft == identification.load() == {"version": 1, "extra_suits": {}}
             assert service.load()["extra_suits"] == {"1001": ["B"]}
             assert load_scan_post_action_config(None, user_database_path=ctx.account.user_database_path)["server_region"] == "default"
             from src.services.identification.matching_editor import save_matching_editor
@@ -551,18 +557,20 @@ def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tm
                 finally:
                     release.set()
                     wait_until(settled)
-            assert not first_manager.isVisible() and accepted == ["仓库弃置/锁定管理"]
-            assert second.draft == owner._dialog.draft == service.load()
+            assert not first_manager.isVisible() and accepted == ["扫描管理副本"]
+            assert second.draft == service.load()
+            assert owner._dialog.draft == identification.load() == {"version": 1, "extra_suits": {}}
             assert load_scan_post_action_config(None, user_database_path=ctx.account.user_database_path)["server_region"] == "hmt"
-            # 独立鉴定保存仍同步，关闭自身但不接受管理窗口。
+            # 独立鉴定保存只更新鉴定域，不同步扫描草稿或接受管理窗口。
             owner._dialog.draft["extra_suits"] = {"1002": ["A"]}
             owner._dialog.buttons.button(QDialogButtonBox.Save).click()
             wait_until(lambda: settled() and owner._dialog is None)
+            assert identification.load()["extra_suits"] == {"1002": ["A"]}
             assert second.draft == service.load()
             second.draft["extra_suits"]["1001"] = ["C"]
-            third_manager, third = open_manager("再次打开仓库管理")
+            third_manager, third = open_manager("再次打开扫描管理")
             third_manager.hmt_region_check.setChecked(False)
-            third.draft["extra_suits"]["1001"] = ["B"]
+            third.draft["extra_suits"]["1001"] = ["C"]
             third_manager._main_tabs.setCurrentIndex(0)
             third_manager._buttons.button(QDialogButtonBox.Save).click()
             wait_until(settled)
@@ -581,7 +589,7 @@ def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tm
             wait_until(settled)
             assert second_manager.isVisible() and len(accepted) == 2
             assert second_manager._main_tabs.currentIndex() == 2
-            assert service.load()["extra_suits"]["1001"] == ["B"]
+            assert service.load()["extra_suits"]["1001"] == ["C"]
             assert load_scan_post_action_config(None, user_database_path=ctx.account.user_database_path)["server_region"] == "default"
             second.reload_button.click()
             wait_until(settled)
@@ -590,7 +598,7 @@ def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tm
             second_manager._buttons.button(QDialogButtonBox.Cancel).click()
             wait_until(settled)
             assert not second_manager.isVisible() and len(accepted) == 2
-            assert service.load()["extra_suits"]["1001"] == ["B"]
+            assert service.load()["extra_suits"]["1001"] == ["C"]
             stale_manager, stale = open_manager("旧账号窗口")
             stale.draft["extra_suits"] = {}
             child = next(child for child in owner._panels if child._dialog is stale)
@@ -598,7 +606,7 @@ def test_management_save_is_shared_atomic_and_conflict_keeps_window_open(app, tm
             child.stop()
             wait_until(settled)
             assert not stale_manager.isVisible() and len(accepted) == 2
-            assert service.load()["extra_suits"]["1001"] == ["B"]
+            assert service.load()["extra_suits"]["1001"] == ["C"]
     finally:
         owner.close()
         wait_until(settled)

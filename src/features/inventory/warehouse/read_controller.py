@@ -45,6 +45,13 @@ class WarehouseReadController(QObject):
         self._closed = False
         self.recommendation_guard = None
         self.recommendation_targets = {}
+        self.manual_targets = {}
+        self.conflicts = []
+        self.conflict_guard = None
+        self.conflict_button = None
+        self.conflict_container = None
+        self.management_issues = []
+        self.issue_label = None
         self.score_label = None
 
     def refresh(self, request: WarehouseReadRequest, *,
@@ -122,6 +129,15 @@ def reset_warehouse_account(host: Any) -> None:
     owner.cancel()
     owner.recommendation_guard = None
     owner.recommendation_targets = {}
+    owner.manual_targets = {}
+    owner.conflicts = []
+    owner.conflict_guard = None
+    owner.management_issues = []
+    if owner.conflict_button is not None:
+        owner.conflict_button.hide()
+    summary = getattr(owner, 'conflict_summary_container', None)
+    if summary is not None:
+        summary.hide()
     if owner.score_label is not None:
         owner.score_label.setText("仓库分：待评估")
         owner.score_label.setToolTip('')
@@ -160,6 +176,10 @@ def apply_warehouse_snapshot(host: Any, result: dict[str, Any]) -> bool:
     if host._warehouse_snapshot_id != snapshot_id:
         owner.recommendation_guard = None
         owner.recommendation_targets = {}
+        owner.manual_targets = {}
+        owner.conflicts = []
+        owner.conflict_guard = None
+        owner.management_issues = []
         if owner.score_label is not None:
             owner.score_label.setText("仓库分：数据已刷新，待重新评估")
     host._warehouse_snapshot_id = snapshot_id

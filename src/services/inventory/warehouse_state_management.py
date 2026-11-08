@@ -1,9 +1,9 @@
-# 将仓库稳定快照按状态管理规则计算并通过本地核心组件写回游戏。
+# 将仓库已审查目标构成状态计划并通过本地核心组件派发，后验确认前不宣称完成。
 """Official SQLite warehouse state management.
 
-This service reuses the full-scan discard/lock rules, but evaluates a pinned
-SQLite snapshot and applies the resulting state changes through the already
-running nte-core inventory session.  It never relies on screenshot ordering.
+This service only consumes reviewed targets and frozen preview guards.
+Warehouse rule decisions are owned by the separate preview pipeline; full-scan
+evaluation is not a fallback. It never relies on screenshot ordering.
 """
 
 from __future__ import annotations
@@ -16,17 +16,14 @@ import time
 from typing import Any
 
 from src.domain.post_actions import summarize_state_changes
+from src.domain.equipment.management_settings import MatchingScope
 from src.integrations.inventory.warehouse_state_writer import (
     LiveInventorySync,
     WarehouseStateWriteError,
     WarehouseStateWriter,
 )
-from src.services.inventory.post_action_evaluation import PostActionEvaluator
 from src.services.identification.matching_settings import MatchingSettingsService
-from src.models.equipment import Drive, Tape
 from src.observability import OperationContext, operation_scope
-from src.services.allocation.inventory import SqliteAllocationInventory
-from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -83,7 +80,7 @@ def _equipment_uid(row: Mapping[str, Any]) -> dict[str, int]:
 
 
 class WarehouseStateManagementService:
-    """Evaluate and apply discard/lock rules for one immutable inventory snapshot."""
+    """Validate reviewed warehouse targets and reconcile native writes against frozen evidence."""
 
     def __init__(
         self,
@@ -91,89 +88,19 @@ class WarehouseStateManagementService:
         sync_service: LiveInventorySync,
         *,
         dao_factory=UserDataDao,
-        static_dao_factory=StaticGameDataDao,
         state_writer_factory=WarehouseStateWriter,
-        config_dir: str | Path | None = None,
-        static_database_path: str | Path | None = None,
         operation_context: OperationContext | None = None,
         input_guard=None,
+        matching_scope=MatchingScope.WAREHOUSE,
     ) -> None:
         self.input_guard = input_guard
+        self.matching_scope = MatchingScope(matching_scope)
         self.database_path = Path(database_path)
         self.sync_service = sync_service
         self.state_writer = state_writer_factory(sync_service)
         self.dao_factory = dao_factory
-        self.static_dao_factory = static_dao_factory
-        self.config_dir = config_dir
-        self.static_database_path = Path(static_database_path) if static_database_path is not None else None
         self.operation_context = operation_context or OperationContext.create(
             "warehouse"
-        )
-
-    def evaluate(self, config: dict, selected_roles: list[str] | None = None) -> WarehouseStateManagementPlan:
-        """Build state changes from the current snapshot without changing game state."""
-        with operation_scope(
-            self.operation_context,
-            started_event="warehouse.state_evaluate_started",
-            succeeded_event="warehouse.state_evaluate_succeeded",
-            failed_event="warehouse.state_evaluate_failed",
-            message="计算仓库状态管理目标",
-            selected_role_count=len(selected_roles or ()),
-        ) as span:
-            plan = self._evaluate(config, selected_roles)
-            span.annotate(
-                snapshot_id=plan.snapshot_id,
-                change_count=len(plan.changes),
-                filter_summary=plan.filter_summary,
-            )
-            return plan
-
-    def _evaluate(
-        self,
-        config: dict,
-        selected_roles: list[str] | None,
-    ) -> WarehouseStateManagementPlan:
-        static_dao = self.static_dao_factory(self.static_database_path) if self.static_database_path is not None else self.static_dao_factory()
-        with self.dao_factory(self.database_path) as user_dao, static_dao:
-            snapshot_id = user_dao.current_inventory_snapshot_id()
-            if snapshot_id is None:
-                raise WarehouseStateManagementError("尚无稳定背包快照，无法管理仓库")
-            projection = SqliteAllocationInventory(user_dao, static_dao).build(snapshot_id)
-            snapshot_id = projection.snapshot_id
-            source_rows = user_dao.list_inventory_items(snapshot_id)
-
-        source_by_uid = {_compat_uid(row): row for row in source_rows}
-        inventory = []
-        parsed_items = []
-        for index, payload in enumerate(projection.items, 1):
-            source = source_by_uid.get(payload["uid"])
-            if source is None:
-                raise WarehouseStateManagementError("稳定快照投影与原始装备 UID 不一致")
-            item = Drive(**payload) if payload["item_type"] == "drive" else Tape(**payload)
-            inventory.append(item)
-            parsed_items.append((index, item, _current_state(source)))
-
-        evaluation = PostActionEvaluator(
-            post_actions_config=config,
-            selected_roles=selected_roles,
-            config_dir=self.config_dir,
-            user_database_path=self.database_path,
-            static_database_path=self.static_database_path,
-        ).evaluate(parsed_items, inventory)
-        changes: list[dict[str, Any]] = []
-        for change in evaluation.state_changes:
-            source = source_by_uid.get(str(change.get("uid") or ""))
-            if source is None:
-                raise WarehouseStateManagementError("状态管理目标不在固定稳定快照中")
-            enriched = dict(change)
-            enriched["equipment"] = _equipment_uid(source)
-            changes.append(enriched)
-        return WarehouseStateManagementPlan(
-            snapshot_id=snapshot_id,
-            changes=tuple(changes),
-            filter_summary=dict(evaluation.filter_summary),
-            command_projection_allowed=True,
-            matching_identity=evaluation.matching_identity,
         )
 
     def plan_manual_changes(
@@ -207,10 +134,16 @@ class WarehouseStateManagementService:
     ) -> WarehouseStateManagementPlan:
         if not isinstance(snapshot_id, int) or snapshot_id <= 0:
             raise WarehouseStateManagementError("没有可保存的稳定背包快照")
+        if self.input_guard is not None:
+            try:
+                self.input_guard.require_current()
+                self.input_guard.require_targets(targets)
+            except (ValueError, CancelledError) as exc:
+                raise WarehouseStateManagementError(str(exc)) from exc
         with self.dao_factory(self.database_path) as user_dao:
             if user_dao.current_inventory_snapshot_id() != snapshot_id:
                 raise WarehouseStateManagementError("游戏背包已更新，请等待仓库自动刷新后重新编辑")
-            rows = user_dao.list_inventory_items(snapshot_id)
+            rows = user_dao.list_inventory_items_with_runtime_state(snapshot_id)
         by_uid = {_compat_uid(row): row for row in rows}
         changes: list[dict[str, Any]] = []
         for uid, target_state in targets.items():
@@ -291,16 +224,20 @@ class WarehouseStateManagementService:
 
         check_current = None
         if plan.matching_identity or self.input_guard is not None:
-            settings = MatchingSettingsService(self.database_path)
-            def check_current():
-                if plan.matching_identity:
-                    settings.require_identity(plan.matching_identity)
-                if self.input_guard is not None:
-                    # 状态 RPC 本身会推进库存，快照身份在下方及写操作前置条件中核对。
-                    self.input_guard.require_current(check_snapshot=False)
-                    self.input_guard.require_targets({change['uid']:change['target_state'] for change in plan.changes})
+            settings = MatchingSettingsService(self.database_path, scope=self.matching_scope)
+            def check_current(*, full=False):
+                try:
+                    if plan.matching_identity:
+                        settings.require_identity(plan.matching_identity)
+                    if self.input_guard is not None:
+                        # 首次派发前完整核对运行态；自身状态 RPC 生效后只复核非状态输入。
+                        self.input_guard.require_current(check_snapshot=full)
+                        self.input_guard.require_targets({change['uid']:change['target_state'] for change in plan.changes})
+                except ValueError as exc:
+                    # Writer 以取消类型表达明确未派发的失效，已接受部分仍进入后验确认。
+                    raise CancelledError(str(exc)) from exc
             try:
-                check_current()
+                check_current(full=True)
             except (CancelledError, ValueError) as exc:
                 raise WarehouseStateManagementError(str(exc)) from exc
         guard_token: object | None = None
@@ -310,7 +247,7 @@ class WarehouseStateManagementService:
                 raise WarehouseStateManagementError("背包快照已更新，请刷新仓库并重新确认管理目标")
             current_rows = {
                 (row["uid_slot"], row["uid_serial"]): row
-                for row in user_dao.list_inventory_items(plan.snapshot_id)
+                for row in user_dao.list_inventory_items_with_runtime_state(plan.snapshot_id)
             }
             action_snapshot_cursor: int | None = None
             # State RPCs can produce a scoped inventory response.  Keep the
@@ -362,10 +299,15 @@ class WarehouseStateManagementService:
                         )
 
                     try:
+                        first_dispatch = True
+                        def dispatch_check():
+                            nonlocal first_dispatch
+                            check_current(full=first_dispatch)
+                            first_dispatch = False
                         dispatch_metrics = self.state_writer.apply_many(
                             prepared_changes,
                             group_completed=report_completed,
-                            **({"check_current": check_current} if check_current is not None else {}),
+                            **({"check_current": dispatch_check} if check_current is not None else {}),
                         )
                         if dispatch_metrics.stopped_reason:
                             applied_changes = self._accepted_changes(current_rows, dispatch_metrics.accepted_operations)

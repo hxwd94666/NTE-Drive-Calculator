@@ -45,7 +45,7 @@ def test_post_action_scoring_uses_the_selected_catalog() -> None:
     def matcher(**kwargs):
         captured.update(kwargs)
         return SimpleNamespace(scoring=Scoring(), context=EquipmentMatchContext())
-    with patch("src.services.inventory.post_action_evaluation.EquipmentIdentificationService.from_paths",
+    with patch("src.services.identification.scoring_scope.EquipmentIdentificationService.from_paths",
                side_effect=matcher):
         PostActionEvaluator(post_actions_config=config, static_database_path=catalog).evaluate([], [])
     assert captured["static_database_path"] == catalog

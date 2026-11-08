@@ -4,7 +4,7 @@
 
 黑羽追加黯星已在私库新 Rust 引擎完成显式累计窗口的局部模型与专项；当前 Calc 发行分析组件和正式页面尚未接入。
 接入前须解决第一段窗口、刷新／再施加因果与基础攻击捕获证据，不能因后两段总量匹配就把整角色反事实标为完整。
-数值、用例和缺口唯一维护于[黑羽模型](../../../nte-dps-toolkit/analysis-core/docs/modeling/characters/1042.md)。
+数值、用例和缺口唯一维护于外部 `nte-dps-toolkit/analysis-core/docs/modeling/characters/1042.md`；本仓库只记录消费边界。
 
 
 ## 1.1 当前边界与研究目标

@@ -11,7 +11,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from src.features.accounts.manager import AccountManager
-from src.features.scanning.post_action_dialog import load_scan_post_action_config, save_scan_post_action_config
+from src.services.scanning.management_settings import load_scan_post_action_config, save_scan_post_action_config
 from src.services.accounts.transfer import export_account_data, import_account_data
 from src.services.accounts.settings import AccountSettingsService
 from src.integrations.accounts import transfer_archive

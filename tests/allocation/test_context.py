@@ -9,6 +9,7 @@ import shutil
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from tests.static_release_fixture import distribution_manifest
 from src.services.allocation.context_builder import read_allocation_scoring_rules
 from unittest.mock import patch
 
@@ -16,7 +17,6 @@ from src.services.allocation.context_builder import ALLOCATION_CONTEXT_SOLVER_VE
 from src.services.characters.character_shape_bonus_service import SHARED_DATABASE_ENV
 from src.services.characters.custom_character_service import create_custom_character
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
-from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION as STATIC_SCHEMA_VERSION
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -147,7 +147,7 @@ class AllocationContextTests(unittest.TestCase):
         self.assertEqual("allocation-context", context.account_id)
         self.assertEqual(snapshot_id, context.snapshot.snapshot_id)
         self.assertEqual("weighted-solver-v1", context.solver_version)
-        self.assertEqual(STATIC_SCHEMA_VERSION, context.static_dataset.schema_version)
+        self.assertEqual(distribution_manifest()["database"]["schema_version"], context.static_dataset.schema_version)
         self.assertTrue(context.static_dataset.dataset_id)
         self.assertEqual([1003, 1004], [role.character_id for role in context.roles])
         self.assertEqual([0, 2], [role.priority_group for role in context.roles])

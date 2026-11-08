@@ -51,6 +51,7 @@ from src.optimizer.contracts import (
     ROLE_TOTAL_SCORE,
 )
 from src.features.inventory.equipment.plan_projection import display_stat_label
+from src.features.inventory.equipment.attribute_weights import prepare_attribute_weights, summary_weight_names
 from src.ui.damage_optimization_panel import damage_optimization_panel
 from src.features.inventory.equipment.display_context import equipment_presentation
 from src.ui.puzzle_board import PuzzleBoardWidget
@@ -152,12 +153,7 @@ def _saved_official_attribute_panel(
                 if key.endswith("Up")
                 else raw_label
             )
-            weight_ids = tuple(getattr(row, "weight_property_ids", ()) or ())
-            weight_names = tuple(
-                display_stat_label(property_id)
-                for property_id in weight_ids
-            ) or (label,)
-            weight_candidates = tuple(dict.fromkeys((*weight_names, raw_label)))
+            weight_candidates = summary_weight_names(row)
             weights = []
             if weight_for_stat is not None:
                 for name in weight_candidates:
@@ -290,6 +286,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         return group
     presentation = equipment_presentation(self)
     source_role_name = str(rd.get("_role_name") or role_name)
+    attribute_weight = prepare_attribute_weights(presentation, source_role_name, rd)
     display_role_name = str(rd.get("_display_name") or source_role_name)
     plan_id = rd.get("_sqlite_plan_id")
     slot_id = rd.get("_loadout_slot_id")
@@ -575,7 +572,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                 rd["_game_saved_state"] = selected_state
                 from src.features.inventory.equipment.master_detail_view import select_equipment_role
 
-                select_equipment_role(self, source_role_name)
+                select_equipment_role(self, source_role_name, force_refresh=True)
 
             comparison_selector.currentIndexChanged.connect(select_comparison_slot)
             comparison_layout.addWidget(comparison_selector)
@@ -585,9 +582,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                 rd,
                 saved_state,
                 parent=self if isinstance(self, QWidget) else None,
-                weight_for_stat=lambda stat, mode: presentation.attribute_summary_weight(
-                    source_role_name, stat, mode
-                ),
+                weight_for_stat=attribute_weight,
                 header_control=comparison_control,
             )
             if official_bonus_panel is not None:
@@ -609,9 +604,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
                 source_role_name,
                 rd,
                 parent=self if isinstance(self, QWidget) else None,
-                weight_for_stat=lambda stat, mode: presentation.attribute_summary_weight(
-                    source_role_name, stat, mode
-                ),
+                weight_for_stat=attribute_weight,
             )
             if official_bonus_panel is not None:
                 bonus_panel = official_bonus_panel

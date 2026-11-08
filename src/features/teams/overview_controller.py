@@ -2,12 +2,12 @@
 from concurrent.futures import CancelledError
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Signal
 
 from src.domain.equipment.plan_changes import SavedPlansChanged
 from src.domain.teams.overview import SourceMode
 
-from src.features.teams.overview_dialogs import TeamSourceDialog, member_overview_dialog
+from src.features.teams.loadout_dialog import TeamLoadoutDialog
 from src.features.teams.enhancement_history_dialog import TeamEnhancementHistoryDialog
 from src.features.teams.report_match_controller import ReportMatchController
 
@@ -20,14 +20,12 @@ class TeamOverviewController(QObject):
         self._provider, self.page = service_provider, page
         self._service, self._dialog, self._teams = None, None, ()
         self._results = {}
-        self._details = set()
         self._histories = {}
         self._requested = ()
         self._reader = ReportMatchController(self)
         self._reader.progress.connect(self._apply)
         self._reader.error.connect(self._failed)
-        page.source_requested.connect(self.configure_source)
-        page.details_requested.connect(self.show_details)
+        page.loadouts_requested.connect(self.configure_loadouts)
         page.enhancement_details_requested.connect(self.show_history)
 
     def refresh(self, teams):
@@ -79,12 +77,8 @@ class TeamOverviewController(QObject):
                 return True
             if result.source.mode == SourceMode.GAME:
                 return False  # 计算方案保存不是游戏装配完成。
-            if result.source.mode == SourceMode.SLOTS:
-                return not event.slot_ids or any(key in event.character_ids and slot in event.slot_ids
-                                                for key, slot in result.source.bindings)
-            return any(member.character_id in event.character_ids
-                       and (not event.slot_ids or member.slot_id is None or member.slot_id in event.slot_ids)
-                       for member in result.members)
+            return not event.slot_ids or any(key in event.character_ids and slot in event.slot_ids
+                                            for key, slot in result.source.bindings)
         ids = tuple(team.team_id for team in self._teams if affected(team))
         if not ids:
             return
@@ -106,7 +100,7 @@ class TeamOverviewController(QObject):
         for team in self._requested:
             self.page.show_overview_error(team.team_id, message or "简报输入已变化，请刷新")
 
-    def configure_source(self, team_id):
+    def configure_loadouts(self, team_id):
         if self._dialog is not None:
             self._dialog.raise_()
             return
@@ -115,35 +109,28 @@ class TeamOverviewController(QObject):
             return
         if self._service is None:
             self._service = self._provider()
-        dialog = TeamSourceDialog(service=self._service, team=team,
-            names={key: role.name for key, role in self.page._roles.items()}, parent=self.page)
+        service = self._service
+        dialog = TeamLoadoutDialog(service=service, team=team, roles=self.page.role_presentations(),
+            catalog=self.page.text_catalog, parent=self.page)
         self._dialog = dialog
         def finished(_result):
-            self._dialog = None
+            if self._dialog is dialog:
+                self._dialog = None
             changed = dialog.selection is not None
             dialog.deleteLater()
-            if changed and team in self._teams:
+            if changed and self._service is service and team in self._teams:
+                try:
+                    service.checkpoint()
+                except CancelledError:
+                    return
                 # 来源只影响这一队；其他队伍保留已物化值。
                 self.source_changed.emit(team.team_id)
                 self.refresh_affected((team.team_id,))
         dialog.finished.connect(finished)
         dialog.open()
 
-    def show_details(self, team_id):
-        overview = self._results.get(team_id)
-        if overview is None:
-            self.page.show_overview_error(team_id, "简报尚未完成或已失效，请刷新后重试")
-            return
-        dialog = member_overview_dialog(overview, self.page)
-        dialog.setAttribute(Qt.WA_DeleteOnClose)
-        self._details.add(dialog)
-        dialog.finished.connect(lambda _: self._details.discard(dialog))
-        dialog.open()
-
     def deactivate(self):
         self._reader.cancel()
-        for dialog in tuple(self._details):
-            dialog.reject()
         for dialog in tuple(self._histories.values()):
             dialog.reject()
         if self._dialog is not None:

@@ -13,6 +13,9 @@ sys.path.insert(0, str(ROOT))
 
 from src.services.inventory.warehouse_recommendation import run_warehouse_trial
 from src.services.inventory.warehouse_recommendation_preview import post_config
+from src.services.inventory.warehouse_predecessors import evaluate_predecessors
+from src.services.identification.matching_settings import MatchingSettingsService
+from src.domain.equipment.management_settings import MatchingScope
 from src.domain.equipment.intelligent_rules import RULE_SCHEME_VERSION
 from src.utils.logger import logger
 from tools.warehouse_recommendation_report import render_report
@@ -47,6 +50,10 @@ def main():
         ROOT / "src/domain/equipment/warehouse_recommendation.py",
         ROOT / "src/domain/equipment/intelligent_rules.py",
         ROOT / "src/domain/post_actions.py",
+        ROOT / "src/domain/equipment/warehouse_decisions.py",
+        ROOT / "src/domain/equipment/management_settings.py",
+        ROOT / "src/services/inventory/warehouse_predecessors.py",
+        ROOT / "src/services/identification/scoring_scope.py",
         ROOT / "src/services/inventory/warehouse_recommendation.py",
         ROOT / "src/solver/blueprint_utils.py",
         ROOT / "src/optimizer/scoring.py",
@@ -54,13 +61,18 @@ def main():
     ]
     source_hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     print("开始只读试算", flush=True)
+    batch = evaluate_predecessors(account, static / 'game_static.sqlite3', config, plan)
+    matching = MatchingSettingsService(account, scope=MatchingScope.WAREHOUSE).load()
     result = run_warehouse_trial(
         account_snapshot=account,
         static_database=static / "game_static.sqlite3",
         config_dir=config,
-        preserve_rules=plan['preserve_rules'],
+        preserve_rules=tuple(rule for rule in plan['preserve_rules'] if rule.get('intelligent') or rule.get('smart_kind')),
+        predecessors=batch.decisions, prepared_scorer=batch.scorer, matching_settings=matching,
         progress=lambda s: print(s, flush=True),
     )
+    if post_config(account) != plan or MatchingSettingsService(account, scope=MatchingScope.WAREHOUSE).load() != matching:
+        raise RuntimeError('试算期间管理设置变化，结果未发布')
     result["input_hashes"] = {
         str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
         for p in (static / "game_static.sqlite3", static / "manifest.json", config / "stats.json")

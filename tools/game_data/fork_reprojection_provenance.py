@@ -17,7 +17,8 @@ from src.storage.sqlite.catalog.fork_permanent_projection import (
     cursor_dicts,
     resolve_projection_rows,
 )
-from tools.game_data.static_database_build_support import IMPORTER_VERSION, SCHEMA_VERSION
+from tools.game_data.static_database_build_support import IMPORTER_VERSION
+from tools.game_data.fork_reprojection_schema import reprojection_target_schema
 
 
 PROVENANCE_FILENAME = "fork_reprojection_provenance.json"
@@ -103,7 +104,10 @@ def validate_fork_reprojection_provenance(
             raise ValueError("弧盘候选 dataset/importer 身份不符")
         old_versions = {int(row[0]) for row in old.execute("SELECT version FROM schema_migration")}
         new_versions = {int(row[0]) for row in new.execute("SELECT version FROM schema_migration")}
-        if new_versions != old_versions | {SCHEMA_VERSION}:
+        source_schema = max(old_versions, default=0)
+        target_schema = reprojection_target_schema(source_schema)
+        expected_versions = old_versions | ({target_schema} if target_schema != source_schema else set())
+        if new_versions != expected_versions:
             raise ValueError("弧盘候选 schema 迁移不符")
 
         prior_buffs = {str(row[0]) for row in old.execute("SELECT asset_path FROM buff_definition")}

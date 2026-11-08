@@ -144,10 +144,10 @@ class RewindSelectionUiMixin:
         except CancelledError:
             return
         strategy = "focused" if main else "balanced"
-        dialog = _RoleSelectionDialog(self, title="选择冲分角色" if main else "选择培养角色",
-            description="选择角色与配装槽位，仅分析所选方案。",
+        dialog = _RoleSelectionDialog(self, title=self.text_catalog.render("selector.rewind_main_title" if main else "selector.rewind_target_title"),
+            description=self.text_catalog.render("selector.rewind_description"),
             roles=self._roles, selected_character_ids=self._main_character_ids if main else self._target_character_ids,
-            selected_slots=self._selected_slots_by_strategy[strategy], asset_root=getattr(self._service, "asset_root", None))
+            selected_slots=self._selected_slots_by_strategy[strategy], asset_root=getattr(self._service, "asset_root", None), catalog=self.text_catalog)
         if dialog.exec() == QDialog.Accepted:
             try:
                 self._check_selection_context()

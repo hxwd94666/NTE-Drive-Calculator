@@ -19,6 +19,7 @@ from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QRect
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
 
+from src.features.inventory.warehouse.item_state import warehouse_item_tags
 from src.app.theme import theme_color
 from src.domain.inventory.warehouse_filter import (
     WarehouseFilterSpec,
@@ -389,7 +390,7 @@ def warehouse_item_view(
     item_type_label = title if kind == "module" else suit_name
     state_row = dict(row)
     state_row["state_known"] = state_known
-    tags = _state_tags(state_row)
+    tags = warehouse_item_tags(state_row)
     equipped = state_known and bool(row.get("equipped"))
     equipped_character_id = row.get("equipped_character_id") if equipped else None
     equipped_character_name = (
@@ -441,43 +442,6 @@ def warehouse_item_view(
         "search_text": search_text,
         "uid": f"nte-{'module' if kind == 'module' else 'core'}-{row.get('uid_slot', '')}-{row.get('uid_serial', '')}",
     }
-
-
-def _state_tags(row: Mapping[str, Any]) -> list[tuple[str, str]]:
-    """Return the card badges for an item's current, possibly unsaved state."""
-    tags: list[tuple[str, str]] = []
-    if not row.get("state_known", True):
-        return [("状态未知", "#8b949e")]
-    if row.get("discarded"):
-        tags.append(("已弃置", "#f85149"))
-    if row.get("locked"):
-        tags.append(("已锁定", "#d29922"))
-    if row.get("equipped"):
-        tags.append(("已装备", "#58a6ff"))
-    return tags
-
-
-def warehouse_item_with_state(item: Mapping[str, Any], target_state: str) -> dict[str, Any]:
-    """Apply a local state edit to one projected card without touching SQLite."""
-    if target_state not in {"normal", "locked", "discarded"}:
-        raise ValueError(f"未知仓库状态：{target_state}")
-    if not item.get("state_known", True):
-        raise ValueError("当前库存来源无法读取或修改锁定、弃置状态")
-    updated = dict(item)
-    updated["discarded"] = target_state == "discarded"
-    updated["locked"] = target_state == "locked"
-    updated["tags"] = _state_tags(updated)
-    updated["search_text"] = " ".join(
-        (
-            str(updated.get("item_name") or ""),
-            str(updated.get("suit_name") or ""),
-            str(updated.get("title") or ""),
-            str(updated.get("equipped_character_name") or ""),
-            *[str(value) for value in updated.get("stats") or []],
-            *[tag for tag, _color in updated["tags"]],
-        )
-    ).casefold()
-    return updated
 
 
 def warehouse_item_type_key(item: Mapping[str, Any]) -> str:

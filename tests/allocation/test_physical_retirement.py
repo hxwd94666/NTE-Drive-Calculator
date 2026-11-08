@@ -23,7 +23,6 @@ from src.ui import app as app_module
 from src.ui.application_runtime import prepare_application_runtime
 from src.ui.controllers.auto_sync_controller import AutoSyncController
 from src.ui.controllers.work_mode_controller import WorkModeController
-from src.utils.logger import logger
 
 
 NTE_TEST_TIER = "core"
@@ -51,7 +50,7 @@ def desktop(tmp_path, monkeypatch):
     qt = QApplication.instance() or QApplication([])
     qt.setQuitOnLastWindowClosed(False)
     qt.setStyle("Fusion")
-    logger.remove()
+    # 不移除全局 sink：其他用例及正式日志模块仍持有其句柄。
     workspace = Path(os.environ.get("NTE_RETIREMENT_WORKSPACE", Path(__file__).resolve().parents[2]))
     monkeypatch.setenv("NTE_GAME_STATIC_DB", str(workspace / "data/game_static.sqlite3"))
     def forbidden(*args, **kwargs):

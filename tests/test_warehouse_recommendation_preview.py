@@ -2,19 +2,14 @@
 import os
 from pathlib import Path
 import sqlite3
-from threading import Event
-import time
 from types import SimpleNamespace
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog
 
 from src.domain.post_actions import merge_post_action_config
-from src.features.inventory.warehouse.recommendation_dialog import RecommendationDialog
 from src.services.inventory.warehouse_recommendation_preview import RecommendationGuard, preview_targets
 from src.storage.sqlite.warehouse_recommendation_inputs import recommendation_account_identity
 
@@ -52,39 +47,6 @@ def test_config_roundtrip_preserves_recommendation_and_does_not_enable_actions()
     assert not value["discard"]["enabled"] and not value["lock"]["enabled"]
 
 
-def test_temporary_database_keeps_explicit_release_image_root(tmp_path, monkeypatch):
-    import src.services.inventory.warehouse_recommendation_preview as module
-
-    release, config = tmp_path / 'release', tmp_path / 'config'
-    release.mkdir()
-    config.mkdir()
-    images = release / 'role_catalog' / 'game_ui'
-    images.mkdir(parents=True)
-    for path in (release / 'game_static.sqlite3', release / 'manifest.json',
-                 images / 'manifest.json', config / 'stats.json'):
-        path.write_text('{}', encoding='utf8')
-    monkeypatch.setattr(module, 'recommendation_account_identity', lambda _: 'frozen')
-    monkeypatch.setattr(module, 'MatchingSettingsService', lambda _: SimpleNamespace(load=lambda: {}))
-    saved = merge_post_action_config({'preserve_rules': [], 'recommendation': {'rule_scheme_version': 3}})
-    monkeypatch.setattr(module, 'post_config', lambda _: saved)
-    monkeypatch.setattr(module, 'backup_account_database', lambda source, target: target.write_bytes(b'copy'))
-    monkeypatch.setattr(module.RecommendationGuard, 'require_current', lambda self: None)
-    captured = []
-    def trial(**kwargs):
-        assert kwargs['static_database'].parent != release
-        assert kwargs['static_database'].is_file()
-        assert kwargs['asset_root'] == images
-        captured.append(kwargs['asset_root'])
-        return {'snapshot_id': 1}
-    monkeypatch.setattr(module, 'run_warehouse_trial', trial)
-    _, guard = module.build_preview(database=tmp_path / 'account.sqlite3',
-        static_database=release / 'game_static.sqlite3', asset_root=images, config_dir=config,
-        config=saved, matching={}, options={}, check_context=lambda: None,
-        cancel_check=lambda: False)
-    assert captured and captured[0].is_dir()
-    assert images / 'manifest.json' in guard.files
-
-
 def test_account_fingerprint_ignores_battle_but_detects_weights(tmp_path):
     path = tmp_path / "account.sqlite3"
     with sqlite3.connect(path) as db:
@@ -101,23 +63,6 @@ def test_account_fingerprint_ignores_battle_but_detects_weights(tmp_path):
     assert recommendation_account_identity(path) != first
 
 
-def test_warehouse_flow_injects_shared_images_independently_of_scoring_database(tmp_path, monkeypatch):
-    import src.features.inventory.warehouse.recommendation_controller as module
-
-    captured = []
-    def dialog(owner, *, build, options):
-        captured.append(build.keywords)
-        return SimpleNamespace(is_running=lambda: False, reject=lambda: None,
-                               exec=lambda: QDialog.Rejected, deleteLater=lambda: None)
-    monkeypatch.setattr(module, 'RecommendationDialog', dialog)
-    context = SimpleNamespace(account=SimpleNamespace(active_account_id='test', user_database_path=tmp_path / 'user.sqlite3'),
-        generation=1, paths=SimpleNamespace(equipment_allocation_database_path=tmp_path / 'data/game_static.sqlite3',
-            equipment_allocation_asset_root=tmp_path / 'data/role_catalog/game_ui', config_dir=tmp_path / 'config'),
-        register_account_lifecycle=lambda _: lambda: None)
-    module.WarehouseRecommendationFlow(context).open(None, {}, {}, mode='preview')
-    assert captured[0]['static_database'] == context.paths.equipment_allocation_database_path
-    assert captured[0]['asset_root'] == context.paths.equipment_allocation_asset_root
-    assert captured[0]['asset_root'] != captured[0]['static_database'].parent / 'game_ui'
 
 
 
@@ -128,7 +73,11 @@ def test_guard_does_not_rebase_when_inputs_changed(monkeypatch):
     monkeypatch.setattr(module, "recommendation_account_identity", lambda _: "before")
     monkeypatch.setattr(module, "file_identity", lambda _: ())
     monkeypatch.setattr(module, "post_config", lambda _: {"saved": True})
-    monkeypatch.setattr(module, "MatchingSettingsService", lambda _: SimpleNamespace(load=lambda: {}))
+    def matching_service(_, *, scope):
+        from src.domain.equipment.management_settings import MatchingScope
+        assert scope == MatchingScope.WAREHOUSE
+        return SimpleNamespace(load=lambda: {})
+    monkeypatch.setattr(module, "MatchingSettingsService", matching_service)
     guard = RecommendationGuard(Path("unused"), 1, "before", (), (), {}, {"saved": True}, lambda: None)
     guard.require_current(check_snapshot=False)
     monkeypatch.setattr(module, "recommendation_account_identity", lambda _: "after")
@@ -206,143 +155,3 @@ def test_dynamic_and_manual_rules_share_order_but_safety_gate_still_applies():
     apply_ordered_rules(result, [SimpleNamespace(uid='test')], [discard, dynamic],
                         matched_by_uid={'test': [discard]}, protected_uids=frozenset({'test'}))
     assert result['rows'][0]['decision'] == 'review'
-
-
-
-
-@pytest.fixture
-def app():
-    return QApplication.instance() or QApplication([])
-
-
-def wait_for(app, predicate):
-    deadline = time.monotonic() + 5
-    while not predicate() and time.monotonic() < deadline:
-        app.processEvents()
-        QTest.qWait(5)
-    assert predicate()
-
-
-def fake_build(**kwargs):
-    guard = SimpleNamespace(require_current=lambda: None, require_targets=lambda _:None)
-    base = {
-            "role_options": [
-                {
-                    "character_id": 1,
-                    "name": "角色甲",
-                    "choices": [
-                        {"source": "game", "label": "游戏配装", "score": 200.0},
-                        {"source": "8", "label": "保存方案", "score": 300.0},
-                    ],
-                }
-            ],
-            "equipped_scores": [{"character_id": 1, "score": 200}],
-        }
-    return {
-        **base,
-        "violations": [],
-        "rows": [
-            dict(
-                uid="item",
-                decision="discard",
-                original_locked=False,
-                original_equipped=False,
-                original_discarded=False,
-                kind="drive",
-                shape_id="H_3",
-                set_name="",
-                main_stat="",
-                reasons=["已有足够副本"],
-                stats={"攻击力%": 8},
-            )
-        ],
-    }, guard
-
-
-
-
-def test_close_cancels_worker_before_window_retires(app):
-    started = Event()
-
-    def build(**kwargs):
-        started.set()
-        while not kwargs["cancel_check"]():
-            time.sleep(0.002)
-        raise ValueError("cancelled")
-
-    dialog = RecommendationDialog(None, build=build, options={"characters": [1]})
-    wait_for(app, started.is_set)
-    dialog.reject()
-    wait_for(app, lambda: not dialog.is_running())
-    assert dialog._closing and dialog.guard is None
-    dialog.deleteLater()
-    app.processEvents()
-
-
-def test_failed_automatic_calculation_retries_calculation_without_prepare_step(app):
-    calls = []
-    def build(**kwargs):
-        calls.append(True)
-        if len(calls) == 1:
-            raise ValueError('暂时不可用')
-        return fake_build(**kwargs)
-    dialog = RecommendationDialog(None, build=build, options={'characters': [1]})
-    try:
-        wait_for(app, lambda: not dialog.is_running())
-        assert calls == [True] and dialog.guard is None
-        dialog.generate.click()
-        wait_for(app, lambda: not dialog.is_running())
-        assert calls == [True, True] and dialog.guard is not None
-    finally:
-        dialog.close()
-        dialog.deleteLater()
-        app.processEvents()
-
-
-def test_calculation_shows_compact_progress_then_results_without_role_page(app):
-    release = Event()
-    def build(**kwargs):
-        while not release.is_set() and not kwargs['cancel_check']():
-            time.sleep(0.002)
-        return fake_build(**kwargs)
-    dialog = RecommendationDialog(None, build=build, options={'characters': [1]})
-    try:
-        dialog.show()
-        app.processEvents()
-        assert dialog.tabs.isHidden()
-        assert dialog.progress.isVisible() and dialog.width() <= 520
-        release.set()
-        wait_for(app, lambda: not dialog.is_running())
-        assert dialog.progress.isHidden() and dialog.tabs.isVisible()
-        assert dialog.tabs.count() == 1 and dialog.tabs.currentWidget() is dialog.review
-        assert dialog.adopt.isVisible() and dialog.adopt.isEnabled()
-    finally:
-        release.set()
-        dialog.close()
-        wait_for(app, lambda: not dialog.is_running())
-        dialog.deleteLater()
-        app.processEvents()
-
-
-
-
-def test_incomplete_selection_can_be_corrected_without_discarding_preview(app):
-    allowed=[False]
-    guard=SimpleNamespace(require_current=lambda:None)
-    def require_targets(_):
-        if not allowed[0]:raise ValueError('请采用所需恢复建议')
-    guard.require_targets=require_targets
-    def build(**kwargs):
-        result,_=fake_build(**kwargs)
-        return result,guard
-    dialog=RecommendationDialog(None,build=build,options={'characters':[1]})
-    try:
-        wait_for(app,lambda:not dialog.is_running())
-        dialog.adopt.click()
-        assert dialog.guard is guard and dialog.recommendation_result is not None
-        assert dialog.adopt.isEnabled() and '所需恢复' in dialog.status.text()
-        allowed[0]=True
-        dialog.adopt.click()
-        assert dialog.result()==QDialog.Accepted
-    finally:
-        dialog.close();dialog.deleteLater();app.processEvents()

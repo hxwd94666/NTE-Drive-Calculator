@@ -34,8 +34,8 @@ class BattleInferredTargetConditionUiTests(unittest.TestCase):
                     "relative_time_us": 1,
                     "direction": "outgoing",
                     "target_id": "enemy-wire:feast",
-                    "target_monster_id": "boss_05_BP_DiyBoss",
-                    "target_max_hp": 6_099_744.0,
+                    "target_monster_id": "mon_48_BP_Diy",
+                    "target_max_hp": 4_307_845.5,
                 },),
             },
             range_start_us=0,
@@ -54,7 +54,7 @@ class BattleInferredTargetConditionUiTests(unittest.TestCase):
         self.assertEqual("DiyBossStage8", preset["environment_ref"])
         self.assertEqual("Attack003_challenge", preset["feast_options"]["2"])
         self.assertEqual("LightOP003_challenge", preset["feast_options"]["3"])
-        self.assertEqual("HunOP003_challenge", preset["feast_options"]["4"])
+        self.assertEqual("LingOP003_challenge", preset["feast_options"]["4"])
         self.assertEqual("XiangOP003_challenge", preset["feast_options"]["5"])
 
         attack_combo = selector._feast_option_combos["2"]

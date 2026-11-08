@@ -30,7 +30,7 @@ def generate(output: Path):
     from src.services.battle_report.targets.hp_pool import BattleTargetHpPoolReconciliationService
     from src.services.battle_report.build.offline_analysis import BattleCounterfactualAnalysisService
     from src.services.battle_report.timeline.stop_projection import BattleTimeStopProjectionService
-    from src.services.skill_name_rendering_service import SkillNameRenderingService
+    from src.services.official_role.skill_names import SkillNameRenderingService
 
     fixtures = []
     project_inputs = []

@@ -53,6 +53,9 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
             for key, value in frozen.items():
                 if key not in existing:
                     self._write_application_setting(key, value)
+            # 新库的结构升级先于旧 JSON 导入；只在这次一次性导入中补齐管理域。
+            from .management_migration import migrate_management_copies
+            migrate_management_copies(connection, _utc_now())
             connection.execute(
                 "INSERT INTO application_setting_migration(singleton_id, legacy_imported_at_utc) VALUES (1, ?)",
                 (_utc_now(),),
@@ -72,6 +75,29 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
                 )
             copies[str(row["setting_key"])] = value
         return copies
+
+    def initialize_equipment_management_settings(self, legacy_scan=None) -> None:
+        """旧 JSON 导入后补齐新域一次；显式新配置即使为空也不由另一入口覆盖。"""
+        from src.domain.equipment.management_settings import MatchingScope, split_legacy_management_config
+        with self.write_transaction():
+            copies = self.list_application_setting_copies()
+            ui = copies.get("ui", {})
+            updated = dict(ui)
+            raw = ui.get("full_scan_post_action_config")
+            if not raw:
+                scan, warehouse = split_legacy_management_config(legacy_scan)
+                updated["full_scan_post_action_config"] = scan
+                if "warehouse_management_config" not in updated:
+                    updated["warehouse_management_config"] = warehouse
+            elif "warehouse_management_config" not in updated:
+                scan, warehouse = split_legacy_management_config(raw)
+                updated.update(full_scan_post_action_config=scan, warehouse_management_config=warehouse)
+            if updated != ui:
+                self._write_application_setting("ui", updated)
+            matching = copies.get("identification_role_suits", {"version": 1, "extra_suits": {}})
+            for scope in (MatchingScope.SCAN, MatchingScope.WAREHOUSE):
+                if scope.setting_key not in copies:
+                    self._write_application_setting(scope.setting_key, matching)
 
     def replace_application_setting_copy(
         self, setting_key: str, value: Mapping[str, Any], *,
