@@ -67,7 +67,7 @@ def test_temporary_database_keeps_explicit_release_image_root(tmp_path, monkeypa
     monkeypatch.setattr(module, 'MatchingSettingsService', lambda _: SimpleNamespace(load=lambda: {}))
     saved = merge_post_action_config({'preserve_rules': [], 'recommendation': {'rule_scheme_version': 3}})
     monkeypatch.setattr(module, 'post_config', lambda _: saved)
-    monkeypatch.setattr(module, 'backup_account_database', lambda source, target: target.write_bytes(b'copy'))
+    monkeypatch.setattr(module, 'freeze_warehouse_inputs', lambda source, target, **kwargs: target.write_bytes(b'inputs'))
     monkeypatch.setattr(module.RecommendationGuard, 'require_current', lambda self: None)
     captured = []
     def trial(**kwargs):

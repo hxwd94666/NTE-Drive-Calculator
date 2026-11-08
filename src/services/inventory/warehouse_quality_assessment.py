@@ -22,7 +22,7 @@ from src.services.identification.matching_settings import effective_matching_sui
 from src.services.characters.workshop_weight_template_service import configured_workshop_weight_template_file
 from src.services.inventory.warehouse_recommendation_preview import file_identity, recommendation_account_identity
 from src.services.inventory.warehouse_rule_generation import generate_warehouse_rules
-from src.storage.sqlite.accounts.transfer_database import backup_account_database
+from src.storage.sqlite.warehouse_input_snapshot import freeze_warehouse_inputs
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -111,7 +111,7 @@ def generate_first_rules(*, database, static_database, config_dir, config, match
     with TemporaryDirectory(prefix='nte-warehouse-grade-') as temporary:
         root = Path(temporary)
         frozen = root/'account.sqlite3'
-        backup_account_database(database,frozen)
+        freeze_warehouse_inputs(database, frozen, cancel_check=cancel_check)
         if recommendation_account_identity(frozen)!=identity:
             raise ValueError('冻结期间账号输入变化，请重新生成规则')
         (root/'data').mkdir();(root/'config').mkdir()

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "core_rebuilt": true,
-  "core_sha256": "60c8c8dcb59038a48ee69b3f693dd795b14773f09087d443c45021b419d22ba2",
+  "core_sha256": "6027ef48666be244b60f10d1de27113635e02936c9c2815c48ae01dd8b96043c",
   "capture_sha256": "9861802cef4eedf42b35610e1351fb8fde3cc345219aaa99fde0a34b699c1843",
   "proxy_sha256": "880fb8f28e2c9ebcf0857e66aeed9aa88b30f3e7351ba0f1a57614aaecefc514",
   "protocol_version": 1,
@@ -64,9 +64,10 @@
     "native_quick_wheel_v2"
   ],
   "validation": {
-    "build": "Six protected Release DLLs and the native Core rebuilt; signatures and final hashes verified.",
-    "focused": "13 native clock/typed-pause tests passed. Menu projection replayed from frozen historical raw evidence.",
-    "game_protected": "Not deployed to the game; current-build live acceptance not performed."
+    "build": "Normal cli Core rebuilt with menu battle-end correction; no private MCP feature.",
+    "focused": "Menu regression and native clock tests passed; previous failure reproduced.",
+    "game_protected": "Existing regular DLLs reused; corrected Core live acceptance pending.",
+    "packet": "Normal CLI retains embedded packet resources; handshake validation follows."
   },
   "limits": [
     "Counterfactual modifier and formula evidence remains partial; capability advertisement does not prove runtime coverage.",
