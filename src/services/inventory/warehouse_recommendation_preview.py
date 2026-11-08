@@ -17,7 +17,7 @@ from src.services.inventory.warehouse_predecessors import evaluate_predecessors
 from src.services.inventory.warehouse_conflicts import freeze_conflict_details
 from src.services.identification.matching_settings import MatchingSettingsService
 from src.services.inventory.warehouse_recommendation import run_warehouse_trial
-from src.storage.sqlite.accounts.transfer_database import backup_account_database
+from src.storage.sqlite.warehouse_input_snapshot import freeze_warehouse_inputs
 from src.storage.sqlite.warehouse_recommendation_inputs import recommendation_account_identity
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -117,7 +117,7 @@ def build_preview(
     with TemporaryDirectory(prefix="nte-warehouse-") as folder:
         root = Path(folder)
         frozen = root / "account.sqlite3"
-        backup_account_database(database, frozen)
+        freeze_warehouse_inputs(database, frozen, cancel_check=cancel_check)
         if recommendation_account_identity(frozen) != identity:
             raise ValueError("冻结期间账号数据变化，请重新生成建议")
         if (post_config(frozen) != stored_config

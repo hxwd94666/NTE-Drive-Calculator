@@ -78,6 +78,8 @@ def _validate_native_contract(payload: dict) -> None:
         raise ValueError("新交付必须使用全部 DLL 已保护并嵌入声明的 native-plugins-v3 布局。")
     native_upgrade_predecessors(payload)
     files, roles = payload["files"], payload["roles"]
+    if payload.get("development_profile") or any(role.startswith("mcp_") for role in roles):
+        raise ValueError("私人开发组件不能进入普通发行安装包；请使用私人开发源码工作区。")
     mandatory = {"third_party/native-capture/" + name for name in NATIVE_NOTICES}
     if not mandatory.issubset(files):
         raise ValueError("原生组件缺少完整许可、来源或配套声明。")

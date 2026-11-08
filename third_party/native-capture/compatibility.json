@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "core_rebuilt": true,
-  "core_sha256": "14a08c49dbdab1f1947f5e950a6c937c8a84b2bf6b12b7bc5d91b88609613ba9",
+  "core_sha256": "03f778f2308db4e94efb08351d628af669edc121a287e535da94a8152203b787",
   "capture_sha256": "9861802cef4eedf42b35610e1351fb8fde3cc345219aaa99fde0a34b699c1843",
   "proxy_sha256": "880fb8f28e2c9ebcf0857e66aeed9aa88b30f3e7351ba0f1a57614aaecefc514",
   "protocol_version": 1,
@@ -64,9 +64,10 @@
     "native_quick_wheel_v2"
   ],
   "validation": {
-    "build": "Merged native Core rebuilt; existing protected DLLs and signatures retained byte-for-byte.",
-    "focused": "2 formal sync and 11 native clock tests passed; no game deployment or acceptance.",
-    "game_protected": "Not deployed to the game; current-build live acceptance not performed."
+    "build": "Merged Core 0.4.8 Release cli build with embedded core resources; independent analysis and protected DLLs unchanged.",
+    "focused": "Seven menu regressions, thirteen native clock cases (overlap), embedded-resource case and offline version/packet hello/shutdown verified.",
+    "game_protected": "No game deployment or current-build live acceptance; retained DLL/signature identities unchanged.",
+    "packet": "Embedded core resource catalog verified; offline handshake/shutdown passed."
   },
   "limits": [
     "Counterfactual modifier and formula evidence remains partial; capability advertisement does not prove runtime coverage.",

@@ -176,3 +176,15 @@ def test_optional_loader_rejects_missing_license_roles(tmp_path):
     source.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="成套声明"):
         prepare(root)
+
+
+@pytest.mark.parametrize("private_input", ["profile", "role"])
+def test_normal_bundle_rejects_private_development_components(tmp_path, private_input):
+    root, source, payload = native_source(tmp_path)
+    if private_input == "profile":
+        payload["development_profile"] = "private"
+    else:
+        payload["roles"]["mcp_control"] = payload["roles"]["core"]
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="私人开发组件"):
+        prepare(root)

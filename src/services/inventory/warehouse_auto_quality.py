@@ -9,7 +9,7 @@ from src.services.inventory.warehouse_recommendation_preview import file_identit
 from src.services.identification.matching_settings import MatchingSettingsService
 from src.domain.equipment.management_settings import MatchingScope
 from src.services.characters.workshop_weight_template_service import configured_workshop_weight_template_file
-from src.storage.sqlite.accounts.transfer_database import backup_account_database
+from src.storage.sqlite.warehouse_input_snapshot import freeze_warehouse_inputs
 from src.storage.sqlite.warehouse_recommendation_inputs import recommendation_account_identity
 
 
@@ -31,7 +31,7 @@ def read_warehouse_quality(request, snapshot_id, cancel_check):
     with TemporaryDirectory(prefix='nte-warehouse-score-') as temporary:
         root = Path(temporary)
         frozen = root/'account.sqlite3'
-        backup_account_database(database,frozen)
+        freeze_warehouse_inputs(database, frozen, snapshot_id=snapshot_id, cancel_check=cancel_check)
         if recommendation_account_identity(frozen)!=identity or post_config(frozen)!=settings:
             raise ValueError('评分输入已变化，请刷新仓库重试')
         (root/'data').mkdir();(root/'config').mkdir()
