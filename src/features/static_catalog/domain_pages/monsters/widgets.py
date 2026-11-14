@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -24,8 +25,9 @@ from src.services.static_catalog.monsters.service import UNAVAILABLE
 class ArchiveCard(QFrame):
     activated = Signal()
 
-    def __init__(self, model, parent: QWidget | None = None) -> None:
+    def __init__(self, model, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.model = model
         self.setObjectName("monsterArchiveCard")
         self.setProperty("playModeLabel", model.title)
@@ -41,23 +43,23 @@ class ArchiveCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(13, 12, 13, 12)
         layout.setSpacing(6)
-        art = QLabel(self)
+        art = plain_label(self)
         art.setAlignment(Qt.AlignCenter)
         art.setFixedHeight(96)
-        set_art(art, model.icon, 92, unavailable=model.unavailable)
+        set_art(art, model.icon, 92, unavailable=model.unavailable, text_catalog=text_catalog)
         layout.addWidget(art)
-        badge = QLabel(model.badge, self)
+        badge = plain_label(model.badge, self)
         badge.setTextFormat(Qt.PlainText)
         badge.setStyleSheet(themed_style(
             "color:#39d0d8;font-size:9px;font-weight:900;letter-spacing:1px"
         ))
         layout.addWidget(badge)
-        title = QLabel(model.title, self)
+        title = plain_label(model.title, self)
         title.setTextFormat(Qt.PlainText)
         title.setWordWrap(True)
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:14px;font-weight:900"))
         layout.addWidget(title)
-        subtitle = QLabel(model.subtitle, self)
+        subtitle = plain_label(model.subtitle, self)
         subtitle.setTextFormat(Qt.PlainText)
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
@@ -80,9 +82,9 @@ class MetricCard(QFrame):
         ))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
-        name = QLabel(label, self)
+        name = plain_label(label, self)
         name.setStyleSheet(themed_style(f"color:{accent};font-size:10px;font-weight:900"))
-        number = QLabel(value, self)
+        number = plain_label(value, self)
         number.setWordWrap(True)
         number.setStyleSheet(themed_style("color:#f0f6fc;font-size:13px;font-weight:800"))
         layout.addWidget(name)
@@ -98,9 +100,9 @@ class ResistanceCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(11, 8, 11, 8)
         row = QHBoxLayout()
-        name = QLabel(label.removeprefix("抗性 "), self)
+        name = plain_label(label.removeprefix("抗性 "), self)
         name.setStyleSheet(themed_style("color:#c9d1d9;font-size:10px;font-weight:800"))
-        number = QLabel(value, self)
+        number = plain_label(value, self)
         number.setStyleSheet(themed_style("color:#39d0d8;font-size:10px"))
         row.addWidget(name)
         row.addStretch(1)
@@ -133,9 +135,9 @@ class BuffCard(QFrame):
         ))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 9, 12, 9)
-        title = QLabel(f"✦ {label}", self)
+        title = plain_label(f"✦ {label}", self)
         title.setStyleSheet(themed_style("color:#e3b341;font-size:10px;font-weight:900"))
-        text = QLabel(value, self)
+        text = plain_label(value, self)
         text.setWordWrap(True)
         text.setStyleSheet(themed_style("color:#f0f6fc;font-size:10px"))
         layout.addWidget(title)
@@ -160,12 +162,12 @@ class DropCard(QFrame):
         ))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 9, 12, 9)
-        title = QLabel(label, self)
+        title = plain_label(label, self)
         title.setWordWrap(True)
         title.setStyleSheet(themed_style(
             f"color:{accent};font-size:10px;font-weight:900"
         ))
-        text = QLabel(value, self)
+        text = plain_label(value, self)
         text.setWordWrap(True)
         text.setStyleSheet(themed_style("color:#f0f6fc;font-size:11px"))
         layout.addWidget(title)
@@ -176,10 +178,10 @@ def section_title(title: str, note: str) -> QWidget:
     host = QWidget()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 3, 0, 1)
-    heading = QLabel(title, host)
+    heading = plain_label(title, host)
     heading.setTextFormat(Qt.PlainText)
     heading.setStyleSheet(themed_style("color:#f0f6fc;font-size:16px;font-weight:900"))
-    copy = QLabel(note, host)
+    copy = plain_label(note, host)
     copy.setTextFormat(Qt.PlainText)
     copy.setWordWrap(True)
     copy.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
@@ -188,7 +190,7 @@ def section_title(title: str, note: str) -> QWidget:
     return host
 
 
-def set_art(label: QLabel, path: Path | None, size: int, *, unavailable: bool) -> None:
+def set_art(label: QLabel, path: Path | None, size: int, *, unavailable: bool, text_catalog=None) -> None:
     if path and path.is_file():
         pixmap = QPixmap(str(path)).scaled(
             size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation,
@@ -198,10 +200,10 @@ def set_art(label: QLabel, path: Path | None, size: int, *, unavailable: bool) -
         pixmap.fill(QColor("#111820"))
         painter = QPainter(pixmap)
         painter.setPen(QColor("#8b949e"))
-        painter.drawText(pixmap.rect(), Qt.AlignCenter, "暂无正式图片")
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, resolve_text_catalog(text_catalog).render('ui.static_catalog.set_art.painter'))
         painter.end()
     label.setPixmap(pixmap)
-    label.setToolTip("正式图标不可用；未按名称猜测" if unavailable else "正式怪物图标")
+    label.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.static_catalog.set_art.label') if unavailable else ''))
 
 
 def clear_layout(layout) -> None:

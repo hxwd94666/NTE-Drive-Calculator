@@ -4,11 +4,11 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from src.integrations.bundled_resources import bundled_config_dir
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.integrations.vision.recognition.resources import (
     RecognitionResources, RecognitionResourceError, recognition_file_versions,
 )
-from src.services.allocation.inventory import legacy_shape_id
+from src.services.allocation.inputs.inventory import legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao, resolve_static_database
 
 

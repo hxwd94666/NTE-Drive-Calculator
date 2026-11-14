@@ -3,50 +3,15 @@
   "catalog_scope": "game",
   "database": {
     "filename": "game_static.sqlite3",
-    "dataset_id": "cn_retail_20261105_7a8bf1f0",
-    "schema_version": 42,
-    "size_bytes": 99360768,
-    "sha256": "21DE7303529A18495CC833DE870CC0DAF261ECB67D80FF2D81DFEA829D3F2E0E",
-    "generated_at_utc": "2026-11-05T06:02:26+00:00",
+    "dataset_id": "cn_retail_suit_20261113",
+    "schema_version": 45,
+    "size_bytes": 99594240,
+    "sha256": "865EE52B7F58D340F0B60EB9BDE430E8E05E38553A86BBAC66013C2342073286",
+    "generated_at_utc": "2026-11-13T10:24:43+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_static_database.py",
-    "importer_version": 60
-  },
-  "export_quality": {
-    "report_sha256": "db253aebeda14ae6ae8425dfeaa6fc238dffae254d4b0f49403949a7d4a729f0",
-    "failed_sources_outside_scope": 5,
-    "status": "partial",
-    "known_gaps": [
-      {
-        "path": "Blueprints/Abilities/Player/Ability_036_Zankou/Actor/SummonedZankou.json",
-        "sha256": "cc310419f86bf46217ccf01233318280018817464c0da4169c622e85ac7895eb",
-        "reason": "Movement-mode array parse failed; summoned-actor mechanics remain unknown.",
-        "status": "unknown",
-        "disposition": "excluded_from_projection"
-      },
-      {
-        "path": "Blueprints/Abilities/Player/Ability_055_Kuhara/Buff/Buff_Kuhara_BasePas.json",
-        "sha256": "2f503f3950cb47b3873ee6e1e42ca4699c0b2c4f00ade5615f03438cd0b5eea9",
-        "reason": "Buff trigger parse failed; aim enter/leave mechanics remain unknown.",
-        "status": "unknown",
-        "disposition": "excluded_from_projection"
-      },
-      {
-        "path": "Blueprints/Abilities/Player/Ability_055_Kuhara/Buff/Buff_Kuhara_AimSpeedDown.json",
-        "sha256": "a2b96686027e3b9756e8e65ed3ed39fefbe10425784338d51a7ec1299cd89b67",
-        "reason": "Tag requirement parse failed; aim movement effect remains unknown.",
-        "status": "unknown",
-        "disposition": "excluded_from_projection"
-      },
-      {
-        "path": "Blueprints/Abilities/Buff/element/Reaction/ReactionEffect/Reaction5/New/Buff_Reaction_5_new_1003_old.json",
-        "sha256": "ab6d671efc44e50361c5c94e26e4f78406305c0d51717aeb8b43692fd7068ad9",
-        "reason": "Buff trigger parse failed; reaction usage and mechanics remain unknown.",
-        "status": "unknown",
-        "disposition": "excluded_from_projection"
-      }
-    ]
+    "importer_version": 63
   }
 }

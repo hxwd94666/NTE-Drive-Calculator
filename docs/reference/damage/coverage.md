@@ -58,7 +58,7 @@ psychically。TRUE 因而不能全局取消防御/抗性，也不能读取虚构
 使用达芙蒂尔本人的单角色额外倾陷公式，两者均把 TRUE 外壳还原为逐角色固有属性，正常计算防御及对应
 元素抗性/穿透；后者本身不证明五觉。
 
-实现位于 `src/services/damage_calculation_service.py`。该 service 为纯函数，不读写 SQLite、
+实现位于 `src/services/damage/damage_calculation_service.py`。该 service 为纯函数，不读写 SQLite、
 不访问 UI，也不替代旧角色页面的“直伤评分”。
 
 ## 已确认映射与默认状态时序

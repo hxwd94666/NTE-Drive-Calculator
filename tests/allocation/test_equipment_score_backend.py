@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from src.domain.stat_catalog import StatCatalog
-from src.integrations.nte_analysis_core import NativeAnalysisCancelled, NteAnalysisCoreClient
+from src.domain.equipment.properties.stat_catalog import StatCatalog
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled, NteAnalysisCoreClient
 from src.models.equipment import Drive, Tape
 from src.optimizer.scoring import ScoringEngine
 
@@ -101,3 +101,46 @@ def test_bulk_only_consumer_keeps_scores_and_returns_frozen_weight_matrix():
     matrix=scoring.prepare_weight_queries([scoring.roles_db['A']['weights']],['攻击力%','暴击率%'])
     assert matrix==[[1.0,2.0]]
     assert scoring.calculate_drive_score(drive,scoring.roles_db['A']['weights'],3.0)==40.0
+
+
+def test_weight_query_cache_preserves_order_duplicates_and_invalidates_changed_catalog():
+    scoring, client, _, _ = engine()
+    a, b = {"攻击力%": 1.0, "暴击率%": 2.0}, {"攻击力%": .5}
+    names = ["暴击率%", "攻击力%", "暴击率%"]
+    with patch.object(client, "score_equipment", wraps=client.score_equipment) as dispatch:
+        first = scoring.prepare_weight_queries([a, b, a], names)
+        assert first == [[2.0, 1.0, 2.0], [0.0, .5, 0.0], [2.0, 1.0, 2.0]]
+        assert scoring.prepare_weight_queries([b, a], names) == [first[1], first[0]]
+        dispatch.assert_called_once()
+        scoring.stat_catalog.stat_alias_mapping["new-query-alias"] = "攻击力%"
+        assert scoring.prepare_weight_queries([a], ["new-query-alias"]) == [[1.0]]
+        assert dispatch.call_count == 2
+
+
+def test_weight_query_batch_returns_values_after_cache_eviction():
+    scoring, _, _, _ = engine()
+    weights = [{"攻击力%": 1.0 + i / 1000} for i in range(140)]
+    names = ["攻击力%", *["unknown_" + str(i) for i in range(70)]]
+    values = scoring.prepare_weight_queries(weights, names)
+    assert len(values) == 140
+    for i, row in enumerate(values):
+        assert row[0] == weights[i]["攻击力%"]
+        assert row[1:] == [0.0] * 70
+
+
+def test_cache_identity_detects_alias_order_and_quality_changes():
+    scoring, _client, _drive, _tape = engine()
+    backend = scoring._native_scores
+    scoring.stat_catalog.stat_alias_mapping.update({'first': '攻击力%', 'second': '暴击率%'})
+    backend._sync()
+    backend._grades[(9, 1)] = 'sentinel'
+    backend._sync()
+    assert backend._grades[(9, 1)] == 'sentinel'
+    value = scoring.stat_catalog.stat_alias_mapping.pop('first')
+    scoring.stat_catalog.stat_alias_mapping['first'] = value
+    backend._sync()
+    assert not backend._grades
+    backend._grades[(9, 1)] = 'sentinel'
+    scoring.quality_map['Gold'] = 0.75
+    backend._sync()
+    assert not backend._grades

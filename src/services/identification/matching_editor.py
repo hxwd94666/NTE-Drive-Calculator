@@ -5,7 +5,7 @@ from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.domain.suit_identity import suit_id_for_target
+from src.domain.equipment.properties.suit_identity import suit_id_for_target
 from src.services.identification.matching_context import build_equipment_match_context
 from src.services.identification.matching_settings import MatchingSettingsService, effective_matching_suits
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
@@ -13,7 +13,7 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.services.identification.matching_identities import project_matching_settings
 from src.services.recognition.resources import load_recognition_resources, check_recognition_resources
 from src.solver.orchestrator import NTEPipelineOrchestrator
-from src.domain.equipment.management_settings import MatchingScope
+from src.domain.equipment.eligibility.management_settings import MatchingScope
 
 
 @dataclass(frozen=True)

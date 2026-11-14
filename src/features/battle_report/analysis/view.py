@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from pathlib import Path
 
 from PySide6.QtCore import QSize, QTimer, Qt, Signal
@@ -12,7 +14,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
@@ -74,7 +75,7 @@ from src.services.official_role.skill_names import (
     preferred_battle_damage_name,
     render_battle_classification,
 )
-from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
+from src.ui.common.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
 
 class BattleLongAnalysisView(
     BattleAnalysisCompositionMixin,
@@ -94,8 +95,10 @@ class BattleLongAnalysisView(
         parent: QWidget | None = None,
         *,
         game_ui_asset_root: str | Path | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._game_ui_asset_root = game_ui_asset_root
         self._analysis: BattleAnalysisSnapshot | None = None
         self._current_composition: BattleDamageComposition | None = None
@@ -112,39 +115,39 @@ class BattleLongAnalysisView(
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(16)
-        timeline_card, timeline_layout = _section("统一战斗时间轴")
+        timeline_card, timeline_layout = _section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.timeline_card_timeline_layout'))
         range_row = QGridLayout()
         range_row.setHorizontalSpacing(8)
         range_row.setVerticalSpacing(8)
-        self.capability_label = QLabel("等待逐击证据", timeline_card)
+        self.capability_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.capability_label'), timeline_card)
         self.capability_label.hide()
-        range_row.addWidget(QLabel("开始（轴秒）"), 0, 0)
+        range_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption')), 0, 0)
         self.start_spin = NoWheelDoubleSpinBox()
         self.start_spin.setDecimals(3)
         self.start_spin.setRange(0.0, 999999.0)
         range_row.addWidget(self.start_spin, 0, 1)
-        range_row.addWidget(QLabel("结束（轴秒）"), 0, 2)
+        range_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption_2')), 0, 2)
         self.end_spin = NoWheelDoubleSpinBox()
         self.end_spin.setDecimals(3)
         self.end_spin.setRange(0.001, 999999.0)
         range_row.addWidget(self.end_spin, 0, 3)
-        apply_button = QPushButton("确定")
+        apply_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('selector.confirm'))
         apply_button.setObjectName("btnPrimary")
         apply_button.clicked.connect(self._request_range)
         range_row.addWidget(apply_button, 0, 4)
-        reset_button = QPushButton("重置")
+        reset_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.build.primary_reset_btn'))
         reset_button.clicked.connect(self.range_reset_requested)
         range_row.addWidget(reset_button, 0, 5)
-        range_row.addWidget(QLabel("口径"), 0, 6)
+        range_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption_3')), 0, 6)
         self.time_mode_combo = NoWheelComboBox()
-        self.time_mode_combo.addItem("扣除时停", ACTIVE_TIME_MODE)
-        self.time_mode_combo.addItem("包含时停", ELAPSED_TIME_MODE)
+        self.time_mode_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.time_mode_combo'), ACTIVE_TIME_MODE)
+        self.time_mode_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.time_mode_combo_2'), ELAPSED_TIME_MODE)
         self.time_mode_combo.setCurrentIndex(
             self.time_mode_combo.findData(ELAPSED_TIME_MODE)
         )
         self.time_mode_combo.currentIndexChanged.connect(self._time_mode_changed)
         range_row.addWidget(self.time_mode_combo, 0, 7)
-        range_row.addWidget(QLabel("缩放"), 0, 8)
+        range_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption_4')), 0, 8)
         self.zoom_combo = NoWheelComboBox()
         for percent in (10, 25, 50, 100, 200, 300, 400, 500, 600, 700, 800):
             self.zoom_combo.addItem(f"{percent}%", percent / 100.0)
@@ -152,16 +155,15 @@ class BattleLongAnalysisView(
         self.zoom_combo.currentIndexChanged.connect(self._zoom_changed)
         range_row.addWidget(self.zoom_combo, 0, 9)
         help_text = (
-            "上方直伤、下方动作；特殊伤害和环合使用公共行。"
-            "拖动可平移，右键可设置分析起止，时间轴本体不会因审计弹窗改变。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.help_text_text')
         )
         help_button = QPushButton("?")
         help_button.setObjectName("btnHelp")
-        help_button.setToolTip(help_text)
+        help_button.setToolTip(plain_tooltip(ui_enum_text(getattr(self, 'text_catalog', None), help_text)))
         help_button.clicked.connect(
             lambda _checked=False, button=help_button: show_help(
                 button,
-                "统一战斗时间轴",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.timeline_card_timeline_layout'),
                 help_text,
             )
         )
@@ -172,13 +174,13 @@ class BattleLongAnalysisView(
 
         context_row = QHBoxLayout()
         self.context_row = context_row
-        self.build_edit_control = BattleBuildSnapshotControl()
-        context_row.addWidget(QLabel("明细范围"))
+        self.build_edit_control = BattleBuildSnapshotControl(text_catalog=getattr(self, 'text_catalog', None))
+        context_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption_5')))
         self.scope_button_group = QButtonGroup(self)
         self.scope_button_group.setExclusive(True)
         self.scope_buttons: dict[str, QPushButton] = {}
         for mode, label in (("current", "跟随"), ("first", "上半"), ("second", "下半")):
-            button = QPushButton(label)
+            button = TextActionButton(ui_enum_text(getattr(self, 'text_catalog', None), label))
             button.setCheckable(True)
             button.clicked.connect(
                 lambda _checked=False, value=mode: self._select_detail_scope(value)
@@ -191,21 +193,22 @@ class BattleLongAnalysisView(
         self.scope_buttons["second"].setEnabled(False)
         context_row.addStretch()
         context_row.addWidget(self.build_edit_control)
-        self.current_scope_title = QLabel("当前环境")
+        self.current_scope_title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.current_scope_title'))
         context_row.addWidget(self.current_scope_title)
-        self.current_scope_label = QLabel("未知")
+        self.current_scope_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.current_scope_label'))
         self.current_scope_label.setStyleSheet(
             themed_style("color:#58a6ff;font-weight:600")
         )
         context_row.addWidget(self.current_scope_label)
-        self.environment_button = QPushButton("确认环境")
+        self.environment_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.environment_button'))
         context_row.addWidget(self.environment_button)
         timeline_layout.addLayout(context_row)
 
-        self.action_summary_label = QLabel("等待动作与输入推算", timeline_card)
+        self.action_summary_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.action_summary_label'), timeline_card)
         self.action_summary_label.hide()
         self.timeline = BattleUnifiedTimelineWidget(
-            game_ui_asset_root=self._game_ui_asset_root
+            game_ui_asset_root=self._game_ui_asset_root,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.timeline.range_boundary_requested.connect(self._timeline_boundary_requested)
         self.timeline.selection_activated.connect(
@@ -228,29 +231,29 @@ class BattleLongAnalysisView(
         timeline_layout.addWidget(self.timeline_scroll)
         root.addWidget(timeline_card)
 
-        roles_card, roles_layout = _section("选定时段角色贡献")
+        roles_card, roles_layout = _section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_card_roles_layout'))
         roles_content = QHBoxLayout()
         roles_content.setContentsMargins(0, 0, 0, 0)
         roles_content.setSpacing(18)
         self.roles_table = _table(
-            ("角色", "逐击 / 结算", "有效伤害", "有效 DPS", "时段占比"),
+            (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table_2'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.event_table_6'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table_3'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table_4')),
             180,
             default_widths=(155, 120, 112, 102, 126),
         )
         self.roles_table.setMinimumWidth(620)
         roles_content.addWidget(self.roles_table, 3)
-        self.roles_pie = BattleRoleDamagePieWidget()
+        self.roles_pie = BattleRoleDamagePieWidget(text_catalog=getattr(self, 'text_catalog', None))
         roles_content.addWidget(self.roles_pie, 2)
         roles_layout.addLayout(roles_content)
         root.addWidget(roles_card)
-        composition_card, composition_layout = _section("选定时段角色伤害构成")
+        composition_card, composition_layout = _section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.composition_card_composition_layout'))
         composition_controls = QHBoxLayout()
-        composition_controls.addWidget(QLabel("分类口径"))
+        composition_controls.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption_6')))
         self.composition_group = QButtonGroup(self)
         self.composition_group.setExclusive(True)
         self.composition_buttons: dict[str, QPushButton] = {}
         for grouping, label in (("coarse", "粗分"), ("fine", "细分")):
-            button = QPushButton(label)
+            button = TextActionButton(ui_enum_text(getattr(self, 'text_catalog', None), label))
             button.setCheckable(True)
             button.clicked.connect(
                 lambda _checked=False, value=grouping: (
@@ -261,14 +264,14 @@ class BattleLongAnalysisView(
             self.composition_buttons[grouping] = button
             composition_controls.addWidget(button)
         self.composition_buttons["coarse"].setChecked(True)
-        self.composition_status_label = QLabel()
+        self.composition_status_label = plain_label()
         self.composition_status_label.setStyleSheet(
             themed_style("color:#d29922;font-size:12px")
         )
         self.composition_status_label.hide()
         composition_controls.addWidget(self.composition_status_label)
         composition_controls.addStretch()
-        self.composition_topple_button = QPushButton("计算精准倾陷归属")
+        self.composition_topple_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.composition_topple_button'))
         self.composition_topple_button.clicked.connect(
             self._request_topple_attribution
         )
@@ -276,12 +279,13 @@ class BattleLongAnalysisView(
         composition_controls.addWidget(self.composition_topple_button)
         composition_layout.addLayout(composition_controls)
         self.damage_composition_panel = BattleDamageCompositionPanel(
-            game_ui_asset_root=self._game_ui_asset_root
+            game_ui_asset_root=self._game_ui_asset_root,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         composition_layout.addWidget(self.damage_composition_panel)
         root.addWidget(composition_card)
 
-        audit_card, audit_layout = _section("审计")
+        audit_card, audit_layout = _section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.audit_card_audit_layout'))
         audit_row = QHBoxLayout()
         audit_row.setSpacing(10)
         self.audit_buttons: dict[str, QPushButton] = {}
@@ -292,45 +296,45 @@ class BattleLongAnalysisView(
             ("targets", "目标"),
             ("marginal", "边际计算"),
         ):
-            button = QPushButton(label)
+            button = TextActionButton(ui_enum_text(getattr(self, 'text_catalog', None), label))
             self.audit_buttons[key] = button
             audit_row.addWidget(button)
         audit_row.addStretch()
         audit_layout.addLayout(audit_row)
-        self.inferred_fact_label = BattleInferredFactLabel()
+        self.inferred_fact_label = BattleInferredFactLabel(text_catalog=getattr(self, 'text_catalog', None))
         audit_layout.addWidget(self.inferred_fact_label)
         root.addWidget(audit_card)
 
-        self.buff_dialog, buff_layout = self._audit_dialog("Buff 审计")
-        self.buff_panel = BattleBuffEvidencePanel()
+        self.buff_dialog, buff_layout = self._audit_dialog(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.buff_dialog_buff_layout'))
+        self.buff_panel = BattleBuffEvidencePanel(text_catalog=getattr(self, 'text_catalog', None))
         buff_layout.addWidget(self.buff_panel)
-        self.skills_dialog, skills_layout = self._audit_dialog("技能明细")
+        self.skills_dialog, skills_layout = self._audit_dialog(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.skills_dialog_skills_layout'))
         self.skills_table = _table(
-            ("角色", "伤害项", "来源技能", "分类", "命中", "伤害", "占比"),
+            (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.skills_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.skills_table_2'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.skills_table_3'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.target_table_4'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.skills_table_4'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.skills_table_5')),
             250,
             default_widths=(130, 250, 230, 140, 86, 130, 92),
         )
         skills_layout.addWidget(self.skills_table)
-        self.log_dialog, log_layout = self._audit_dialog("逐击日志", QSize(1380, 820))
+        self.log_dialog, log_layout = self._audit_dialog(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_dialog_log_layout'), QSize(1380, 820))
         filter_row = QHBoxLayout()
         self.log_filter = QLineEdit()
-        self.log_filter.setPlaceholderText("筛选角色、技能、伤害项或目标")
+        self.log_filter.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_filter'))
         self.log_filter.textChanged.connect(self._reset_log_page)
         filter_row.addWidget(self.log_filter, 1)
-        self.prev_button = QPushButton("上一页")
+        self.prev_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.graduation.history_previous'))
         self.prev_button.pressed.connect(self._previous_log_page)
         filter_row.addWidget(self.prev_button)
-        self.log_page_label = QLabel("0 / 0")
+        self.log_page_label = plain_label("0 / 0")
         filter_row.addWidget(self.log_page_label)
-        self.next_button = QPushButton("下一页")
+        self.next_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.graduation.history_next'))
         self.next_button.pressed.connect(self._next_log_page)
         filter_row.addWidget(self.next_button)
         log_layout.addLayout(filter_row)
         self.log_table = _table(
             (
-                "时间", "序号", "角色", "伤害项 / 来源技能", "类型",
-                "目标", "伤害", "公式重放 / 误差", "暴击判定",
-                "详情",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.event_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_table_2'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_table_3'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.target_table_2'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.skills_table_4'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_table_4'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_table_5'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.table_9'),
             ),
             360,
             default_widths=(
@@ -340,9 +344,9 @@ class BattleLongAnalysisView(
         self.log_table.cellClicked.connect(self._log_cell_clicked)
         log_layout.addWidget(self.log_table)
         self.target_dialog, target_layout = self._audit_dialog(
-            "受击目标与血量证据", QSize(1180, 780)
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.target_dialog_target_layout'), QSize(1180, 780)
         )
-        self.target_vital_panel = BattleTargetVitalPanel()
+        self.target_vital_panel = BattleTargetVitalPanel(text_catalog=getattr(self, 'text_catalog', None))
         target_layout.addWidget(self.target_vital_panel)
         self.environment_button.clicked.connect(
             self._open_environment_editor
@@ -382,7 +386,7 @@ class BattleLongAnalysisView(
         self._selected_character_id = None
         self.capability_label.setText(message)
         self.capability_label.show()
-        self.action_summary_label.setText("当前没有可用的动作推算。")
+        self.action_summary_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.clear.action_summary_label'))
         self.timeline.set_analysis(None)
         self.roles_pie.set_roles(())
         self.damage_composition_panel.clear()
@@ -404,7 +408,7 @@ class BattleLongAnalysisView(
             active=False,
             available=False,
         )
-        self.current_scope_label.setText("未知")
+        self.current_scope_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.current_scope_label'))
 
     def set_loading(self, message: str) -> None:
         """Keep the previous projection visible while its replacement loads."""
@@ -424,7 +428,7 @@ class BattleLongAnalysisView(
         self._analysis = analysis
         partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
         self.time_mode_combo.setEnabled(not partial_clock)
-        self.time_mode_combo.setToolTip("时停证据不完整，当前使用包含时停的真实时间" if partial_clock else "")
+        self.time_mode_combo.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.time_mode_combo') if partial_clock else ""))
         if partial_clock:
             self.time_mode_combo.setCurrentIndex(self.time_mode_combo.findData(ELAPSED_TIME_MODE))
         self._hit_details = hit_details
@@ -436,8 +440,7 @@ class BattleLongAnalysisView(
         self._render_time_presentation()
         if analysis.discarded_attempt_hit_count:
             self.capability_label.setText(
-                f"已排除作废尝试：{analysis.discarded_attempt_hit_count} 次攻击、"
-                f"{analysis.discarded_attempt_damage:,.0f} 伤害；原始记录保留，当前统计与分析不计入。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.capability_label', discarded_attempt_hit_count=f'{analysis.discarded_attempt_hit_count}', discarded_attempt_damage=f'{analysis.discarded_attempt_damage:,.0f}')
             )
             self.capability_label.show()
         else:
@@ -468,10 +471,10 @@ class BattleLongAnalysisView(
                 display_battle_environment_name(condition)
             )
             self.environment_button.setToolTip(
-                (
+                plain_tooltip((
                     getattr(analysis, "target_identity_inference_basis", "")
-                    or "环境与目标由完整遭遇的逐目标初始最大生命推断，仍可打开确认。"
-                ) + outer_tip
+                    or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.environment_button_2')
+                ) + outer_tip)
             )
         elif condition is not None:
             environment_name = display_battle_environment_name(condition)
@@ -485,16 +488,16 @@ class BattleLongAnalysisView(
             self.environment_button.setToolTip(summary)
         elif getattr(analysis, "detected_environment_kind", ""):
             self.current_scope_label.setText(
-                getattr(analysis, "detected_environment_name", "") or "已推断环境"
+                getattr(analysis, "detected_environment_name", "") or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.current_scope_label')
             )
             self.environment_button.setToolTip(
-                getattr(analysis, "target_identity_inference_basis", "")
-                or "已从战报证据推断环境，可打开确认具体对象。"
+                plain_tooltip(getattr(analysis, "target_identity_inference_basis", "")
+                or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.environment_button_3'))
             )
         else:
-            self.current_scope_label.setText("未知")
-            self.environment_button.setToolTip("打开后确认战斗环境和目标。")
-        apply_inferred_scope_warning(self.current_scope_label, analysis, condition)
+            self.current_scope_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.current_scope_label'))
+            self.environment_button.setToolTip('')
+        apply_inferred_scope_warning(self.current_scope_label, analysis, condition, text_catalog=getattr(self, 'text_catalog', None))
 
     def set_target_catalog(self, catalog: dict[str, object]) -> None:
         self.target_vital_panel.set_catalog(catalog)
@@ -680,18 +683,7 @@ class BattleLongAnalysisView(
             for row in hit_replays
         )
         self.capability_label.setText(
-            f"{capability_name} · "
-            f"{mode_name} {_time(start_display)}—{_time(end_display)} · "
-            f"伤害模型 {analysis.formula_model_version} · "
-            f"输入投影 {len(selected_inputs)} 块 / "
-            f"动作 {len(selected_actions)} 段 · "
-            f"公式重放 {replayed}/{len(hit_replays)} · "
-            f"暴击判定 {crit_resolved} · "
-            f"{getattr(analysis, 'hit_replay_model_version', '') or '公式按需加载'} · "
-            f"{getattr(analysis, 'timeline_projection_version', '未生成时间轴')} · "
-            f"{getattr(analysis, 'target_vital_model_version', '未生成生命轴')} · "
-            f"{getattr(analysis, 'buff_inference_version', '') or 'Buff 按需加载'} · "
-            f"{getattr(analysis, 'buff_attribute_projection_version', '') or 'Buff 投影按需加载'}"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_time_presentation.capability_label', capability_name=f'{capability_name}', mode_name=ui_enum_text(getattr(self, 'text_catalog', None), f'{mode_name}'), value=f'{_time(start_display)}', value_2=f'{_time(end_display)}', formula_model_version=f'{analysis.formula_model_version}', value_3=f'{len(selected_inputs)}', value_4=f'{len(selected_actions)}', replayed=f'{replayed}', value_5=f'{len(hit_replays)}', crit_resolved=f'{crit_resolved}', value_6=f"{getattr(analysis, 'hit_replay_model_version', '') or '公式按需加载'}", value_7=f"{getattr(analysis, 'timeline_projection_version', '未生成时间轴')}", value_8=f"{getattr(analysis, 'target_vital_model_version', '未生成生命轴')}", value_9=f"{getattr(analysis, 'buff_inference_version', '') or 'Buff 按需加载'}", value_10=f"{getattr(analysis, 'buff_attribute_projection_version', '') or 'Buff 投影按需加载'}")
         )
         self.inferred_fact_label.render_facts(
             tuple(getattr(analysis, "inferred_character_facts", ()))
@@ -719,12 +711,7 @@ class BattleLongAnalysisView(
         )
         zoom_percent = round(float(self.zoom_combo.currentData() or 1.0) * 100)
         self.action_summary_label.setText(
-            f"{mode_name} · {format_time_stop_evidence(analysis)} · "
-            f"缩放 {zoom_percent}% · 当前时段推算输入 "
-            f"{len(selected_inputs):,} 块 / 动作 "
-            f"{len(selected_actions):,} 段 · 引用出伤事件 "
-            f"{len(action_event_ids):,}/{len(outgoing):,}（{event_coverage:.1f}%） · "
-            f"覆盖伤害 {damage_coverage:.1f}%。覆盖率只表示进入模型的证据，不代表动作准确率。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_time_presentation.action_summary_label', mode_name=ui_enum_text(getattr(self, 'text_catalog', None), f'{mode_name}'), value=f'{format_time_stop_evidence(analysis)}', zoom_percent=f'{zoom_percent}', value_2=f'{len(selected_inputs):,}', value_3=f'{len(selected_actions):,}', value_4=f'{len(action_event_ids):,}', value_5=f'{len(outgoing):,}', event_coverage=f'{event_coverage:.1f}', damage_coverage=f'{damage_coverage:.1f}')
         )
         self.start_spin.setValue(start_display / 1_000_000.0)
         self.end_spin.setValue(end_display / 1_000_000.0)

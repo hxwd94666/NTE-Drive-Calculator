@@ -9,11 +9,16 @@ from struct import pack, unpack
 from types import GeneratorType
 from typing import Any
 
-from src.services.damage_calculation_service import (
-    DamageScene, EnemyDefenseProfileInput, calculate_defense_multiplier,
-    calculate_enemy_defense, calculate_enemy_defense_from_profile,
-    calculate_resistance_multiplier, calculate_ring_strength_multiplier,
-    calculate_weave_strength_multiplier, calculate_enemy_topple_limit_multiplier,
+from src.services.damage.damage_calculation_service import (
+    DamageScene,
+    EnemyDefenseProfileInput,
+    calculate_defense_multiplier,
+    calculate_enemy_defense,
+    calculate_enemy_defense_from_profile,
+    calculate_resistance_multiplier,
+    calculate_ring_strength_multiplier,
+    calculate_weave_strength_multiplier,
+    calculate_enemy_topple_limit_multiplier,
 )
 from src.services.battle_report.replay.support import settle_replay_damage
 

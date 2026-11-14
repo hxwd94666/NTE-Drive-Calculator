@@ -1,7 +1,7 @@
 # 验证游戏导入配装到统一方案的投影。
 """Cover game-equipped snapshot projection and plan import."""
 
-from src.services.equipment.game_loadout_projection_service import (
+from src.services.equipment.loadouts.game_loadout_projection_service import (
     GameLoadoutImportRequest,
     GameLoadoutProjectionService,
 )

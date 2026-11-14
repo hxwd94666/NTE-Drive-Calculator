@@ -1,12 +1,15 @@
 # 验证战报只保存队伍证据和装备，未出场角色及整包基线不会进入最终战报。
+from tests.battle_report.capture.test_battle_capture_build_freeze import capture as capture
 from copy import deepcopy
 from unittest.mock import patch
 import json
 
 from src.services.battle_report.inputs.scopes import select_native_team_snapshot
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_battle_capture_build_freeze import capture, finish, native_snapshot, scoped  # noqa: F401
-from tests.test_battle_axis_dao import _equipped_item
+from tests.battle_report.capture.test_battle_capture_build_freeze import finish
+from tests.battle_report.capture.test_battle_capture_build_freeze import native_snapshot
+from tests.battle_report.capture.test_battle_capture_build_freeze import scoped
+from tests.battle_report.persistence.test_battle_axis_dao import _equipped_item
 
 
 def full_source():

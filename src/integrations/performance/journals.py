@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from src.integrations.native_snapshot_timing import STAGES
+from src.integrations.native_core.native_snapshot_timing import STAGES
 from src.observability import OperationContext, log_event
 
 

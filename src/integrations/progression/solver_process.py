@@ -9,6 +9,9 @@ from multiprocessing import get_context
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from threading import Lock
+from uuid import uuid4
+
+from src.domain.progression.stamina_models import StaminaModelPreparation
 
 from src.domain.progression.stamina import (
     ProgressionStaminaRequest,
@@ -24,8 +27,16 @@ _connection: Connection | None = None
 _sequence = 0
 
 
+class StaminaSolverSession:
+    """一次单/多角色任务的模型身份，不进入持久化或日志。"""
+
+    def __init__(self):
+        self.token = uuid4().hex
+        self.preparation = StaminaModelPreparation()
+
+
 def calculate_isolated_progression_stamina(
-    request: ProgressionStaminaRequest,
+    request: ProgressionStaminaRequest, *, session: StaminaSolverSession | None = None,
 ) -> ProgressionStaminaResult:
     """Keep SciPy/HiGHS outside the GUI process on Windows.
 
@@ -36,7 +47,7 @@ def calculate_isolated_progression_stamina(
     if sys.platform != "win32":
         from src.domain.progression.stamina import calculate_progression_stamina
 
-        return calculate_progression_stamina(request)
+        return calculate_progression_stamina(request, model_preparation=session.preparation if session else None)
     global _sequence
     # 整次 IPC 串行：共享子进程最多服务一个在途请求，结果还须核对 serial。
     with _lock:
@@ -44,7 +55,7 @@ def calculate_isolated_progression_stamina(
         _sequence += 1
         serial = _sequence
         try:
-            connection.send((serial, request))
+            connection.send((serial, request, session.token if session else None))
             if not connection.poll(_TIMEOUT_SECONDS):
                 raise TimeoutError("体力求解超时；求解进程已重置，请重试")
             received_serial, status, payload = connection.recv()
@@ -112,15 +123,20 @@ def _drop_process() -> None:
 def _serve(connection: Connection) -> None:
     from src.domain.progression.stamina import calculate_progression_stamina
 
+    owner_token, preparation = None, None
     # 请求已携带冻结副本/材料；纯领域默认 policy 与原无来源 Service 完全相同。
     try:
         while True:
             try:
-                serial, request = connection.recv()
+                serial, request, token = connection.recv()
             except EOFError:
                 return
             try:
-                result = calculate_progression_stamina(request)
+                # 不同任务立即释放旧模型；普通无 session 调用也不借用上个 owner。
+                if token is None or token != owner_token:
+                    preparation = StaminaModelPreparation() if token is not None else None
+                    owner_token = token
+                result = calculate_progression_stamina(request, model_preparation=preparation)
             except ValueError as exc:
                 connection.send((serial, "value_error", str(exc)))
             except Exception:

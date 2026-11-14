@@ -14,8 +14,8 @@ from src.app.window_geometry import fit_dialog_to_available_screen
 from src.services.identification.matching_settings import (
     effective_matching_suits, reset_matching_role, set_matching_suits,
 )
-from src.ui.widgets import match_pinyin
-from src.domain.equipment.management_settings import MatchingScope
+from src.ui.common.widgets import match_pinyin
+from src.domain.equipment.eligibility.management_settings import MatchingScope
 
 
 class ImageChoiceDelegate(QStyledItemDelegate):
@@ -165,9 +165,12 @@ class MatchingEditorDialog(QDialog):
         self.footer = QWidget()
         footer = QHBoxLayout(self.footer)
         footer.setContentsMargins(0, 0, 0, 0)
-        scope_label = QLabel(self.text(f"matching.scope.{MatchingScope(scope).value}"))
-        scope_label.setWordWrap(True)
-        footer.addWidget(scope_label, 1)
+        if MatchingScope(scope) != MatchingScope.WAREHOUSE:
+            scope_label = QLabel(self.text(f"matching.scope.{MatchingScope(scope).value}"))
+            scope_label.setWordWrap(True)
+            footer.addWidget(scope_label, 1)
+        else:
+            footer.addStretch(1)
         self.status = _StatusLabel(self.text("matching.loading"))
         self.status.setTextFormat(Qt.PlainText)
         self.status.setWordWrap(True)

@@ -10,9 +10,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from src.services.equipment.saved_state_loadout_bridge import SavedStateLoadoutBridge
+from src.services.equipment.loadouts.saved_state_loadout_bridge import SavedStateLoadoutBridge
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
 from tests.allocation.static_release_helpers import ROOT
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 from tests.equipment.test_role_loadout_slots import inventory_snapshot, assignment
@@ -200,8 +200,8 @@ class AllocationBatchSaveTests(unittest.TestCase):
             self.assertEqual(1, shapes.call_count)
 
     def test_save_service_uses_frozen_rows_and_reports_commit_after_persistence(self):
-        from src.services.allocation.locks import build_allocation_lock_snapshot
-        from src.services.allocation.plan_save import save_allocation_plans
+        from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+        from src.services.allocation.results.plan_save import save_allocation_plans
         from tests.equipment.test_saved_state_loadout_bridge import _snapshot, _inventory_item
         snapshot = self.dao.import_inventory_snapshot(_snapshot([
             _inventory_item(slot=41, serial=410, kind="module", geometry="ZhiJiao2"),
@@ -232,8 +232,8 @@ class AllocationBatchSaveTests(unittest.TestCase):
         self.assertEqual(2, events[-1][1])  # One validation and one committed batch; UI refresh remains.
 
     def test_save_service_creates_missing_slot_only_with_validated_plan(self):
-        from src.services.allocation.locks import build_allocation_lock_snapshot
-        from src.services.allocation.plan_save import save_allocation_plans
+        from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+        from src.services.allocation.results.plan_save import save_allocation_plans
         from tests.equipment.test_saved_state_loadout_bridge import _snapshot, _inventory_item
 
         snapshot = self.dao.import_inventory_snapshot(_snapshot([
@@ -279,7 +279,7 @@ class AllocationSaveProgressTests(unittest.TestCase):
     def test_save_to_refresh_transition_keeps_same_window_visible(self):
         from PySide6.QtCore import QEvent, QObject
         from PySide6.QtWidgets import QApplication
-        from src.features.allocation.save_progress import AllocationSaveProgress
+        from src.features.allocation.execution.save_progress import AllocationSaveProgress
         app = QApplication.instance() or QApplication([])
 
         class VisibilityEvents(QObject):
@@ -311,7 +311,7 @@ class AllocationSaveProgressTests(unittest.TestCase):
     def test_progress_does_not_block_gui_events_and_reaps_worker(self):
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QApplication
-        from src.features.allocation.save_progress import AllocationSaveProgress
+        from src.features.allocation.execution.save_progress import AllocationSaveProgress
         app = QApplication.instance() or QApplication([])
         dialog = AllocationSaveProgress()
         owner = SimpleNamespace(_save_worker=None)

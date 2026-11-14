@@ -4,7 +4,7 @@ from pathlib import Path
 
 from src.domain.battle_report.build.inputs import BattleInferredCharacterFact
 from src.integrations.battle_analysis.page_wire import decode
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 
 def load_editor_facts(client, dependencies, context_is_current, battle_record_id):

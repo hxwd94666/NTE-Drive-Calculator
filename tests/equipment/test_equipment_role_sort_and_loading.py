@@ -8,12 +8,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QLabel
 
-from src.features.inventory.equipment import display_loaders as equipment_display_loaders
-from src.features.inventory.equipment import display_view as equipment_display_view
-from src.features.inventory.equipment import plan_display_state
-from src.features.inventory.equipment.display_controller import invalidate_saved_equipment_cache
+from src.features.inventory.equipment.display import display_loaders as equipment_display_loaders
+from src.features.inventory.equipment.display import display_view as equipment_display_view
+from src.features.inventory.equipment.display import plan_display_state
+from src.features.inventory.equipment.display.display_controller import invalidate_saved_equipment_cache
 from src.optimizer.contracts import ROLE_TOTAL_SCORE
-from src.ui.equipment_presentation import _equip_card
+from src.ui.equipment.equipment_presentation import _equip_card
 
 
 def test_mutation_invalidates_inflight_equipment_read() -> None:

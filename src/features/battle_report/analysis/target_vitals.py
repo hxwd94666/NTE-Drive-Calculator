@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from collections.abc import Callable
 
 from PySide6.QtCore import QSize, Qt, Signal
@@ -10,9 +12,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QGridLayout,
-    QLabel,
     QLineEdit,
-    QPushButton,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -25,7 +25,7 @@ from src.features.battle_report.analysis.components import analysis_table
 from src.features.battle_report.analysis.target_conditions import (
     BattleTargetConditionSelector,
 )
-from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
+from src.ui.common.widgets import NoWheelComboBox, NoWheelDoubleSpinBox
 
 
 _RESISTANCE_LABELS = (
@@ -61,17 +61,19 @@ def _half_label(value: str) -> str:
 class BattleTargetVitalPanel(QWidget):
     condition_save_requested = Signal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         self.environment_dialog = QDialog(self)
-        self.environment_dialog.setWindowTitle("配置本场战斗环境")
+        self.environment_dialog.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_dialog'))
         self.environment_dialog.setModal(True)
         dialog_layout = QVBoxLayout(self.environment_dialog)
         self.condition_selector = BattleTargetConditionSelector(
-            self.environment_dialog
+            self.environment_dialog,
+            text_catalog=text_catalog,
         )
         self.condition_selector.preset_changed.connect(self._apply_preset)
         dialog_layout.addWidget(self.condition_selector)
@@ -79,42 +81,42 @@ class BattleTargetVitalPanel(QWidget):
         condition_grid = QGridLayout()
         condition_grid.setHorizontalSpacing(8)
         condition_grid.setVerticalSpacing(8)
-        condition_grid.addWidget(QLabel("目标名称"), 0, 0)
+        condition_grid.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_3')), 0, 0)
         self.target_name_edit = QLineEdit()
         condition_grid.addWidget(self.target_name_edit, 0, 1)
-        condition_grid.addWidget(QLabel("敌方等级"), 0, 2)
+        condition_grid.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_4')), 0, 2)
         self.enemy_level_spin = self._number_spin(1.0, 999.0, decimals=0)
         condition_grid.addWidget(self.enemy_level_spin, 0, 3)
-        condition_grid.addWidget(QLabel("场景"), 0, 4)
+        condition_grid.addWidget(plain_label(resolve_text_catalog(text_catalog).render('teams.report.column.scene')), 0, 4)
         self.scene_combo = NoWheelComboBox()
-        self.scene_combo.addItem("轨外之境", "outer_realm")
-        self.scene_combo.addItem("大世界", "open_world")
+        self.scene_combo.addItem(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_combo_3'), "outer_realm")
+        self.scene_combo.addItem(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_combo'), "open_world")
         condition_grid.addWidget(self.scene_combo, 0, 5)
-        condition_grid.addWidget(QLabel("敌方防御降低"), 0, 6)
+        condition_grid.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_5')), 0, 6)
         self.defense_reduction_spin = self._percent_spin(-100.0, 100.0)
         condition_grid.addWidget(self.defense_reduction_spin, 0, 7)
-        condition_grid.addWidget(QLabel("敌方易伤"), 0, 8)
+        condition_grid.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_6')), 0, 8)
         self.vulnerability_spin = self._percent_spin(-100.0, 1000.0)
         condition_grid.addWidget(self.vulnerability_spin, 0, 9)
-        condition_grid.addWidget(QLabel("实际 DefBase"), 3, 0)
+        condition_grid.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_7')), 3, 0)
         self.enemy_defense_base_spin = self._number_spin(
             0.0,
             1_000_000_000.0,
             decimals=2,
         )
-        self.enemy_defense_base_spin.setSpecialValueText("按等级近似")
+        self.enemy_defense_base_spin.setSpecialValueText(resolve_text_catalog(text_catalog).render('ui.battle_report.init.enemy_defense_base_spin'))
         condition_grid.addWidget(self.enemy_defense_base_spin, 3, 1)
-        condition_grid.addWidget(QLabel("DefUp"), 3, 2)
+        condition_grid.addWidget(plain_label("DefUp"), 3, 2)
         self.enemy_defense_up_spin = self._percent_spin(-100.0, 1000.0)
         condition_grid.addWidget(self.enemy_defense_up_spin, 3, 3)
-        condition_grid.addWidget(QLabel("DefAdd"), 3, 4)
+        condition_grid.addWidget(plain_label("DefAdd"), 3, 4)
         self.enemy_defense_add_spin = self._number_spin(
             -1_000_000_000.0,
             1_000_000_000.0,
             decimals=2,
         )
         condition_grid.addWidget(self.enemy_defense_add_spin, 3, 5)
-        condition_grid.addWidget(QLabel("UnbalMax"), 3, 6)
+        condition_grid.addWidget(plain_label("UnbalMax"), 3, 6)
         self.enemy_topple_limit_spin = self._number_spin(
             0.0,
             1_000_000.0,
@@ -122,20 +124,20 @@ class BattleTargetVitalPanel(QWidget):
         )
         condition_grid.addWidget(self.enemy_topple_limit_spin, 3, 7)
         self.resistance_spins: dict[str, NoWheelDoubleSpinBox] = {}
-        for index, (damage_type, label) in enumerate(_RESISTANCE_LABELS):
+        for index, (damage_type, label) in enumerate(ui_enum_text(text_catalog, _RESISTANCE_LABELS)):
             row = 1 + index // 4
             column = (index % 4) * 2
-            condition_grid.addWidget(QLabel(f"{label}（战前）"), row, column)
+            condition_grid.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_8', label=f'{label}')), row, column)
             editor = self._percent_spin(-500.0, 500.0)
             self.resistance_spins[damage_type] = editor
             condition_grid.addWidget(editor, row, column + 1)
-        self.save_condition_button = QPushButton("保存环境配置")
+        self.save_condition_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.battle_report.init.save_condition_button'))
         self.save_condition_button.setObjectName("btnPrimary")
         self.save_condition_button.clicked.connect(self._request_condition_save)
         self.save_condition_button.clicked.connect(self.environment_dialog.accept)
         condition_grid.addWidget(self.save_condition_button, 2, 8, 1, 2)
         dialog_layout.addLayout(condition_grid)
-        self.condition_note = QLabel()
+        self.condition_note = plain_label()
         self.condition_note.setWordWrap(True)
         self.condition_note.setStyleSheet(
             themed_style("color:#d29922;font-size:12px")
@@ -146,20 +148,20 @@ class BattleTargetVitalPanel(QWidget):
         dialog_layout.addWidget(dialog_buttons)
         self.target_table = analysis_table(
             (
-                "半场",
-                "目标",
-                "实例",
-                "命中",
-                "正式逐击",
-                "上限下降",
-                "上限结算伤害",
-                "描述预计",
-                "分析有效伤害",
-                "观测耗血",
-                "未解释差额",
-                "首次 HP",
-                "终止 HP",
-                "原始最大 HP",
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_2'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_3'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_4'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_5'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_6'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_7'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_8'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_9'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_10'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_11'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_12'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_13'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_14'),
             ),
             190,
             default_widths=(
@@ -182,15 +184,15 @@ class BattleTargetVitalPanel(QWidget):
         layout.addWidget(self.target_table)
         self.event_table = analysis_table(
             (
-                "时间",
-                "目标",
-                "归属",
-                "机制",
-                "最大 HP 变化",
-                "结算前生命比例",
-                "有效伤害",
-                "证据",
-                "置信度",
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.target_table_2'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table_2'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table_3'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table_4'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table_5'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table_6'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table_7'),
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.event_table_8'),
             ),
             210,
             default_widths=(
@@ -206,10 +208,9 @@ class BattleTargetVitalPanel(QWidget):
             ),
         )
         layout.addWidget(self.event_table)
-        self.note = QLabel("生命上限变化会单独结算；原始逐击数据不改写。")
+        self.note = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.note'))
         self.note.setToolTip(
-            "结算值取同半场、同目标、同旧上限附近逐击中的最小剩余生命比例，"
-            "再乘以上限下降量；未能解释的耗血会单独标记。"
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.init.note_2'))
         )
         self.note.setWordWrap(True)
         self.note.setStyleSheet(themed_style("color:#d29922;font-size:12px"))
@@ -218,7 +219,7 @@ class BattleTargetVitalPanel(QWidget):
     def clear(self) -> None:
         self.target_table.setRowCount(0)
         self.event_table.setRowCount(0)
-        self.condition_note.setText("尚未加载敌方条件。")
+        self.condition_note.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.clear.condition_note'))
 
     def set_catalog(self, catalog: dict[str, object]) -> None:
         self.condition_selector.set_catalog(catalog)
@@ -307,13 +308,9 @@ class BattleTargetVitalPanel(QWidget):
             editor.setValue(float(resistances.get(damage_type, 0.20)) * 100.0)
         self.condition_note.setText(
             (
-                "已保存用户确认的单目标条件；战前抗性包含模式追加/弱点，"
-                "不包含战斗中的临时减抗。实际 DefBase 非零时优先使用绑定属性包，"
-                "否则才按等级与场景近似；易伤默认 0。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render.condition_note')
                 if condition is not None
-                else "当前战报没有目标实例/怪物 ID。以上战前抗性 20% 仅是"
-                "编辑初值，保存前不参与需要敌方参数的计算；不要把战斗中"
-                "临时减抗重复填入。"
+                else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render.condition_note_2')
             )
         )
         self.target_table.setRowCount(len(analysis.targets))
@@ -344,9 +341,7 @@ class BattleTargetVitalPanel(QWidget):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if column == 10:
                     item.setToolTip(
-                        "正数表示观测耗血仍高于已解释伤害；负数表示分析伤害"
-                        "高于观测耗血，常见于溢出、回血抵消、并发样本或复合事件。"
-                        "该差额只用于闭合账本，不分摊给角色或技能。"
+                        plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render.item'))
                     )
                 self.target_table.setItem(row, column, item)
 
@@ -496,6 +491,5 @@ class BattleTargetVitalPanel(QWidget):
         for damage_type, editor in self.resistance_spins.items():
             editor.setValue(float(resistances.get(damage_type, 0.0)) * 100.0)
         self.condition_note.setText(
-            "已从官方静态目录载入当前对象及属性包；争锋加成已叠加到战前参数。"
-            "仍可在下方人工补正，点击保存后才参与逐击重放。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.apply_preset.condition_note')
         )

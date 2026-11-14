@@ -4,11 +4,11 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
-from src.services.allocation.context_builder import read_allocation_scoring_rules
+from src.services.allocation.inputs.context_builder import read_allocation_scoring_rules
 
-from src.features.allocation.plan_diff_pairing import pair_drive_diff_items
+from src.features.allocation.results.plan_diff_pairing import pair_drive_diff_items
 from src.optimizer.contracts import DIFF_ADDED, DIFF_CHANGED, DIFF_REMOVED
-from src.services.equipment.weighted_loadout_comparison_service import (
+from src.services.equipment.loadouts.weighted_loadout_comparison_service import (
     freeze_weighted_loadout_comparisons,
     refresh_weighted_loadout_comparisons,
 )

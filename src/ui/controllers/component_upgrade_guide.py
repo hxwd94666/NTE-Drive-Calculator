@@ -1,6 +1,7 @@
 # 将旧版组件证据投影为工作台升级引导。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from dataclasses import dataclass
 import os
 
@@ -129,6 +130,7 @@ class ComponentUpgradeGuideMixin:
             self.window, stage=stage,
             detail=evidence.reason + "\n" + evidence.detail,
             method=evidence.method, on_action=self._upgrade_action,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self._upgrade_dialog = dialog
         dialog.finished.connect(lambda _result: self._dismiss_upgrade_dialog(dialog))
@@ -146,7 +148,7 @@ class ComponentUpgradeGuideMixin:
                 self.policy.set_auto_sync_enabled(False)
                 self.policy.set_component_auto_ready(False)
             except OSError:
-                QMessageBox.warning(self.window, "旧版插件升级", "保存引导状态失败，请检查配置目录权限后重试。")
+                QMessageBox.warning(self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.upgrade_action.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.upgrade_action.qmessagebox_2')))
                 return
             self._upgrade_cleanup_resume = True
             self._upgrade_cleanup_assessed = False
@@ -159,7 +161,7 @@ class ComponentUpgradeGuideMixin:
         elif stage == "mode":
             if self._controls:
                 combo = self._controls[0]
-                combo.setPlaceholderText("未选择")
+                combo.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.main_box'))
                 # 索引变化只刷新强调状态；activated 才进入用户确认模式入口。
                 combo.setCurrentIndex(-1)
             self.open_settings("mode")

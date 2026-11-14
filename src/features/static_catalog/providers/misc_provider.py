@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import resolve_text_catalog
 from pathlib import Path
 
 from src.features.static_catalog.contracts import (
@@ -91,7 +93,9 @@ class StaticCatalogMiscProvider:
         manifest_path: str | Path,
         *,
         domain_key: str,
+        text_catalog=None,
     ) -> None:
+        self.text_catalog = resolve_text_catalog(text_catalog)
         if domain_key not in _DOMAIN_ORDER:
             raise ValueError(f"不支持的杂项资料域：{domain_key!r}")
         self._database_path = Path(database_path).expanduser().resolve()
@@ -184,7 +188,7 @@ class StaticCatalogMiscProvider:
         )
         return CatalogRelationPage(
             relation_kind=relation_kind,
-            rows=tuple(self._relation_section(relation_kind, row) for row in page.rows),
+            rows=tuple(self._relation_section(relation_kind, row, text_catalog=getattr(self, 'text_catalog', None)) for row in page.rows),
             total=page.total,
             offset=page.offset,
             limit=page.limit,
@@ -278,11 +282,11 @@ class StaticCatalogMiscProvider:
                 source=source_for(detail.origin_kind),
             ),
             sections=tuple(sections),
-            relation_groups=self._relation_groups(detail),
+            relation_groups=self._relation_groups(detail, text_catalog=getattr(self, 'text_catalog', None)),
         )
 
     @staticmethod
-    def _relation_groups(detail: MiscDetail) -> tuple[CatalogRelationGroup, ...]:
+    def _relation_groups(detail: MiscDetail, *, text_catalog=None) -> tuple[CatalogRelationGroup, ...]:
         supported = _ENTITY_RELATIONS.get(detail.entity_kind, ())
         counts = next(
             (section for section in detail.sections if section.title == "分页关系规模"),
@@ -291,13 +295,13 @@ class StaticCatalogMiscProvider:
         if counts is None:
             return ()
         return tuple(
-            CatalogRelationGroup(field.label, _RELATION_LABELS[field.label], int(field.value))
+            CatalogRelationGroup(field.label, ui_enum_text(text_catalog, _RELATION_LABELS)[field.label], int(field.value))
             for field in counts.fields
             if field.label in supported and int(field.value) > 0
         )
 
     @classmethod
-    def _relation_section(cls, relation_kind: str, row: object) -> CatalogSection:
+    def _relation_section(cls, relation_kind: str, row: object, *, text_catalog=None) -> CatalogSection:
         fields = tuple(
             CatalogField(
                 label=value.label,
@@ -309,7 +313,7 @@ class StaticCatalogMiscProvider:
         )
         reference = cls._relation_reference(relation_kind, fields)
         return CatalogSection(
-            title=str(getattr(row, "title", _RELATION_LABELS[relation_kind])),
+            title=str(getattr(row, "title", ui_enum_text(text_catalog, _RELATION_LABELS)[relation_kind])),
             fields=fields,
             references=(reference,) if reference is not None else (),
         )

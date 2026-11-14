@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from src.app.context import AppContext
-from src.domain.basic_weight import BasicWeightDependencies
+from src.domain.characters.basic_weight import BasicWeightDependencies
 
 
 def freeze_basic_weight_dependencies(app_context: AppContext) -> BasicWeightDependencies:

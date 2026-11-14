@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 import pytest
 
 from src.services.characters import workshop_weight_template_service as service
-from src.integrations import workshop_weight_http as http
+from src.integrations.official_role import workshop_weight_http as http
 from src.ui.controllers.workshop_refresh_controller import WorkshopRefreshController
 
 NTE_TEST_TIER = "core"

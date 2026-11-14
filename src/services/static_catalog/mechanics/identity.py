@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 import re
 
-from src.domain.static_catalog import CatalogLink
+from src.domain.catalog.static_catalog import CatalogLink
 from src.services.static_catalog.misc.models import CatalogDetail, CatalogSearchItem
 from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,

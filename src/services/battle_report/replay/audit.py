@@ -24,14 +24,31 @@ from src.services.battle_report.replay.local_critical import (
     BattleHitLocalCritInferenceService,
 )
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
+from src.domain.localization.catalog import localized_text
+from src.integrations.preferences.locale_files import enum_text
 
 
+_LOCALE_PREFIX = "battle_report.audit."
 _NIGHTMARE_MARKER = "lacrimosa_blood_damage"
 _EROSION_ID = "ge_player_zankou_dotdamage"
 _OBSERVED_UNIT_WINDOW_US = 10_000_000
 _RECENT_APPLICATION_WINDOW_US = 700_000
 _DUPLICATE_DAMAGE_WINDOW_US = 700_000
 _DARK_STAR_EFFECT_ID = "buff_reaction_4_new"
+# 结算模式是排序与候选身份，稳定码保持中文基线；展示时才整表投影。
+_MODE_LABELS = {"正式满份": "正式满份", "单份": "单份"}
+
+
+def _text(text_catalog, key: str, fallback: str, **values: object) -> str:
+    """本文件用户可见说明统一挂在本模块前缀下；目录缺该 key 时回退原中文基线。"""
+
+    return localized_text(text_catalog, f"{_LOCALE_PREFIX}{key}", fallback, **values)
+
+
+def _mode_labels(text_catalog):
+    """整表投影结算模式标签；未注入目录时保留中文基线。"""
+
+    return _MODE_LABELS if text_catalog is None else enum_text(text_catalog, _MODE_LABELS)
 
 
 def _target_key(hit: BattleAnalysisHit) -> tuple[str, str]:
@@ -76,6 +93,7 @@ class BattleHitReplayAuditService:
         *,
         progress_callback: BattleAnalysisProgressCallback | None = None,
         compute_backend: BattleComputeBackend | None = None,
+        text_catalog=None,
     ) -> tuple[BattleHitReplayResult, ...]:
         def report(completed: int, message: str) -> None:
             report_battle_analysis_progress(
@@ -97,19 +115,19 @@ class BattleHitReplayAuditService:
         )
         report(2, "正在核对黯星生命差结算…")
         adjusted = cls.apply_dark_star_hp_remainder_observation(
-            analysis, adjusted, conflict_ids=conflicts,
+            analysis, adjusted, conflict_ids=conflicts, text_catalog=text_catalog,
         )
         report(3, "正在核对噩梦层数证据…")
         adjusted = cls.apply_nightmare_observed_layer_adjustment(
-            analysis, adjusted, conflict_ids=conflicts,
+            analysis, adjusted, conflict_ids=conflicts, text_catalog=text_catalog,
         )
         report(4, "正在核对蚀心结算证据…")
         adjusted = cls.apply_erosion_settlement_adjustment(
-            analysis, adjusted, conflict_ids=conflicts,
+            analysis, adjusted, conflict_ids=conflicts, text_catalog=text_catalog,
         )
         report(5, "正在标记逐击归属冲突…")
         adjusted = cls.apply_damage_attribution_conflicts(
-            analysis, adjusted, conflict_ids=conflicts,
+            analysis, adjusted, conflict_ids=conflicts, text_catalog=text_catalog,
         )
         report(6, "逐击公式重放审计完成")
         return adjusted
@@ -121,6 +139,7 @@ class BattleHitReplayAuditService:
         results: tuple[BattleHitReplayResult, ...],
         *,
         conflict_ids: frozenset[str] | None = None,
+        text_catalog=None,
     ) -> tuple[BattleHitReplayResult, ...]:
         """Recover one missing structured Dark Star additional settlement.
 
@@ -187,11 +206,11 @@ class BattleHitReplayAuditService:
                 if expected is not None and selected > 0.0
                 else None
             )
-            basis = (
-                f"同目标生命差 {hp_delta:g} 减同批主伤害 {hit.damage:g} "
-                f"得到 {observed:g}；与 toolkit 四段服务端结算中的"
-                "黯星追加伤害模型及本击公式候选严格一致"
-            )
+            basis = _text(
+                text_catalog, "basis.dark_star_remainder",
+                "同目标生命差 {hp_delta} 减同批主伤害 {damage} 得到 {observed}；"
+                "与 toolkit 四段服务端结算中的黯星追加伤害模型及本击公式候选严格一致",
+                hp_delta=f"{hp_delta:g}", damage=f"{hit.damage:g}", observed=f"{observed:g}")
             replacements[result.event_id] = replace(
                 result,
                 observed_damage=observed,
@@ -204,11 +223,11 @@ class BattleHitReplayAuditService:
                 observed_damage_basis=basis,
                 missing_evidence=tuple(dict.fromkeys((
                     *result.missing_evidence,
-                    (
-                        f"原始逐击仍上报主伤害 {hit.damage:g}；公式比较只采用"
-                        f"目标生命变化中严格分离的黯星追加伤害 {observed:g}，"
-                        "不改写原轴、伤害合计或生命上限下降"
-                    ),
+                    _text(
+                        text_catalog, "missing.dark_star_unrecorded",
+                        "原始逐击仍上报主伤害 {damage}；公式比较只采用目标生命变化中"
+                        "严格分离的黯星追加伤害 {observed}，不改写原轴、伤害合计或生命上限下降",
+                        damage=f"{hit.damage:g}", observed=f"{observed:g}"),
                 ))),
             )
         return tuple(replacements.get(row.event_id, row) for row in results)
@@ -220,6 +239,7 @@ class BattleHitReplayAuditService:
         results: tuple[BattleHitReplayResult, ...],
         *,
         conflict_ids: frozenset[str] | None = None,
+        text_catalog=None,
     ) -> tuple[BattleHitReplayResult, ...]:
         """Choose only single-share or formal-full erosion settlement modes.
 
@@ -287,6 +307,7 @@ class BattleHitReplayAuditService:
                 ranked[1][0] - best[0] if len(ranked) > 1 else float("inf")
             )
             _loss, mode, coefficient, inferred_critical, selected = best
+            mode_label = _mode_labels(text_catalog).get(mode, mode)
             error = replay_error_percent(result.observed_damage, selected)
             signed_error = replay_signed_error_percent(
                 result.observed_damage,
@@ -299,7 +320,9 @@ class BattleHitReplayAuditService:
                     confidence="低",
                     missing_evidence=tuple(dict.fromkeys((
                         *result.missing_evidence,
-                        "蚀心单份/正式满份与暴击候选未唯一分离，保留正向状态公式并输出低置信",
+                        _text(
+                            text_catalog, "missing.erosion_ambiguous",
+                            "蚀心单份/正式满份与暴击候选未唯一分离，保留正向状态公式并输出低置信"),
                     ))),
                 )
                 continue
@@ -308,15 +331,16 @@ class BattleHitReplayAuditService:
                 if error <= 2.0 and separation >= 0.03
                 else "中"
             )
-            basis = (
-                f"正式状态机在本击前为 {formal_layers:g} 层；历史纯自跳轴证明"
-                f"蚀心可能按单份或正式满份结算，本击仅在这两类中匹配为{mode}；"
-                "暴击按整跳选择一次；该选择不反写正式层数"
-            )
+            basis = _text(
+                text_catalog, "basis.erosion_layers",
+                "正式状态机在本击前为 {layers} 层；历史纯自跳轴证明"
+                "蚀心可能按单份或正式满份结算，本击仅在这两类中匹配为{mode}；"
+                "暴击按整跳选择一次；该选择不反写正式层数",
+                layers=f"{formal_layers:g}", mode=mode_label)
             factors = tuple(
                 replace(
                     row,
-                    label="蚀心本跳有效结算系数",
+                    label=_text(text_catalog, "label.erosion_coefficient", "蚀心本跳有效结算系数"),
                     value=coefficient,
                     evidence_basis=basis,
                     formula="有效系数 ∈ {1, 正式层数}",
@@ -364,7 +388,9 @@ class BattleHitReplayAuditService:
                 factors=factors,
                 missing_evidence=tuple(dict.fromkeys((
                     *result.missing_evidence,
-                    "蚀心结算模式来自受约束的单份/正式满份反算，待受控战报确认引擎内部批次语义",
+                    _text(
+                        text_catalog, "missing.erosion_mode_unconfirmed",
+                        "蚀心结算模式来自受约束的单份/正式满份反算，待受控战报确认引擎内部批次语义"),
                 ))),
                 expected_damage=expected,
                 corrected_expected_damage=corrected_expected,
@@ -378,6 +404,7 @@ class BattleHitReplayAuditService:
         results: tuple[BattleHitReplayResult, ...],
         *,
         conflict_ids: frozenset[str] | None = None,
+        text_catalog=None,
     ) -> tuple[BattleHitReplayResult, ...]:
         hits_by_event = {hit.event_id: hit for hit in analysis.hits}
         conflicts = (
@@ -448,6 +475,7 @@ class BattleHitReplayAuditService:
                             current_layers - 1,
                             inferred_critical=missing_match[1],
                             reference_unit=missing_match[2],
+                            text_catalog=text_catalog,
                         )
                         replacements[result.event_id] = result
                         stack_factor = _factor(result, "state_coefficient")
@@ -519,6 +547,7 @@ class BattleHitReplayAuditService:
         *,
         inferred_critical: bool,
         reference_unit: float,
+        text_catalog=None,
     ) -> BattleHitReplayResult:
         ratio = layers / stack_factor.value
         assert result.non_critical_damage is not None
@@ -542,12 +571,13 @@ class BattleHitReplayAuditService:
             if expected is not None and selected > 0.0
             else None
         )
-        basis = (
-            f"逐击正向重放原为 {stack_factor.value:g} 层；本击前 0.7 秒内存在"
-            f"噩梦施加 hit，且同目标前序噩梦实伤反算单层约 {reference_unit:g}；"
+        basis = _text(
+            text_catalog, "basis.nightmare_layers",
+            "逐击正向重放原为 {layers} 层；本击前 0.7 秒内存在"
+            "噩梦施加 hit，且同目标前序噩梦实伤反算单层约 {unit}；"
             "当前实伤只支持服务器少接收 1 层。仅修正本击展示/边际基准，"
-            "不反写后续状态。"
-        )
+            "不反写后续状态。",
+            layers=f"{stack_factor.value:g}", unit=f"{reference_unit:g}")
         factors = tuple(
             replace(row, value=float(layers), evidence_basis=basis)
             if row.factor_id == "state_coefficient"
@@ -572,7 +602,8 @@ class BattleHitReplayAuditService:
             factors=factors,
             missing_evidence=tuple(dict.fromkeys((
                 *result.missing_evidence,
-                "噩梦层数由同场实际伤害反算补正，不冒充运行时 Buff 层数",
+                _text(text_catalog, "missing.nightmare_layers",
+                      "噩梦层数由同场实际伤害反算补正，不冒充运行时 Buff 层数"),
             ))),
             expected_damage=expected,
             corrected_expected_damage=corrected_expected,
@@ -585,13 +616,15 @@ class BattleHitReplayAuditService:
         results: tuple[BattleHitReplayResult, ...],
         *,
         conflict_ids: frozenset[str] | None = None,
+        text_catalog=None,
     ) -> tuple[BattleHitReplayResult, ...]:
         conflicts = (
             conflict_ids
             if conflict_ids is not None
             else cls.damage_attribution_conflict_ids(analysis.hits)
         )
-        reason = (
+        reason = _text(
+            text_catalog, "missing.duplicate_attribution",
             "同一服务端 HP 结算的重复归属候选：同一目标 700ms 内另一伤害项"
             "上报相同伤害，且 HP 区间重叠或结算端点一致；这不表示伤害实际发生两次。"
             "保留原始逐击与公式候选，但本击不参与暴击或层数校准"

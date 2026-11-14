@@ -6,8 +6,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Mapping
 
-from src.domain.stat_catalog import StatCatalog
-from src.integrations.bundled_resources import bundled_config_dir
+from src.domain.equipment.properties.stat_catalog import StatCatalog
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 
 
 _QUALITY_COEFFICIENTS = {

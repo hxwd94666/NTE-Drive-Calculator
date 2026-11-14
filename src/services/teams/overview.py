@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from src.domain.teams.overview import TeamSourceConfig
-from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
 from src.services.teams.source_inputs import freeze_team_sources
 from src.services.teams.enhancement_history import associate_enhancement, current_component_provenance, latest_enhancement
 from src.storage.sqlite.user_data_dao import UserDataDao

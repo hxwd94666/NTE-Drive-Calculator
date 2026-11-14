@@ -2,7 +2,7 @@
 from dataclasses import replace
 from threading import RLock
 
-from src.domain.plugin_settings import PluginSettings
+from src.domain.preferences.plugin_settings import PluginSettings
 
 
 _PLUGIN_FIELDS = {

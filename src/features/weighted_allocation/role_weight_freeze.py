@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from src.domain.allocation.inputs import AllocationContext
-from src.integrations.static_catalog_release import StaticCatalogReadUnit
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReadUnit
 from src.services.official_role.page import load_official_role_detail
 
 

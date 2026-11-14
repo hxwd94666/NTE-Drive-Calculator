@@ -11,7 +11,7 @@ import numpy as np
 
 from src.integrations.vision.recognition.image_resources import ShapeTemplateFile, immutable_template_pixels
 from src.integrations.vision.recognition.resources import RecognitionResourceError
-from src.services.allocation.inventory import AllocationInventoryProjectionError, legacy_shape_id
+from src.services.allocation.inputs.inventory import AllocationInventoryProjectionError, legacy_shape_id
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.utils.logger import logger
 from src.utils.image_io import imread_unicode

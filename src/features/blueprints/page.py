@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -23,12 +23,10 @@ from src.app.theme import themed_style
 from src.app.workers import WorkerThread
 from src.features.blueprints.controller import BlueprintController
 from src.features.blueprints.dependencies import BlueprintDependencies
-from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
-from src.domain.equipment.shapes import (
-    OFFICIAL_SHAPE_LABELS as _OFFICIAL_SHAPE_LABELS,
-)
-from src.ui.puzzle_board import PuzzleBoardWidget
-from src.ui.widgets import match_pinyin
+from src.features.inventory.warehouse.display.cards import warehouse_shape_pixmap
+from src.domain.equipment.geometry.shapes import OFFICIAL_SHAPE_LABELS as _OFFICIAL_SHAPE_LABELS
+from src.ui.equipment.puzzle_board import PuzzleBoardWidget
+from src.ui.common.widgets import match_pinyin
 
 __all__ = ["BlueprintPage"]
 
@@ -41,7 +39,9 @@ class BlueprintPage:
         *,
         app_context: AppContext,
         navigate: Callable[[str], None],
+        text_catalog=None,
     ) -> None:
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._app_context = app_context
         self._navigate = navigate
         self._widget: QScrollArea | None = None
@@ -63,22 +63,22 @@ class BlueprintPage:
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(12)
         header = QHBoxLayout()
-        return_button = QPushButton("← 返回角色")
+        return_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.build.return_button'))
         return_button.setObjectName("returnToRoleButton")
         return_button.clicked.connect(lambda: self._navigate("my_role"))
         header.addWidget(return_button)
         self._search = QLineEdit()
-        self._search.setPlaceholderText("搜索角色图纸（支持拼音）…")
+        self._search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.build.search'))
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self.filter)
         header.addWidget(self._search, 1)
-        refresh_button = QPushButton("生成图纸")
+        refresh_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.build.refresh_button'))
         refresh_button.setObjectName("btnAction")
         refresh_button.clicked.connect(self.refresh)
         header.addWidget(refresh_button)
         layout.addLayout(header)
-        self._status = QLabel(
-            "图纸由本地求解器生成；官方角色读取发行模板，自建角色读取当前账号保存的底盘与默认套装。"
+        self._status = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.build.status')
         )
         self._status.setStyleSheet(themed_style("color:#8b949e"))
         layout.addWidget(self._status)
@@ -94,8 +94,8 @@ class BlueprintPage:
     def refresh(self) -> None:
         content_layout, status = self._require_widgets()
         self._clear_content(content_layout)
-        status.setText("正在生成官方与自建角色图纸…")
-        content_layout.addWidget(QLabel("正在组合驱动并求解盘面…"))
+        status.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.refresh.status'))
+        content_layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.refresh.caption')))
         dependencies = BlueprintDependencies.from_app_context(self._app_context)
         controller = BlueprintController(dependencies)
         worker = WorkerThread(target=controller.generate, parent=self._widget)
@@ -118,7 +118,7 @@ class BlueprintPage:
         if self._content_layout is not None:
             self._clear_content(self._content_layout)
         if self._status is not None:
-            self._status.setText("账号已切换，请重新生成角色图纸。")
+            self._status.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.reset_account_state.status'))
 
     def _render_error(
         self,
@@ -129,7 +129,7 @@ class BlueprintPage:
             BlueprintDependencies.from_app_context(self._app_context)
         ):
             _, status = self._require_widgets()
-            status.setText(f"生成图纸失败：{error}")
+            status.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.render_error.status', error=f'{error}'))
 
     def _render(
         self,
@@ -146,7 +146,7 @@ class BlueprintPage:
         )
         _, status = self._require_widgets()
         status.setText(
-            f"已为 {len(self._data)} 名角色生成 {plan_count} 个图纸方案。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.render.status', value=f'{len(self._data)}', plan_count=f'{plan_count}')
         )
         self._draw()
 
@@ -155,7 +155,7 @@ class BlueprintPage:
         self._clear_content(content_layout)
         if not self._data:
             content_layout.addWidget(
-                QLabel("暂无可生成图纸的角色，请点击“生成图纸”。")
+                plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.draw.caption'))
             )
             return
         search_text = filter_text.strip()
@@ -182,7 +182,7 @@ class BlueprintPage:
                 )
             )
         if not shown:
-            content_layout.addWidget(QLabel("没有匹配的角色图纸。"))
+            content_layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.draw.caption_2')))
 
     def _build_role_group(
         self,
@@ -193,7 +193,7 @@ class BlueprintPage:
     ) -> QGroupBox:
         blueprints = role_data["blueprints"]
         group = QGroupBox(
-            f"{role_name}  —  {role_data['suit_name']}  ({len(blueprints)} 套图纸)"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.build_role_group.group', role_name=f'{role_name}', value=f"{role_data['suit_name']}", value_2=f'{len(blueprints)}')
         )
         group.setStyleSheet(
             themed_style(
@@ -209,15 +209,15 @@ class BlueprintPage:
         plans_grid.setVerticalSpacing(10)
         for index, blueprint in enumerate(visible, start=1):
             plans_grid.addWidget(
-                self._build_plan_card(index, blueprint),
+                self._build_plan_card(index, blueprint, text_catalog=getattr(self, 'text_catalog', None)),
                 (index - 1) // 2,
                 (index - 1) % 2,
             )
         group_layout.addLayout(plans_grid)
         hidden_count = len(blueprints) - len(visible)
         if hidden_count > 0:
-            more = QLabel(
-                f"仅展示前 4 套图纸；另有 {hidden_count} 套可行方案未展示。"
+            more = plain_label(
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.build_role_group.more', hidden_count=f'{hidden_count}')
             )
             more.setStyleSheet(
                 themed_style("color:#8b949e;font-size:11px")
@@ -226,7 +226,7 @@ class BlueprintPage:
         return group
 
     @staticmethod
-    def _build_plan_card(index: int, blueprint: dict) -> QWidget:
+    def _build_plan_card(index: int, blueprint: dict, *, text_catalog=None) -> QWidget:
         plan_card = QWidget()
         row = QHBoxLayout(plan_card)
         row.setContentsMargins(0, 0, 0, 0)
@@ -240,7 +240,7 @@ class BlueprintPage:
         extras_layout = QVBoxLayout(extras)
         extras_layout.setContentsMargins(0, 0, 0, 0)
         extras_layout.setSpacing(2)
-        extras_layout.addWidget(QLabel(f"方案 {index} · 额外形状"))
+        extras_layout.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.blueprints.build_plan_card.caption', index=f'{index}')))
         image_row = QHBoxLayout()
         image_row.setSpacing(4)
         for shape_id in blueprint.get("extra_pieces", [])[:3]:
@@ -248,8 +248,8 @@ class BlueprintPage:
                 str(shape_id),
                 str(shape_id),
             )
-            image = QLabel()
-            image.setPixmap(warehouse_shape_pixmap(shape_label, "Gold"))
+            image = plain_label()
+            image.setPixmap(warehouse_shape_pixmap(shape_label, "Gold", text_catalog=text_catalog))
             image.setToolTip(shape_label)
             image.setFixedSize(52, 52)
             image.setScaledContents(True)

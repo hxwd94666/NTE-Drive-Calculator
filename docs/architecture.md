@@ -58,18 +58,23 @@ Domain / Optimizer       DAO / Integration
 原生关闭事件选择退出后继续该事件，不递归发起关闭；标题栏入口发起普通关闭，统一复用草稿确认与物理退场门禁。
 托盘明确退出、系统会话结束及内部关闭跳过方式选择，不绕过原有退出门禁。交互细节见[托盘驻留](features.md#托盘驻留与游戏快捷轮盘)。
 
-启动准备由 `src/ui/application_runtime.py::prepare_application_runtime` 显式组合，返回同一运行期的
+启动准备由 `src/ui/startup/application_runtime.py::prepare_application_runtime` 显式组合，返回同一运行期的
 `AppContext`、账号管理器及共享本机 store 上的主题、语言服务；语言目录在 Qt 创建前冻结。`MainWindow(runtime)` 消费这些依赖，不从模块级默认账号取得状态。
-路径解析与可写探针归 `src/integrations/application_runtime_paths.py`；权限确认先于账号准备，Qt 入口随后消费窗口工厂。
+路径解析与可写探针归 `src/integrations/runtime/application_runtime_paths.py`；权限确认先于账号准备，Qt 入口随后消费窗口工厂。
+Windows GUI 启动由 `src/ui/startup/process_privileges.py` 核验当前进程的实际完整性等级，
+不再以管理员组成员或提升标记代替 High 等级。token 只读探测与系统 `runas` 重启归
+`src/integrations/runtime/windows_privileges.py`；权限不足只请求一次正常管理员确认，保留源码/打包入口、参数及工作目录。
+新进程重新核验；取消、探测失败或重启后仍不足均停止，不准备账号、不启动输入，不循环重启或修改系统安全策略。
+权限前置提示使用发行中文文本目录，尚未读取本机语言偏好；已获 High 等级的启动不重复请求。
 普通导入不初始化账号、连接 SQLite 或设置 NTE 路径变量；日志导入只准备控制台 sink，账号文件 sink 由显式日志生命周期创建。
-GUI 启动由 src/ui/gui_startup.py 在 QApplication 创建前显式保持原 Windows SystemAware 初始化；不再依赖鼠标库导入的隐式进程状态变化。
+GUI 启动由 src/ui/startup/gui_startup.py 在 QApplication 创建前显式保持原 Windows SystemAware 初始化；不再依赖鼠标库导入的隐式进程状态变化。
 鼠标实现只在正式后端构造时加载，可显式注入 GUI driver；取消与异常后的释放仍由原 guard 和 owner 收尾。
 角色优先、同级、候选排名及预留恢复的线性匹配依赖只在实际求解处加载，执行仍在既有 worker，
 冷加载前后复核取消；矩阵、候选顺序、UID 唯一性及恢复算法不变。按需加载不意味着可从发行包删除运行依赖。
 一次启动工坊刷新由 `src/ui/controllers/workshop_refresh_controller.py::WorkshopRefreshController`
 拥有窗口父级的单次延迟 `QTimer`、不可复活取消 token 和一个后台线程；关闭停止定时器并撤销 token，
 主窗口既有非阻塞退场等待线程物理结束，不在 GUI 线程 join 或重发。模板是本机公共输入，不随账号切换重启。
-`src/integrations/workshop_weight_http.py` 只在实际后台请求时加载 QtNetwork，局部网络对象和事件循环
+`src/integrations/official_role/workshop_weight_http.py` 只在实际后台请求时加载 QtNetwork，局部网络对象和事件循环
 归该线程，以有限总时限、取消及响应体积门禁读取，DeferredDelete 在创建线程收尾。
 无请求的冷启动不加载 QtNetwork；按需导入不表示发行可裁除，构建与精确裁剪仍保留对应运行输入。
 隔离证据、实际应用综合烟测及真实 TLS／发行待验收范围见[首批架构验收](validation/architecture-renewal-day1.md#29-当前验证边界与剩余门禁)。
@@ -77,6 +82,61 @@ GUI 启动由 src/ui/gui_startup.py 在 QApplication 创建前显式保持原 Wi
 性能采样的外部边界归 `src/integrations/performance/`：帧采样与 Windows 会话寿命各自成模块，
 两类有界诊断日志共用编码/容量写入实现，本机偏好单独保存。`src/services/performance/` 拥有监控与细分采样任务，
 不改变既有连接、账号代次或租约权限；日志构造失败由构造者释放已打开的文件流。
+
+### 源码职责目录与保留入口
+
+目录按“外层架构职责、内层业务流程”归组，不以文件数量机械拆包。包声明不聚合转发 API；
+实际入口、共享契约和已经内聚的算法目录保留，消费者直达具体职责模块，旧位置不保留兼容壳。
+
+| 区域 | 分类与入口 |
+| --- | --- |
+| `domain/` | 角色权重/同步契约归 `characters/`，资料合同归 `catalog/`，名称规则归 `names/`，本机配置纯值归 `preferences/`；倒带、分享和库存分别归 `rewind/`、`sharing/`、`inventory/` |
+| `domain/equipment/` | `scoring/` 归评级/阈值，`properties/` 归属性与归一化，`geometry/` 归形状/盘面，`eligibility/` 归匹配域，`loadouts/` 归槽位/来源/方案，`assembly/` 归装配证据，`warehouse/` 归仓库规则与建议 |
+| `domain/teams/` | 基础队伍、来源与匹配合同仍在本包；轴伤目标、基准、输入、结果和有效性归 `graduation/` |
+| `ui/` | `app.py` 保留为真实 GUI 组合根；启动归 `startup/`，账号生命周期/导航/托盘归 `main_window/`，显式组装归 `composition/`，通用控件归 `common/`，共享装备/角色/材料控件归 `equipment/`、`roles/`、`progression/` |
+| `features/allocation/` | `controller.py`、`execute_page.py` 保留真实功能入口；选人、结果、保存执行、设置与战报增强分别归 `selection/`、`results/`、`execution/`、`settings/`、`team_axis/` |
+| `features/inventory/equipment/` | `display/` 展示与惰性读取，`management/` 批量/槽位持久化，`assembly/` 两种装配入口及复用窗口，`optimization/` 替换/毕业，`sharing/` 图片预览 |
+| `features/teams/`、`features/toolbox/cultivation/` | 队伍子流程分为 `graduation/`、`loadouts/`、`report_matching/`；养成子流程分为 `single/`、`batch/`、`history/`。页面和共享控制器保留在各功能入口包 |
+| `services/allocation/` | `inputs/` 冻结请求输入，`axis/`、`direct/` 分开后处理编排，`execution/` 归求解/基线及遗留结构适配，`results/` 归差异、凭证与保存；不新增一套求解实现 |
+| `services/equipment/` | 装配派发/后验归 `assembly/`，冻结方案/槽位/汇总归 `loadouts/`，分享编排归 `sharing/`；同类评分及装备级别投影保留公共服务入口 |
+| `services/` | 库存导出归 `inventory/`，直伤解释归 `damage/`，数据根升级归 `runtime/`；不跨到 Integration 或 UI 实现 |
+| `services/inventory/` | `browsing/` 只读仓库与鉴定输入，`management/` 归范围设置、编辑及状态写入编排，`recommendation/` 归质量评估、规则生成和建议预览，`scanning/` 归视觉快照提交；既有 `sync/` 维持同步任务所有权，快照导出仍为独立入口 |
+| `services/official_role/` | `panel/` 归有效面板、觉醒与属性解释，`profile_data/` 归养成档案、原生字段组和模板，`detail/` 归只读详情物化及库存上下文，`equipment/` 归评分适配、毕业和替换；`page.py` 保留页面服务入口，静态来源、正式技能名和标签保持共享单一实现 |
+| `features/scanning/` | `files/` 归截图命名、筛选和归档，`vision/` 归视觉 worker、手工恢复及提交 owner，`post_actions/` 归扫描后管理及来源提示；总工作流、任务依赖、日志和热键仍由扫描入口编排 |
+| `features/inventory/warehouse/` | `display/` 归卡片、筛选和状态展示，`management/` 归管理草稿、规则编辑、冲突及预览界面；页面、只读加载、鉴定入口和外部写进度 owner 留在功能入口包 |
+| `storage/sqlite/` | 队伍迁移消费者与持久化归 `teams/`，仓库输入域校验与指纹归 `inventory/`；DAO 门面、协议、schema/事务与迁移基础设施保留根部，schema 文件位置和迁移含义不变 |
+| `optimizer/` | `candidates/` 归候选构建，`reservations/` 归预留/回填，`strategies/` 归角色优先及同级执行；真实算法门面、输入契约、调度、评分与方案差异保留根部 |
+| `app/` 及既有战报算法目录 | 应用上下文、版本、主题、任务、几何与程序化门面属于同一组应用公共契约；已按 Buff、角色、重放等职责分组的战报子包不因文件多再次拆散 |
+
+该归类不改变 worker 所有权、账号代次、冻结输入、评分/公式、SQL 事务、保存资格或副作用门禁。
+迁移涉及相对导入时按原模块身份解析后直达新模块；普通导入、动态 patch、质量清单、工具、构建及文档链接同步维护。
+新增或移动模块继续核对 Git 忽略与构建输入；源码专项不替代真实安装、游戏和完整回归。
+
+### Integration 职责目录
+
+`src/integrations/` 根部只保留包声明，不汇总导出、启动进程或创建运行期对象。消费者直接引用职责模块；
+新增适配先放入对应职责目录，不重建根部平铺入口或跨包转发壳。此分类不改变 Integration 与 Service/Domain 的边界。
+
+| 目录 | 所属外部边界 |
+| --- | --- |
+| `native_core/` | 采集 Core 进程、stdio/RPC、事件、装备与战斗协议、宿主控制及诊断；`snapshots/` 独占分页/原始/内联快照及基线 |
+| `analysis_core/` | 独立分析组件身份、只读进程协议与流式传输；与采集 Core 的生命周期分开 |
+| `allocation/`、`scoring/` | 原生分配/图纸/后处理与评分协议适配；不在 Python 复制公式或求解 |
+| `battle_analysis/` | 战报页面、固定轴与固定队友的线协议；`graduation/` 归组轴伤基准、评价、建议及历史协议 |
+| `static_catalog/` | 主静态/角色目录的清单、文件 pin、来源哈希和只读事务边界 |
+| `game_runtime/` | 游戏路径、进程身份、启动器与采集目标发现；不负责组件部署 |
+| `components/` | 随附组件包核验、部署、Loader、明确归属清理与故障记录 |
+| `runtime/` | 应用资源/数据根定位、全局热键所有权与外部操作门禁 |
+| `preferences/` | 本机原子偏好与语言文件，包含插件及工作模式配置，不归账号域 |
+| `sharing/` | 本地配装/练度分享图片及公共素材读取 |
+| `capture/` | 原始抓包保留和战报压缩文件容器，不拥有战报业务持久化 |
+| `official_role/` | 官方角色输入及工坊公开模板网络读取 |
+| `accounts/`、`distribution/` | 账号归档/索引与发行目录、文件清单、数据根租约及恢复 |
+| `inventory/`、`progression/` | 仓库状态写协议与养成求解子进程 |
+| `vision/`、`game_assets/`、`performance/`、`updates/` | 视觉/输入诊断、公共图片、性能外部采样及镜像更新 |
+
+迁移模块须同时更新正式导入、动态 import/patch、工具、构建输入和文档链接。源码根与发行资源根不按旧文件深度推断；
+当前显式文件层级解析须随迁移同步核对源码和 frozen 分支。包可导入不代表业务能力就绪，更不代替组件身份和真实游戏验收。
 
 ### 队伍管理与战报匹配
 
@@ -100,7 +160,10 @@ GUI 只消费当前请求 DTO。队伍页与增强弹窗共用匹配视图；组
 
 `domain/teams/overview.py` 只表达来源、成员缺口及完整性，`domain/teams/enhancement.py` 定义版本化轻量结果；
 `services/teams/source_inputs.py` 在账号一致读内冻结槽位、各方案自身来源和内容指纹，游戏来源复用正式配装投影。
-公共历史装备解析归 `services/equipment/frozen_loadout.py`，角色页与简报共用，不读取最新库存代替历史来源。
+计算来源先读本批角色的可见槽位元数据，再只水合明确选中方案；按各自来源快照收集真实 UID 并集，
+有界批量读取所需装备，不因账号无关槽位、历史或整包库存扩大准备域。空槽仍参与唯一默认槽位判断。
+公共历史装备解析归 `services/equipment/loadouts/frozen_loadout.py`，角色页与简报共用，不读取最新库存代替历史来源。
+发布前仍在新的账号一致读边界重新解析相关来源，不跨读取事务沿用旧内容来省略复核。
 旧队伍个人毕业适配、规则读取和均值缓存已删除，简报不再调用角色个人毕业公式或满强化归一。
 
 `TeamOverviewService` 持有当前账号／代次并关联增强历史；来源及队伍在发布边界重新核验，失效结果不回填。
@@ -109,7 +172,9 @@ GUI 只消费当前请求 DTO。队伍页与增强弹窗共用匹配视图；组
 通知公开到组合根，再交付队伍 owner；正式提交前、账号失效后均不发布。
 可见页定向刷新成员或指定槽位受影响的卡片，隐藏页仅失效旧投影并撤销请求；游戏来源不把计算保存当作装配成功。
 重建卡片时旧成员详情投影同步失效。离页／切换／退出撤销 token 并等待本 owner 物理退场。
-卡片的匹配数量只消费匹配服务已核验状态，简报读取不启动分析作业或游戏同步。
+单队快捷计算由组合根注入公开入口，`TeamCalculationService` 冻结账号、代次、数据库身份、队伍修订与选人草稿代次；`TeamCalculationController` 在目录准备前后和配置确认后复核。`RoleSelector` 的公开替换接口只操作选人和优先级连接。队伍／战报选择与应用分开，取消不发布草稿；提交在同一 GUI 回合完成且抑制开关重入，随后撤销旧预览保存权。离页／停止撤销序列，目录失败、失效及放弃都会释放准备续接，不留永久忙碌。
+
+卡片只投影配装、固定轴毕业率及已保存增强摘要；阵容匹配列表由计算增强或毕业率选轴窗口持有，不回填列表卡片的匹配计数。简报读取不启动分析作业或游戏同步。
 
 `services/teams/enhancement_results.py` 在增强开始冻结队伍与来源修订，结束生成独立结果信封，
 随不可变预览传递到保存；保存不从控件或当前槽位重新拼装历史。
@@ -130,15 +195,15 @@ GUI 只消费当前请求 DTO。队伍页与增强弹窗共用匹配视图；组
 工坊默认值按一次批量读取、保存或重置冻结模板内容与版本，批内复用、请求结束释放；不建立常驻全局缓存。
 
 官方角色的纯等级／突破与毕业形状规则、家具值模型归 `src/domain/official_role/`；
-正式装备属性聚合归 `src/domain/equipment/official_stats.py`，不混入评分公式。
+正式装备属性聚合归 `src/domain/equipment/properties/official_stats.py`，不混入评分公式。
 `src/services/official_role/` 分别拥有面板、档案投影、觉醒、毕业解释、库存来源、基础评分、替换边际和弧盘模板；
 基础权重评分适配与替换动态权重各守现有口径，不通过页面聚合导出。
 资料图片定位及旧输入指纹归 `src/integrations/official_role/read_inputs.py`；
-正式发行的文件与字节校验归 `src/integrations/static_catalog_release.py`，DAO 独占 SQL 和一致读取事务。
+正式发行的文件与字节校验归 `src/integrations/static_catalog/static_catalog_release.py`，DAO 独占 SQL 和一致读取事务。
 替换弹窗编排归 `src/features/official_role/replacement_controller.py`，角色与配装调用其公开入口。
 
 `src/services/official_role/page.py` 持有索引、详情和页签顺序 owner，旧平铺页面模块删除；
-`src/services/official_role/profiles.py` 保留真实保存、重置与原生档案补丁事务 owner。
+`src/services/official_role/profile_data/profiles.py` 保留真实保存、重置与原生档案补丁事务 owner。
 子包仅声明职责，消费者直达具体模块，不聚合导出或保留转发壳。
 
 库存同步编排与事务归 `src/services/inventory/sync/service.py`，冻结状态与时钟归同包 `state.py`；
@@ -154,7 +219,7 @@ WAL 模式、WAL/SHM 或恢复日志输入拒绝进入发行读取，不检查�
 SQL 查询归 `src/storage/sqlite/catalog/static_game_data_queries.py`，runtime DAO 仍独占只读连接、事务和共享注册寿命。
 静态构建使用独立 `StaticGameDataBuildDao`，只在构建 owner 的现有事务中借用原连接读取未提交事实；
 借用 reader 只关闭自身 cursor，不开启/结束事务，不关闭连接或操作共享注册。
-`src/services/official_role/detail_inputs.py` 物化角色事实，`detail_model.py` 纯值装配；runtime 与构建共用面板和既有公式。
+`src/services/official_role/detail/detail_inputs.py` 物化角色事实，`detail_model.py` 纯值装配；runtime 与构建共用面板和既有公式。
 正式 runtime 页面入口仍完整核验发行清单/pin/字节并单独附 `static_release`；构建详情无此字段，也不进入 runtime 请求缓存。
 毕业模板只消费候选静态推荐，事务成功或失败仍由原构建入口提交或回滚，之后经正式构建清单与晋升认证。
 
@@ -172,7 +237,7 @@ SQL 查询归 `src/storage/sqlite/catalog/static_game_data_queries.py`，runtime
 `tools/quality/run_tests.py` 统一用 pytest 原生执行函数和 `unittest.TestCase`。
 `core` 保持模块标记／文件名规则，专项 pattern 保持显式范围；并行按真实收集结果整文件分片。
 收集错误、子进程失败及零测试保留非零状态；养成函数式用例直接发现，旧 `load_tests` 子进程桥接已删除。
-基础权重与自建角色关键集合归 `tests/characters/`，官方角色保留集合归 `tests/official_role/`；
+基础权重与自建角色关键集合归 `tests/characters/`，官方角色保留集合归 `tests/characters/official/`；
 层级、资源定位和动态 patch 目标随各自归包更新。测试按关键行为保留，不为旧路径保留生产兼容入口。
 历史检查边界见[首批验收](validation/architecture-renewal-day1.md)，当前整改与验收范围见[复审方案](roadmap/architecture-post-refactor-review.md)。
 
@@ -181,6 +246,11 @@ SQL 查询归 `src/storage/sqlite/catalog/static_game_data_queries.py`，runtime
 仓库 UI 原语与读投影归 `src/features/inventory/warehouse/`；纯筛选及读取 DTO 归 `src/domain/inventory/`，
 应用服务归 `src/services/inventory/`，游戏状态协议写适配归 `src/integrations/inventory/`。
 各包不聚合重导出，消费者直接导入具体模块；配装页面与同步 owner 不因此混入仓库读取类。
+
+仓库分、首次评级与管理预览统一由 `services/inventory/recommendation/warehouse_calculation_inputs.py`
+物化 `WarehouseCalculationInput`；账号 DAO 提供不迁移来源的只读连接，角色目录与嵌套详情显式借用该读取 owner。
+计算入口只消费不可变请求，不再创建兼容账号临时库；偏好保护是否已物化具有明确标记。
+源数据、当前锁、失效域及保护语义见[仓库管理](features/warehouse-recommendation.md#验证边界)。
 
 `WarehouseReadController` 复用 `PageTaskLane`，跨账号保持一个运行任务与一个最新请求，忙时不丢掉刷新。
 请求冻结账号、代次、用户库、主静态路径与素材根；切换前通过 `AppContext` 生命周期撤销读取交付并清除旧投影。
@@ -249,6 +319,7 @@ DAO 在同一写事务内复核冻结范围后修改槽位/指针，清空未锁
 
 组合根通过 `ApplicationPaths` 提供发行目录及本机补丁路径，并注入共享 store 和 Service。
 语言 Service 冻结当前目录、缓存可选项和下次启动偏好，卡片渲染不访问磁盘。
+组合根显式传递不可变目录到各前端 owner、工厂与子窗口；弹窗默认动作使用同一冻结目录，已有业务按钮文案优先。静态枚举的展示适配只投影说明列，不改变原表、正式 ID 或评分字段，详见[界面语言补丁](features/localization.md)。
 `LanguageController` 拥有 `PageCommitLane` 及冻结操作参数，卡片仅拥有控件、纯文本提示与关闭等待投影；
 后台 callable 不反向持有视图 QObject，提交不会被取消、合并或自动重发。
 
@@ -378,8 +449,14 @@ probe，取消或 OCR/识别资源故障终止本批。删除候选与重复统�
 `src/domain/progression/` 按三种纯责任组织：`materials.py` 统一经验换算、正式三合一材料族和库存抵扣；
 `stamina.py` 统一普通掉落与材料流求解；`history.py` 同时校验历史输入、结果及角色关联。
 历史格式和求解实现不再通过相互延迟导入衔接。包入口不加载数值库，SciPy 仍仅在实际求解时按需导入。
+经验 DP 只按纯数值面额及稳定次序复用有界前缀；首个满足经验目标的可达金额确定后停止扩展，
+仍先最少溢出、再最少件数，同分次序不变。缓存同时限制表数、状态与面额/数组字节占用；
+超出缓存预算仍精确求解，只是不保留该表，不截断目标或替换为贪心。
 
 `src/services/progression/` 归组角色/弧盘/技能的材料需求、单/多角色计划、已有材料读取与历史编排。
+每次单/多角色计算创建独立 `StaminaPlanningSession`，复用冻结副本产出准备与完整相同的类型化求解请求；
+不同目标数量、已有扣除、等级、产出、转换和顺序不共用结果，异常不缓存。结果缺项按每次消费单独投影，
+不跨账号/任务复用，不把分项结果相加替代合计，不改原两阶段最低体力/更少次数目标。
 `history_adapters` 统一保存结果投影和原样恢复种子；Domain 保有格式与校验，`history_service` 仍独占草稿绑定、
 删除 write_epoch 与事务编排，DAO 持有实际 SQL。历史适配不写角色档案、不重新解释旧结果。
 已审计旧发行的货币修正保留在 `legacy_currency`，只修成本/掉落，不改用户已有材料。
@@ -400,6 +477,9 @@ Controller 关闭立即撤销排队动作、Service 草稿绑定及迟到交付�
 状态锁不跨数据库 COMMIT 持有；关闭后不补偿删除、不自动重发、不将旧结果交付新页面。物理任务仍由原父对象保留到终态。
 `src/integrations/progression/solver_process.py` 独占 IPC、子进程重建、序列确认及超时收尾，直接消费既有纯领域入口，
 不反向创建 Application Service。默认猎人等级 policy 和求解上限与原无外部来源服务一致，不变更养成算法。
+倒带拥有数量由账号 DAO 在固定快照内按驱动 geometry 汇总，不水合词条/原始物品 JSON；
+Service 继续按同一正式形状规则归一化，未知形状不计入。所选方案仍读取自己的来源和冻结逐件评分，
+数量汇总不替代来源完整性、槽位、推荐失效或执行前复核。
 图鉴静态 importer 与通用目录查询保持各自职责；按角色更新的接入清单见仓库版本更新 skill。
 
 倒带交互归 `src/features/toolbox/rewind/`：角色/槽位选择、方案渲染与执行窗口分别由具体模块持有，
@@ -408,7 +488,7 @@ Controller 关闭立即撤销排队动作、Service 草稿绑定及迟到交付�
 实际倒带输入与形状读取归 `src/features/drive_assembly/rewind/{execution,shape_detection}.py`，
 装配父目录只保留装配交互；OCR 仍借用同任务 owner，输入失败和取消释放原有设备状态。
 扫描动作后状态同步归 `src/services/scanning/state_sync.py`，只收敛结果类型，不改变真实输入或后验边界。
-`src/services/rewind/` 和 `src/domain/rewind_loadout.py` 仍负责推荐编排与纯输入，交互归包不改变求解口径。
+`src/services/rewind/` 和 `src/domain/rewind/rewind_loadout.py` 仍负责推荐编排与纯输入，交互归包不改变求解口径。
 
 ### 2.8 只读静态资料库服务
 
@@ -498,7 +578,8 @@ DAO 与日志依赖仍在确有派生保存时加载，目录调整不令页面�
 `src/integrations/battle_analysis/` 归属原生战报响应：`page_wire.py`、`hit_details_wire.py` 和 `payload_wire.py`
 分别解码页面、逐击共享详情与压缩片段，`editor_facts.py` 适配冻结编辑事实。页面解码在函数内导入上述 Domain 类型，
 不导入离线算法补算；原生字段校验、同事件引用恢复、非空算法修订门禁及未知 HP 语义保持不变。
-跨能力客户端与进程生命周期仍由 `nte_analysis_core.py` 负责，采集协议仍归 `nte_core_battle.py`，不混入此子包。
+跨能力客户端与进程生命周期归 `src/integrations/analysis_core/nte_analysis_core.py`；采集战斗协议归
+`src/integrations/native_core/nte_core_battle.py`，不混入此子包。
 原四个平铺入口删除，Service、工具和测试的动态 patch 目标一并迁移，不保留转发壳。
 
 `analysis/progress.py` 合并真实进度事件、回调和单请求整体阶段估计；旧两个进度入口删除，全部消费者直接迁移。
@@ -509,6 +590,9 @@ DAO 与日志依赖仍在确有派生保存时加载，目录调整不令页面�
 每次请求冻结账号/代次、静态/语义/组件文件身份及完整显式选择器；原生输入 digest 前后变化即取消。
 缓存键包含请求、digest、文件、引擎和 dataset 身份，嵌套候选顺序保留；倾陷结果只可满足同范围概览，
 不反向复用、不代替逐击。缓存命中仍复核身份、独立解码及最终交付，不重复保存派生快照。
+页面后台任务显式传递既有 `StageTimings`，分开记录资源核对、前/后输入身份、组件、缓存压缩/解压、
+DTO 解码与派生保存；仍有效的 Controller owner 在物理完成时汇总，仅记阶段、数值和命中次数。
+取消/账号失效的晚到计时丢弃，计时不新增组件请求，也不省略输入身份门禁。
 
 派生快照先解码与核对，再经现有 DAO 保存；已有用户确认优先，取消继续上抛，普通保存错误只告警。
 查询后检查不额外构成事务原子保证，也不修改原始战报。LRU 条数、压缩/原始大小上限保持原值。
@@ -577,7 +661,7 @@ DAO 与日志依赖仍在确有派生保存时加载，目录调整不令页面�
 `inspection.py` 合并在途状态 single-flight 与只读检测，不借新连接接受旧结果；
 `maintenance.py` 持有维护门禁，实际业务 owner 停止并释放后才断开，不改功能偏好。
 捕获等待及最终写前操作复核归 `src/services/inventory/sync/capture_wait.py`；
-稀疏角色投影与独立字段组筛选归 `src/services/official_role/native_profiles.py`，
+稀疏角色投影与独立字段组筛选归 `src/services/official_role/profile_data/native_profiles.py`，
 共用正式静态身份和成长纯值投影，保存事务仍由原档案 owner 持有，未知字段保留原值。
 
 完整库存只有通过来源、数量、UID/角色关系、原生修订及静默窗口后才提交；装配守卫比较本次冻结 UID 集合，
@@ -639,11 +723,11 @@ commit 之后时保留已提交数据库事实，不承诺回滚、不自动重�
 
 `src/domain/allocation/inputs.py` 唯一定义冻结身份、角色偏好、库存候选和 `AllocationContext`；
 构造保留必填的同一 `AllocationScoringRules`、类型校验和规则 SHA，不跟随当前快照或最新 profile。
-`src/services/allocation/context_builder.py` 使用调用方持有的 DAO 冻结显式版本及官方 ID 投影，
+`src/services/allocation/inputs/context_builder.py` 使用调用方持有的 DAO 冻结显式版本及官方 ID 投影，
 DAO 生命周期仍由调用方管理。评分规则仍经既有 `StatCatalog` 导入 `json_store` 定义，
 这项遗留定义依赖不表示 DTO 构造时读取文件或 DAO，也不把本模块称为严格 stdlib-only。
 
-`src/services/allocation/catalog.py` 保留账号／代次／路径限定的目录实例；变化 probe 只是线索，
+`src/services/allocation/inputs/catalog.py` 保留账号／代次／路径限定的目录实例；变化 probe 只是线索，
 业务 semantic 身份决定复用，stable 身份识别读取中变化并最多再读一次。无关写入不强制重建，
 连续相关变化有界失败，不建立跨账号全局缓存。官方弧盘模板直接消费 `official_role/fork_templates.py`。
 
@@ -651,7 +735,7 @@ DAO 生命周期仍由调用方管理。评分规则仍经既有 `StatCatalog` �
 文本不重新求解或诊断；仅全部图纸证明缺口才修正失败，零权重黑名单不伪装硬剔除，未知组员仍未知。
 内核请求及词条目录仅作类型注解，文本导入不因此触发内核、评分器或 DAO 链；实际 Drive 判断保留。
 
-`src/services/allocation/legacy_adapter.py` 只投影同一输入并调用既有 ScoringEngine／内核，
+`src/services/allocation/execution/legacy_adapter.py` 只投影同一输入并调用既有 ScoringEngine／内核，
 逐件确认、批量候选、冻结历史分数和取消链保持原口径。`allocation_solver.py` 与
 `legacy_allocation_static_catalog.py` 保留完整真实公共 owner；不建立 shim、重导出或第二求解入口。
 Context、catalog 和失败保留用例归 `tests/allocation/`；跨域真实夹具和暂挂模块保持原身份。
@@ -703,6 +787,14 @@ previous／baseline 升级入口继续保留；共享历史差异不提升为官
 只读静态查询、图鉴及静态弧盘投影归 `catalog/`，不与账号持久化混合。
 各目录不聚合导出、不创建连接。`UserDataDao` 的 mixin 顺序和公开接口保持，各领域仍借用
 `user_data_base.py` 的唯一连接；事务、保存点、历史备份和 `schema/` 已发布迁移保持统一所有权。
+固定快照的 UID 明细读取以有界 VALUES 小表驱动物品/词条复合主键定位，不用长 OR 条件
+重复扫描整包词条；大 UID 集按参数预算分块，最终保持公开排序、全局 limit、全部字段和词条次序。
+该查询优化不修改 schema、库存、运行时状态或来源完整性，也不替代调用方一致读边界。
+
+计算入口及战报页面/编辑事实/轴评价调用独立只读分析进程时，由 DAO 的 `external_read_lease` 为已有账号文件保持一个
+完成元数据读取的只读连接，避免 Windows 上最后一个宿主读者退场后，组件首次读取 WAL
+共享内存失败。该连接不迁移、不创建账号、不保持读事务；其寿命覆盖本次组件调用并在异常时
+释放，不替代业务输入冻结、一致读或提交前复核。
 
 例如配装保存从 Service 进入同一 `UserDataDao`，由 `equipment/` 的方案/槽位/锁实现完成
 原事务；库存来源仍由 `inventory/` 校验，业务归包不把一次写入拆成多个连接或提交。
@@ -751,7 +843,7 @@ previous／baseline 升级入口继续保留；共享历史差异不提升为官
 
 ### 3.1 发行身份与数据根生命周期
 
-`src/integrations/distribution/` 负责发行标识、文件清单、明确数据根、根级跨进程租约及恢复文件；`src/services/runtime_data_upgrade.py` 编排既有 DAO/偏好迁移，数据库身份与一致性备份仍归 `src/storage/sqlite/runtime_data_snapshot.py`。`ApplicationRuntime` 持有数据根租约，不由页面或账号切换重复获取。发行模式不改变业务层的数据访问接口。
+`src/integrations/distribution/` 负责发行标识、文件清单、明确数据根、根级跨进程租约及恢复文件；`src/services/runtime/runtime_data_upgrade.py` 编排既有 DAO/偏好迁移，数据库身份与一致性备份仍归 `src/storage/sqlite/runtime_data_snapshot.py`。`ApplicationRuntime` 持有数据根租约，不由页面或账号切换重复获取。发行模式不改变业务层的数据访问接口。
 
 启动按完整发行校验 → 明确数据根并持锁 → 恢复中断接受记录 → 退役文件核对 → 升级前恢复点 → 正式 DAO 迁移 → 默认资源首次初始化 → 账号/窗口组合推进。窗口完成初始化并显示后才提交发行接受与数据升级确认；提交失败恢复原接受记录。GUI 退出或初始化失败须等待该窗口既有 owner 的关闭协议完成，再释放租约，不全局关窗或提前把可见窗口隐藏当作线程退出。
 

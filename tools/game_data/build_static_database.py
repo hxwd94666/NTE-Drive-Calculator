@@ -108,6 +108,8 @@ class StaticDatabaseBuilder(
         self._import_fork_permanent_properties()
         self._import_encounter_catalogs()
         self._import_progression_catalog()
+        from tools.game_data.static_database_suit_permanent import populate_suit_permanent
+        populate_suit_permanent(self.connection)
         violations = [tuple(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
         if violations:
             raise StaticDatabaseError(f"发现外键错误：{violations[:10]}")

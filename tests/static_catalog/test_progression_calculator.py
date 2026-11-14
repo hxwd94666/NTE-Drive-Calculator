@@ -13,7 +13,7 @@ from src.domain.progression.stamina import (
     MaterialYield,
     StaminaPlanStatus,
 )
-from src.domain.static_catalog_terminology import LocalizedTermRecord
+from src.domain.catalog.static_catalog_terminology import LocalizedTermRecord
 from src.features.static_catalog.progression_calculator_models import (
     CALLBACK_ERROR_TEXT,
     ProgressionCalculatorOrchestrator,

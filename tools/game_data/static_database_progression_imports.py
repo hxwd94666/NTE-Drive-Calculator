@@ -8,7 +8,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from src.domain.static_character_release_annotations import (
+from src.domain.catalog.static_character_release_annotations import (
     CHARACTER_RELEASE_SEEDS,
     RELEASE_EVIDENCE,
 )
@@ -173,9 +173,10 @@ class ProgressionImportMixin(_ProgressionImportContext):
                 continue
             official_show_time, official_source_row_id = official
             official_date = str(official_show_time or "").strip()[:10] or None
-            release_date = official_date or seed.release_date
+            authoritative_announcement = seed.official_release_override
+            release_date = seed.release_date if authoritative_announcement else official_date or seed.release_date
             release_kind = (
-                "official" if official_date else _source_kind(seed.release_evidence_keys)
+                "official" if official_date or authoritative_announcement else _source_kind(seed.release_evidence_keys)
             )
             self.connection.execute(
                 """
@@ -194,14 +195,14 @@ class ProgressionImportMixin(_ProgressionImportContext):
                     ),
                     release_date,
                     release_kind,
-                    official_source_row_id if official_date else None,
+                    official_source_row_id if official_date and not authoritative_announcement else None,
                 ),
             )
             field_evidence = {
                 "quality": seed.quality_evidence_keys,
                 "acquisition_type": seed.acquisition_evidence_keys,
                 "mainland_release_date": (
-                    () if official_date else seed.release_evidence_keys
+                    () if official_date and not authoritative_announcement else seed.release_evidence_keys
                 ),
             }
             for field_name, evidence_keys in field_evidence.items():

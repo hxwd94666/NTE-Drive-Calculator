@@ -6,9 +6,10 @@ import pytest
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 from src.services.inventory.sync.runtime import _apply_native_profiles
 from src.services.inventory.sync.service import InventorySyncService
-from src.services.official_role.profiles import OfficialRoleProfileService
+from src.services.official_role.profile_data.profiles import OfficialRoleProfileService
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_native_role_profile_patch import defaults, seed
+from tests.native_session.test_native_role_profile_patch import defaults
+from tests.native_session.test_native_role_profile_patch import seed
 
 
 @pytest.fixture

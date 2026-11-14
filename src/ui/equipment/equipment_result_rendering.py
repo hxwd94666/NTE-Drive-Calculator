@@ -1,0 +1,305 @@
+# 渲染计算配装结果中的角色、图纸与装备卡片。
+"""公共装备展示的结果视图；消费计划事实，不保存或重新求解。"""
+
+from __future__ import annotations
+
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
+from functools import lru_cache
+from pathlib import Path
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QVBoxLayout
+
+from src.app.theme import GRADE_COLORS, theme_color, theme_rgba, themed_style
+from src.domain.equipment.scoring.allocation_rating import loadout_total_grade
+from src.optimizer.contracts import (
+    DIFF_ADDED_UIDS,
+    DIFF_CHANGED,
+    PLAN_ASSIGNED_TAPE,
+    PLAN_BLUEPRINT,
+    PLAN_CHANGED_UIDS,
+    PLAN_SCORE,
+    PLAN_VALID,
+    plan_drives,
+)
+from src.integrations.game_assets.catalog import GameUiAssetCatalog
+from src.domain.allocation.failures import allocation_failure_text
+from src.services.inventory.browsing.warehouse_visual_catalog import representative_module_item_id
+from src.ui.equipment.puzzle_board import PuzzleBoardWidget
+from src.features.allocation.results.results_diff_view import _diff_value
+from src.ui.equipment.damage_optimization_panel import damage_optimization_panel
+
+
+@lru_cache(maxsize=256)
+def _game_ui_equipment_icon(
+    asset_root: str,
+    kind: str,
+    item_id: str,
+) -> str | None:
+    """按素材根、种类与正式 item_id 解析图片；路径缓存最多 256 项。"""
+    if not item_id:
+        return None
+    icon_path = GameUiAssetCatalog(Path(asset_root)).inventory_item_icon(kind, item_id)
+    return str(icon_path) if icon_path is not None else None
+
+
+def _equipment_item_icon_path(
+    item,
+    kind: str,
+    asset_root: str | Path,
+) -> str | None:
+    """从传入投影读取正式 item_id，缺项不伪造官方装备关联。"""
+    item_id = str(_diff_value(item, "item_id", "") or "")
+    if not item_id:
+        official = _diff_value(item, "official", {})
+        if isinstance(official, dict):
+            item_id = str(official.get("item_id") or "")
+    return _game_ui_equipment_icon(str(asset_root), kind, item_id)
+
+
+def _representative_drive_pixmap(
+    asset_root: str | Path,
+    shape_id: str,
+    quality: str,
+) -> QPixmap:
+    quality_text = str(quality or "").casefold()
+    if any(
+        token in quality_text
+        for token in ("gold", "golden", "orange", "金", "橙")
+    ):
+        quality_key = "gold"
+    elif "purple" in quality_text or "紫" in quality_text:
+        quality_key = "purple"
+    elif "blue" in quality_text or "蓝" in quality_text:
+        quality_key = "blue"
+    elif "green" in quality_text or "绿" in quality_text:
+        quality_key = "green"
+    else:
+        quality_key = quality_text or "gold"
+    item_id = representative_module_item_id(str(shape_id or ""), quality_key)
+    icon_path = _game_ui_equipment_icon(
+        str(asset_root),
+        "module",
+        item_id,
+    )
+    return QPixmap(icon_path) if icon_path else QPixmap()
+
+
+def _render_results(self, plan):
+    """逐角色展示有效方案；失败原因和缺卡带状态保持显式，不补方案。"""
+    locked_roles = tuple(sorted(getattr(self, "_locked_role_names", ()) or ()))
+    if not plan and not locked_roles:
+        return
+    self.result_card.setVisible(True)
+    while self.result_content_layout.count():
+        it = self.result_content_layout.takeAt(0)
+        if it.widget():
+            it.widget().deleteLater()
+    mode_labels = {"role_priority": "角色优先", "update_mode": "锁定更新", "direct_priority": "直伤优先", "axis_priority": "战报轴伤优先"}
+    mode_name = mode_labels.get(getattr(self, "_pending_strat", ""), "")
+    plan_diffs = getattr(self, "allocation_plan_diff", {}) or {}
+    if locked_roles:
+        locked_label = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.render_results.locked_label')
+            + "、".join(locked_roles)
+            + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.render_results.locked_label_2')
+        )
+        locked_label.setWordWrap(True)
+        locked_label.setStyleSheet(
+            themed_style(
+                "color:#ffcc66;border:1px solid #8b6b25;border-radius:7px;"
+                "background:rgba(255,204,102,0.08);padding:8px 10px"
+            )
+        )
+        self.result_content_layout.addWidget(locked_label)
+    if not plan:
+        return
+    for role, p in plan.items():
+        if not p or not p.get(PLAN_VALID):
+            reason = allocation_failure_text(p)
+            failure = plain_label(f"❌ {role}：{reason}")
+            failure.setWordWrap(True)
+            failure.setStyleSheet(themed_style("color:#f85149;padding:8px 2px"))
+            self.result_content_layout.addWidget(failure)
+            continue
+        role_diff = plan_diffs.get(role, {}) or {}
+        added_uids = set(role_diff.get(DIFF_ADDED_UIDS, set()) or set())
+        changed_uids = set(p.get(PLAN_CHANGED_UIDS, set()) or set()) if isinstance(p, dict) else set()
+        total_score = p.get(PLAN_SCORE, 0)
+        total_grade = loadout_total_grade(total_score)
+        gc = GRADE_COLORS.get(total_grade, "#58a6ff")
+        gbg = theme_rgba(gc, 0.10)
+
+        grp = QGroupBox("")
+        grp.setStyleSheet(
+            themed_style(
+                "QGroupBox{background:#0d1117;border:1px solid #30363d;border-radius:10px;margin-top:12px;padding:18px}"
+            )
+        )
+        gl = QVBoxLayout(grp)
+        gl.setSpacing(10)
+        # Role header: name + score + grade side by side, compact
+        role_hdr = QHBoxLayout()
+        role_hdr.setSpacing(8)
+        # Role name with different color from stat blocks - use teal/cyan tone
+        header_height = 34
+        rnl = plain_label(role)
+        rnl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        rnl.setFixedHeight(header_height)
+        rnl.setStyleSheet(
+            f"font-size:15px;font-weight:800;color:{theme_color('#4dd0e1')};border:1px solid {theme_color('#4dd0e1')};border-radius:7px;padding:0 14px;background:{theme_rgba('#4dd0e1', 0.10)}"
+        )
+        role_hdr.addWidget(rnl)
+        if role_diff.get(DIFF_CHANGED):
+            diff_btn = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.render_equip_role.diff_btn'))
+            diff_btn.setFixedSize(76, header_height)
+            diff_btn.setStyleSheet(
+                themed_style(
+                    "QPushButton{background:#1f6feb;color:#ffffff;border:1px solid #58a6ff;border-radius:6px;font-size:13px;font-weight:700;padding:0;min-width:76px}QPushButton:hover{background:#388bfd}"
+                )
+            )
+            diff_btn.clicked.connect(lambda _checked=False, rn=role, d=role_diff: self._show_plan_diff_dialog(rn, d))
+            role_hdr.addWidget(diff_btn)
+        if mode_name:
+            ml = plain_label(ui_enum_text(getattr(self, 'text_catalog', None), mode_name))
+            ml.setStyleSheet(
+                themed_style("font-size:12px;color:#8b949e;border:1px solid #30363d;border-radius:5px;padding:3px 8px")
+            )
+            role_hdr.addWidget(ml)
+        role_hdr.addStretch()
+        # Score badge (separate)
+        sf = QFrame()
+        sf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
+        slb = QHBoxLayout(sf)
+        slb.setSpacing(6)
+        slb.setContentsMargins(4, 0, 4, 0)
+        sv = plain_label(f"{total_score:.1f}")
+        sv.setStyleSheet(f"font-size:14px;font-weight:800;color:{gc};border:none")
+        slb.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.render_results.caption')))
+        slb.addWidget(sv)
+        role_hdr.addWidget(sf)
+        # Grade badge (separate)
+        gf = QFrame()
+        gf.setStyleSheet(f"QFrame{{background:{gbg};border:1px solid {gc};border-radius:7px;padding:4px 12px}}")
+        glb = QHBoxLayout(gf)
+        glb.setSpacing(6)
+        glb.setContentsMargins(4, 0, 4, 0)
+        gv = plain_label(total_grade)
+        gv.setStyleSheet(f"font-size:14px;font-weight:800;color:{gc};border:none")
+        glb.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.render_results.caption_2')))
+        glb.addWidget(gv)
+        role_hdr.addWidget(gf)
+        gl.addLayout(role_hdr)
+        gl.addSpacing(6)
+
+        optimization_panel = damage_optimization_panel(
+            p.get("damage_optimization"), object_name="allocationDamageOptimization",
+            save_state=("本次队伍增强与方案已保存" if p.get("team_enhancement_saved") else "队伍增强预览，尚未保存")
+                if p.get("team_enhancement_preview") is not None else None,
+            text_catalog=getattr(self, 'text_catalog', None),
+        )
+        if optimization_panel is not None:
+            gl.addWidget(optimization_panel)
+
+        board = p.get(PLAN_BLUEPRINT, {}).get("board", [])
+        role_cfg = self.roles_db.get(role, {})
+        wts = role_cfg.get("weights", {})
+        main_wts = role_cfg.get("main_weights")
+
+        tape = p.get(PLAN_ASSIGNED_TAPE)
+        drives = plan_drives(p)
+        if board:
+            gl.addWidget(self._section_label("拼图图纸:"))
+            bp_row = QHBoxLayout()
+            bp_row.setSpacing(18)
+            bp_row.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            bp_row.addWidget(PuzzleBoardWidget(board), 0, Qt.AlignTop)
+            compare_with_saved = bool(role_diff.get(DIFF_CHANGED))
+            bp_row.addWidget(
+                self._role_bonus_summary_panel(
+                    role,
+                    tape,
+                    drives,
+                    compare_with_saved=compare_with_saved,
+                    priority_stats=self._role_stat_priority_stats(role),
+                ),
+                1 if compare_with_saved else 0,
+                Qt.AlignTop,
+            )
+            gl.addLayout(bp_row)
+            gl.addSpacing(8)
+
+        if tape:
+            t_score = tape.role_scores.get(role, 0) if hasattr(tape, "role_scores") else 0
+            t_grade = self._calc_grade(t_score, 15)
+            tape_uid = str(_diff_value(tape, "uid", "") or "")
+            tape_changed = bool(_diff_value(tape, "is_changed", False) or tape_uid in changed_uids)
+            gl.addWidget(self._section_label("卡带:"))
+            gl.addWidget(
+                self._equip_card(
+                    tape.set_name,
+                    tape.main_stats,
+                    tape.sub_stats,
+                    None,
+                    tape.uid,
+                    wts,
+                    (t_score, t_grade),
+                    tape.quality,
+                    is_new=(tape_uid in added_uids and not tape_changed),
+                    is_changed=tape_changed,
+                    is_discarded=bool(getattr(tape, "discarded", False)),
+                    main_weights=main_wts,
+                    card_variant="result",
+                    item_icon_path=_equipment_item_icon_path(
+                        tape, "core", self.app_context.paths.game_ui_asset_root
+                    ),
+                    main_value=getattr(tape, "main_value", None),
+                )
+            )
+        else:
+            missing_core = plain_label(
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.render_results.missing_core')
+                + str(
+                    p.get("missing_core_reason")
+                    or "当前固定快照没有满足角色约束且可唯一分配的卡带"
+                )
+                + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.render_results.missing_core_2')
+            )
+            missing_core.setWordWrap(True)
+            missing_core.setStyleSheet(
+                themed_style(
+                    "color:#ffcc66;border:1px solid #8b6b25;border-radius:7px;"
+                    "background:rgba(255,204,102,0.08);padding:8px 10px"
+                )
+            )
+            gl.addWidget(missing_core)
+
+        if drives:
+            gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
+            for d in drives:
+                score = d.role_scores.get(role, 0) if hasattr(d, "role_scores") else 0
+                grade = self._calc_grade(score, d.area)
+                mvp_tag = f" 👑第{d.pick_order}顺位" if getattr(d, "is_mvp", False) else ""
+                drive_uid = str(_diff_value(d, "uid", "") or "")
+                drive_changed = bool(_diff_value(d, "is_changed", False) or drive_uid in changed_uids)
+                gl.addWidget(
+                    self._equip_card(
+                        d.shape_id,
+                        "",
+                        d.sub_stats,
+                        d.shape_id,
+                        d.uid + mvp_tag,
+                        wts,
+                        (score, grade),
+                        d.quality,
+                        is_new=(drive_uid in added_uids and not drive_changed),
+                        is_changed=drive_changed,
+                        is_discarded=bool(getattr(d, "discarded", False)),
+                        is_duplicate_drive=bool(getattr(d, "is_duplicate_drive", False)),
+                        card_variant="result",
+                    )
+                )
+        self.result_content_layout.addWidget(grp)
+    self.result_content_layout.addStretch()

@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from src.services.equipment import saved_loadout_attribute_summary_service as service
+from src.services.equipment.loadouts import saved_loadout_attribute_summary_service as service
 
 
 class _StaticDao:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.domain.work_mode import CheckState, WorkMode, WorkModeProbe, WorkModeSettings
+from src.domain.preferences.work_mode import CheckState, WorkMode, WorkModeProbe, WorkModeSettings
 
 
 @dataclass(frozen=True)

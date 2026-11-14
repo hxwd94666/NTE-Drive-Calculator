@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtWidgets import QLabel, QLineEdit, QMainWindow, QPushButton
 
-from auto_sync_ui_fixture import application
+from tests.support.auto_sync_ui_fixture import application
 from src.features.settings.updates import controller as ui
 
 

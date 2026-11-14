@@ -3,14 +3,14 @@
 
 from types import SimpleNamespace
 
-from src.services.allocation.slot_comparisons import selected_legacy_comparison_diffs
-from src.services.equipment.weighted_loadout_comparison_service import WeightedLoadoutComparison
-from src.features.allocation.runner import (
+from src.services.allocation.results.slot_comparisons import selected_legacy_comparison_diffs
+from src.services.equipment.loadouts.weighted_loadout_comparison_service import WeightedLoadoutComparison
+from src.features.allocation.execution.runner import (
     _plan_assignment_scores,
     _plan_changed_uids,
 )
-from src.services.allocation.plan_save import legacy_plan_tape_main_values
-from src.services.allocation.weighted_save import weighted_option_tape_main_values
+from src.services.allocation.results.plan_save import legacy_plan_tape_main_values
+from src.services.allocation.results.weighted_save import weighted_option_tape_main_values
 from src.optimizer.contracts import (
     PLAN_ASSIGNED_EXTRA_DRIVES,
     PLAN_ASSIGNED_SET_DRIVES,

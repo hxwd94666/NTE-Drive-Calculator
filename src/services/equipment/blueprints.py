@@ -7,7 +7,7 @@ from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
-from src.domain.equipment.shapes import OFFICIAL_SHAPE_LABELS
+from src.domain.equipment.geometry.shapes import OFFICIAL_SHAPE_LABELS
 from src.models.equipment import DriveShape
 from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 from src.solver.combinatorics import PuzzleCombinatorics

@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtWidgets import QLabel, QMessageBox, QVBoxLayout, QWidget
 
-from auto_sync_ui_fixture import application, dispose
+from tests.support.auto_sync_ui_fixture import application
+from tests.support.auto_sync_ui_fixture import dispose
 from src.features.allocation.execute_page import _build_scan_mode_card
 from src.features.scanning import workflow
 from src.features.scanning.controller import ScanningController

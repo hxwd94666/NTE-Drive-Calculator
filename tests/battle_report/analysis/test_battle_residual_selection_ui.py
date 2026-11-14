@@ -6,7 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 from PySide6.QtWidgets import QApplication
-from auto_sync_ui_fixture import dispose
+from tests.support.auto_sync_ui_fixture import dispose
 
 from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.domain.battle_report.targets.profiles import BattleTargetInstanceResolution

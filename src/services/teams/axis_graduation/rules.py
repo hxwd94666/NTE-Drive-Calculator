@@ -1,6 +1,6 @@
 # 同一主静态读取单元把Calc既有评分目录编译为理论规则，来源未变前不重新读取另一份数值表。
-from src.domain.teams.axis_graduation_rules import compile_theory_equipment_rules
-from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.domain.teams.graduation.axis_graduation_rules import compile_theory_equipment_rules
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
 
 
 def freeze_theory_equipment_rules(*, scoring_rules, quality_coefficients, static_database_path,

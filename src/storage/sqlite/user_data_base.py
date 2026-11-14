@@ -66,6 +66,49 @@ class UserDataDaoCore:
     def __enter__(self) -> Self:
         return self
 
+    @staticmethod
+    @contextmanager
+    def external_read_lease(database_path: str | Path):
+        """为独立只读进程保留 WAL 读者，不冻结业务事务或迁移账号。
+
+        Windows 下最后一个宿主连接退场后，独立只读 SQLite 可能在首次查询
+        时缺少已初始化的 WAL 共享内存。只读打开并完成页头读取后保持连接存活；
+        不持有读事务，故不阻挡写入/检查点，也不替代组件自己的冻结输入。
+        """
+        path = Path(database_path).expanduser().resolve(strict=True)
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10)
+        try:
+            cursor = connection.execute("PRAGMA schema_version")
+            try:
+                cursor.fetchone()
+            finally:
+                cursor.close()
+            yield
+        finally:
+            connection.close()
+
+    @classmethod
+    def read_only(cls, database_path: str | Path, *, cancel_check=None) -> Self:
+        """借用现有账号的只读连接；计算冻结不创建账号、不迁移或写入来源。"""
+        instance = cls.__new__(cls)
+        instance.database_path = Path(database_path).expanduser().resolve(strict=True)
+        instance._connection = None
+        instance._transaction_serial = 0
+        try:
+            connection = sqlite3.connect(instance.database_path.as_uri() + "?mode=ro", uri=True, timeout=10)
+            instance._connection = connection
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            if cancel_check is not None:
+                connection.set_progress_handler(lambda: int(cancel_check()), 1000)
+            # 从结构核验起固定同一读取版本，外层只借用；关闭该 DAO 才结束只读 owner。
+            connection.execute("BEGIN")
+            instance._validate_schema()
+        except BaseException:
+            instance.close()
+            raise
+        return instance
+
     def __exit__(
         self,
         _exc_type: type[BaseException] | None,
@@ -183,7 +226,7 @@ class UserDataDaoCore:
                 if migration_path is None or not migration_path.is_file():
                     raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")
                 migration_sql = migration_path.read_text(encoding="utf-8")
-                if backup_existing and target_version in {45, 47, 48, 49, 50, 51, 52}:
+                if backup_existing and target_version in {45, 47, 48, 49, 50, 51, 52, 53}:
                     # 养成历史与队伍资料各自升级前保全当时完整库；更早默认值迁移仍沿原事务。
                     # 备份失败不进入本次新增结构，修复后可在同一旧库重试。
                     backup_before_user_migration(self.database_path, target_version - 1)
@@ -236,6 +279,9 @@ class UserDataDaoCore:
         if target_version == 52:
             from .accounts.management_migration import migrate_management_copies
             migrate_management_copies(connection, _utc_now())
+        if target_version == 53:
+            from .accounts.rewind_migration import migrate_rewind_copies
+            migrate_rewind_copies(connection, _utc_now())
         if target_version != 35:
             return
         # v32 通过 ADD COLUMN 引入普通抗性；旧行只在读取时获得 0.2 默认值，

@@ -4,16 +4,25 @@ from __future__ import annotations
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 from dataclasses import replace
 from pathlib import Path
-from src.domain.work_mode import (
-    CheckState, FeatureCheck, NativeFeatureProbe, WorkMode, WorkModeProbe,
-    WorkModeReport, WorkModeSettings,
+from src.domain.preferences.work_mode import (
+    CheckState,
+    FeatureCheck,
+    NativeFeatureProbe,
+    WorkMode,
+    WorkModeProbe,
+    WorkModeReport,
+    WorkModeSettings,
 )
-from src.domain.work_mode import (
-    CheckState, NativeFeatureProbe, WorkMode, WorkModeProbe, WorkModeSettings,
+from src.domain.preferences.work_mode import (
+    CheckState,
+    NativeFeatureProbe,
+    WorkMode,
+    WorkModeProbe,
+    WorkModeSettings,
 )
-from src.domain.work_mode import CheckState, NativeFeatureProbe, WorkModeProbe
+from src.domain.preferences.work_mode import CheckState, NativeFeatureProbe, WorkModeProbe
 from src.features.settings.work_mode_card import ModeReportDialog
-from src.integrations.nte_core_protocol import (
+from src.integrations.native_core.nte_core_protocol import (
     NteCoreProcessError, NteCoreRequestContext, NteCoreRpcError, NteCoreTimeoutError,
 )
 from src.services.work_modes.runtime import WorkModeRuntime
@@ -163,7 +172,7 @@ def test_shared_failure_does_not_claim_every_business_failed_handshake():
 
 
 def test_unconfirmed_or_unsupported_business_does_not_offer_deploy_action():
-    from src.domain.work_mode import NativeFeatureProbe
+    from src.domain.preferences.work_mode import NativeFeatureProbe
 
     settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
                                 pending_cleanup=False)
@@ -181,7 +190,7 @@ def test_unconfirmed_or_unsupported_business_does_not_offer_deploy_action():
 
 
 def test_unknown_game_path_does_not_offer_path_detection_as_a_fix():
-    from src.domain.work_mode import NativeFeatureProbe
+    from src.domain.preferences.work_mode import NativeFeatureProbe
 
     settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
                                 pending_cleanup=False)
@@ -192,7 +201,7 @@ def test_unknown_game_path_does_not_offer_path_detection_as_a_fix():
 
 
 def test_missing_package_does_not_offer_unusable_deployment():
-    from src.domain.work_mode import NativeFeatureProbe
+    from src.domain.preferences.work_mode import NativeFeatureProbe
 
     settings = WorkModeSettings(mode=WorkMode.MEDIUM, risk_confirmed=True,
                                 pending_cleanup=False)
@@ -204,9 +213,10 @@ def test_missing_package_does_not_offer_unusable_deployment():
 
 
 def test_missing_component_guides_to_selected_deployment_instead_of_forcing_d3d():
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     from PySide6.QtWidgets import QPushButton, QWidget
-    from src.domain.work_mode import NativeFeatureProbe
+    from src.domain.preferences.work_mode import NativeFeatureProbe
     from src.features.settings.work_mode_card import ModeReportDialog
 
     app = application()
@@ -231,7 +241,8 @@ def test_missing_component_guides_to_selected_deployment_instead_of_forcing_d3d(
 
 
 def test_report_can_be_copied_and_clears_stale_result_on_recheck():
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     from PySide6.QtWidgets import QWidget
     from src.features.settings.work_mode_card import ModeReportDialog
 
@@ -266,7 +277,8 @@ def test_report_can_be_copied_and_clears_stale_result_on_recheck():
 
 
 def test_detection_exception_is_only_in_folded_diagnostics():
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     from PySide6.QtWidgets import QLabel, QWidget
     from src.features.settings.work_mode_card import ModeReportDialog
 

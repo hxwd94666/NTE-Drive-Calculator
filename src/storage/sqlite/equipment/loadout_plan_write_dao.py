@@ -8,8 +8,8 @@ from contextlib import nullcontext
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from src.domain.equipment.loadout_plan_scores import exact_assignment_score_total
-from src.domain.equipment.virtual_equipment import (
+from src.domain.equipment.loadouts.loadout_plan_scores import exact_assignment_score_total
+from src.domain.equipment.loadouts.virtual_equipment import (
     is_virtual_equipment_assignment,
     make_virtual_equipment_assignment,
 )

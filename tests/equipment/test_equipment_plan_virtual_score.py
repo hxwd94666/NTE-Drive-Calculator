@@ -1,7 +1,7 @@
 # 验证虚拟配装方案的评分投影。
 """Ensure saved plans with empty placeholders do not trust a stale total."""
 
-from src.features.inventory.equipment.plan_renderer import (
+from src.features.inventory.equipment.display.plan_renderer import (
     _saved_plan_contains_virtual_equipment,
     _saved_plan_requires_score_recalculation,
 )

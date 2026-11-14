@@ -245,7 +245,7 @@ def operation_panels(document: Path) -> list[dict]:
             ancestors.add(parent)
             parent = by_id[parent]['parent']
     # Read app navigation metadata without importing the application or Qt.
-    navigation = ROOT / 'src/ui/navigation.py'
+    navigation = ROOT / 'src/ui/main_window/navigation.py'
     tree = ast.parse(read(navigation))
     assignment = next(node for node in tree.body if isinstance(node, ast.Assign)
                       and any(isinstance(target, ast.Name) and target.id == 'NAV_ITEMS' for target in node.targets))

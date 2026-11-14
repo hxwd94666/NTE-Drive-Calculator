@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from src.domain.static_catalog import StaticCatalogRelease
+from src.domain.catalog.static_catalog import StaticCatalogRelease
 
 
 def frozen_static_source(

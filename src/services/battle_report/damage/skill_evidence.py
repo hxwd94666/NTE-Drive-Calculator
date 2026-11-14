@@ -10,7 +10,7 @@ from src.services.battle_report.damage.weave_source import weave_source_key
 
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
-from src.services.damage_calculation_service import (
+from src.services.damage.damage_calculation_service import (
     reaction_tier_for_character_level,
     skill_tier_for_effective_level,
 )
@@ -37,7 +37,7 @@ from src.services.battle_report.damage.composition import (
 from src.services.battle_report.treatment.audited import (
     is_kuhara_q_settlement_hit,
 )
-from src.services.official_role.awakening import active_awaken_effects, awaken_skill_level_delta
+from src.services.official_role.panel.awakening import active_awaken_effects, awaken_skill_level_delta
 
 
 _NON_CRITICAL_DAMAGE_IDS = frozenset({

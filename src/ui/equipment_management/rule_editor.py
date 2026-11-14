@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, add_plain_form_row, plain_label, plain_tooltip, resolve_text_catalog
+from src.domain.localization.catalog import localized_text
+from src.ui.common.enum_text import ui_enum_text
 import copy
 from pathlib import Path
 
@@ -29,16 +32,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.domain.post_actions import (
+from src.domain.inventory.post_actions import (
     DEFAULT_EXCLUDED_SET_NAMES,
     DEFAULT_EXCLUDED_SHAPE_IDS,
     DEFAULT_PRESERVE_RULE,
 )
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.ui.equipment_management.scope_dialogs import TypeRangeDialog, type_range_summary
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 
 
 QUALITY_SCOPE_OPTIONS = (("全部", "all"), ("仅金品质", "gold"), ("仅金紫品质", "gold_purple"))
@@ -52,10 +55,10 @@ def _set_combo_data(combo: NoWheelComboBox, value: object) -> None:
             return
 
 
-def _combo(options, value: object, width: int = 130) -> NoWheelComboBox:
+def _combo(options, value: object, width: int = 130, *, catalog=None) -> NoWheelComboBox:
     combo = NoWheelComboBox()
     for label, data in options:
-        combo.addItem(label, data)
+        combo.addItem(ui_enum_text(catalog, label), data)
     _set_combo_data(combo, value)
     combo.setMaximumWidth(width)
     return combo
@@ -81,9 +84,11 @@ class PreserveRuleEditor(QDialog):
         shape_options: list[tuple[str, int]],
         set_options: list[str],
         config_dir: Path,
+        *, text_catalog=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("规则处理")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('warehouse.management.rules_tab'))
         self.setMinimumSize(560, 0)
         self.resize(780, 660)
         self.rule = copy.deepcopy(DEFAULT_PRESERVE_RULE)
@@ -110,7 +115,7 @@ class PreserveRuleEditor(QDialog):
         layout.setSpacing(6)
         buttons = {}
         for label, value in options:
-            button = QPushButton(label)
+            button = QPushButton(ui_enum_text(getattr(self, 'text_catalog', None), label))
             button.setCheckable(True)
             button.setChecked(value == current)
             button.setStyleSheet(_button_style(value == current))
@@ -332,17 +337,17 @@ class PreserveRuleEditor(QDialog):
         root.setAlignment(Qt.AlignTop)
         form = QFormLayout()
         self.name_edit = QLineEdit(str(self.rule.get("name") or ""))
-        self.name_edit.setPlaceholderText("例如：双爆输出卡带")
-        form.addRow("规则名称", self.name_edit)
+        self.name_edit.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.name_edit'))
+        add_plain_form_row(form, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.form'), self.name_edit)
         type_widget, self._type_buttons = self._build_segment(
             (("卡带", "tape"), ("驱动", "drive")), self._item_type, self._change_item_type
         )
-        form.addRow("装备对象", type_widget)
+        add_plain_form_row(form, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.form_2'), type_widget)
         action_widget, self._action_buttons = self._build_segment(
             (("仅保留", "keep"), ("锁定", "lock"), ("弃置", "discard")), self._action, self._change_action
         )
-        action_widget.setToolTip("弃置遵守弃置模块的“遇到锁定/遇到弃置”设置，不按评分阈值保留。")
-        form.addRow("命中后处理", action_widget)
+        action_widget.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.action_widget')))
+        add_plain_form_row(form, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.form_3'), action_widget)
         root.addLayout(form)
 
         self._selection_pages = QStackedWidget()
@@ -352,14 +357,14 @@ class PreserveRuleEditor(QDialog):
         for page_layout in (tape_page_layout, drive_page_layout):
             page_layout.setContentsMargins(0, 0, 0, 0)
             page_layout.setSpacing(root.spacing())
-        self.main_group = QGroupBox("卡带主词条（命中任一）")
+        self.main_group = QGroupBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.main_group'))
         main_layout = QVBoxLayout(self.main_group)
         main_layout.setContentsMargins(8, 6, 8, 6)
         self.main_stat_list = self._make_stat_list(self._main_stat_options, self.rule.get("main_stats", []), 112)
         main_layout.addWidget(self.main_stat_list)
         tape_page_layout.addWidget(self.main_group)
 
-        self.tape_sub_group, self.sub_group = QGroupBox("副词条"), QGroupBox("副词条")
+        self.tape_sub_group, self.sub_group = QGroupBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.caption')), QGroupBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.caption'))
         tape_sub_layout = QVBoxLayout(self.tape_sub_group)
         tape_sub_layout.setContentsMargins(9, 9, 9, 9)
         sub_layout = QVBoxLayout(self.sub_group)
@@ -379,11 +384,12 @@ class PreserveRuleEditor(QDialog):
         tape_match_layout.setContentsMargins(0, 0, 0, 0)
         tape_match_layout.setSpacing(3)
         tape_match_row = QHBoxLayout()
-        tape_match_row.addWidget(QLabel("副词条命中"))
-        self.tape_sub_match_combo = _combo(SUB_MATCH_OPTIONS, self._normalized_sub_match(), 132)
+        tape_match_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.caption_2')))
+        self.tape_sub_match_combo = _combo(SUB_MATCH_OPTIONS, self._normalized_sub_match(), 132,
+               catalog=resolve_text_catalog(getattr(self, 'text_catalog', None)))
         self.tape_sub_match_combo.currentIndexChanged.connect(self._change_sub_match)
         tape_match_row.addWidget(self.tape_sub_match_combo)
-        self.tape_sub_match_hint = QLabel()
+        self.tape_sub_match_hint = plain_label()
         self.tape_sub_match_hint.setStyleSheet("color:#f85149")
         tape_match_row.addWidget(self.tape_sub_match_hint)
         tape_match_row.addStretch()
@@ -397,7 +403,7 @@ class PreserveRuleEditor(QDialog):
         tape_required_layout = QVBoxLayout(self.tape_required_container)
         tape_required_layout.setContentsMargins(0, 0, 0, 0)
         tape_required_layout.setSpacing(3)
-        tape_required_layout.addWidget(QLabel("必须包含（可多选）"))
+        tape_required_layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.caption_3')))
         self.tape_required_sub_stat_list = self._make_stat_list(self._sub_stat_options, selected_required, 132)
         self.tape_required_sub_stat_list.itemSelectionChanged.connect(self._refresh_sub_match_hint)
         tape_required_layout.addWidget(self.tape_required_sub_stat_list)
@@ -415,11 +421,12 @@ class PreserveRuleEditor(QDialog):
         drive_match_layout.setContentsMargins(0, 0, 0, 0)
         drive_match_layout.setSpacing(4)
         drive_match_row = QHBoxLayout()
-        drive_match_row.addWidget(QLabel("副词条命中"))
-        self.drive_sub_match_combo = _combo(SUB_MATCH_OPTIONS, self._normalized_sub_match(), 132)
+        drive_match_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.caption_2')))
+        self.drive_sub_match_combo = _combo(SUB_MATCH_OPTIONS, self._normalized_sub_match(), 132,
+               catalog=resolve_text_catalog(getattr(self, 'text_catalog', None)))
         self.drive_sub_match_combo.currentIndexChanged.connect(self._change_sub_match)
         drive_match_row.addWidget(self.drive_sub_match_combo)
-        self.drive_sub_match_hint = QLabel()
+        self.drive_sub_match_hint = plain_label()
         self.drive_sub_match_hint.setStyleSheet("color:#f85149")
         drive_match_row.addWidget(self.drive_sub_match_hint)
         drive_match_row.addStretch()
@@ -433,7 +440,7 @@ class PreserveRuleEditor(QDialog):
         drive_required_layout = QVBoxLayout(self.drive_required_container)
         drive_required_layout.setContentsMargins(0, 0, 0, 0)
         drive_required_layout.setSpacing(4)
-        drive_required_layout.addWidget(QLabel("必须包含（可多选）"))
+        drive_required_layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.caption_3')))
         self.drive_required_sub_stat_list = self._make_stat_list(self._sub_stat_options, selected_required, 92)
         self.drive_required_sub_stat_list.itemSelectionChanged.connect(self._refresh_sub_match_hint)
         drive_required_layout.addWidget(self.drive_required_sub_stat_list)
@@ -446,17 +453,18 @@ class PreserveRuleEditor(QDialog):
         scroll.viewport().installEventFilter(self)
 
         advanced = QFormLayout()
-        self.quality_combo = _combo(QUALITY_SCOPE_OPTIONS, self.rule.get("quality_scope", "gold_purple"), 150)
-        advanced.addRow("品质范围", self.quality_combo)
-        self.range_summary = QLabel()
+        self.quality_combo = _combo(QUALITY_SCOPE_OPTIONS, self.rule.get("quality_scope", "gold_purple"), 150,
+               catalog=resolve_text_catalog(getattr(self, 'text_catalog', None)))
+        add_plain_form_row(advanced, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.advanced'), self.quality_combo)
+        self.range_summary = plain_label()
         range_row = QWidget()
         range_layout = QHBoxLayout(range_row)
         range_layout.setContentsMargins(0, 0, 0, 0)
-        range_button = QPushButton("选择范围")
+        range_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.range_button'))
         range_button.clicked.connect(self._open_range_dialog)
         range_layout.addWidget(self.range_summary, 1)
         range_layout.addWidget(range_button)
-        advanced.addRow("类型范围", range_row)
+        add_plain_form_row(advanced, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.advanced_2'), range_row)
         root.addLayout(advanced)
         self._refresh_visibility()
         self._refresh_range_summary()
@@ -511,9 +519,9 @@ class PreserveRuleEditor(QDialog):
         required_count = len(self._selected_stats(required_widget))
         match_count = int(combo.currentData() or 1)
         if (selected_count or required_count) and selected_count < match_count:
-            hint.setText("不能少于命中数量")
+            hint.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.refresh_sub_match_hint.hint'))
         elif required_count > match_count:
-            hint.setText("必须包含数量不能超过命中数量")
+            hint.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.refresh_sub_match_hint.hint_2'))
         else:
             hint.clear()
 
@@ -546,7 +554,7 @@ class PreserveRuleEditor(QDialog):
 
     def _open_range_dialog(self) -> None:
         shapes, sets = self._range_defaults()
-        dialog = TypeRangeDialog(self, self.shape_options, self.set_options, shapes, sets, type_scope=self._item_type)
+        dialog = TypeRangeDialog(self, self.shape_options, self.set_options, shapes, sets, type_scope=self._item_type, text_catalog=getattr(self, 'text_catalog', None))
         if dialog.exec() != QDialog.Accepted:
             return
         selected_shapes, selected_sets = dialog.selected_values()
@@ -561,25 +569,30 @@ class PreserveRuleEditor(QDialog):
         required_sub_stats = self._selected_stats(required_list)
         match_count = int(combo.currentData() or 1)
         if self._item_type == "drive" and not sub_stats:
-            QMessageBox.warning(self, "规则无效", "驱动规则至少选择一个副词条。")
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox_2')))
             return
         if self._item_type == "tape" and not (main_stats or sub_stats):
-            QMessageBox.warning(self, "规则无效", "卡带规则至少选择主词条或副词条。")
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox_3')))
             return
         if not set(required_sub_stats).issubset(sub_stats):
-            QMessageBox.warning(self, "规则无效", "必须包含的副词条必须同时在副词条命中池中。")
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox_4')))
             return
         if (sub_stats or required_sub_stats) and len(sub_stats) < match_count:
             QMessageBox.warning(
                 self,
-                "规则无效",
-                "不能少于命中数量。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox_5')),
             )
             return
         if len(required_sub_stats) > match_count:
-            QMessageBox.warning(self, "规则无效", "必须包含的副词条数量不能超过命中数量。")
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.save_rule.qmessagebox_6')))
             return
-        name = self.name_edit.text().strip() or ("卡带处理规则" if self._item_type == "tape" else "驱动处理规则")
+        _catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
+        name = self.name_edit.text().strip() or localized_text(
+            _catalog, "equipment_management.rule.default_name.tape", "卡带处理规则",
+        ) if self._item_type == "tape" else self.name_edit.text().strip() or localized_text(
+            _catalog, "equipment_management.rule.default_name.drive", "驱动处理规则",
+        )
         self._result_rule = {
             "enabled": bool(self.rule.get("enabled", True)),
             "name": name,

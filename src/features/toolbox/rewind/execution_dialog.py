@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from dataclasses import dataclass
 
 from PySide6.QtCore import QSize, Qt
@@ -13,7 +14,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
     QPushButton,
     QToolButton,
@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.rewind_shape_recommendation import RewindShapeRecommendation
-from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
+from src.domain.rewind.rewind_shape_recommendation import RewindShapeRecommendation
+from src.features.inventory.warehouse.display.cards import warehouse_shape_pixmap
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,15 +37,16 @@ class RewindExecutionOptions:
 class RewindExecutionDialog(QDialog):
     """Collect multi-quality and custom-pool choices as recommendation-style tiles."""
 
-    def __init__(self, parent=None, *, initial: RewindExecutionOptions | None = None) -> None:
+    def __init__(self, parent=None, *, initial: RewindExecutionOptions | None = None, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         options = initial or RewindExecutionOptions()
-        self.setWindowTitle("进行倒带")
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('rewind.page.init.start_rewind_button'))
         self.setMinimumWidth(560)
         root = QVBoxLayout(self)
         root.setSpacing(12)
-        prerequisite = QLabel(
-            f"执行期间可按设置中的全局停止键{self._stop_hotkey_label()}停止。"
+        prerequisite = plain_label(
+            resolve_text_catalog(text_catalog).render('ui.toolbox.init.prerequisite', value=f'{self._stop_hotkey_label()}')
         )
         prerequisite.setObjectName("rewindStopNotice")
         prerequisite.setWordWrap(True)
@@ -55,7 +56,7 @@ class RewindExecutionDialog(QDialog):
         ))
         root.addWidget(prerequisite)
 
-        root.addWidget(QLabel("抽取品质（可多选）"))
+        root.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.caption_2')))
         quality_grid = QGridLayout()
         self._quality_buttons: dict[str, QPushButton] = {}
         for index, (label, value, tone) in enumerate((
@@ -72,10 +73,10 @@ class RewindExecutionDialog(QDialog):
         root.addLayout(quality_grid)
 
         customization_header = QHBoxLayout()
-        customization_header.addWidget(QLabel("驱动定制"))
+        customization_header.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.caption_3')))
         customization_help = QPushButton("?")
         customization_help.setObjectName("rewindCustomizationHelp")
-        customization_help.setToolTip("查看三种驱动定制方式的区别")
+        customization_help.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.toolbox.init.customization_help')))
         customization_help.setStyleSheet(themed_style(
             "QPushButton{background:transparent;border:1px solid #30363d;border-radius:10px;"
             "color:#8b949e;font-size:11px;font-weight:700;padding:2px 7px;"
@@ -103,8 +104,8 @@ class RewindExecutionDialog(QDialog):
         root.addLayout(customization_grid)
 
         buttons = QDialogButtonBox()
-        start = buttons.addButton("开始", QDialogButtonBox.AcceptRole)
-        cancel = buttons.addButton("取消", QDialogButtonBox.RejectRole)
+        start = buttons.addButton(resolve_text_catalog(text_catalog).render('ui.toolbox.init.start'), QDialogButtonBox.AcceptRole)
+        cancel = buttons.addButton(resolve_text_catalog(text_catalog).render('common.cancel'), QDialogButtonBox.RejectRole)
         start.setObjectName("rewindStart")
         cancel.setObjectName("rewindCancel")
         start.clicked.connect(self.accept)
@@ -159,11 +160,8 @@ class RewindExecutionDialog(QDialog):
     def _show_customization_help(self) -> None:
         QMessageBox.information(
             self,
-            "驱动定制说明",
-            "· 否：使用随机驱动，十连固定消耗 600。\n"
-            "· 是且不做更改：沿用游戏内当前自定义候选。\n"
-            "· 是且应用方案：先把已保存的八槽推荐写入游戏，再按识别价格十连。\n\n"
-            "初级难度没有驱动定制，蓝色品质单选时只能选择“否”。",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.show_customization_help.qmessagebox'),
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.show_customization_help.qmessagebox_2')),
         )
 
 
@@ -176,15 +174,17 @@ class RewindShapeReplacementDialog(QDialog):
         *,
         candidates: tuple[RewindShapeRecommendation, ...],
         current_shape_id: str | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("添加驱动候选")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.toolbox.init.self_2'))
         self.setFixedWidth(760)
         self._candidates = candidates
         self._selected_shape_id = current_shape_id or (candidates[0].shape.shape_id if candidates else "")
 
         root = QVBoxLayout(self)
-        root.addWidget(QLabel("从 12 种驱动中选择，确认后填入当前候选槽："))
+        root.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.caption_4')))
         grid = QGridLayout()
         grid.setContentsMargins(0, 8, 0, 8)
         grid.setHorizontalSpacing(8)
@@ -195,7 +195,7 @@ class RewindShapeReplacementDialog(QDialog):
             for size in (2, 3, 4)
         }
         for row, size in enumerate((2, 3, 4)):
-            label = QLabel(f"{size} 型驱动")
+            label = plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.label', size=f'{size}'))
             label.setObjectName("rewindShapeGroupLabel")
             label.setFixedWidth(88)
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -212,10 +212,10 @@ class RewindShapeReplacementDialog(QDialog):
                 button.setChecked(candidate.shape.shape_id == self._selected_shape_id)
                 button.setText("")
                 button.setToolTip(
-                    f"{candidate.shape.cell_count} 型驱动 · 库存 {candidate.owned_count}"
+                    plain_tooltip(resolve_text_catalog(text_catalog).render('ui.toolbox.init.button', cell_count=f'{candidate.shape.cell_count}', owned_count=f'{candidate.owned_count}'))
                 )
                 button.setToolButtonStyle(Qt.ToolButtonIconOnly)
-                pixmap = warehouse_shape_pixmap(candidate.shape.shape_id, "Gold")
+                pixmap = warehouse_shape_pixmap(candidate.shape.shape_id, "Gold", text_catalog=text_catalog)
                 if not pixmap.isNull():
                     button.setIcon(QIcon(pixmap))
                     button.setIconSize(QSize(42, 42))
@@ -230,7 +230,7 @@ class RewindShapeReplacementDialog(QDialog):
                     lambda _checked=False, shape_id=candidate.shape.shape_id: self._set_selected(shape_id)
                 )
                 option_layout.addWidget(button, 0, Qt.AlignHCenter)
-                stock_label = QLabel(f"库存 {candidate.owned_count}")
+                stock_label = plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.stock_label', owned_count=f'{candidate.owned_count}'))
                 stock_label.setObjectName("rewindShapeReplacementStock")
                 stock_label.setProperty("shapeId", candidate.shape.shape_id)
                 stock_label.setAlignment(Qt.AlignCenter)

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.observability.stage_timings import timed_call
+
 from collections.abc import Callable, Mapping
 from concurrent.futures import CancelledError
 from contextlib import AbstractContextManager, ExitStack, contextmanager
@@ -10,8 +12,8 @@ from dataclasses import dataclass
 from time import perf_counter, sleep
 from typing import Any, Protocol
 
-from src.integrations.nte_core_protocol import NteCoreRpcError, is_mods_plugin_busy_error
-from src.integrations.nte_core_equipment import MAX_STATE_OPERATIONS, STATE_BATCH_CAPABILITY
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError, is_mods_plugin_busy_error
+from src.integrations.native_core.nte_core_equipment import MAX_STATE_OPERATIONS, STATE_BATCH_CAPABILITY
 
 
 _TRANSIENT_RETRY_DELAYS = (0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64)
@@ -140,10 +142,13 @@ class WarehouseStateWriter:
         *,
         group_completed=None,
         check_current: Callable[[], None] | None = None,
+        timings=None,
     ) -> EquipmentStateBatchMetrics:
         groups = tuple(self._operations(row, target, equipment) for row, target, equipment in changes)
         capabilities = (self.sync_service.core_hello_result or {}).get("capabilities", [])
         batched = isinstance(capabilities, list) and STATE_BATCH_CAPABILITY in capabilities
+        if timings is not None:
+            timings.note("dispatch.mode", batch_enabled=batched, item_count=len(groups))
         started = perf_counter()
         rpc_count = retry_count = completed = 0
         rpc_duration = 0.0
@@ -152,7 +157,7 @@ class WarehouseStateWriter:
         with self.batch():
             for operation, covered, completed_after in self._dispatch_units(groups, batched):
                 try:
-                    elapsed, attempts, retries = self._dispatch_operation(operation, check_current)
+                    elapsed, attempts, retries = self._dispatch_operation(operation, check_current, timings=timings)
                 except _DispatchInvalidated as exc:
                     # 仅撤销尚未派发部分；已接受字段交还 Service 走原后验确认，不假装整组成功。
                     stopped_reason = str(exc) or "本批状态处理已取消"
@@ -201,19 +206,19 @@ class WarehouseStateWriter:
             and error.domain_code is None
         )
 
-    def _dispatch_operation(self, operation: Mapping[str, Any], check_current=None) -> tuple[float, int, int]:
+    def _dispatch_operation(self, operation: Mapping[str, Any], check_current=None, *, timings=None) -> tuple[float, int, int]:
         started = perf_counter()
         attempts = 0
         retries = 0
         while True:
             if check_current is not None:
                 try:
-                    check_current()
+                    timed_call(timings, "dispatch.guard", check_current)
                 except CancelledError as exc:
                     raise _DispatchInvalidated(str(exc)) from exc
             attempts += 1
             try:
-                getattr(self.sync_service, operation["method"])(**operation["kwargs"])
+                timed_call(timings, "dispatch.call", getattr(self.sync_service, operation["method"]), **operation["kwargs"])
                 return perf_counter() - started, attempts, retries
             except Exception as error:
                 if not self._is_pre_dispatch_transient(error):
@@ -222,7 +227,7 @@ class WarehouseStateWriter:
                     raise WarehouseStateWriteError(
                         "组件状态持续刷新，当前指令多次未派发；已停止本批次，等待背包刷新后可继续处理剩余装备"
                     ) from error
-                sleep(_TRANSIENT_RETRY_DELAYS[retries])
+                timed_call(timings, "dispatch.backoff", sleep, _TRANSIENT_RETRY_DELAYS[retries])
                 retries += 1
 
     def ensure_ready(self) -> None:

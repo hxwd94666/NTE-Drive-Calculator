@@ -8,7 +8,7 @@ from threading import Event
 
 from src.integrations.performance.journals import validate_trace, PHASES
 from src.services.performance.trace import PerformanceTrace
-from src.integrations.nte_core_protocol import NteCoreRpcError
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
 
 NTE_TEST_TIER = 'core'
 

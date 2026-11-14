@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Sequence
 
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
@@ -123,6 +124,7 @@ def _quantification_tooltip(quantification) -> str:
 def render_attribute_results(
     table: QTableWidget,
     results: Sequence[BattleMarginalResult],
+    *, text_catalog=None,
 ) -> None:
     table.setRowCount(len(results))
     for row_index, result in enumerate(results):
@@ -163,10 +165,7 @@ def render_attribute_results(
             f"{getattr(result, 'related_team_share_percent', 0.0):.1f}%",
         )
         tooltip = (
-            f"{result.assumption}\n"
-            f"面板关联分母：{quantification_status_text(result.role_denominator_status)}；"
-            f"团队分母：{quantification_status_text(result.team_denominator_status)}。\n"
-            f"{_quantification_tooltip(result.quantification)}"
+            resolve_text_catalog(text_catalog).render('frontend.battle_report.marginal.results.render_attribute_results.text', assumption=f'{result.assumption}', value=f'{quantification_status_text(result.role_denominator_status)}', value_2=f'{quantification_status_text(result.team_denominator_status)}', value_3=f'{_quantification_tooltip(result.quantification)}')
         )
         if result.property_id.startswith("DamagePenetrate"):
             tooltip += (
@@ -232,6 +231,7 @@ def render_buff_benefit_results(
     *,
     source_character_id: int | None,
     passive_results: Sequence[BattleBuffCounterfactualResult] = (),
+    text_catalog=None,
 ) -> None:
     # 正式来源角色 ID 筛选 Buff/被动；逐受益者、未归因与未覆盖行分开，不把未知凑为零。
     filtered = tuple(
@@ -304,7 +304,7 @@ def render_buff_benefit_results(
         )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
-            item.setToolTip(f"{tooltip}\n原始效果标识：{result.buff_asset_path}")
+            item.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.render_buff_benefit_results.item', tooltip=f'{tooltip}', buff_asset_path=f'{result.buff_asset_path}')))
             table.setItem(row_index, column, item)
         row_index += 1
     for result in unattributed:
@@ -336,7 +336,7 @@ def render_buff_benefit_results(
         tooltip = f"{result.explanation}\n{_quantification_tooltip(result.quantification)}"
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
-            item.setToolTip(f"{tooltip}\n原始效果标识：{result.buff_asset_path}")
+            item.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.render_buff_benefit_results.item_2', tooltip=f'{tooltip}', buff_asset_path=f'{result.buff_asset_path}')))
             table.setItem(row_index, column, item)
         row_index += 1
     for result in uncovered:
@@ -364,7 +364,7 @@ def render_buff_benefit_results(
         )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
-            item.setToolTip(f"{tooltip}\n原始效果标识：{result.buff_asset_path}")
+            item.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.render_buff_benefit_results.item_3', tooltip=f'{tooltip}', buff_asset_path=f'{result.buff_asset_path}')))
             table.setItem(row_index, column, item)
         row_index += 1
 

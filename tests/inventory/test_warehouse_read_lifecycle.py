@@ -96,7 +96,8 @@ def snapshot(identity):
 def make_host(monkeypatch, tmp_path, reader, quality_reader=None):
     quality_reader = quality_reader or (lambda *_:{'score':320,'core_count':25,'core_target':25,'drive_count':185})
     monkeypatch.setattr(page_module, "WarehouseReadController",
-                        lambda parent: WarehouseReadController(parent, reader=reader,quality_reader=quality_reader))
+                        lambda parent, *, text_catalog=None: WarehouseReadController(
+                            parent, reader=reader, quality_reader=quality_reader, text_catalog=text_catalog))
 
     class Host(page_module.WarehouseControllerMixin, QWidget):
         pass
@@ -223,9 +224,10 @@ def test_close_drops_late_delivery_and_queued_reads(app, tmp_path):
 
 
 def test_read_request_uses_frozen_database_and_assets(monkeypatch, tmp_path):
-    from src.features.inventory.warehouse import read_controller, presenter
-    from src.services.inventory import warehouse_inventory_service as service_module
-    from src.services.inventory import warehouse_visual_catalog as visual_module
+    from src.features.inventory.warehouse import read_controller
+    from src.features.inventory.warehouse.display import presenter
+    from src.services.inventory.browsing import warehouse_inventory_service as service_module
+    from src.services.inventory.browsing import warehouse_visual_catalog as visual_module
 
     request = WarehouseReadRequest("fixture-a", 7, tmp_path / "a.sqlite3", tmp_path / "static.sqlite3", tmp_path / "assets")
     seen = []
@@ -235,7 +237,8 @@ def test_read_request_uses_frozen_database_and_assets(monkeypatch, tmp_path):
     path, operation, kwargs = seen.pop()
     assert path == request.database_path
     assert operation.context_generation == 7
-    assert kwargs == {"static_database_path": request.static_database_path, "asset_root": request.asset_root}
+    assert kwargs == {"static_database_path": request.static_database_path, "asset_root": request.asset_root,
+                      "text_catalog": None}
     rows = [{"kind": "core"}]
 
     class Service:

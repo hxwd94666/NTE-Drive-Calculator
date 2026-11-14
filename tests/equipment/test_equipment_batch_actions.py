@@ -8,13 +8,14 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMenu, QDialogButtonBox, QLabel, QToolButton, QVBoxLayout, QWidget
 
-from src.domain.equipment.loadout_management import LoadoutMutation
-from src.features.inventory.equipment import detail_cache, slot_selection_dialog
-from src.features.inventory.equipment import display_controller as display
-from src.features.inventory.equipment.batch_selection_dialog import BatchChoice, BatchSelectionDialog
-from src.features.inventory.equipment.attribute_weights import prepare_attribute_weights
+from src.domain.equipment.loadouts.loadout_management import LoadoutMutation
+from src.features.inventory.equipment.display import detail_cache
+from src.features.inventory.equipment.assembly import slot_selection_dialog
+from src.features.inventory.equipment.display import display_controller as display
+from src.features.inventory.equipment.management.batch_selection_dialog import BatchChoice, BatchSelectionDialog
+from src.features.inventory.equipment.display.attribute_weights import prepare_attribute_weights
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
-from src.ui.equipment_presentation import EquipmentPresentation
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
 from tests.equipment.test_loadout_management import app, database, prepared  # noqa: F401 -- 复用隔离数据库及Qt夹具
 from tests.equipment.test_loadout_import_management import game  # noqa: F401 -- 复用游戏快照夹具
 
@@ -164,8 +165,8 @@ def test_attribute_summary_queries_alias_weights_once_without_per_row_rpc():
 
 @pytest.mark.parametrize("selected", [None, [], [1004]])
 def test_batch_import_only_submits_selected_characters(game, app, monkeypatch, selected):
-    from src.features.inventory.equipment.persistence_controller import LoadoutOperation
-    from src.services.equipment.loadout_management import LoadoutManagementService
+    from src.features.inventory.equipment.management.persistence_controller import LoadoutOperation
+    from src.services.equipment.loadouts.loadout_management import LoadoutManagementService
     from PySide6.QtWidgets import QMessageBox
 
     account, _native, requests = game
@@ -226,7 +227,7 @@ def test_batch_delete_only_submits_explicit_slots(database, app, monkeypatch, se
 
 @pytest.mark.parametrize("native", [False, True])
 def test_empty_assembly_selection_never_resolves_or_dispatches(native, monkeypatch):
-    from src.features.inventory.equipment import assembly_controller, automatic_assembly_controller
+    from src.features.inventory.equipment.assembly import assembly_controller, automatic_assembly_controller
 
     module = assembly_controller if native else automatic_assembly_controller
     host = SimpleNamespace(user_database_path="unused.sqlite3")
@@ -252,7 +253,7 @@ def test_empty_assembly_selection_never_resolves_or_dispatches(native, monkeypat
 
 
 def test_native_to_visual_fallback_preserves_exact_selected_slots(monkeypatch):
-    from src.features.inventory.equipment import assembly_controller as module
+    from src.features.inventory.equipment.assembly import assembly_controller as module
 
     host = SimpleNamespace(user_database_path="unused.sqlite3")
     dao = Mock()
@@ -278,7 +279,7 @@ def test_avatar_picker_keeps_actions_reachable_on_small_screens(app, monkeypatch
     from PySide6.QtCore import QRect, QSize
     from src.app.theme import apply_app_theme, current_theme_name
     from src.app.window_geometry import fit_dialog_to_available_screen
-    from src.features.inventory.equipment import batch_selection_dialog as module
+    from src.features.inventory.equipment.management import batch_selection_dialog as module
     from src.integrations.game_assets.catalog import GameUiAssetCatalog
 
     original = current_theme_name()
@@ -330,7 +331,7 @@ def test_avatar_picker_keeps_actions_reachable_on_small_screens(app, monkeypatch
 
 
 def test_switching_slot_updates_frozen_score_and_grade_in_shared_card(app):
-    from src.ui.role_selection_card import RoleSelectionCard
+    from src.ui.roles.role_selection_card import RoleSelectionCard
 
     dialog = BatchSelectionDialog(
         None,
@@ -371,8 +372,8 @@ def test_delete_snapshot_uses_complete_frozen_item_scores_not_stale_total(databa
 
 
 def test_game_import_picker_shows_game_score_not_calculation_score(game, app, monkeypatch):
-    from src.features.inventory.equipment.persistence_controller import LoadoutOperation
-    from src.services.equipment.loadout_management import LoadoutManagementService
+    from src.features.inventory.equipment.management.persistence_controller import LoadoutOperation
+    from src.services.equipment.loadouts.loadout_management import LoadoutManagementService
 
     account, _native, requests = game
     operation = LoadoutOperation(account)
@@ -400,8 +401,8 @@ def test_game_import_picker_shows_game_score_not_calculation_score(game, app, mo
 
 
 def test_score_sort_uses_displayed_slot_score_and_keeps_selection_and_filter(app):
-    from src.ui.role_selection_card import RoleSelectionCard
-    from src.ui.role_selection_sort import RoleSelectionSort
+    from src.ui.roles.role_selection_card import RoleSelectionCard
+    from src.ui.roles.role_selection_sort import RoleSelectionSort
 
     dialog = BatchSelectionDialog(
         None,

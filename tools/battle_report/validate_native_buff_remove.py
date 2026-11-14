@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.buffs.counterfactual import BattleBuffCounterfactualService
 from src.services.battle_report.replay.topple import BattleToppleCharacterConfig
 from src.services.battle_report.replay.preparation import BattleHitProjectionPreparationService

@@ -13,14 +13,14 @@ from PySide6.QtCore import QEvent, QEventLoop, QThread, QTimer
 from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
 
-from src.features.allocation import runner
-from src.features.allocation import save_workflow
-from src.services.allocation.locks import AllocationLockSnapshot
+from src.features.allocation.execution import runner
+from src.features.allocation.execution import save_workflow
+from src.services.allocation.inputs.locks import AllocationLockSnapshot
 from src.features.onboarding.guide import OnboardingGuide
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
-from src.services.allocation.filter_settings import AllocationFilterSettings
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
+from src.services.allocation.inputs.filter_settings import AllocationFilterSettings
 from src.ui import app as app_module
-from src.ui.application_runtime import prepare_application_runtime
+from src.ui.startup.application_runtime import prepare_application_runtime
 from src.ui.controllers.auto_sync_controller import AutoSyncController
 from src.ui.controllers.work_mode_controller import WorkModeController
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.integrations.vision.recognition.image_resources import RecognitionImageProfile
 
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 
 
 class RecognitionResourceError(RuntimeError):

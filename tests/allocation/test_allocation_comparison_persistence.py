@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.services.allocation.slot_comparisons import refresh_legacy_slot_comparisons
-from src.services.equipment.weighted_loadout_comparison_service import (
+from src.services.allocation.results.slot_comparisons import refresh_legacy_slot_comparisons
+from src.services.equipment.loadouts.weighted_loadout_comparison_service import (
     freeze_role_loadout_comparisons,
     refresh_weighted_loadout_comparisons,
 )

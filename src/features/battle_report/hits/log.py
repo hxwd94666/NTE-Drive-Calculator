@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 import math
 from typing import Any
 
@@ -141,7 +143,8 @@ class BattleAnalysisLogMixin:
                     )
                     if value
                 )
-            field_tooltip = render_field_evidence(hit.field_evidence)
+            field_tooltip = render_field_evidence(
+                hit.field_evidence, text_catalog=getattr(self, 'text_catalog', None))
             if hit.field_evidence is not None and hit.field_evidence.critical_state != "unknown":
                 crit_text = field_critical_label(hit.field_evidence)
             replay_tooltip = field_tooltip + "\n\n" + replay_tooltip
@@ -164,20 +167,20 @@ class BattleAnalysisLogMixin:
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if column in {7, 8}:
-                    item.setToolTip(replay_tooltip)
+                    item.setToolTip(plain_tooltip(ui_enum_text(getattr(self, 'text_catalog', None), replay_tooltip)))
                 if column == 4:
                     item.setToolTip(field_tooltip)
                 if column == 9:
                     item.setData(Qt.ItemDataRole.UserRole, hit.event_id)
                     item.setToolTip(
-                        "点击查看本击原始字段、HP、字段证据、公式因子和 Buff 分析。"
+                        plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_log.item'))
                     )
                     font = item.font()
                     font.setUnderline(True)
                     item.setFont(font)
                 self.log_table.setItem(row, column, item)
         self.log_page_label.setText(
-            f"{self._log_page + 1} / {page_count} · {len(hits):,} 条"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_log.log_page_label', value=f'{self._log_page + 1}', page_count=f'{page_count}', value_2=f'{len(hits):,}')
         )
         self.prev_button.setEnabled(self._log_page > 0)
         self.next_button.setEnabled(self._log_page + 1 < page_count)
@@ -223,7 +226,7 @@ class BattleAnalysisLogMixin:
             return
         dialog = getattr(self, "_hit_buff_dialog", None)
         if dialog is None:
-            dialog = BattleHitBuffDialog(getattr(self, "log_dialog", self), game_ui_asset_root=self._game_ui_asset_root)
+            dialog = BattleHitBuffDialog(getattr(self, "log_dialog", self), game_ui_asset_root=self._game_ui_asset_root, text_catalog=getattr(self, 'text_catalog', None))
             self._hit_buff_dialog = dialog
         replay = next(
             (

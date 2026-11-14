@@ -42,7 +42,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.domain.recommended_weights import DEFAULT_RECOMMENDED_WEIGHTS
+from src.domain.characters.recommended_weights import DEFAULT_RECOMMENDED_WEIGHTS
 
 SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
@@ -88,9 +88,10 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "042_game_static_reference_characters.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "043_game_static_likeability_gap.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "044_game_static_feast_targets.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "045_game_static_suit_permanent.sql",
 )
-SCHEMA_VERSION = 44
-IMPORTER_VERSION = 61
+SCHEMA_VERSION = 45
+IMPORTER_VERSION = 63
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",

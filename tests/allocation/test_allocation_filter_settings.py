@@ -8,15 +8,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.services.allocation.filter_settings import (
+from src.services.allocation.inputs.filter_settings import (
     AllocationFilterSettings,
     AllocationFilterSettingsService,
     AllocationFilterValidationError,
     filter_allocation_candidates,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.allocation.locks import AllocationLockSnapshot
-from src.services.allocation.inventory import AllocationInventoryProjection
+from src.services.allocation.inputs.locks import AllocationLockSnapshot
+from src.services.allocation.inputs.inventory import AllocationInventoryProjection
 
 
 def _item(uid: str, item_type: str, quality: str) -> dict[str, str]:
@@ -107,7 +107,7 @@ def test_every_classic_strategy_receives_the_same_globally_filtered_pool(
     strategy: str,
     tmp_path: Path,
 ) -> None:
-    from src.features.allocation import runner
+    from src.features.allocation.execution import runner
 
     database_path = tmp_path / "user.sqlite3"
     database_path.touch()

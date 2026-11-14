@@ -1,9 +1,10 @@
 # 展示已物化的机制公式与效果详情，消费 Service 投影但不实现公式或查询数据库。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from collections.abc import Callable
 
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from src.app.theme import themed_style
 from src.features.static_catalog.contracts import CatalogLink
@@ -22,15 +23,17 @@ class MechanicsFormulaPanel(QWidget):
         detail: MechanicsDetail,
         open_link: Callable[[CatalogLink], None],
         parent: QWidget | None = None,
+        *, text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
-        root.addWidget(self._flow_card(detail))
+        root.addWidget(self._flow_card(detail, text_catalog=text_catalog))
         if detail.notice:
-            notice = QLabel(detail.notice, self)
+            notice = plain_label(detail.notice, self)
             notice.setObjectName("mechanicsFormulaNotice")
             notice.setWordWrap(True)
             notice.setStyleSheet(themed_style(
@@ -46,7 +49,7 @@ class MechanicsFormulaPanel(QWidget):
         root.addStretch(1)
 
     @staticmethod
-    def _flow_card(detail: MechanicsDetail) -> QFrame:
+    def _flow_card(detail: MechanicsDetail, *, text_catalog=None) -> QFrame:
         active = detail.badges[0] if detail.badges else ""
         card = QFrame()
         card.setObjectName("formulaFlowCard")
@@ -56,7 +59,7 @@ class MechanicsFormulaPanel(QWidget):
         ))
         root = QVBoxLayout(card)
         root.setContentsMargins(13, 10, 13, 10)
-        label = QLabel("伤害乘区流程", card)
+        label = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.flow_card.label'), card)
         label.setStyleSheet(themed_style(
             "color:#8b949e;font-size:11px;font-weight:900;letter-spacing:1px;"
         ))
@@ -73,7 +76,7 @@ class MechanicsFormulaPanel(QWidget):
             "共享伤害": "最终结算",
         }.get(active, "")
         names = [f"【{name}】" if name == highlighted else name for name in FLOW]
-        flow = QLabel("  →  ".join(names), card)
+        flow = plain_label("  →  ".join(names), card)
         flow.setWordWrap(True)
         flow.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:12px;font-weight:700;"
@@ -96,7 +99,7 @@ class MechanicsEffectPanel(QWidget):
         root.setSpacing(10)
 
         if detail.notice:
-            notice = QLabel(detail.notice, self)
+            notice = plain_label(detail.notice, self)
             notice.setObjectName("mechanicsPlayerNotice")
             notice.setWordWrap(True)
             notice.setStyleSheet(themed_style(

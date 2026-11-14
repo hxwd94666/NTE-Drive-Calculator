@@ -5,9 +5,9 @@ from collections.abc import Iterable
 from copy import deepcopy
 from typing import Any
 
-from src.domain.basic_weight import BasicWeightDependencies
-from src.domain.recommended_weights import base_weight_character_id
-from src.integrations.basic_weight_inputs import basic_weight_source_key
+from src.domain.characters.basic_weight import BasicWeightDependencies
+from src.domain.characters.recommended_weights import base_weight_character_id
+from src.integrations.scoring.basic_weight_inputs import basic_weight_source_key
 from src.observability import OperationContext
 from src.observability.operation import log_event, operation_scope
 from src.services.characters.character_weight_service import (

@@ -28,9 +28,10 @@ from pathlib import Path
 from tools import build_cli
 from tools.release.app_bundle_validation import validate_app_bundle
 from tools.release.managed_paths import plain_member_stat
+from tools.release.installer_integrity import finalize_installer_artifact, prepare_installer_output
 from src.app.version import windows_numeric_version
-from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, native_deployment_paths
+from src.integrations.components.game_component_bundle import inspect_game_component_bundle
+from src.integrations.components.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, native_deployment_paths
 from src.integrations.vision.recognition.ocr.model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.installer_asset_dedup import (
@@ -461,7 +462,8 @@ Name: "{{autodesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}";
 [Run]
 Filename: "{vigem_install_filename}"; Parameters: "{vigem_install_params}"; StatusMsg: "正在安装或修复 ViGEmBus 虚拟手柄驱动..."; Flags: waituntilterminated; Tasks: installvigem; Check: ShouldInstallViGEmBus
 Filename: "{{cmd}}"; Parameters: "/C sc start ViGEmBus >NUL 2>NUL & exit /B 0"; StatusMsg: "正在启动 ViGEmBus 驱动服务..."; Flags: runhidden waituntilterminated; Tasks: installvigem; Check: IsWin64
-Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runascurrentuser
+; 明确请求管理员 Shell 启动，不把安装器进程的接受/存活当成应用权限已就绪。
+Filename: "{{app}}\\{{#MyAppExeName}}"; WorkingDir: "{{app}}"; Verb: "runas"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: shellexec nowait postinstall skipifsilent runascurrentuser
 
 [Code]
 function ShouldInstallViGEmBus: Boolean;
@@ -525,6 +527,9 @@ def main() -> int:
 
     try:
         _configure_output_root(args.output_root)
+        if not args.generate_only:
+            if prepare_installer_output(OUTPUT_DIR):
+                build_cli.info("已修正安装器输出目录的 Low 继承标签；输出位置不变。")
         local_config = _load_local_config(args.config)
         args.iscc = _configured_path(
             args.iscc,
@@ -574,6 +579,8 @@ def main() -> int:
         setup = OUTPUT_DIR / f"NTE_Drive_Calc_Setup_{args.version}.exe"
         if not setup.exists():
             raise RuntimeError(f"Installer build finished, but output was not found: {setup}")
+        if finalize_installer_artifact(setup):
+            build_cli.info("已修正安装器成品的完整性标签为 High，回读校验通过。")
         build_cli.ok(f"Installer complete: {setup}")
         return 0
     except subprocess.CalledProcessError as exc:

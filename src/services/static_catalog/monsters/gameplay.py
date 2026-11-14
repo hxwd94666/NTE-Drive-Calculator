@@ -7,6 +7,7 @@ from collections import Counter
 import re
 from typing import Any
 
+from src.domain.localization.catalog import TextCatalog, localized_text
 from src.services.static_catalog.monsters.display import (
     NAME_UNAVAILABLE,
     display_buff_option,
@@ -22,6 +23,7 @@ from src.services.static_catalog.monsters.models import (
 from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
+from src.integrations.preferences.locale_files import enum_text
 
 
 _STATUS_LABELS = {
@@ -50,8 +52,15 @@ def _clean_description(value: object) -> str:
 class StaticCatalogMonsterGameplayProjector:
     """消费同一只读来源的正式玩法记录，不另开查询连接。"""
 
-    def __init__(self, terminology: StaticCatalogTerminologyService) -> None:
+    def __init__(
+        self,
+        terminology: StaticCatalogTerminologyService,
+        *,
+        text_catalog: TextCatalog | None = None,
+    ) -> None:
         self._terminology = terminology
+        # 目录由组合根注入并冻结；未注入时保持发行中文基线，不另行读取语言偏好。
+        self._text_catalog = text_catalog
 
     def witch_entries(self, rows: list[dict[str, Any]]) -> tuple[CatalogEntry, ...]:
         return tuple(
@@ -60,7 +69,7 @@ class StaticCatalogMonsterGameplayProjector:
                 domain="encounter",
                 play_mode="witch_blessing",
                 title=self._name(row.get("name_zh")),
-                subtitle="战前可选的整场赐福",
+                subtitle=enum_text(self._text_catalog, "战前可选的整场赐福"),
                 primary_id=str(row["buff_id"]),
                 localization_available=self._available(row.get("name_zh")),
             )
@@ -72,10 +81,10 @@ class StaticCatalogMonsterGameplayProjector:
         property_name = self._term_name("equipment_attribute", row.get("property_id"))
         amount = self._amount(row.get("property_value"), bool(row.get("is_percent")))
         section = CatalogSection(
-            "魔女赐福",
+            enum_text(self._text_catalog, "魔女赐福"),
             (
                 CatalogValue(
-                    label="赐福效果",
+                    label=enum_text(self._text_catalog, "赐福效果"),
                     value=str(row.get("property_id") or ""),
                     provenance="official_static",
                     display_label=property_name,
@@ -100,7 +109,7 @@ class StaticCatalogMonsterGameplayProjector:
         )
         values = tuple(
             CatalogValue(
-                label="赛季 Buff 分量",
+                label=enum_text(self._text_catalog, "赛季 Buff 分量"),
                 value=str(component.get("property_id") or ""),
                 provenance="official_static",
                 display_label=self._term_name(
@@ -111,7 +120,7 @@ class StaticCatalogMonsterGameplayProjector:
             for component in row.get("components", ())
         )
         section = CatalogSection(
-            "轨外赛季 Buff",
+            enum_text(self._text_catalog, "轨外赛季 Buff"),
             values,
             _clean_description(row.get("description_zh")),
         )
@@ -120,31 +129,42 @@ class StaticCatalogMonsterGameplayProjector:
     def feast_option(self, category: str, option: dict[str, Any]) -> CatalogValue:
         effect_kind = str(option.get("effect_kind") or "")
         display_category = (
-            f"{display_damage_type(self._terminology, option.get('damage_type'))}提升"
+            localized_text(
+                self._text_catalog,
+                "static_catalog.monster.feast.resistance_up",
+                "{damage_type}提升",
+                damage_type=display_damage_type(
+                    self._terminology, option.get("damage_type")
+                ),
+            )
             if effect_kind == "resistance_up"
             else category
         )
         return CatalogValue(
-            label="争锋加成",
+            label=enum_text(self._text_catalog, "争锋加成"),
             value=str(option.get("option_id") or ""),
             provenance="official_static",
             display_label=display_category,
             display_value=display_buff_option(self._terminology, option),
             note=(
-                "挑战时间规则不属于 Buff 乘区。"
+                enum_text(self._text_catalog, "挑战时间规则不属于 Buff 乘区。")
                 if effect_kind == "time_limit"
-                else ("仅记录条件，未判定触发、受体或目标完成；不加入常驻画像。"
+                else (enum_text(
+                    self._text_catalog,
+                    "仅记录条件，未判定触发、受体或目标完成；不加入常驻画像。",
+                )
                       if effect_kind == "mechanism_goal" else "")
             ),
         )
 
     def drop_section(self, projection: dict[str, Any] | None) -> CatalogSection:
         status = str((projection or {}).get("status") or "unavailable")
-        status_label, status_copy = _STATUS_LABELS.get(
-            status, _STATUS_LABELS["unavailable"]
+        status_label, status_copy = enum_text(
+            self._text_catalog,
+            _STATUS_LABELS.get(status, _STATUS_LABELS["unavailable"]),
         )
         values = [CatalogValue(
-            label="掉落状态",
+            label=enum_text(self._text_catalog, "掉落状态"),
             value=status,
             provenance="official_static" if projection else "unavailable",
             display_label=status_label,
@@ -152,37 +172,59 @@ class StaticCatalogMonsterGameplayProjector:
         )]
         if projection is None:
             values.append(CatalogValue(
-                label="信息缺口",
+                label=enum_text(self._text_catalog, "信息缺口"),
                 value="",
                 provenance="unavailable",
-                display_label="待补全信息",
-                display_value="该难度尚无正式掉落闭包，未展示推测数量。",
+                display_label=enum_text(self._text_catalog, "待补全信息"),
+                display_value=enum_text(
+                    self._text_catalog,
+                    "该难度尚无正式掉落闭包，未展示推测数量。",
+                ),
             ))
         for item in (projection or {}).get("items", ()):
             values.append(CatalogValue(
-                label="掉落物",
+                label=enum_text(self._text_catalog, "掉落物"),
                 value=str(item.get("item_id") or ""),
                 provenance="official_static",
                 display_label=self._term_name("item", item.get("item_id")),
-                display_value=f"× {int(item['quantity'])}",
+                display_value=localized_text(
+                    self._text_catalog,
+                    "static_catalog.monster.drop.quantity",
+                    "× {quantity}",
+                    quantity=int(item["quantity"]),
+                ),
             ))
         counts = Counter(
             str(gap.get("reason_code") or "")
             for gap in (projection or {}).get("gaps", ())
         )
         for reason_code, count in counts.items():
-            message = _GAP_LABELS.get(
-                reason_code,
-                "正式掉落闭包仍有未解析信息，未展示推测数量。",
+            message = enum_text(
+                self._text_catalog,
+                _GAP_LABELS.get(
+                    reason_code,
+                    "正式掉落闭包仍有未解析信息，未展示推测数量。",
+                ),
             )
             values.append(CatalogValue(
-                label="信息缺口",
+                label=enum_text(self._text_catalog, "信息缺口"),
                 value=reason_code,
                 provenance="unavailable",
-                display_label="待补全信息",
-                display_value=(f"{count} 项：{message}" if count > 1 else message),
+                display_label=enum_text(self._text_catalog, "待补全信息"),
+                display_value=(
+                    localized_text(
+                        self._text_catalog,
+                        "static_catalog.monster.gap.count",
+                        "{count} 项：{message}",
+                        count=count,
+                        message=message,
+                    )
+                    if count > 1 else message
+                ),
             ))
-        return CatalogSection("正式掉落", tuple(values), status_copy)
+        return CatalogSection(
+            enum_text(self._text_catalog, "正式掉落"), tuple(values), status_copy
+        )
 
     def _term_name(self, entity_kind: str, stable_id: object) -> str:
         identity = str(stable_id or "").strip()
@@ -191,28 +233,59 @@ class StaticCatalogMonsterGameplayProjector:
         term = self._terminology.resolve(entity_kind, identity)
         return term.display_name if term.name_available else NAME_UNAVAILABLE
 
-    @staticmethod
-    def _amount(value: object, is_percent: bool) -> str:
+    def _amount(self, value: object, is_percent: bool) -> str:
         number = float(value)
-        return f"提升 {number * 100:g}%" if is_percent else f"增加 {number:g}"
+        if is_percent:
+            return localized_text(
+                self._text_catalog,
+                "static_catalog.monster.amount.percent",
+                "提升 {value}%",
+                value=f"{number * 100:g}",
+            )
+        return localized_text(
+            self._text_catalog,
+            "static_catalog.monster.amount.flat",
+            "增加 {value}",
+            value=f"{number:g}",
+        )
 
-    @staticmethod
-    def _component_description(component: dict[str, Any]) -> str:
+    def _component_description(self, component: dict[str, Any]) -> str:
         parts = [
-            _TRIGGER_LABELS.get(
-                str(component.get("trigger_kind") or ""),
-                "生效条件见正式说明",
+            enum_text(
+                self._text_catalog,
+                _TRIGGER_LABELS.get(
+                    str(component.get("trigger_kind") or ""),
+                    "生效条件见正式说明",
+                ),
             ),
-            f"数值 +{display_catalog_scalar(component.get('property_value'))}",
+            localized_text(
+                self._text_catalog,
+                "static_catalog.monster.component.value",
+                "数值 +{value}",
+                value=display_catalog_scalar(component.get("property_value")),
+            ),
         ]
         if component.get("duration_seconds") is not None:
-            parts.append(f"持续 {display_catalog_scalar(component['duration_seconds'])} 秒")
+            parts.append(localized_text(
+                self._text_catalog,
+                "static_catalog.monster.component.duration",
+                "持续 {value} 秒",
+                value=display_catalog_scalar(component["duration_seconds"]),
+            ))
         if int(component.get("stack_limit_count") or 1) > 1:
-            parts.append(f"最多 {int(component['stack_limit_count'])} 层")
+            parts.append(localized_text(
+                self._text_catalog,
+                "static_catalog.monster.component.stack_limit",
+                "最多 {count} 层",
+                count=int(component["stack_limit_count"]),
+            ))
         if component.get("trigger_cooldown_seconds") is not None:
-            parts.append(
-                f"触发间隔 {display_catalog_scalar(component['trigger_cooldown_seconds'])} 秒"
-            )
+            parts.append(localized_text(
+                self._text_catalog,
+                "static_catalog.monster.component.trigger_interval",
+                "触发间隔 {value} 秒",
+                value=display_catalog_scalar(component["trigger_cooldown_seconds"]),
+            ))
         return " · ".join(parts)
 
     @staticmethod

@@ -14,9 +14,9 @@ import pytest
 
 from tests.allocation.test_axis_postprocess_component import axis_facade_case, ROOT
 from src.app.facade import NTEAppFacade
-from src.integrations.damage_allocation_job import _decode, execute_damage_job
-from src.integrations.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError, NteAnalysisCoreClient
-from src.services.allocation.direct_group_postprocess import optimize_standard_direct_groups
+from src.integrations.allocation.damage_allocation_job import _decode, execute_damage_job
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError, NteAnalysisCoreClient
+from src.services.allocation.direct.direct_group_postprocess import optimize_standard_direct_groups
 
 NTE_TEST_TIER = "core"
 
@@ -54,6 +54,45 @@ def test_full_job_rejects_forged_score_or_plan_and_changed_frozen_constraints(tm
                 tape_main_filters={"灵可": ["攻击力%"]}, crit_rate_baselines=case["crit_baselines"])
 
     request, scorer = capture["request"], capture["scorer"]
+    # 组件内故障注入另由Rust验证；这里核对完整B0响应穿过Python验收、预览凭证和保存事务。
+    fallback = deepcopy(capture['result'])
+    fallback.update(result=None, postprocess_failure=dict(status='recoverable_failure',code='damage_job_time_budget',baseline_complete=True))
+    fallback['base_scores'],fallback['base_grades'] = {},{}
+    for role, plan in fallback['baseline_plans'].items():
+        items=[plan['assigned_tape'],*plan['assigned_set_drives'],*plan['assigned_extra_drives']]
+        fallback['base_scores'][role]={item['uid']:item['role_scores'][role] for item in items}
+        tags=scorer.get_grade_tags([(item['role_scores'][role],item['area']) for item in items])
+        fallback['base_grades'][role]={item['uid']:tag for item,tag in zip(items,tags)}
+    effective, baseline, native = _decode(client,request,scorer,capture['sent'],fallback,axis=False)
+    result = optimize_standard_direct_groups(client,effective,scorer,baseline,capture['frozen'],native_job=native)
+    from src.services.allocation.execution.baseline_fallback import attach_baseline_fallbacks, baseline_save_available
+    result=attach_baseline_fallbacks(result,baseline,capture['frozen'],dataset_id=case['dataset_id'],
+        input_identity=native.inner['input_identity'],database_path=facade.user_database_path,job_facts=native.facts)
+    assert baseline_save_available(result['灵可']) and result['灵可']['damage_optimization']['status']=='baseline_only'
+    from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+    from src.services.allocation.results.plan_save import save_allocation_plans
+    from src.services.allocation.results.postprocess_facts import allocation_save_projection
+    from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+    from src.storage.sqlite.user_data_dao import UserDataDao
+    with UserDataDao(facade.user_database_path) as dao:
+        locks=build_allocation_lock_snapshot(dao,inventory_snapshot_id=capture['frozen'].snapshot_id)
+    with static_catalog_read_unit(facade.allocation_static_database_path) as unit:
+        release=unit.release
+    plan=result['灵可']; projected=allocation_save_projection('灵可',plan,capture['frozen'].snapshot_id,plan['damage_optimization']['character_id'])
+    row={**{k:v for k,v in projected.items() if k not in {'assignment_scores','tape_main_values'}},'slot_id':None,'name':'故障后保留基础',
+        'baseline_preview_source':plan['baseline_preview_source'],
+        'payload':{'assignment_scores':projected['assignment_scores'],'tape_main_values':projected['tape_main_values'],
+                   'damage_optimization':plan['damage_optimization']}}
+    assert save_allocation_plans(database_path=facade.user_database_path,static_database_path=release.database_path,
+        static_identity=(release.database_path,release.dataset_id),static_release=release,lock_snapshot=locks,
+        rows=[row],checkpoint=lambda:None,progress=lambda _:None)==1
+    for field,value in [('code','axis_joint_context_mismatch'),('baseline_complete',False),('status','completed'),('code',[])]:
+        bad=deepcopy(fallback);bad['postprocess_failure'][field]=value
+        with pytest.raises(NativeAnalysisError):_decode(client,request,scorer,capture['sent'],bad,axis=False)
+    bad=deepcopy(fallback);bad['baseline_plans']['灵可']['valid']=False
+    with pytest.raises(NativeAnalysisError):_decode(client,request,scorer,capture['sent'],bad,axis=False)
+    bad=deepcopy(fallback);bad['input_identity']['input_sha256']='0'*64
+    with pytest.raises(NativeAnalysisError):_decode(client,request,scorer,capture['sent'],bad,axis=False)
     partial = deepcopy(capture["result"])
     partial["blueprints"].update(complete=False, termination="node_budget")
     decoded = _decode(client, request, scorer, capture["sent"], partial, axis=False)[2]

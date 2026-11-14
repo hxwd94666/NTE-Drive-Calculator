@@ -1,14 +1,14 @@
 # 将同修订读取去重与库存租约放在同一所有权模块，未知写入保留占用且不重发。
 from __future__ import annotations
 from time import monotonic
-from src.integrations.nte_core_protocol import NteCoreProtocolError
-from src.integrations.native_inventory_snapshot import NativeSnapshotPending
+from src.integrations.native_core.nte_core_protocol import NteCoreProtocolError
+from src.integrations.native_core.snapshots.native_inventory_snapshot import NativeSnapshotPending
 from copy import deepcopy
 from contextlib import contextmanager
 from threading import Event
-from src.domain.all_item_snapshot import ALL_ITEMS_CAPABILITY
+from src.domain.inventory.all_item_snapshot import ALL_ITEMS_CAPABILITY
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
-from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError, equipment_request_failure_kind
+from src.integrations.native_core.nte_core_protocol import NteCoreError, NteCoreRpcError, equipment_request_failure_kind
 from src.observability import OperationContext, log_event
 
 
@@ -117,6 +117,7 @@ class NativeInventoryLease:
         self._all_items_pending = None
         self._all_items_saved_revision = None
         self._all_items_retry_at = 0.0
+        self._furniture_pending = None
 
     @property
     def maintenance_blocked(self):
@@ -242,6 +243,19 @@ class NativeInventoryLease:
             self._check()
             current = self._change_status()
             self._snapshot_ready = self._changes.is_current(current, "inventory")
+        furniture = None
+        if (self.snapshot_ready and snapshot is None and current is not None
+                and "environment.snapshot.v1" in (self.hello_result or {}).get("capabilities", ())
+                and any(row.get("domain") == "environment" for row in current.get("domains", ()))):
+            furniture = self._furniture_for_storage(current)
+            self._check()
+            current = self._change_status()
+            self._snapshot_ready = self._changes.is_current(current, "inventory")
+            if furniture is not None:
+                try:
+                    require_current_sync_revision(furniture, current)
+                except NativeSnapshotPending:
+                    furniture = self._furniture_pending = None
         return {"capture_status": "running", "native_snapshot_ready": self.snapshot_ready,
                 "native_change_pending": (not self.snapshot_ready and current is not None
                                           and bool(domain_status(current, "inventory").get("domainKey"))),
@@ -249,7 +263,34 @@ class NativeInventoryLease:
                 **({"native_character_snapshot": character} if character is not None else {}),
                 **({"native_all_item_snapshot": all_items} if all_items is not None else {}),
                 **({"native_all_item_error": all_items_error} if all_items_error else {}),
-                **({"native_character_error": character_error} if character_error else {})}
+                **({"native_character_error": character_error} if character_error else {}),
+                **({"native_furniture_snapshot": furniture} if furniture is not None else {})}
+
+    def _furniture_for_storage(self, status):
+        # 复用修订去重与退避；数据库确认前保留同一候选，写失败不丢观测。
+        pending = self._furniture_pending
+        if pending is not None:
+            key = tuple(pending[k] for k in ("providerId", "domainKey", "revision"))
+            row = domain_status(status, "environment")
+            if (key == snapshot_change_key(status, "environment") and row.get("ready") is True
+                    and row.get("enabled") is True and row.get("dirty") is False):
+                return pending
+            self._furniture_pending = None
+        if not self._changes.needs_refresh(status, "environment"):
+            return None
+        try:
+            self._furniture_pending = self._owner.read_furniture_snapshot(self._client, self._check)
+        except (NativeSnapshotPending, NteCoreRpcError) as error:
+            if isinstance(error, NteCoreRpcError) and not self._pending_error(error):
+                raise
+            self._changes.defer(status, "environment")
+        return self._furniture_pending
+
+    def confirm_furniture_snapshot_saved(self, snapshot):
+        self._check()
+        if self._furniture_pending is snapshot:
+            self._changes.accept({"providerId": snapshot["providerId"], "domains": [snapshot]}, "environment")
+            self._furniture_pending = None
 
     def _all_items_for_storage(self, status):
         revision = snapshot_change_key(status, "inventory")
@@ -291,7 +332,7 @@ class NativeInventoryLease:
         except (NativeSnapshotPending, NteCoreRpcError) as error:
             if status is not None and (isinstance(error, NativeSnapshotPending) or self._pending_error(error)):
                 delay = self._changes.defer(status, domain)
-                log_event("INFO", "native_sync.retry_deferred", "同一修订读取未完成，降低重试频率",
+                log_event("DEBUG", "native_sync.retry_deferred", "同一修订读取未完成，降低重试频率",
                           OperationContext.create("native_sync"), domain=domain, retry_after_seconds=delay,
                           error_type=type(error).__name__)
             raise

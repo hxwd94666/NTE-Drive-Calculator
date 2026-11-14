@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.services.equipment.saved_state_loadout_bridge import (
+from src.services.equipment.loadouts.saved_state_loadout_bridge import (
     SavedStateLoadoutBridge,
     SavedStateLoadoutError,
     character_ids_for_static_role,

@@ -18,7 +18,7 @@ import src.domain.battle_report.targets.encounter as models_targets
 from src.domain.battle_report.counterfactual.results import BattleMarginalResult
 from src.domain.battle_report.targets.encounter import BattleEncounterCandidateMatch, BattleEncounterTargetPreset
 from src.integrations.battle_analysis.page_wire import decode, decode_page
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 
 def page_input():

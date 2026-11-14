@@ -16,7 +16,7 @@ from src.services.battle_report.damage.fixed_critical import (
     FIXED_HALF_CRIT_CHANNEL_IDS,
     fixed_half_critical_ratio,
 )
-from src.services.damage_calculation_service import (
+from src.services.damage.damage_calculation_service import (
     calculate_attribute_value,
     calculate_critical_multiplier,
 )

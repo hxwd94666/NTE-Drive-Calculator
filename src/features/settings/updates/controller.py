@@ -1,6 +1,7 @@
 # 独占 Calc 更新的请求、取消、账号代次、物理退场与单次安装器派发。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from dataclasses import dataclass, field
 from threading import Event
 
@@ -52,8 +53,9 @@ class CalcUpdateController(QObject):
     """UI 线程拥有状态；worker 只消费冻结参数，结果必须等物理 finished 后交付。"""
 
     def __init__(self, *, identity_provider, load_settings, save_settings, style_sheet,
-                 show_group, show_netdisk, request_close, parent, update_channel="installer"):
+                 show_group, show_netdisk, request_close, parent, update_channel="installer", text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         if update_channel not in {"installer", "manual", "platform"}:
             raise ValueError("unsupported distribution update channel")
         # 发行身份由组合根冻结注入，不根据启动进程、目录或下载 URL 猜测。
@@ -87,12 +89,12 @@ class CalcUpdateController(QObject):
         if self._update_channel == "installer":
             return
         netdisk_button.setEnabled(False)
-        netdisk_button.setToolTip("此入口未声明便携 ZIP，不作为便携更新渠道。")
+        netdisk_button.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.configure_distribution_links.netdisk_button')))
         if self._update_channel == "platform":
             homepage_button.setEnabled(False)
-            homepage_button.setToolTip("请使用分发平台的更新或修复入口。")
+            homepage_button.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.configure_distribution_links.homepage_button')))
         else:
-            homepage_button.setText("发布页（选择便携 ZIP）")
+            homepage_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.configure_distribution_links.homepage_button_2'))
 
     def _status(self, text):
         if self._view is not None:
@@ -101,9 +103,9 @@ class CalcUpdateController(QObject):
     def _buttons(self):
         if self._view is not None:
             self._view[1].setEnabled(not self._closed and self._check is None)
-            self._view[1].setText("检查更新" if self._update_channel == "installer" else "更新说明")
+            self._view[1].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('settings.page.build_settings_page.check_update_btn') if self._update_channel == "installer" else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.buttons.view_1'))
             self._view[2].setEnabled(self._update_channel == "installer" and not self._closed and self._download is None)
-            self._view[2].setToolTip("Mirror 当前仅提供安装器，便携版不使用此下载入口。" if self._update_channel != "installer" else "")
+            self._view[2].setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.buttons.view_2') if self._update_channel != "installer" else ""))
             self._view[3].setEnabled(self._update_channel == "installer" and not self._closed)
 
     def _portable_status(self):
@@ -158,7 +160,7 @@ class CalcUpdateController(QObject):
             return
         request = self._check = _Request(self._identity(), "check", manual)
         self._buttons()
-        self._status("正在通过 Mirror 酱检查更新…")
+        self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.check.self'))
         self._log(request, "update.check_started", "开始检查更新", trigger="manual" if manual else "startup")
         self._spawn(request, "check", lambda _worker: fetch_update_info(
             MIRROR_UPDATE_API, APP_VERSION, cancel_check=request.cancelled.is_set))
@@ -185,7 +187,7 @@ class CalcUpdateController(QObject):
             return
         request = self._download = _Request(self._identity(), "download")
         self._buttons()
-        self._status("正在向 Mirror 酱请求下载地址…")
+        self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.start_download.self'))
         self._log(request, "update.download_request_started", "开始请求更新下载地址")
         self._spawn(request, "address", lambda _worker: fetch_update_info(
             MIRROR_UPDATE_API, APP_VERSION, cdk=cdk, cancel_check=request.cancelled.is_set))
@@ -201,7 +203,7 @@ class CalcUpdateController(QObject):
                 self._download = None
                 self._close_progress()
                 if request.identity == self._identity() and not self._closed:
-                    self._status("已取消 Mirror 下载。")
+                    self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.finished.self'))
             if request is self._check:
                 self._check = None
             self._buttons()
@@ -213,28 +215,28 @@ class CalcUpdateController(QObject):
         elif phase == "address":
             self._address_ready(request, result)
         elif phase == "dispatch":
-            self._status("安装程序已启动，正在关闭当前程序。")
+            self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.finished.self_2'))
             self._log(request, "update.installer_launched", "更新安装程序已启动")
             self.begin_close()
             self._request_close()
         else:
             self._close_progress()
             self._pending_launch = request, result
-            self._status("安装程序下载完成，正在复核并启动…")
+            self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.finished.self_3'))
             self._launch_timer.start()
 
     def _checked(self, request, info):
         if not info or not info.get("has_release"):
-            self._fail(request, "Mirror 酱更新服务请求失败，请稍后重试。")
+            self._fail(request, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.checked.self_2'))
             return
         self._log(request, "update.check_succeeded", "更新检查完成", newer=bool(info.get("newer")))
         if not info.get("newer"):
-            self._status(f"当前已是最新版本: {APP_VERSION}")
+            self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.checked.self_3', APP_VERSION=f'{APP_VERSION}'))
             if request.manual:
-                QMessageBox.information(self.parent(), "检查更新", f"当前已是最新版本。\n当前版本: {APP_VERSION}")
+                QMessageBox.information(self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('settings.page.build_settings_page.check_update_btn'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.checked.qmessagebox', APP_VERSION=f'{APP_VERSION}')))
             self._end(request)
             return
-        self._status(f"发现新版本: {info['latest']}（当前 {APP_VERSION}）")
+        self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.checked.self', value=f"{info['latest']}", APP_VERSION=f'{APP_VERSION}'))
         if request.manual or dialogs.should_show_startup_update(self._load(), info):
             info = dict(info, release_url=GITHUB_RELEASES_URL)
             self._pending_prompt = request, info
@@ -257,7 +259,7 @@ class CalcUpdateController(QObject):
         values = dict(self._load())
         result = dialogs.show_update_dialog(self.parent(), self._style(), info, APP_VERSION,
             show_group=self._show_group, show_netdisk=self._show_netdisk,
-            start_download=lambda: self.start_download() if self._current(request) else None)
+            start_download=lambda: self.start_download() if self._current(request) else None, text_catalog=getattr(self, 'text_catalog', None))
         # 弹窗运行嵌套事件循环；忽略版本/提醒偏好不得写进新账号，ABA 也已失效。
         if self._current(request) and result.get("changed"):
             for key in ("never_remind", "ignored_version"):
@@ -272,19 +274,20 @@ class CalcUpdateController(QObject):
             self._end(request)
             return
         latest, url = str((info or {}).get("latest") or ""), str((info or {}).get("url") or "")
+        expected_sha256 = str((info or {}).get("artifact_sha256") or "").strip().lower()
         if not latest or not url:
-            self._fail(request, "未获取到下载地址，请确认 CDK 有效后重试。")
+            self._fail(request, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.address_ready.self_2'))
             return
         if is_newer_version(APP_VERSION, latest):
             accepted = dialogs._confirm_mirror_older_version_download(self.parent(), APP_VERSION, latest)
             if not self._current(request):
                 return
             if not accepted:
-                self._status("已取消较旧版本下载。")
+                self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.address_ready.self_3'))
                 self._end(request)
                 return
         progress = QProgressDialog("正在下载更新安装程序…", "取消", 0, 0, self.parent())
-        progress.setWindowTitle("Mirror 下载")
+        progress.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('settings.page.build_settings_page.mirror_download_btn'))
         progress.setWindowModality(Qt.WindowModal)
         progress.setAutoClose(False)
         progress.setAutoReset(False)
@@ -292,15 +295,16 @@ class CalcUpdateController(QObject):
         self._progress_dialog = progress
         progress.canceled.connect(self.cancel_download)
         progress.show()
-        self._status("正在通过 Mirror 酱下载更新安装程序…")
+        self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.address_ready.self'))
         self._spawn(request, "download", lambda worker: download_update_installer(url,
-            cancel_check=request.cancelled.is_set, progress_callback=worker.progress.emit))
+            cancel_check=request.cancelled.is_set, progress_callback=worker.progress.emit,
+            expected_sha256=expected_sha256))
 
     def _progress(self, request, downloaded, total):
         progress = self._progress_dialog
         if not self._current(request) or progress is None:
             return
-        progress.setLabelText(f"正在下载更新安装程序… {downloaded / 1024 / 1024:.1f} MB")
+        progress.setLabelText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.progress.progress', value=f'{downloaded / 1024 / 1024:.1f}'))
         if total:
             progress.setRange(0, 1000)
             progress.setValue(min(1000, int(downloaded * 1000 / total)))
@@ -329,7 +333,7 @@ class CalcUpdateController(QObject):
         if request.kind == "download":
             dialogs._show_mirror_project_download_dialog(self.parent(), message)
         elif request.manual:
-            QMessageBox.warning(self.parent(), "检查更新失败", message)
+            QMessageBox.warning(self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.fail.qmessagebox'), message)
         self._end(request)
 
     def _dispatch(self):
@@ -364,7 +368,7 @@ class CalcUpdateController(QObject):
             self._pending_launch = None
             discard_installer(receipt)
         self._close_progress()
-        self._status("已取消 Mirror 下载，正在等待任务退场。")
+        self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.cancel_download.self'))
         if not any(worker.request is request for worker in self._workers):
             self._end(request)
 
@@ -384,7 +388,7 @@ class CalcUpdateController(QObject):
         # AppContext 已发布新 settings，再通知 lifecycle.rebuild；不读旧窗口缓存。
         if not self._closed and self._view is not None:
             self._view[3].setText(str(self._load().get("mirror_cdk") or ""))
-            self._status(f"当前版本: {APP_VERSION}" if self._update_channel == "installer" else self._portable_status())
+            self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.rebuild_account.self', APP_VERSION=f'{APP_VERSION}') if self._update_channel == "installer" else self._portable_status())
             self._buttons()
 
     def begin_close(self):

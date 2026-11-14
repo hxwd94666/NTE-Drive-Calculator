@@ -12,9 +12,9 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QMessageBox
 from PIL import Image
 
-from src.domain.work_mode import WorkMode
+from src.domain.preferences.work_mode import WorkMode
 from src.features.scanning.dependencies import ScanningDependencies
-from src.features.scanning.manual_recovery import ManualRecoverySession, complete_pending_manual_items
+from src.features.scanning.vision.manual_recovery import ManualRecoverySession, complete_pending_manual_items
 from src.integrations.vision.recognition.config import RecognitionLayout
 from src.integrations.vision.recognition.duplicate_filter import RecoverableParseError
 from src.integrations.vision.recognition.image_resources import RecognitionImageProfile, ShapeTemplateFile

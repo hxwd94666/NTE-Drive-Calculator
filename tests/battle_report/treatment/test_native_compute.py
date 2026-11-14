@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.treatment.native import infer_treatment_batch
 from src.services.battle_report.treatment.mechanisms import BattleTreatmentEventService
 from src.services.battle_report.treatment.replay import BattleTreatmentReplayService

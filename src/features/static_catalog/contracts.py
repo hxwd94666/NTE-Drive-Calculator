@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from src.domain.static_catalog import (
+from src.domain.catalog.static_catalog import (
     GLOBAL_DOMAIN_KEY,
     SOURCE_LABELS,
     CatalogDetail,

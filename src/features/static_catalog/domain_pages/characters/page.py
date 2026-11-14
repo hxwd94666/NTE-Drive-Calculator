@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
@@ -168,8 +168,10 @@ class CharacterCatalogPage(QWidget):
         asset_catalog: GameUiAssetCatalog,
         terminology: StaticCatalogTerminologyService | None = None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("characterCatalogPage")
         self.setStyleSheet(themed_style(
             "QWidget#characterCatalogPage{background:#0d1117;}"
@@ -195,6 +197,7 @@ class CharacterCatalogPage(QWidget):
             asset_catalog=self._asset_catalog,
             terminology=self._terminology,
             parent=self,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.detail_view.variant_requested.connect(self.open_character)
         self.stack.addWidget(self.gallery_page)
@@ -219,15 +222,15 @@ class CharacterCatalogPage(QWidget):
         search_row = QHBoxLayout()
         self.search = QLineEdit(filters)
         self.search.setClearButtonEnabled(True)
-        self.search.setPlaceholderText("搜索正式中文名或 character_id")
+        self.search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.search'))
         self.search.textChanged.connect(self._apply_filters)
         search_row.addWidget(self.search, 1)
-        self.sort_hint = QLabel("上线时间 ↓", filters)
+        self.sort_hint = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.sort_hint'), filters)
         self.sort_hint.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:10px;font-weight:800"
         ))
         search_row.addWidget(self.sort_hint)
-        self.result_count = QLabel("0 位角色", filters)
+        self.result_count = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.result_count'), filters)
         self.result_count.setStyleSheet(themed_style(
             "color:#8b949e;font-size:11px;font-weight:700"
         ))
@@ -235,13 +238,13 @@ class CharacterCatalogPage(QWidget):
         filter_layout.addLayout(search_row)
 
         summary_row = QHBoxLayout()
-        self.filter_summary = QLabel("全部角色 · 全属性 · 全品质 · 全获取", filters)
+        self.filter_summary = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.filter_summary'), filters)
         self.filter_summary.setObjectName("characterFilterSummary")
         self.filter_summary.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px;font-weight:700"
         ))
         summary_row.addWidget(self.filter_summary, 1)
-        self.filter_toggle = QPushButton("展开筛选  ▾", filters)
+        self.filter_toggle = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.filter_toggle'), filters)
         self.filter_toggle.setObjectName("characterFilterToggle")
         self.filter_toggle.setCheckable(True)
         self.filter_toggle.setStyleSheet(themed_style(
@@ -316,7 +319,7 @@ class CharacterCatalogPage(QWidget):
         self.card_grid.setHorizontalSpacing(12)
         self.card_grid.setVerticalSpacing(12)
         self.card_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.empty_label = QLabel("没有匹配的角色", self.gallery_host)
+        self.empty_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.editor.empty'), self.gallery_host)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setStyleSheet(themed_style(
             "color:#8b949e;background:#161b22;border:1px dashed #30363d;"
@@ -329,7 +332,7 @@ class CharacterCatalogPage(QWidget):
     def _set_filter_expanded(self, expanded: bool) -> None:
         self.filter_body.setVisible(expanded)
         self.filter_toggle.setText(
-            "收起筛选  ▴" if expanded else "展开筛选  ▾"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_filter_expanded.filter_toggle') if expanded else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.filter_toggle')
         )
 
     @staticmethod
@@ -339,7 +342,7 @@ class CharacterCatalogPage(QWidget):
         options: tuple[tuple[str, str, bool, str], ...],
     ) -> tuple[QHBoxLayout, QButtonGroup]:
         row = QHBoxLayout()
-        label = QLabel(title, parent)
+        label = plain_label(title, parent)
         label.setFixedWidth(46)
         label.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px;font-weight:800"
@@ -386,6 +389,7 @@ class CharacterCatalogPage(QWidget):
                 ),
                 release_metadata=metadata,
                 parent=self.gallery_host,
+                text_catalog=getattr(self, 'text_catalog', None),
             )
             card.activated.connect(self.open_character)
             self._cards[summary.character_id] = card
@@ -412,7 +416,7 @@ class CharacterCatalogPage(QWidget):
         self._visible_ids = visible
         for character_id, card in self._cards.items():
             card.setVisible(character_id in visible)
-        self.result_count.setText(f"{len(visible)} 位角色")
+        self.result_count.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.apply_filters.result_count', value=f'{len(visible)}'))
         self.filter_summary.setText(" · ".join((
             self._checked_text(self.availability_group, "全部角色"),
             self._checked_text(self.element_group, "全属性"),
@@ -559,6 +563,7 @@ def build_character_catalog_page(
     game_ui_asset_root: str | Path,
     terminology_service: StaticCatalogTerminologyService | None = None,
     parent: QWidget | None = None,
+    text_catalog=None,
 ) -> CharacterCatalogPage:
     """Public factory used by the shared game-catalog composition root."""
 
@@ -570,5 +575,6 @@ def build_character_catalog_page(
         asset_catalog=GameUiAssetCatalog(game_ui_asset_root),
         terminology=terminology_service,
         parent=parent,
+        text_catalog=text_catalog,
     )
     return page

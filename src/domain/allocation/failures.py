@@ -10,7 +10,7 @@ from typing import Any, TYPE_CHECKING
 from src.models.equipment import Drive
 
 if TYPE_CHECKING:
-    from src.domain.stat_catalog import StatCatalog
+    from src.domain.equipment.properties.stat_catalog import StatCatalog
     from src.optimizer.allocation_kernel import AllocationKernelRequest
 
 

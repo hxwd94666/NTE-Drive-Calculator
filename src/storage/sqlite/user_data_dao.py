@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 from .equipment.loadout_management_dao import LoadoutManagementDaoMixin
-from .teams_dao import TeamsDaoMixin
-from .team_axis_graduation_dao import TeamAxisGraduationDaoMixin
-from .team_axis_graduation_results_dao import TeamAxisGraduationResultsDaoMixin
-from .team_overview_dao import TeamOverviewDaoMixin
-from .team_enhancement_dao import TeamEnhancementDaoMixin
+from .characters.world_bonus_dao import WorldBonusDaoMixin
+from src.storage.sqlite.teams.teams_dao import TeamsDaoMixin
+from src.storage.sqlite.teams.team_axis_graduation_dao import TeamAxisGraduationDaoMixin
+from src.storage.sqlite.teams.team_axis_graduation_results_dao import TeamAxisGraduationResultsDaoMixin
+from src.storage.sqlite.teams.team_overview_dao import TeamOverviewDaoMixin
+from src.storage.sqlite.teams.team_enhancement_dao import TeamEnhancementDaoMixin
 
 from src.storage.sqlite.accounts.account_data_dao import AccountDataDaoMixin
 from src.storage.sqlite.inventory.all_item_snapshot_dao import AllItemSnapshotDaoMixin
@@ -50,6 +51,7 @@ from src.storage.sqlite.user_data_support import (
 
 
 class UserDataDao(
+    WorldBonusDaoMixin,
     TeamAxisGraduationResultsDaoMixin,
     TeamAxisGraduationDaoMixin,
     TeamEnhancementDaoMixin,

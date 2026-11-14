@@ -1,12 +1,15 @@
 # 验证首击只依赖角色已装备证据，不读整背包，跨页冲突仍拒绝。
+from tests.battle_report.capture.test_battle_capture_build_freeze import capture as capture
 from copy import deepcopy
 import pytest
-from src.integrations.native_inventory_snapshot import _equipped_subset
-from src.integrations.nte_core_protocol import NteCoreProtocolError
+from src.integrations.native_core.snapshots.native_inventory_snapshot import _equipped_subset
+from src.integrations.native_core.nte_core_protocol import NteCoreProtocolError
 from src.services.battle_report.capture.build_context import native_equipment_projection
 from src.services.battle_report.inputs.scopes import select_native_team_snapshot
 from src.services.battle_report.inputs.preparation import first_hit_snapshot_ready
-from tests.test_battle_capture_build_freeze import native_snapshot, capture, finish, scoped  # noqa: F401
+from tests.battle_report.capture.test_battle_capture_build_freeze import native_snapshot
+from tests.battle_report.capture.test_battle_capture_build_freeze import finish
+from tests.battle_report.capture.test_battle_capture_build_freeze import scoped
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.battle_report.inputs.helpers import attempt
 

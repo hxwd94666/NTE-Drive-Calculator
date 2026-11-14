@@ -25,7 +25,7 @@ from src.features.static_catalog.domain_pages.forks.page import ForkCatalogPage
 from src.features.static_catalog.domain_pages.monsters.page import MonsterCatalogPage
 from src.features.static_catalog.page import StaticCatalogPage
 from src.services.static_catalog.service import StaticCatalogService
-from src.ui.equipment_presentation import EquipmentPresentation
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
 
 
 NTE_TEST_TIER = "core"

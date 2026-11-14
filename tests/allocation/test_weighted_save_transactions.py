@@ -3,7 +3,7 @@ from concurrent.futures import CancelledError
 from contextlib import contextmanager, closing
 from copy import deepcopy
 from dataclasses import replace
-from src.services.allocation.context_builder import read_allocation_scoring_rules
+from src.services.allocation.inputs.context_builder import read_allocation_scoring_rules
 from shutil import copyfile
 from threading import Event
 from types import SimpleNamespace
@@ -12,12 +12,12 @@ import pytest
 from src.app import page_tasks
 from src.features.weighted_allocation.runner import WeightedAllocationPreview, save_weighted_allocation_preview
 from src.features.weighted_allocation.save_owner import WeightedOwnerIdentity, WeightedOperation, WeightedSaveOwner
-from src.services.allocation import weighted_save
-from src.services.allocation.inventory import legacy_shape_id
-from src.services.allocation.locks import build_allocation_lock_snapshot
+from src.services.allocation.results import weighted_save
+from src.services.allocation.inputs.inventory import legacy_shape_id
+from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
 from src.domain.allocation.inputs import AllocationContext, InventorySnapshotReference, StaticDatasetReference
-from src.services.allocation_solver import AllocationAssignment, AllocationSolveResult, RoleAllocationOption, UnifiedAllocation
-from src.services.equipment.weighted_loadout_comparison_service import WeightedLoadoutComparison
+from src.services.allocation.execution.allocation_solver import AllocationAssignment, AllocationSolveResult, RoleAllocationOption, UnifiedAllocation
+from src.services.equipment.loadouts.weighted_loadout_comparison_service import WeightedLoadoutComparison
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 from tests.equipment.test_role_loadout_slots import assignment, inventory_snapshot

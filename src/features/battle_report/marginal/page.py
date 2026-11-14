@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -64,8 +66,8 @@ from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
 )
-from src.ui.dashboard_widgets import metric_card
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.dashboard_widgets import metric_card
+from src.ui.common.widgets import NoWheelComboBox
 
 
 def _number(value: float) -> str:
@@ -82,8 +84,9 @@ class BattleMarginalPage(QWidget):
     role_changed = Signal(object)
     axis_optimization_requested = Signal()
 
-    def __init__(self, *, game_ui_asset_root=None, parent: QWidget | None = None) -> None:
+    def __init__(self, *, game_ui_asset_root=None, parent: QWidget | None = None, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._game_ui_asset_root = game_ui_asset_root
         self._analysis: BattleAnalysisSnapshot | None = None
         self._candidate_analysis: BattleAnalysisSnapshot | None = None
@@ -108,6 +111,7 @@ class BattleMarginalPage(QWidget):
             reset=self._reset_draft,
             recalculate=self._request_recalculate,
             axis_optimize=self.axis_optimization_requested.emit,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.character_combo = toolbar.character_combo
         self.change_summary = toolbar.change_summary
@@ -123,7 +127,7 @@ class BattleMarginalPage(QWidget):
         root = QVBoxLayout(content)
         root.setContentsMargins(22, 14, 22, 22)
         root.setSpacing(14)
-        model_notice = QLabel("模拟收益可能遗漏部分游戏机制；实测战报数据不受影响。")
+        model_notice = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.model_notice'))
         model_notice.setObjectName("battleMarginalModelNotice")
         model_notice.setWordWrap(True)
         model_notice.setStyleSheet(themed_style("color:#d29922;font-size:12px"))
@@ -145,18 +149,18 @@ class BattleMarginalPage(QWidget):
             metrics.addWidget(card, 0, column)
         root.addLayout(metrics)
 
-        self.derived_settlements = BattleMarginalDerivedSettlementView()
+        self.derived_settlements = BattleMarginalDerivedSettlementView(text_catalog=getattr(self, 'text_catalog', None))
         self.derived_settlements.hit_activated.connect(
             lambda event_id: self._open_counterfactual_hit(TimelineSelection("hit", event_id, None))
         )
         root.addWidget(self.derived_settlements)
 
-        timeline_card, timeline_layout = analysis_section("调整后逐击轴")
+        timeline_card, timeline_layout = analysis_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.timeline_card_timeline_layout_2'))
         timeline_controls = QHBoxLayout()
-        timeline_controls.addWidget(QLabel("口径"))
+        timeline_controls.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption_3')))
         self.timeline_time_mode_combo = NoWheelComboBox()
-        self.timeline_time_mode_combo.addItem("扣除时停", ACTIVE_TIME_MODE)
-        self.timeline_time_mode_combo.addItem("包含时停", ELAPSED_TIME_MODE)
+        self.timeline_time_mode_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.time_mode_combo'), ACTIVE_TIME_MODE)
+        self.timeline_time_mode_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.time_mode_combo_2'), ELAPSED_TIME_MODE)
         self.timeline_time_mode_combo.setCurrentIndex(
             self.timeline_time_mode_combo.findData(ELAPSED_TIME_MODE)
         )
@@ -164,7 +168,7 @@ class BattleMarginalPage(QWidget):
             self._timeline_time_mode_changed
         )
         timeline_controls.addWidget(self.timeline_time_mode_combo)
-        timeline_controls.addWidget(QLabel("缩放"))
+        timeline_controls.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.caption_4')))
         self.timeline_zoom_combo = NoWheelComboBox()
         for percent in (10, 25, 50, 100, 200, 300, 400, 500, 600, 700, 800):
             self.timeline_zoom_combo.addItem(f"{percent}%", percent / 100.0)
@@ -177,25 +181,23 @@ class BattleMarginalPage(QWidget):
         timeline_controls.addWidget(self.timeline_zoom_combo)
         timeline_controls.addStretch()
         timeline_help_text = (
-            "沿用原战报动作、命中和时段；完整或部分量化项使用相应投影值，"
-            "未量化项保留原轴数值并在伤害名标成原轴占位。"
-            "生命上限结算保留原角色归因；安魂曲五觉跟随噩梦伤害，"
-            "法帝娅被动跟随其固有生命，证据不足才固定原值。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.timeline_help_text_text')
         )
         timeline_help = QPushButton("?")
         timeline_help.setObjectName("btnHelp")
-        timeline_help.setToolTip(timeline_help_text)
+        timeline_help.setToolTip(plain_tooltip(ui_enum_text(getattr(self, 'text_catalog', None), timeline_help_text)))
         timeline_help.clicked.connect(
             lambda _checked=False, button=timeline_help: show_help(
                 button,
-                "调整后逐击轴",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.timeline_card_timeline_layout_2'),
                 timeline_help_text,
             )
         )
         timeline_controls.addWidget(timeline_help)
         timeline_layout.addLayout(timeline_controls)
         self.counterfactual_timeline = BattleUnifiedTimelineWidget(
-            game_ui_asset_root=self._game_ui_asset_root
+            game_ui_asset_root=self._game_ui_asset_root,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.counterfactual_timeline.set_hit_heading(
             "调整后逐击（未量化项为原轴占位）"
@@ -227,10 +229,10 @@ class BattleMarginalPage(QWidget):
         )
         timeline_layout.addWidget(self.counterfactual_timeline_scroll)
         root.addWidget(timeline_card)
-        self.character_panel = BattleMarginalCharacterPanel()
+        self.character_panel = BattleMarginalCharacterPanel(text_catalog=getattr(self, 'text_catalog', None))
         root.addWidget(self.character_panel)
-        attribute_card, attribute_layout = analysis_section("驱动副词条单位边际")
-        attribute_note = QLabel("每行按一格金色驱动副词条计算；“—”表示缺少可量化证据。")
+        attribute_card, attribute_layout = analysis_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_card_attribute_layout'))
+        attribute_note = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_note'))
         attribute_note.setStyleSheet(
             themed_style("color:#8b949e;font-size:12px")
         )
@@ -238,14 +240,14 @@ class BattleMarginalPage(QWidget):
         attribute_layout.addWidget(attribute_note)
         self.attribute_table = analysis_table(
             (
-                "属性单位",
-                "面板属性",
-                "伤害加权公式属性",
-                "面板关联收益",
-                "全队期望收益",
-                "关联面板伤害",
-                "面板关联伤害",
-                "关联全队伤害",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table_2'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table_3'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table_4'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table_5'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table_6'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table_7'),
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.attribute_table_8'),
             ),
             280,
             default_widths=(220, 125, 165, 145, 145, 135, 120, 145),
@@ -255,44 +257,45 @@ class BattleMarginalPage(QWidget):
 
         (self.core_main_table, self.core_main_notice,
          self.fork_benefit_panel, self.fork_benefit_table, self.fork_benefit_notice,
-        ) = build_marginal_benefit_sections(root)
+        ) = build_marginal_benefit_sections(root, text_catalog=getattr(self, 'text_catalog', None))
         # 编辑器未挂载或重建期间由本页保管，重挂后才显示，不产生游离顶层表格。
         self.fork_benefit_panel.setParent(self)
         self.fork_benefit_panel.hide()
-        buff_card, buff_layout = analysis_section("团队 Buff 边际")
-        buff_note = QLabel("同一 Buff 的角色收益可合计；不同 Buff 请勿直接相加。")
+        buff_card, buff_layout = analysis_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.buff_card_buff_layout'))
+        buff_note = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.buff_note'))
         buff_note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         buff_note.setWordWrap(True)
         buff_layout.addWidget(buff_note)
         self.buff_benefit_table = analysis_table(
-            BUFF_BENEFIT_HEADERS,
+            ui_enum_text(getattr(self, 'text_catalog', None), BUFF_BENEFIT_HEADERS),
             240,
             default_widths=BUFF_BENEFIT_WIDTHS,
         )
         buff_layout.addWidget(self.buff_benefit_table)
         root.addWidget(buff_card)
 
-        editor_card, editor_layout = analysis_section("角色配置")
+        editor_card, editor_layout = analysis_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.set_box'))
         self.editor_stack = QStackedWidget()
         editor_layout.addWidget(self.editor_stack)
         root.addWidget(editor_card)
 
-        roles_card, roles_layout = analysis_section("重算后角色贡献")
+        roles_card, roles_layout = analysis_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_card_roles_layout_2'))
         roles_row = QHBoxLayout()
         self.roles_table = analysis_table(
-            ("角色", "新伤害", "新占比", "角色收益"),
+            (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table_5'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table_6'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.table_15')),
             180,
             default_widths=(180, 150, 150, 140),
         )
         roles_row.addWidget(self.roles_table, 3)
-        self.roles_pie = BattleRoleDamagePieWidget()
+        self.roles_pie = BattleRoleDamagePieWidget(text_catalog=getattr(self, 'text_catalog', None))
         roles_row.addWidget(self.roles_pie, 2)
         roles_layout.addLayout(roles_row)
         root.addWidget(roles_card)
 
-        composition_card, composition_layout = analysis_section("重算后角色伤害构成")
+        composition_card, composition_layout = analysis_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.composition_card_composition_layout_2'))
         self.composition_panel = BattleDamageCompositionPanel(
-            game_ui_asset_root=self._game_ui_asset_root
+            game_ui_asset_root=self._game_ui_asset_root,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         composition_layout.addWidget(self.composition_panel)
         root.addWidget(composition_card)
@@ -421,7 +424,7 @@ class BattleMarginalPage(QWidget):
             self.metric_labels["dps"].setText(_number(analysis.effective_dps))
             self.metric_labels["damage"].setText(_number(analysis.effective_damage))
             self.metric_subtitles["damage"].setText(
-                "+0.00% · 当前生效基线（本次未修改）"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_analysis.metric_subtitles_damage')
             )
             self.metric_labels["structured"].setText("—")
             self.roles_table.setRowCount(0)
@@ -454,19 +457,20 @@ class BattleMarginalPage(QWidget):
                 "—" if projected_damage is None else _number(projected_damage)
             )
             self.metric_subtitles["damage"].setText(
-                "等待候选重算"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_analysis.metric_subtitles_damage_2')
                 if gain is None
-                else f"{gain:+.2f}% · 基线 {_number(comparison.baseline_damage)}"
+                else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_analysis.metric_subtitles_damage_3', gain=f'{gain:+.2f}', value=f'{_number(comparison.baseline_damage)}')
             )
             self.metric_labels["structured"].setText(
                 f"{comparison.structured_percent:.1f}%"
             )
             self.metric_subtitles["structured"].setText(
-                f"估计 {max(0.0, 100.0 - comparison.structured_percent):.1f}%"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_analysis.metric_subtitles_structured', value=f'{max(0.0, 100.0 - comparison.structured_percent):.1f}')
             )
             render_counterfactual_roles(
                 self.roles_table, self.roles_pie,
                 comparison.roles, projected_damage,
+                text_catalog=getattr(self, 'text_catalog', None),
             )
             if comparison.quantification.status == "unavailable":
                 self.composition_panel.clear()
@@ -534,8 +538,8 @@ class BattleMarginalPage(QWidget):
                                          else details.for_hit(original_hit, formula=True))
         dialog = getattr(self, "_counterfactual_hit_dialog", None)
         if dialog is None:
-            dialog = BattleHitFormulaDialog(self, game_ui_asset_root=self._game_ui_asset_root)
-            dialog.setWindowTitle("边际逐击详情")
+            dialog = BattleHitFormulaDialog(self, game_ui_asset_root=self._game_ui_asset_root, text_catalog=getattr(self, 'text_catalog', None))
+            dialog.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.open_counterfactual_hit.dialog'))
             self._counterfactual_hit_dialog = dialog
         dialog.show_for_hit(
             original_hit,
@@ -598,10 +602,8 @@ class BattleMarginalPage(QWidget):
 
     def allows_automatic_recalculation(self) -> bool:
         return not self._draft_dirty
-
     def disabled_inferred_fact_ids(self) -> tuple[str, ...]:
         return () if self.use_inferred_facts.isChecked() else self._inferred_fact_ids
-
     def _character_changed(self, _index: int = -1, *, notify: bool = True) -> None:
         index = self.character_combo.currentIndex()
         if 0 <= index < self.editor_stack.count():
@@ -614,11 +616,10 @@ class BattleMarginalPage(QWidget):
         self._refresh_change_summary()
         if notify:
             self.role_changed.emit(self.selected_detail_scope())
-
     def _refresh_change_summary(self, *_args) -> None:
         index = self.character_combo.currentIndex()
         if not 0 <= index < len(self._editors):
-            self.change_summary.setText("等待角色配置")
+            self.change_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.refresh_change_summary.change_summary'))
             self.change_summary.setToolTip("")
             return
         editor = self._ensure_editor(index)
@@ -626,8 +627,8 @@ class BattleMarginalPage(QWidget):
             profile = editor.profile()
             equipment = editor.selected_equipment_context()
         except (KeyError, TypeError, ValueError):
-            self.change_summary.setText("当前候选尚未完整")
-            self.change_summary.setToolTip("请完成角色养成与可冻结配装选择。")
+            self.change_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.refresh_change_summary.change_summary_2'))
+            self.change_summary.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.refresh_change_summary.change_summary_3')))
             return
         awakening_count = int(profile.get("awakening_level") or 0)
         skill_levels = tuple(
@@ -648,8 +649,7 @@ class BattleMarginalPage(QWidget):
         if self._draft_dirty:
             summary += " · 配置已变化，待重算"
         self.change_summary.setText(summary)
-        self.change_summary.setToolTip("当前候选：" + summary)
-
+        self.change_summary.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.refresh_change_summary.change_summary_4') + summary))
     def _ensure_editor(self, index: int) -> OfficialRoleProfileEditor:
         existing = self._editors[index]
         if existing is not None:
@@ -670,6 +670,7 @@ class BattleMarginalPage(QWidget):
             ),
             scoring_engine=getattr(host, "scoring_engine", None),
             shape_areas=getattr(host, "_shape_areas", {}),
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         placeholder = self.editor_stack.widget(index)
         self.editor_stack.removeWidget(placeholder)
@@ -678,7 +679,6 @@ class BattleMarginalPage(QWidget):
         self._editors[index] = editor
         editor.changed.connect(self._mark_draft_changed)
         return editor
-
     def _replace_equipment(
         self,
         index: int,
@@ -691,14 +691,12 @@ class BattleMarginalPage(QWidget):
         context = (detail.get("equipment_contexts") or {}).get(context_key)
         if not isinstance(context, dict):
             return False
-
         def apply_replacement(replacement) -> None:
             BattleMarginalCandidateService.replace_equipment(
                 context,
                 target,
                 replacement,
             )
-
         accepted = show_battle_equipment_replacement(
             self,
             detail,
@@ -709,21 +707,19 @@ class BattleMarginalPage(QWidget):
             and self.character_combo.currentIndex() == index,
             static_database_path=detail["static_database_path"],
             static_schema_version=detail["static_schema_version"],
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if accepted:
             self._mark_draft_changed()
         return accepted
-
     def _mark_draft_changed(self, *_args) -> None:
         if not self._details:
             return
         self._draft_dirty = True
         self._refresh_change_summary()
         self.draft_changed.emit()
-
     def _reset_draft(self) -> None:
         self.reset_requested.emit()
-
     def _render_selected_role(self) -> None:
         analysis = self._analysis
         character_id = self.selected_character_id()
@@ -743,6 +739,7 @@ class BattleMarginalPage(QWidget):
             analysis.buff_counterfactuals,
             source_character_id=character_id,
             passive_results=getattr(analysis, "passive_counterfactuals", ()),
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         render_marginal_benefits(
             self.core_main_table,
@@ -751,6 +748,7 @@ class BattleMarginalPage(QWidget):
             self.fork_benefit_notice,
             self._marginal_benefits,
             character_id=character_id,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         comparison = analysis.build_counterfactual
         role = next(
@@ -765,7 +763,7 @@ class BattleMarginalPage(QWidget):
             self.metric_labels["role"].setText(
                 "—" if original is None else _number(original.damage)
             )
-            self.metric_subtitles["role"].setText("+0.00% · 当前生效基线（本次未修改）")
+            self.metric_subtitles["role"].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_analysis.metric_subtitles_damage'))
         else:
             projected_damage = display_projection(
                 candidate=role.candidate_damage,
@@ -781,11 +779,10 @@ class BattleMarginalPage(QWidget):
                 "—" if projected_damage is None else _number(projected_damage)
             )
             self.metric_subtitles["role"].setText(
-                "等待候选重算"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_analysis.metric_subtitles_damage_2')
                 if gain is None
-                else f"{gain:+.2f}% · 基线 {_number(role.baseline_damage)}"
+                else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_selected_role.metric_subtitles_role', gain=f'{gain:+.2f}', value=f'{_number(role.baseline_damage)}')
             )
-
     def _render_attributes(self, baseline: BattleCharacterBaseline | None) -> None:
         render_character_panel_and_margins(
             self.character_panel,
@@ -793,8 +790,8 @@ class BattleMarginalPage(QWidget):
             analysis=self._analysis,
             baseline=baseline,
             marginal_panel=self._marginal_panel,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
-
     def _request_recalculate(self) -> None:
         self._refresh_change_summary()
         self.recalculate_requested.emit(self.profiles())

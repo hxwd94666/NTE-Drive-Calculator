@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from src.domain.work_mode import CheckState
+from src.domain.preferences.work_mode import CheckState
 from src.integrations.components.environment import EquipmentPluginDeploymentError
 from src.integrations.components.native_files import NativePluginDeployment, PluginDeploymentPendingCleanup
 from src.services.work_modes.runtime import WorkModeRuntime
@@ -112,7 +112,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
             self.native.inspect.assert_called_once_with(refresh=False, check_equipment=False)
 
     def test_inspection_failure_preserves_shared_reason_and_unknown_handshake(self):
-        from src.integrations.nte_core_protocol import NteCoreTimeoutError
+        from src.integrations.native_core.nte_core_protocol import NteCoreTimeoutError
         self.enable_auto()
         self.policy.set_cleanup_pending(False)
         self.process.return_value = True
@@ -130,7 +130,7 @@ class WorkModeRuntimeTests(unittest.TestCase):
         self.assertEqual(probe.native_inventory.fault, "")
 
     def test_rpc_failure_keeps_confirmed_handshake_without_promoting_business(self):
-        from src.integrations.nte_core_protocol import NteCoreRequestContext, NteCoreRpcError
+        from src.integrations.native_core.nte_core_protocol import NteCoreRequestContext, NteCoreRpcError
         from src.services.work_modes.inspection import build_work_mode_report
 
         self.enable_auto()

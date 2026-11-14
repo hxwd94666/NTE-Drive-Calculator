@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
@@ -83,6 +84,7 @@ class BattleAnalysisCompositionMixin:
                 BattleRoleShareBar(
                     share_percent=item.share_percent,
                     color=role_contribution_color(row),
+                    text_catalog=getattr(self, 'text_catalog', None),
                 ),
             )
             self.roles_table.setRowHeight(row, 34)
@@ -122,13 +124,13 @@ class BattleAnalysisCompositionMixin:
         )
         if composition.pending_topple_attribution:
             self.composition_status_label.setText(
-                "当前时段含团队倾陷，尚未加载逐角色公式。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_damage_composition.composition_status_label')
             )
             if self._topple_detail_requested_analysis is not analysis:
                 QTimer.singleShot(0, self._request_topple_attribution)
         elif composition.unresolved_topple_attribution:
             self.composition_status_label.setText(
-                "倾陷缺少明确目标或公式证据，暂列未归因。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_damage_composition.composition_status_label_2')
             )
 
     def _request_topple_attribution(self) -> None:

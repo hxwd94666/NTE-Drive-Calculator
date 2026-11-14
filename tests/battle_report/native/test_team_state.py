@@ -8,7 +8,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from unittest.mock import patch
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.characters.daffodill import BattleDaffodillAwakeningService
 from src.services.battle_report.characters.linko_buffs import BattleLinkoCoattackBuffService
 from src.services.battle_report.environment.outer_realm_buffs import BattleOuterRealmBuffService

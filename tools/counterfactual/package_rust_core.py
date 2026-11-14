@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.integrations.nte_analysis_core import ENGINE_VERSION, NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import ENGINE_VERSION, NteAnalysisCoreClient
 from tools.game_data.build_analysis_catalogs import validate_catalog_inputs
 from tools.counterfactual.rust_core_build import build_analysis_core, verify_build_record
 
@@ -50,6 +50,7 @@ def main() -> int:
         version.get("engine_version") != ENGINE_VERSION
         or not isinstance(capabilities, list)
         or "battle_page_v1" not in capabilities
+        or "furniture_attributes_v1" not in capabilities
         or "main_static_catalog_v1" not in capabilities
         or "allocation_v2" not in capabilities
         or "damage_allocation_v1" not in capabilities
@@ -57,6 +58,7 @@ def main() -> int:
         or "allocation_blueprints_v1" not in capabilities
         or "battle_axis_team_v1" not in capabilities
         or "battle_axis_fixed_team_v1" not in capabilities
+        or not {"analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"}.issubset(capabilities)
     ):
         raise RuntimeError("分析组件缺少战报数据库直读、空幕分配、Rust 图纸生成或正式队伍预检能力")
     license_path = source.parent / "LICENSE"

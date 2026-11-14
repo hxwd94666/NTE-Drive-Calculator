@@ -12,7 +12,7 @@ from src.services.accounts.settings import AccountSettingsService
 from src.storage.sqlite.shared_data_dao import SharedDataDao
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.integrations.role_catalog_release import RoleCatalogRelease, resolve_role_catalog
+from src.integrations.static_catalog.role_catalog_release import RoleCatalogRelease, resolve_role_catalog
 
 
 @dataclass(frozen=True)

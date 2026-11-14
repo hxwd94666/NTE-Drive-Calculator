@@ -6,13 +6,14 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtWidgets import QMessageBox, QWidget
 
-from auto_sync_ui_fixture import application, dispose
+from tests.support.auto_sync_ui_fixture import application
+from tests.support.auto_sync_ui_fixture import dispose
 from src.app.context import AppContext, AccountSwitchError, CallbackAccountLifecycle
-from src.domain.work_mode import NativeFeatureProbe, WorkMode, WorkModeProbe
+from src.domain.preferences.work_mode import NativeFeatureProbe, WorkMode, WorkModeProbe
 from src.features.accounts.manager import AccountManager
 from src.ui.app import MainWindow
 from src.ui.controllers.auto_sync_controller import AutoSyncController
-from src.ui.work_mode_composition import initialize_mode_policy
+from src.ui.composition.work_mode_composition import initialize_mode_policy
 
 
 def test_switch_rejects_running_rewind_before_target_lookup(monkeypatch):

@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from src.observability import OperationContext, operation_scope
-from src.domain.recommended_weights import base_weight_character_id
-from src.domain.basic_weight import AccountWeightChange
+from src.domain.characters.recommended_weights import base_weight_character_id
+from src.domain.characters.basic_weight import AccountWeightChange
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.characters.workshop_weight_template_service import (

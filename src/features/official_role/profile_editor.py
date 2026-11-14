@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Callable
 
 from PySide6.QtCore import Signal
@@ -48,8 +49,10 @@ class OfficialRoleProfileEditor(QWidget):
         equipment_replacement_handler: Callable[[dict, str], bool] | None = None,
         scoring_engine=None,
         shape_areas: dict[str, int] | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.scoring_engine = scoring_engine
         self._shape_areas = dict(shape_areas or {})
         self._detail = detail
@@ -104,7 +107,7 @@ class OfficialRoleProfileEditor(QWidget):
                 )
             )
         if self._include_analysis:
-            layout.addWidget(_build_damage_formula_group(detail, self._editor))
+            layout.addWidget(_build_damage_formula_group(detail, self._editor, text_catalog=text_catalog))
             layout.addWidget(
                 _build_weight_group(self, character_id, detail, self._editor)
             )

@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -18,9 +18,10 @@ from PySide6.QtWidgets import QHeaderView
 
 from src.domain.official_role.advancement import select_character_growth, select_fork_breakthrough
 from src.domain.official_role.likeability import likeability_input_issue
-from src.services.official_role.graduation import graduation_rate, graduation_tooltip as _graduation_tooltip
-from src.services.official_role.marginal_scoring import calculate_official_role_final_weights, calculate_official_role_margins
-from src.services.official_role.panel_explanation import calculate_official_role_damage_breakdown
+from src.services.official_role.equipment.graduation import graduation_rate, graduation_tooltip as _graduation_tooltip
+from src.services.official_role.equipment.marginal_scoring import calculate_official_role_final_weights, calculate_official_role_margins
+from src.services.official_role.panel.panel_explanation import calculate_official_role_damage_breakdown
+from src.services.official_role.native_damage import role_damage_calculator
 
 
 def _attribute_name(detail: dict, property_id: str) -> str:
@@ -150,12 +151,75 @@ def _calculation_detail(detail: dict, editor: dict) -> dict:
     }
 
 
-def _register_calculation_refresh(editor: dict, callback) -> None:
-    editor.setdefault("calculation_refreshers", []).append(callback)
+def _calculation_signature(value):
+    # 页面只持有当前角色的冻结 detail；递归拍下容器内容，避免原地编辑令旧签名随之改变。
+    # 类型进入身份；非容器对象（冻结 StatCatalog 等）仍由本页面 detail 持有，不跨账号共享。
+    if isinstance(value, dict):
+        return type(value), tuple((key, _calculation_signature(item)) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return type(value), tuple(map(_calculation_signature, value))
+    return type(value), value
+
+
+def _role_refresh_signature(editor):
+    detail = editor["detail"]
+    projected = _calculation_detail(detail, editor)
+    # 静态成长/技能/弧盘大目录由本页已冻结 detail 和来源键拥有；不为每次信号遍历整目录。
+    # 可编辑养成、装备、权重及面板加成必须按内容拍照，支持原地修改与上下文切换。
+    mutable = {key: projected.get(key) for key in (
+        "profile", "equipment_contexts", "equipment_plan", "property_weights", "main_property_weights",
+        "calculation_context_key", "world_bonus", "shape_bonus", "likeability_bonus",
+        "graduation_template", "graduation_extra_shape_count",
+    )}
+    mutable["base_property_weights"] = detail.get("property_weights")
+    mutable["base_main_property_weights"] = detail.get("main_property_weights")
+    source = (id(detail), detail.get("_view_source_key"), tuple((key, id(detail.get(key))) for key in (
+        "growth_rows", "forks", "attributes", "stat_catalog", "character", "config_dir",
+        "item_names", "item_icon_paths", "static_release",
+    )))
+    return source, _calculation_signature(mutable)
+
+
+def _register_calculation_refresh(editor: dict, callback):
+    previous = None
+    def refresh_once():
+        nonlocal previous
+        inputs = _role_refresh_signature(editor)
+        if inputs == previous:
+            return
+        callback()
+        # 边际权重是本次计算的输出；成功后记录最终输入，避免输出反馈触发一轮重复求值。
+        # 异常不记签名；重试仍执行，不将半成品视为已完成。
+        previous = _role_refresh_signature(editor)
+    editor.setdefault("calculation_refreshers", []).append(refresh_once)
+    return refresh_once
+
+
+def _update_table_rows(table, rows):
+    # 行次序完全来自本次原结果，只复用控件与单元格，不缓存或近似数值。
+    updates = table.updatesEnabled()
+    table.setUpdatesEnabled(False)
+    try:
+        table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            for column, text in enumerate(row):
+                item = table.item(row_index, column)
+                if item is None:
+                    table.setItem(row_index, column, QTableWidgetItem(text))
+                elif item.text() != text:
+                    item.setText(text)
+        table.setFixedHeight(table.horizontalHeader().height()
+            + table.verticalHeader().defaultSectionSize() * len(rows) + table.frameWidth() * 2)
+    finally:
+        table.setUpdatesEnabled(updates)
 
 
 def _refresh_role_calculations(editor: dict) -> None:
     if editor.get("refreshing_calculations"):
+        return
+    request = editor.get("request_calculation")
+    if request is not None and not editor.get("applying_calculation_values"):
+        request()
         return
     editor["refreshing_calculations"] = True
     try:
@@ -178,20 +242,20 @@ def _build_margin_group(
     detail: dict,
     editor: dict,
 ) -> QGroupBox:
-    group = QGroupBox("边际收益（按每单位收益排序）")
+    group = QGroupBox(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_margin_group.group'))
     group.setObjectName("officialRoleMarginalGroup")
     layout = QVBoxLayout(group)
-    state = {"margins": None, "initialized": False}
+    state = {"margins": None, "initialized": False, "table": None, "note": None}
     header = QHBoxLayout()
-    graduation_label = QLabel("空幕直伤毕业率 : --")
+    graduation_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_margin_group.graduation_label'))
     graduation_label.setObjectName("officialRoleGraduationRate")
     graduation_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
     graduation_label.setToolTip(_graduation_tooltip(detail))
     header.addWidget(graduation_label)
-    damage_label = QLabel("直伤评分 : --")
+    damage_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_margin_group.damage_label'))
     damage_label.setObjectName("officialRoleDamageScore")
     damage_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
-    damage_label.setToolTip("使用当前官方角色指针和所选装备上下文计算。")
+    damage_label.setToolTip('')
     header.addWidget(damage_label)
     header.addStretch()
     layout.addLayout(header)
@@ -202,98 +266,103 @@ def _build_margin_group(
     def refresh() -> None:
         calculation_detail = _calculation_detail(detail, editor)
         margin_context = str(editor.get("equipment_context_key") or "current")
-        margins = calculate_official_role_margins(
-            calculation_detail,
-            margin_context,
-        )
-        state["margins"] = margins
-        final_weights = calculate_official_role_final_weights(
-            calculation_detail,
-            margin_context,
-            margins=margins,
-            base_property_weights=detail.get("property_weights") or {},
-            base_main_property_weights=detail.get("main_property_weights") or {},
-        )
-        editor["marginal_property_weights"] = final_weights["property_weights"]
-        editor["marginal_main_property_weights"] = final_weights["main_property_weights"]
-        editor["formula_property_ids"] = final_weights["formula_property_ids"]
-        refresh_weights = editor.get("refresh_weights")
-        if refresh_weights:
-            refresh_weights()
-        _clear_layout(table_layout)
-        damage = float((margins or {}).get("damage") or 0.0)
-        graduation_detail = {
-            **calculation_detail,
-            "property_weights": detail.get("property_weights") or {},
-            "main_property_weights": detail.get("main_property_weights") or {},
-        }
-        rate = graduation_rate(graduation_detail, margin_context)
+        with role_damage_calculator(calculation_detail) as calculator:
+            margins = calculate_official_role_margins(
+                calculation_detail,
+                margin_context, calculator=calculator,
+            )
+            state["margins"] = margins
+            final_weights = calculate_official_role_final_weights(
+                calculation_detail,
+                margin_context,
+                margins=margins,
+                base_property_weights=detail.get("property_weights") or {},
+                base_main_property_weights=detail.get("main_property_weights") or {},
+            )
+            editor["marginal_property_weights"] = final_weights["property_weights"]
+            editor["marginal_main_property_weights"] = final_weights["main_property_weights"]
+            editor["formula_property_ids"] = final_weights["formula_property_ids"]
+            refresh_weights = editor.get("refresh_weights")
+            if refresh_weights:
+                refresh_weights()
+            damage = float((margins or {}).get("damage") or 0.0)
+            graduation_detail = {
+                **calculation_detail,
+                "property_weights": detail.get("property_weights") or {},
+                "main_property_weights": detail.get("main_property_weights") or {},
+            }
+            rate = graduation_rate(graduation_detail, margin_context, calculator=calculator)
         graduation_label.setText(
-            f"空幕直伤毕业率 : {rate:.1f}%" if rate is not None else "空幕直伤毕业率 : --"
+            resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh.graduation_label', rate=f'{rate:.1f}') if rate is not None else resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_margin_group.graduation_label')
         )
-        damage_label.setText(f"直伤评分 : {damage:.2f}" if margins else "直伤评分 : --")
+        damage_label.setText(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh.damage_label', damage=f'{damage:.2f}') if margins else resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_margin_group.damage_label'))
         if not margins:
-            note = QLabel(likeability_input_issue(calculation_detail) or "当前角色状态尚无可计算的官方直伤技能或装备上下文。")
-            note.setWordWrap(True)
-            table_layout.addWidget(note)
+            if state["table"] is not None:
+                state["table"].hide()
+            if state["note"] is None:
+                state["note"] = plain_label("")
+                state["note"].setWordWrap(True)
+                table_layout.addWidget(state["note"])
+            state["note"].setText(likeability_input_issue(calculation_detail) or resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh.note'))
+            state["note"].show()
             state["initialized"] = True
             return
-        table = QTableWidget(len(margins["rows"]), 4)
-        table.setObjectName("officialRoleMarginalTable")
-        table.setHorizontalHeaderLabels(["参数", "当前值", "1单位", "每单位提升"])
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.verticalHeader().setVisible(False)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        if state["note"] is not None:
+            state["note"].hide()
+        table = state["table"]
+        if table is None:
+            table = QTableWidget(0, 4)
+            state["table"] = table
+            table.setObjectName("officialRoleMarginalTable")
+            table.setHorizontalHeaderLabels([resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh.table'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh.table_2'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh.table_3'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh.table_4')])
+            table.setEditTriggers(QTableWidget.NoEditTriggers)
+            table.setSelectionBehavior(QTableWidget.SelectRows)
+            table.verticalHeader().setVisible(False)
+            table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            for column in range(4):
+                table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
+            table_layout.addWidget(table)
+        rows = []
         for row_index, row in enumerate(margins["rows"]):
             is_percent = bool(row.get("is_percent"))
             current_value = float(row.get("current_value") or 0.0)
             unit_value = float(row.get("unit") or 0.0)
             current_text = f"{current_value * 100:.2f}%" if is_percent else f"{current_value:.2f}"
             unit_text = f"{unit_value * 100:g}%" if is_percent else f"{unit_value:g}"
-            table.setItem(row_index, 0, QTableWidgetItem(row["label"]))
-            table.setItem(row_index, 1, QTableWidgetItem(current_text))
-            table.setItem(row_index, 2, QTableWidgetItem(unit_text))
-            table.setItem(row_index, 3, QTableWidgetItem(f"{row['gain_percent']:.4f}%"))
-        for column in range(4):
-            table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
-        table.setFixedHeight(
-            table.horizontalHeader().height()
-            + table.verticalHeader().defaultSectionSize() * len(margins["rows"])
-            + table.frameWidth() * 2
-        )
-        table_layout.addWidget(table)
+            rows.append((row["label"], current_text, unit_text, f"{row['gain_percent']:.4f}%"))
+        _update_table_rows(table, rows)
+        table.show()
         state["initialized"] = True
 
-    _register_calculation_refresh(editor, refresh)
+    refresh = _register_calculation_refresh(editor, refresh)
     refresh()
     layout.addStretch()
     return group
 
 
-def _populate_damage_formula_layout(layout, detail: dict) -> None:
+def _populate_damage_formula_layout(layout, detail: dict, *, text_catalog=None) -> None:
     context_key = str(detail.get("calculation_context_key") or "current")
     context_title = detail["equipment_contexts"][context_key]["title"]
     breakdown = calculate_official_role_damage_breakdown(detail, context_key)
     if not breakdown:
-        note = QLabel(likeability_input_issue(detail) or f"计算上下文：{context_title}。当前没有可解释的直伤输入。")
+        note = plain_label(likeability_input_issue(detail) or resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.note', context_title=f'{context_title}'))
         note.setWordWrap(True)
         layout.addWidget(note)
         return
 
-    context_label = QLabel(f"计算上下文：{context_title} ｜ 技能倍率统一按 100% ｜ 百分比内部按小数参与计算")
+    context_label = plain_label(resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.context_label', context_title=f'{context_title}'))
     context_label.setStyleSheet("color:#8b949e;")
     context_label.setWordWrap(True)
     layout.addWidget(context_label)
 
-    bonus_title = QLabel("已有加成项目")
+    bonus_title = plain_label(resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.bonus_title'))
     bonus_title.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(bonus_title)
     bonuses = list(breakdown["bonuses"])
     bonus_table = QTableWidget(len(bonuses), 3)
     bonus_table.setObjectName("officialRoleDamageBonusTable")
-    bonus_table.setHorizontalHeaderLabels(["来源", "项目", "数值"])
+    bonus_table.setHorizontalHeaderLabels([resolve_text_catalog(text_catalog).render('ui.battle_report.init.table'), resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.bonus_table'), resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.bonus_table_2')])
     bonus_table.setEditTriggers(QTableWidget.NoEditTriggers)
     bonus_table.setSelectionBehavior(QTableWidget.SelectRows)
     bonus_table.verticalHeader().setVisible(False)
@@ -314,13 +383,13 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     )
     layout.addWidget(bonus_table)
 
-    factor_title = QLabel("直伤乘区明细")
+    factor_title = plain_label(resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.factor_title'))
     factor_title.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(factor_title)
     factors = list(breakdown["factors"])
     factor_table = QTableWidget(len(factors), 3)
     factor_table.setObjectName("officialRoleDamageFactorTable")
-    factor_table.setHorizontalHeaderLabels(["乘区", "结果", "组成"])
+    factor_table.setHorizontalHeaderLabels([resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.factor_table'), resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.factor_table_2'), resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.factor_table_3')])
     factor_table.setEditTriggers(QTableWidget.NoEditTriggers)
     factor_table.setSelectionBehavior(QTableWidget.SelectRows)
     factor_table.verticalHeader().setVisible(False)
@@ -344,7 +413,7 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
 
     values = [float(value) for value in breakdown["formula_values"]]
     expression = " × ".join(["100%", f"{values[1]:.2f}", *(f"{value:.6f}" for value in values[2:])])
-    final_label = QLabel(f"最终直伤 = {expression} = {float(breakdown['damage']):.2f}")
+    final_label = plain_label(resolve_text_catalog(text_catalog).render('ui.official_role.populate_damage_formula_layout.final_label', expression=f'{expression}', value=f"{float(breakdown['damage']):.2f}"))
     final_label.setObjectName("officialRoleDamageFormulaResult")
     final_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
     final_label.setWordWrap(True)
@@ -352,17 +421,17 @@ def _populate_damage_formula_layout(layout, detail: dict) -> None:
     layout.addWidget(final_label)
 
 
-def _build_damage_formula_group(detail: dict, editor: dict) -> QGroupBox:
-    group = QGroupBox("直伤公式详情")
+def _build_damage_formula_group(detail: dict, editor: dict, *, text_catalog=None) -> QGroupBox:
+    group = QGroupBox(resolve_text_catalog(text_catalog).render('ui.official_role.build_damage_formula_group.group'))
     group.setObjectName("officialRoleDamageFormulaGroup")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
 
     def refresh() -> None:
         _clear_layout(layout)
-        _populate_damage_formula_layout(layout, _calculation_detail(detail, editor))
+        _populate_damage_formula_layout(layout, _calculation_detail(detail, editor), text_catalog=text_catalog)
 
-    _register_calculation_refresh(editor, refresh)
+    refresh = _register_calculation_refresh(editor, refresh)
     refresh()
     return group
 
@@ -390,14 +459,14 @@ _WEIGHT_LABEL_BY_PROPERTY = {
 def _build_weight_group(
     window, character_id: int, detail: dict, editor: dict,
 ) -> QGroupBox:
-    group = QGroupBox("词条权重（只读）")
+    group = QGroupBox(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_weight_group.group'))
     group.setObjectName("officialRoleWeightGroup")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
     top = QHBoxLayout()
-    top.addWidget(QLabel("当前面板权重:"))
-    source_label = QLabel(
-        "直伤公式词条按当前边际收益归一化；未参与直伤公式的词条保留基础权重"
+    top.addWidget(plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_weight_group.caption')))
+    source_label = plain_label(
+        resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_weight_group.source_label')
     )
     source_label.setStyleSheet("color:#8b949e;font-size:11px;")
     top.addWidget(source_label)
@@ -412,8 +481,9 @@ def _build_weight_group(
     def _format_weight(value: float) -> str:
         return f"{float(value):.4f}".rstrip("0").rstrip(".")
 
+    table = None
     def rebuild() -> None:
-        _clear_layout(table_layout)
+        nonlocal table
         base_weights = {
             str(property_id): float(value)
             for property_id, value in (detail.get("property_weights") or {}).items()
@@ -436,38 +506,26 @@ def _build_weight_group(
                 property_id,
             ),
         )
-        table = QTableWidget(len(ordered_ids), 4)
-        table.setObjectName("officialRoleWeightTable")
-        table.setHorizontalHeaderLabels(["词条", "基础权重", "直伤权重", "最终权重"])
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.verticalHeader().setVisible(False)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        if table is None:
+            table = QTableWidget(0, 4)
+            table.setObjectName("officialRoleWeightTable")
+            table.setHorizontalHeaderLabels([resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.rebuild.table'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('navigation.page.config'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.rebuild.table_2'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.rebuild.table_3')])
+            table.setEditTriggers(QTableWidget.NoEditTriggers)
+            table.setSelectionBehavior(QTableWidget.SelectRows)
+            table.verticalHeader().setVisible(False)
+            table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            for column in range(4):
+                table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
+            table_layout.addWidget(table)
+        rows = []
         for row_index, property_id in enumerate(ordered_ids):
             base_weight = float(base_weights.get(property_id, 0.0))
             final_weight = float(final_weights.get(property_id, base_weight))
             direct_weight = final_weight if property_id in formula_ids else 0.0
-            table.setItem(
-                row_index,
-                0,
-                QTableWidgetItem(
-                    _WEIGHT_LABEL_BY_PROPERTY.get(
-                        property_id, _attribute_name(detail, property_id)
-                    )
-                ),
-            )
-            table.setItem(row_index, 1, QTableWidgetItem(_format_weight(base_weight)))
-            table.setItem(row_index, 2, QTableWidgetItem(_format_weight(direct_weight)))
-            table.setItem(row_index, 3, QTableWidgetItem(_format_weight(final_weight)))
-        for column in range(4):
-            table.horizontalHeader().setSectionResizeMode(column, QHeaderView.Stretch)
-        table.setFixedHeight(
-            table.horizontalHeader().height()
-            + table.verticalHeader().defaultSectionSize() * len(ordered_ids)
-            + table.frameWidth() * 2
-        )
-        table_layout.addWidget(table)
+            rows.append((_WEIGHT_LABEL_BY_PROPERTY.get(property_id, _attribute_name(detail, property_id)),
+                _format_weight(base_weight), _format_weight(direct_weight), _format_weight(final_weight)))
+        _update_table_rows(table, rows)
     editor["refresh_weights"] = rebuild
     rebuild()
     return group

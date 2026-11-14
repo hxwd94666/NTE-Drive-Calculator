@@ -1,6 +1,7 @@
 # 编排倒带角色槽位草稿、账号偏好与可失效的只读任务。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from concurrent.futures import CancelledError
 from dataclasses import dataclass
 import threading
@@ -8,7 +9,7 @@ import threading
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from src.app.workers import WorkerThread
-from src.domain.rewind_loadout import references_for_roles
+from src.domain.rewind.rewind_loadout import references_for_roles
 from src.features.toolbox.rewind.role_picker import _RoleSelectionDialog
 from src.services.rewind.recommendation import RewindShapeAnalysis
 
@@ -33,6 +34,7 @@ class RewindSelectionUiMixin:
         self._recommendation_invalidated = False
         self._last_input_signature = None
         self._auto_slot_refs = {}
+        self._manual_plan_draft = False
         self.destroyed.connect(lambda *_: self._cancel_selection())
 
     def _check_selection_context(self):
@@ -61,14 +63,15 @@ class RewindSelectionUiMixin:
         self._analysis_token = None
 
     def _load_roles_async(self):
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         try:
             self._check_selection_context()
         except CancelledError:
             return
         self._catalog_loading = True
         self._generate_button.setEnabled(False)
-        self._target_summary.setText("正在加载角色列表…")
-        self._main_summary.setText("正在加载角色列表…")
+        self._target_summary.setText(_ui_text('rewind.selection.load_roles_async.target_summary'))
+        self._main_summary.setText(_ui_text('rewind.selection.load_roles_async.main_summary'))
         token = self._catalog_token
         def checkpoint():
             self._check_selection_context()
@@ -113,6 +116,7 @@ class RewindSelectionUiMixin:
             for key, saved in self._saved_slot_ids_by_strategy.items()
         }
         self._auto_slot_refs = references_for_roles(self._roles, {})
+        self._install_dual_roles()
         self._last_input_signature = self._input_signature()
         self._set_replacement_inventory_counts(dict(counts))
         self._target_button.setEnabled(True)
@@ -120,14 +124,15 @@ class RewindSelectionUiMixin:
         self._update_role_summaries()
 
     def _on_roles_load_error(self, message):
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         try:
             self._check_selection_context()
         except CancelledError:
             return
         self._catalog_loading = False
         self._generate_button.setEnabled(True)
-        self._target_summary.setText("角色列表加载失败")
-        self._main_summary.setText("角色列表加载失败")
+        self._target_summary.setText(_ui_text('rewind.selection.on_roles_load_error.target_summary'))
+        self._main_summary.setText(_ui_text('rewind.selection.on_roles_load_error.main_summary'))
         self._target_summary.setToolTip(message)
 
     def _choose_target_roles(self):
@@ -167,9 +172,11 @@ class RewindSelectionUiMixin:
                 tuple((key, tuple(sorted((identifier, ref.slot_id if ref else None, ref.plan_id if ref else None)
                                         for identifier, ref in slots.items())))
                       for key, slots in sorted(self._selected_slots_by_strategy.items())),
-                self._strategy_key, self._target_threshold_mode, self._target_grade, self._target_custom_percent)
+                self._strategy_key, self._target_threshold_mode, self._target_grade, self._target_custom_percent,
+                self._dual_signature())
 
     def _save_preferences(self):
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         try:
             self._check_selection_context()
         except CancelledError:
@@ -178,24 +185,14 @@ class RewindSelectionUiMixin:
         if self._last_input_signature is not None and signature != self._last_input_signature:
             self._invalidate_recommendation()
         self._last_input_signature = signature
-        saved_ids = {key: self._slot_preferences(key) for key in ("balanced", "focused")}
-        preferences = dict(self._service.load_preferences())
-        preferences.pop("selected_slots", None)
-        preferences.update({
-            "target_character_ids": sorted(self._target_character_ids), "main_character_ids": sorted(self._main_character_ids),
-            "slot_selection_version": 2, "selected_slots_by_strategy": {
-                strategy: {str(key): value for key, value in slots.items()} for strategy, slots in saved_ids.items()
-            },
-            "strategy": self._strategy_key, "target_grade": self._target_grade,
-            "target_threshold_mode": self._target_threshold_mode, "target_custom_percent": self._target_custom_percent,
-            "rewind_qualities": list(self._rewind_options.qualities), "rewind_drive_customization": self._rewind_options.drive_customization,
-        })
+        preferences = self._capture_preferences()
         try:
-            self._service.save_preferences(preferences)
-            self._saved_slot_ids_by_strategy = saved_ids
+            updated = self._service.save_preferences(preferences, checkpoint=self._check_selection_context)
+            self._remember_preferences(updated)
+            self._saved_slot_ids_by_strategy = {key: self._slot_preferences(key) for key in ('balanced', 'focused')}
             return True
         except Exception as error:
-            QMessageBox.warning(self, "偏好未保存", f"本次选择仅在当前窗口生效，请稍后重试保存。\n{error}")
+            QMessageBox.warning(self, _ui_text('rewind.selection.save_preferences.qmessagebox'), self._preference_error_text(error))
             return False
 
     def _slot_preferences(self, strategy):
@@ -213,22 +210,29 @@ class RewindSelectionUiMixin:
         self._analysis_token = None
         self._generated_analysis = None
         self._recommendation_invalidated = False
+        self._manual_plan_draft = True
+        if self._strategy_key == 'dual_target':
+            self._dual_manual_draft = True
 
     def _invalidate_recommendation(self):
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         self._analysis_token = None
-        if self._generated_analysis is not None:
+        if self._generated_analysis is not None or (
+            self._strategy_key == 'dual_target' and self._dual_preferences.get('plan_origin') == 'dual_target'
+            and not self._dual_manual_draft
+        ):
             self._recommendation_invalidated = True
         self._save_plan_button.setEnabled(False)
         self._generate_button.setEnabled(True)
-        self._generate_button.setText("重新生成")
+        self._generate_button.setText(_ui_text('rewind.selection.invalidate_recommendation.generate_button'))
 
     def _update_role_summaries(self):
         if not self._roles and self._catalog_loading:
             return
         for ids, label in ((self._target_character_ids, self._target_summary), (self._main_character_ids, self._main_summary)):
-            text = self._role_summary(ids, "未选择，请选择角色")
+            text = self._role_summary(ids, resolve_text_catalog(self.text_catalog).render('rewind.roles.empty'))
             label.setText(text)
-            label.setToolTip(self._role_summary(ids, "未选择，请选择角色", full=True))
+            label.setToolTip(self._role_summary(ids, resolve_text_catalog(self.text_catalog).render('rewind.roles.empty'), full=True))
 
     def _role_summary(self, character_ids, empty_text, *, full=False):
         names = []
@@ -238,18 +242,26 @@ class RewindSelectionUiMixin:
             return empty_text
         if full or len(names) <= 3:
             return "、".join(names)
-        return "、".join(names[:3]) + f" 等 {len(names)} 名"
+        return resolve_text_catalog(self.text_catalog).render("rewind.roles.more", names="、".join(names[:3]), count=len(names))
 
     def _refresh_analysis(self):
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         try:
             self._check_selection_context()
         except CancelledError:
             return
         if self._catalog_loading:
             return
-        if self._target_threshold_mode == "custom" and self._target_custom_percent is None:
-            QMessageBox.warning(self, "生成推荐", "请选择自选评分百分比（1.0%～100.0%）。")
+        if self._strategy_key != "dual_target" and self._target_threshold_mode == "custom" and self._target_custom_percent is None:
+            QMessageBox.warning(self, _ui_text('rewind.selection.refresh_analysis.qmessagebox'), plain_tooltip(_ui_text('rewind.selection.refresh_analysis.qmessagebox.body')))
             return
+        dual_request = None
+        if self._strategy_key == "dual_target":
+            try:
+                dual_request = self._dual_request()
+            except ValueError as error:
+                QMessageBox.warning(self, self.text_catalog.render("rewind.dual.invalid_input"), str(error))
+                return
         token = object()
         self._analysis_token = token
         self._last_input_signature = self._input_signature()
@@ -257,23 +269,27 @@ class RewindSelectionUiMixin:
             self._recommendation_invalidated = True
         self._save_plan_button.setEnabled(False)
         self._generate_button.setEnabled(False)
-        self._generate_button.setText("分析中…")
+        self._generate_button.setText(_ui_text('rewind.selection.refresh_analysis.generate_button'))
         self._render_loading()
         target_ids, primary_ids = tuple(sorted(self._target_character_ids)), tuple(sorted(self._main_character_ids))
         strategy, grade = self._strategy_key, self._target_grade
         custom = self._target_custom_percent if self._target_threshold_mode == "custom" else None
         active = set(primary_ids if strategy == "focused" else target_ids)
-        slots = tuple(ref for key, ref in self._selected_slots_by_strategy[strategy].items() if key in active and ref)
+        slots = tuple(ref for key, ref in self._selected_slots_by_strategy.get(strategy, {}).items() if key in active and ref)
 
         def checkpoint():
             self._check_selection_context()
             if token is not self._analysis_token:
                 raise CancelledError("推荐输入已变化")
 
-        worker = WorkerThread(target=lambda: self._service.analyze_for_targets(
+        def analyze():
+            if dual_request is not None:
+                return self._service.analyze_dual_target_shortfalls(dual_request, checkpoint=checkpoint)
+            return self._service.analyze_for_targets(
             target_character_ids=target_ids, primary_character_ids=primary_ids, selected_slots=slots,
             strategy=strategy, selection_limit=8, target_grade=grade, target_custom_percent=custom,
-            checkpoint=checkpoint), parent=None)
+            checkpoint=checkpoint)
+        worker = WorkerThread(target=analyze, parent=None)
         self._analysis_worker = worker
         worker.result_ready.connect(lambda result: self._on_analysis_ready(token, result))
         worker.error.connect(lambda error: self._on_analysis_error(token, error))
@@ -281,25 +297,27 @@ class RewindSelectionUiMixin:
         worker.start()
 
     def _on_analysis_ready(self, token, analysis):
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         if token is not self._analysis_token or not isinstance(analysis, RewindShapeAnalysis):
             return
         try:
             self._check_selection_context()
-            self._service.validate_selection(analysis.selected_slots, analysis.static_identity)
+            self._validate_analysis(analysis)
         except Exception as error:
             self._on_analysis_error(token, str(error))
             return
         self._generate_button.setEnabled(True)
-        self._generate_button.setText("生成方案")
+        self._generate_button.setText(_ui_text('rewind.selection.on_analysis_ready.generate_button'))
         self._generated_analysis = analysis
         self._recommendation_invalidated = False
         self._last_input_signature = self._input_signature()
         if analysis.notice:
-            self._render_message("推荐提示", analysis.notice)
+            self._render_message(resolve_text_catalog(self.text_catalog).render('rewind.results.notice'), analysis.notice)
         else:
             self._render_plans(analysis)
 
     def _on_analysis_error(self, token, message):
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         if token is not self._analysis_token or self._closed:
             return
         try:
@@ -307,7 +325,7 @@ class RewindSelectionUiMixin:
         except CancelledError:
             return
         self._generate_button.setEnabled(True)
-        self._generate_button.setText("重新生成")
+        self._generate_button.setText(_ui_text('rewind.selection.on_analysis_error.generate_button'))
         self._save_plan_button.setEnabled(False)
-        QMessageBox.warning(self, "生成推荐", message)
-        self._render_message("未生成推荐", message)
+        QMessageBox.warning(self, _ui_text('rewind.selection.on_analysis_error.qmessagebox'), message)
+        self._render_message(resolve_text_catalog(self.text_catalog).render('rewind.results.failed'), message)

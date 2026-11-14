@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.integrations.nte_core_protocol import NteCoreProcessError, NteCoreRpcError
+from src.integrations.native_core.nte_core_protocol import NteCoreProcessError, NteCoreRpcError
 from src.services.battle_report.capture.lifecycle import start_capture_when_ready
 
 

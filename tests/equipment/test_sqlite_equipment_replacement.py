@@ -4,7 +4,7 @@ import unittest
 
 class SqliteEquipmentReplacementTests(unittest.TestCase):
     def test_replacement_preserves_assignment_position_and_kind(self):
-        from src.features.inventory.equipment.plan_optimizer import _replacement_assignments
+        from src.features.inventory.equipment.optimization.plan_optimizer import _replacement_assignments
 
         plan = {
             "assignments": [
@@ -21,7 +21,7 @@ class SqliteEquipmentReplacementTests(unittest.TestCase):
         self.assertEqual((8, 2), (updated[1]["uid_serial"], updated[1]["uid_slot"]))
 
     def test_active_sqlite_user_map_deduplicates_roles_and_excludes_current_role(self):
-        from src.features.inventory.equipment.plan_optimizer import _active_sqlite_equipment_users
+        from src.features.inventory.equipment.optimization.plan_optimizer import _active_sqlite_equipment_users
 
         class FakeDao:
             def list_active_loadout_plans_by_role(self):

@@ -11,7 +11,8 @@ import zipfile
 import pytest
 
 from tests.release.portable_fixture import add_app_requirements
-from tests.test_native_component_bundle_build import native_source, prepare
+from tests.components.test_native_component_bundle_build import native_source
+from tests.components.test_native_component_bundle_build import prepare
 from tools.release import app_bundle_validation as common
 from tools.release import build_portable as cli
 from tools.release.onedir_inputs import inventory_onedir, verify_onedir_receipt, write_onedir_receipt

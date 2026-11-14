@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from collections import OrderedDict
 from copy import deepcopy
+from concurrent.futures import CancelledError
 from time import perf_counter
 from typing import Any
 
@@ -16,16 +17,16 @@ from src.features.official_role.dependencies import OfficialRoleDependencies
 from src.observability.context import OperationContext
 from src.observability.operation import log_event, operation_scope
 from src.services.official_role.page import load_official_role_detail, load_official_role_index, save_official_role_tab_order
-from src.services.official_role.replacement import save_official_role_replacement
-from src.services.official_role.profiles import (
+from src.services.official_role.equipment.replacement import save_official_role_replacement
+from src.services.official_role.profile_data.profiles import (
     OfficialRoleProfileService,
     OfficialRoleProfileUpdate,
 )
 from src.domain.official_role.models import WorldBonusSettings
-from src.services.official_role.world_bonus import WorldBonusSettingsService
-from src.services.official_role.replacement import prepare_official_role_replacement
+from src.services.official_role.panel.world_bonus import WorldBonusSettingsService
+from src.services.official_role.equipment.replacement import prepare_official_role_replacement
 from src.services.characters.workshop_weight_template_service import configured_workshop_weight_template_file
-from src.integrations.bundled_resources import bundled_config_dir
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.integrations.official_role.read_inputs import probe_role_read_inputs
 
 
@@ -45,6 +46,7 @@ class OfficialRoleController(QObject):
         self._details: OrderedDict[int, dict] = OrderedDict()
         self._index_model = None
         self._epoch = 0
+        self._calculation_epoch = 0
         self._profile_service = OfficialRoleProfileService(
             dependencies.user_database_path
         )
@@ -72,6 +74,7 @@ class OfficialRoleController(QObject):
         self._writes.settled.connect(callback, Qt.ConnectionType.SingleShotConnection)
 
     def cancel_reads(self) -> None:
+        self._calculation_epoch += 1
         self._reads.cancel()
 
     def source_key(self) -> tuple:
@@ -120,6 +123,7 @@ class OfficialRoleController(QObject):
         if self._closed or self.is_writing():
             discarded()
             return
+        epoch, calculation_epoch = self._epoch, self._calculation_epoch
         def read():
             def model():
                 if character_id not in self._details:
@@ -127,9 +131,43 @@ class OfficialRoleController(QObject):
                 self._details.move_to_end(character_id)
                 while len(self._details) > 8:
                     self._details.popitem(last=False)
-                return deepcopy(self._details[character_id])
+                detail = deepcopy(self._details[character_id])
+                from src.services.official_role.calculation_values import prepare_role_calculation_values
+                context_key = 'saved' if detail['equipment_contexts']['saved']['available'] else 'current'
+                detail['_role_damage_values'] = prepare_role_calculation_values(detail, context_key,
+                    checkpoint=lambda: self._check_calculation_epoch(epoch, calculation_epoch))
+                return detail
             return self._stable_read(model)
         self._reads.submit(PageRequest(("detail", character_id, self.dependencies, self._epoch), read, apply, failed, discarded))
+
+    def _check_calculation_epoch(self, epoch, calculation_epoch):
+        if self._closed or self._epoch != epoch or self._calculation_epoch != calculation_epoch:
+            raise CancelledError
+
+    def request_calculation(self, detail, context_key, base_weights, base_mains, apply, failed, discarded=lambda: None):
+        """复用页面读取lane；最新草稿拥有回执，旧请求在原生检查点终止且不写账号。"""
+        if self._closed or self.is_writing():
+            discarded()
+            return
+        from src.services.official_role.calculation_values import freeze_role_calculation_detail, prepare_role_calculation_values
+        frozen = freeze_role_calculation_detail(detail)
+        self._calculation_epoch += 1
+        epoch, calculation_epoch = self._epoch, self._calculation_epoch
+        def checkpoint():
+            self._check_calculation_epoch(epoch, calculation_epoch)
+        def read():
+            checkpoint()
+            source_key = self.source_key()
+            if frozen.get('_view_source_key', source_key) != source_key:
+                raise ValueError('角色资料正在更新，请稍候重新进入角色页。')
+            values = prepare_role_calculation_values(frozen, context_key,
+                base_property_weights=base_weights, base_main_property_weights=base_mains, checkpoint=checkpoint)
+            checkpoint()
+            if self.source_key() != source_key:
+                raise CancelledError
+            return values
+        self._reads.submit(PageRequest(('calculation', self.dependencies, epoch, calculation_epoch),
+                                       read, apply, failed, discarded))
 
     def is_loading(self) -> bool:
         return self._reads.is_running()

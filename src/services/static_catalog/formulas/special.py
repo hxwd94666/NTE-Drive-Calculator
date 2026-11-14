@@ -6,11 +6,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.domain.localization.catalog import localized_text
+from src.integrations.preferences.locale_files import enum_text
 from src.services.static_catalog.mechanics.models import PlayerField, PlayerSection
 from src.storage.sqlite.catalog.static_catalog_formula_queries import (
     StaticCatalogFormulaQueries,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataError
+
+_LOCALE_PREFIX = "static_catalog.formulas."
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +30,18 @@ class SpecialFormulaRecord:
     notice: str = ""
 
 
+def _text(text_catalog, text: str) -> str:
+    """整表投影静态图鉴文案；未注入目录时原样返回，服务层不读取资源文件。"""
+
+    return text if text_catalog is None else enum_text(text_catalog, text)
+
+
+def _template(text_catalog, key: str, fallback: str, **values: object) -> str:
+    """带变量句挂在本模块前缀下；目录缺该 key 时按参数回退原中文基线。"""
+
+    return localized_text(text_catalog, f"{_LOCALE_PREFIX}{key}", fallback, **values)
+
+
 def _field(label: str, value: str, tone: str = "neutral") -> PlayerField:
     return PlayerField(label, value, tone)
 
@@ -38,6 +54,7 @@ def _section(
 
 
 def _formula_sections(
+    text_catalog,
     formula: str,
     steps: tuple[str, ...],
     variables: tuple[tuple[str, str], ...],
@@ -48,7 +65,7 @@ def _formula_sections(
             "完整公式",
             ("公式", formula, "formula"),
             ("计算顺序", "\n".join(
-                f"{index}. {step}" for index, step in enumerate(steps, start=1)
+                f"{index}. {_text(text_catalog, step)}" for index, step in enumerate(steps, start=1)
             ), "accent"),
         ),
         _section(
@@ -68,6 +85,32 @@ def _number(value: float) -> str:
     return f"{value:,.3f}".rstrip("0").rstrip(".")
 
 
+def _localized_record(text_catalog, record: SpecialFormulaRecord) -> SpecialFormulaRecord:
+    """把一条静态图鉴记录的展示文案整表投影到当前目录；键与状态码保持原值。"""
+
+    if text_catalog is None:
+        return record
+    return SpecialFormulaRecord(
+        key=record.key,
+        family_key=record.family_key,
+        chapter=_text(text_catalog, record.chapter),
+        title=_text(text_catalog, record.title),
+        subtitle=_text(text_catalog, record.subtitle),
+        sections=tuple(
+            PlayerSection(
+                _text(text_catalog, section.title),
+                tuple(PlayerField(_text(text_catalog, field.label),
+                                  _text(text_catalog, field.value), field.tone)
+                      for field in section.fields),
+            )
+            for section in record.sections
+        ),
+        aliases=tuple(_text(text_catalog, alias) for alias in record.aliases),
+        status=record.status,
+        notice=_text(text_catalog, record.notice),
+    )
+
+
 class StaticCatalogSpecialFormulaService:
     """读取具名静态曲线公式，不读取账号数据或运行中的战斗状态。"""
 
@@ -82,7 +125,7 @@ class StaticCatalogSpecialFormulaService:
     def __init__(self, database_path: str | Path) -> None:
         self._database_path = database_path
 
-    def load(self) -> tuple[SpecialFormulaRecord, ...]:
+    def load(self, *, text_catalog=None) -> tuple[SpecialFormulaRecord, ...]:
         with StaticCatalogFormulaQueries(self._database_path) as queries:
             curves = {
                 curve.source_effect_id: curve.values
@@ -95,28 +138,31 @@ class StaticCatalogSpecialFormulaService:
                 "静态库缺少战斗机制图鉴所需环合曲线："
                 + "、".join(sorted(missing))
             )
-        return (
-            self._reaction_tiers(curves),
-            self._creation(),
-            self._weave(),
-            self._scorch(),
-            self._nova(),
-            self._infusion(),
-            self._delay(),
-            self._charge(),
-            self._dissonance(),
-            self._nightmare(),
-            self._erosion(),
-            self._pigeon_fire(),
-            self._topple(topple_levels),
-            self._daffodill_topple(),
-            self._nightmare_max_hp(),
-            self._fadia_shared_damage(),
+        records = (
+            self._reaction_tiers(curves, text_catalog=text_catalog),
+            self._creation(text_catalog=text_catalog),
+            self._weave(text_catalog=text_catalog),
+            self._scorch(text_catalog=text_catalog),
+            self._nova(text_catalog=text_catalog),
+            self._infusion(text_catalog=text_catalog),
+            self._delay(text_catalog=text_catalog),
+            self._charge(text_catalog=text_catalog),
+            self._dissonance(text_catalog=text_catalog),
+            self._nightmare(text_catalog=text_catalog),
+            self._erosion(text_catalog=text_catalog),
+            self._pigeon_fire(text_catalog=text_catalog),
+            self._topple(topple_levels, text_catalog=text_catalog),
+            self._daffodill_topple(text_catalog=text_catalog),
+            self._nightmare_max_hp(text_catalog=text_catalog),
+            self._fadia_shared_damage(text_catalog=text_catalog),
         )
+        return tuple(_localized_record(text_catalog, record) for record in records)
 
     def _reaction_tiers(
         self,
         curves: dict[str, tuple[float, ...]],
+        *,
+        text_catalog=None,
     ) -> SpecialFormulaRecord:
         columns = {
             label: curves[effect_id]
@@ -135,16 +181,20 @@ class StaticCatalogSpecialFormulaService:
                 level_start = tier * 5 + 1
                 level_end = level_start + 4
                 values = " ｜ ".join(
-                    f"{label} {_number(points[tier])}"
+                    _template(text_catalog, "tier.value", "{label} {value}",
+                              label=_text(text_catalog, label), value=_number(points[tier]))
                     for label, points in columns.items()
                 )
                 fields.append((
-                    f"源档 {tier} · 角色等级 {level_start}–{level_end}",
+                    _template(text_catalog, "tier.field_label",
+                              "源档 {tier} · 角色等级 {level_start}–{level_end}",
+                              tier=tier, level_start=level_start, level_end=level_end),
                     values,
                     "tier",
                 ))
             tier_sections.append(_section(
-                f"官方基础值 · 源档 {group_start}–{group_start + 3}",
+                _template(text_catalog, "tier.section_title", "官方基础值 · 源档 {start}–{end}",
+                          start=group_start, end=group_start + 3),
                 *fields,
             ))
         return SpecialFormulaRecord(
@@ -206,7 +256,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _creation() -> SpecialFormulaRecord:
+    def _creation(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="reaction_creation",
             family_key="states",
@@ -215,6 +265,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="等级基础值 × 环合强度区 × 防御 × 抗性 × 易伤；不暴击。",
             aliases=("光灵", "创生花", "创生株"),
             sections=_formula_sections(
+            text_catalog,
                 "单朵创生伤害 = 向下取整[等级基础值 × (1 + 环合强度/600) × 防御区 × 抗性区 × 易伤区]",
                 (
                     "从两名环合参与者中选出归属角色。",
@@ -238,7 +289,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _weave() -> SpecialFormulaRecord:
+    def _weave(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="weave_followup",
             family_key="states",
@@ -247,6 +298,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="记录符合条件的灵/咒实际伤害，12 秒结束时按原伤属性追加。",
             aliases=("灵咒", "弱点感应"),
             sections=_formula_sections(
+            text_catalog,
                 "覆纹追加 = 原伤害实际值 × [(复制比例 + 灵可复制比例加成) × (1 + 追击增伤%) × 强度区 + 限制(强度区 - 1, 0, 100)] × 最终乘数",
                 (
                     "记录每条符合条件的灵/咒实际伤害及其属性；正式 DOT 等被记录来源同样适用。",
@@ -278,7 +330,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _scorch() -> SpecialFormulaRecord:
+    def _scorch(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="reaction_scorch",
             family_key="states",
@@ -287,6 +339,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="16 档基础值 × 结算前层数 × 环合强度区 × 目标侧乘区 × DOT/暴击。",
             aliases=("咒暗", "DOT", "持续伤害"),
             sections=_formula_sections(
+            text_catalog,
                 "浊燃单跳 = 向下取整[等级基础值 × 结算前层数 × (1 + 环合强度/600) × 防御区 × 抗性区 × 易伤区 × DOT专属最终区 × 暴击分支]",
                 (
                     "分别计算两名环合参与者的“等级基础值 × 环合强度”，取较高者作为归属角色。",
@@ -312,7 +365,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _nova() -> SpecialFormulaRecord:
+    def _nova(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="reaction_nova",
             family_key="states",
@@ -321,6 +374,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="5 秒后结算心灵伤害；不走防御区，仍走心灵抗性与易伤。",
             aliases=("暗魂", "心灵伤害"),
             sections=_formula_sections(
+            text_catalog,
                 "单个黯星 = 向下取整[等级基础值 × (1 + 环合强度/600) × 心灵抗性区 × 易伤区]",
                 (
                     "每次暗+魂触发时分别计算两名参与者的“等级基础值 × 环合强度”。",
@@ -344,7 +398,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _infusion() -> SpecialFormulaRecord:
+    def _infusion(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="reaction_infusion",
             family_key="states",
@@ -353,6 +407,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="QTE 触发后持续 12 秒；全队后续逐击分别读取各自伤害来源角色的环合强度。",
             aliases=("魂相", "团队增伤", "全队增伤"),
             sections=_formula_sections(
+            text_catalog,
                 "本击浸染最终乘区 = 1.20 × [1 + 20% × 本击来源环合强度 / (本击来源环合强度 + 180)]；受益逐击 = 原完整伤害 × 本击浸染最终乘区",
                 (
                     "由正式魂+相 QTE 结算确认浸染触发。",
@@ -377,7 +432,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _delay() -> SpecialFormulaRecord:
+    def _delay(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="reaction_delay",
             family_key="states",
@@ -387,6 +442,7 @@ class StaticCatalogSpecialFormulaService:
             aliases=("相光", "减攻", "减速"),
             status="not_applicable",
             sections=_formula_sections(
+            text_catalog,
                 "延滞伤害 = 不适用；状态持续 5 秒",
                 ("识别相+光触发。", "对目标建立 5 秒延滞状态。"),
                 (("状态对象", "受击目标；后续只有明确要求延滞状态的机制消费。"),),
@@ -395,7 +451,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _charge() -> SpecialFormulaRecord:
+    def _charge(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="reaction_charge",
             family_key="states",
@@ -405,6 +461,7 @@ class StaticCatalogSpecialFormulaService:
             aliases=("光灵相", "终结能量"),
             status="not_applicable",
             sections=_formula_sections(
+            text_catalog,
                 "额外终结能量 = 10（创生花命中处于延滞的目标时）",
                 ("确认目标延滞状态。", "确认命中来自创生花。", "给予 10 点终结能量。"),
                 (
@@ -416,7 +473,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _dissonance() -> SpecialFormulaRecord:
+    def _dissonance(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="reaction_dissonance",
             family_key="states",
@@ -427,6 +484,7 @@ class StaticCatalogSpecialFormulaService:
             status="partial",
             notice="15% 是当前项目弱证据默认值，固定值、等级系数和联机修正仍待确认。",
             sections=_formula_sections(
+            text_catalog,
                 "当前项目投影：失谐倾陷扣除 = 受击目标倾陷上限 × 15%",
                 ("检查同一目标同时存在黯星与浊燃。", "读取该目标倾陷上限。", "扣除 15%，不生成伤害逐击。"),
                 (
@@ -446,6 +504,7 @@ class StaticCatalogSpecialFormulaService:
         source: str,
         state: str,
         boundary: str,
+        text_catalog=None,
     ) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key=key,
@@ -455,6 +514,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="正式技能倍率 × 本跳状态系数 × 攻击方逐击面板 × 目标侧乘区 × DOT/暴击。",
             aliases=aliases,
             sections=_formula_sections(
+            text_catalog,
                 "本跳伤害 = 向下取整[技能基础倍率 × 本跳状态系数 × 攻击方对应面板 × 增伤区 × 防御区 × 抗性区 × 易伤区 × 独立最终区 × DOT专属最终区 × 暴击分支]",
                 (
                     "从正式伤害项与有效技能等级读取本跳基础倍率。",
@@ -475,9 +535,10 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @classmethod
-    def _nightmare(cls) -> SpecialFormulaRecord:
+    def _nightmare(cls, text_catalog=None) -> SpecialFormulaRecord:
         return cls._named_dot(
             key="dot_nightmare",
+            text_catalog=text_catalog,
             title="持续直伤·噩梦",
             aliases=("安魂曲", "噩梦层数"),
             source="取安魂曲噩梦正式伤害项和当前有效普通攻击技能等级；普通/六觉分支各用自己的倍率档。",
@@ -486,9 +547,10 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @classmethod
-    def _erosion(cls) -> SpecialFormulaRecord:
+    def _erosion(cls, text_catalog=None) -> SpecialFormulaRecord:
         return cls._named_dot(
             key="dot_erosion",
+            text_catalog=text_catalog,
             title="持续直伤·蚀心",
             aliases=("残虹", "蚀心层数"),
             source="取残虹蚀心正式伤害项和当前有效普通攻击技能等级。",
@@ -497,9 +559,10 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @classmethod
-    def _pigeon_fire(cls) -> SpecialFormulaRecord:
+    def _pigeon_fire(cls, text_catalog=None) -> SpecialFormulaRecord:
         return cls._named_dot(
             key="dot_pigeon_fire",
+            text_catalog=text_catalog,
             title="持续直伤·鸩火",
             aliases=("鸠火", "残虹", "鸩火层数"),
             source="取残虹鸩火正式伤害项和当前有效极轨终结技能等级。",
@@ -508,14 +571,16 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _topple(level_values: tuple[float, ...]) -> SpecialFormulaRecord:
+    def _topple(level_values: tuple[float, ...], *, text_catalog=None) -> SpecialFormulaRecord:
         level_sections = tuple(
             _section(
-                f"官方倾陷基础 · {start}–{start + 9} 级",
+                _template(text_catalog, "topple.section_title", "官方倾陷基础 · {start}–{end} 级",
+                          start=start, end=start + 9),
                 (
                     "逐级数值",
                     " ｜ ".join(
-                        f"{level}级 {_number(level_values[level - 1])}"
+                        _template(text_catalog, "topple.value", "{level}级 {value}",
+                                  level=level, value=_number(level_values[level - 1]))
                         for level in range(start, start + 10)
                     ),
                     "tier",
@@ -531,6 +596,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="同半场每名角色分别算五乘区，再把所有角色贡献相加。",
             aliases=("倾陷", "白条", "逐角色求和"),
             sections=_formula_sections(
+            text_catalog,
                 "团队倾陷 = Σ同半场角色 i [等级基础_i × (1 + 倾陷强度_i/300 + Σ倾陷提高_i) × 敌方倾陷上限区 × 防御区_i × 抗性区_i]",
                 (
                     "固定本击所在半场的完整出伤角色阵容。",
@@ -555,7 +621,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _daffodill_topple() -> SpecialFormulaRecord:
+    def _daffodill_topple(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="daffodill_extra_topple",
             family_key="settlement",
@@ -564,6 +630,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="使用达芙蒂尔个人倾陷五乘区；候选五觉额外次数为 1 + 洞察层数。",
             aliases=("洞察", "五觉", "额外倾陷伤害"),
             sections=_formula_sections(
+            text_catalog,
                 "单次个人倾陷 = 达芙蒂尔等级基础 × 达芙蒂尔倾陷强度区 × 目标倾陷上限区 × 达芙蒂尔防御区 × 暗属性抗性区；候选五觉总次数 = 1 + 洞察层数",
                 (
                     "在已有正式倾陷时点读取洞察层数。",
@@ -583,7 +650,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _nightmare_max_hp() -> SpecialFormulaRecord:
+    def _nightmare_max_hp(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="nightmare_max_hp_settlement",
             family_key="settlement",
@@ -592,6 +659,7 @@ class StaticCatalogSpecialFormulaService:
             subtitle="来源噩梦本体伤害的 200%；有效生命损失再按结算前生命比例折算。",
             aliases=("最大生命", "安魂曲五觉", "噩梦200%"),
             sections=_formula_sections(
+            text_catalog,
                 "预计最大生命削减 = 来源噩梦伤害 × 200%；有效生命损失 = 最大生命下降 × clamp(结算前生命/旧最大生命, 0, 1)",
                 (
                     "只绑定正式噩梦逐击，不接受相邻生命样本或普通直伤。",
@@ -608,7 +676,7 @@ class StaticCatalogSpecialFormulaService:
         )
 
     @staticmethod
-    def _fadia_shared_damage() -> SpecialFormulaRecord:
+    def _fadia_shared_damage(text_catalog=None) -> SpecialFormulaRecord:
         return SpecialFormulaRecord(
             key="fadia_shared_damage",
             family_key="settlement",
@@ -618,6 +686,7 @@ class StaticCatalogSpecialFormulaService:
             aliases=("法帝娅", "破灭体验", "共享伤害"),
             status="partial",
             sections=_formula_sections(
+            text_catalog,
                 "本次可共享 = min(法帝娅实际承受伤害 × 共享比例, 累计上限 - 已累计)；累计上限 = 法帝娅生命上限 × 上限比例",
                 (
                     "先取得法帝娅本次真实承受伤害。",

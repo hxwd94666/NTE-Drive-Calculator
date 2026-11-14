@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.inventory.equipment import assembly_controller as equipment_assembly_controller
+from src.features.inventory.equipment.assembly import assembly_controller as equipment_assembly_controller
 from src.features.inventory.warehouse import controller as warehouse_controller
 
 

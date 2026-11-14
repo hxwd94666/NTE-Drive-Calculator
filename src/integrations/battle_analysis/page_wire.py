@@ -11,7 +11,7 @@ from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.domain.battle_report.analysis.composition import BattleDamageComposition
 from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.domain.battle_report.counterfactual.results import BattleMarginalBenefits
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 
 @lru_cache(maxsize=None)

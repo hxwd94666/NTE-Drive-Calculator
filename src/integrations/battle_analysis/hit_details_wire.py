@@ -6,7 +6,7 @@ from src.domain.battle_report.analysis.page_results import (
     BattleHitDetailTables, BattleHitDetailLookup, BattlePageHitDetails,
 )
 from src.domain.battle_report.buffs.models import BattleProjectedBuffModifier, BattleBuffProjectionDecision
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 
 def decode_hit_details(value, analysis, candidate):

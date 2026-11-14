@@ -94,7 +94,7 @@ def main():
         "tests.battle_report.build.test_battle_build_counterfactual_service",
         "tests.battle_report.build.test_battle_build_weave_source_ratio",
         "tests.battle_report.damage.test_composition",
-        "tests.test_battle_partial_quantification_contract",
+        "tests.battle_report.analysis.test_battle_partial_quantification_contract",
     ])
     with patch.object(BattleBuildCounterfactualService, "compare", side_effect=build_compare), \
             patch.object(BattleDamageCompositionService, "calculate_from_hits", side_effect=composition), \

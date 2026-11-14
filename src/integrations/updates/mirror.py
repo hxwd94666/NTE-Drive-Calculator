@@ -97,9 +97,13 @@ def fetch_update_info(api_url, app_version, *, cdk="", timeout=UPDATE_CHECK_TIME
         if not isinstance(data, dict) or not str(data.get("version_name") or "").strip():
             raise ValueError("更新响应缺少版本。")
         latest = str(data["version_name"]).strip()
+        artifact_sha256 = str(data.get("sha256") or "").strip().lower()
+        if artifact_sha256 and (len(artifact_sha256) != 64 or any(c not in "0123456789abcdef" for c in artifact_sha256)):
+            raise ValueError("更新响应的安装包 SHA-256 无效。")
         return {"has_release": True, "latest": latest, "newer": is_newer_version(latest, app_version),
                 "url": str(data.get("url") or "").strip(), "release_url": "",
-                "message": str(data.get("release_note") or "").strip(), "name": latest}
+                "message": str(data.get("release_note") or "").strip(), "name": latest,
+                "artifact_sha256": artifact_sha256}
     except UpdateDownloadCancelled:
         raise
     except (ValueError, UnicodeDecodeError, urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -191,7 +195,7 @@ def launch_installer(receipt: InstallerReceipt, *, cancel_check=None):
 
 
 def download_update_installer(url, *, destination_dir=None, timeout=UPDATE_DOWNLOAD_TIMEOUT_SECONDS,
-                              progress_callback=None, cancel_check=None) -> InstallerReceipt:
+                              progress_callback=None, cancel_check=None, expected_sha256=None) -> InstallerReceipt:
     _require_https(url)
     deadline = monotonic() + 15 * 60
     _checkpoint(cancel_check, deadline)
@@ -245,7 +249,13 @@ def download_update_installer(url, *, destination_dir=None, timeout=UPDATE_DOWNL
         # 本次唯一目录里 final 尚不存在；不覆盖同名的外来文件。
         partial.rename(final)
         owned[final] = owned.pop(partial)
-        receipt = InstallerReceipt(final, parents, _version(_plain_stat(final)), digest.hexdigest(), downloaded)
+        actual_sha256 = digest.hexdigest()
+        expected = str(expected_sha256 or "").strip().lower()
+        if expected and (len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected)):
+            raise ValueError("更新清单的安装包 SHA-256 无效。")
+        if expected and actual_sha256 != expected:
+            raise ValueError("下载文件与发行清单 SHA-256 不一致，请重新下载。")
+        receipt = InstallerReceipt(final, parents, _version(_plain_stat(final)), actual_sha256, downloaded)
         _checkpoint(cancel_check, deadline)
         validate_installer(receipt, cancel_check=cancel_check, deadline=deadline)
         _checkpoint(cancel_check, deadline)

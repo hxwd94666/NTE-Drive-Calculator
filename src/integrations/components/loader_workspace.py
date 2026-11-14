@@ -5,9 +5,10 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 
-from src.integrations.native_plugin_bundle import HOT_PLUGIN_LAYOUTS, NATIVE_PLUGIN_DEPLOYMENT_PATHS, inspect_native_plugin_bundle
+from src.domain.localization.catalog import TextCatalog, localized_text
+from src.integrations.components.native_plugin_bundle import HOT_PLUGIN_LAYOUTS, NATIVE_PLUGIN_DEPLOYMENT_PATHS, inspect_native_plugin_bundle
 from src.integrations.components.native_files import NativeComponentFilesDeployment, deploy_native_component_files
-from src.integrations.operation_guard import require_operation
+from src.integrations.runtime.operation_guard import require_operation
 from src.integrations.components.environment import EquipmentPluginDeploymentError, game_process_running
 
 NATIVE_LOADER_COMPONENT_ROLES = ('capture_plugin',)
@@ -36,7 +37,9 @@ class NativeLoaderWorkspaceInspection:
         return not self.issues
 
 
-def inspect_native_loader_workspace(*, application_root, workspace_path) -> NativeLoaderWorkspaceInspection:
+def inspect_native_loader_workspace(
+    *, application_root, workspace_path, text_catalog: TextCatalog | None = None,
+) -> NativeLoaderWorkspaceInspection:
     root, directory = Path(application_root).resolve(), Path(workspace_path).resolve()
     bundle = inspect_native_plugin_bundle(root)
     if not bundle.ready:
@@ -48,21 +51,42 @@ def inspect_native_loader_workspace(*, application_root, workspace_path) -> Nati
         target = directory / relative
         try:
             if target.is_symlink() or not target.resolve().is_relative_to(directory) or not target.is_file():
-                issues.append(f'Loader 运行目录尚未准备组件：{relative}')
+                issues.append(localized_text(
+                    text_catalog,
+                    'integration.loader_workspace.issue.missing_component',
+                    'Loader 运行目录尚未准备组件：{relative}',
+                    relative=relative,
+                ))
                 continue
             with target.open('rb') as stream:
                 if hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
-                    issues.append(f'Loader 运行目录组件不匹配：{relative}')
+                    issues.append(localized_text(
+                        text_catalog,
+                        'integration.loader_workspace.issue.component_mismatch',
+                        'Loader 运行目录组件不匹配：{relative}',
+                        relative=relative,
+                    ))
         except OSError:
-            issues.append(f'无法读取 Loader 运行目录组件：{relative}')
+            issues.append(localized_text(
+                text_catalog,
+                'integration.loader_workspace.issue.unreadable',
+                '无法读取 Loader 运行目录组件：{relative}',
+                relative=relative,
+            ))
     return NativeLoaderWorkspaceInspection(directory, expected, tuple(issues))
 
 
-def prepare_native_loader_workspace(*, application_root, workspace_path, operation_guard, game_running):
+def prepare_native_loader_workspace(
+    *, application_root, workspace_path, operation_guard, game_running,
+    text_catalog: TextCatalog | None = None,
+):
     require_operation(operation_guard, 'native_load')
     if (game_running or game_process_running)():
         raise EquipmentPluginDeploymentError('游戏未关闭，暂时不能更新 Loader 运行组件。请完全退出游戏后重试。')
-    current = inspect_native_loader_workspace(application_root=application_root, workspace_path=workspace_path)
+    current = inspect_native_loader_workspace(
+        application_root=application_root, workspace_path=workspace_path,
+        text_catalog=text_catalog,
+    )
     if current.files_compatible:
         return NativeComponentFilesDeployment(current.workspace_path, None, current.managed_files)
     return deploy_native_component_files(

@@ -1,16 +1,16 @@
 # 编辑正式 SkillID 的基础等级，独立展示觉醒后的生效等级与倍率详情。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (
-    QDialog, QGroupBox, QHeaderView, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QDialog, QGroupBox, QHeaderView, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.services.damage_calculation_service import skill_tier_for_effective_level
-from src.services.official_role.awakening import awaken_skill_level_delta
-from src.ui.widgets import NoWheelSpinBox
+from src.services.damage.damage_calculation_service import skill_tier_for_effective_level
+from src.services.official_role.panel.awakening import awaken_skill_level_delta
+from src.ui.common.widgets import NoWheelSpinBox
 from ..role_calculation import _mark_dirty, _refresh_role_calculations
 
 def _skill_name(skill: dict) -> str:
@@ -73,34 +73,30 @@ def _show_skill_detail(
             rows.append((damage, row))
     # 弹窗归调用页面所有，复用屏幕限位；关闭详情不提交任何角色草稿。
     dialog = QDialog(window)
-    dialog.setWindowTitle(f"{_skill_name(skill)} - 技能倍率详情")
+    dialog.setWindowTitle(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.dialog', value=f'{_skill_name(skill)}'))
     dialog_layout = QVBoxLayout(dialog)
-    summary = QLabel(
-        f"基础等级 {base_level}"
-        + (f" + 觉醒 {delta} = 生效等级 {effective_level}" if delta else "")
+    summary = plain_label(
+        resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.summary', base_level=f'{base_level}')
+        + (resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.summary_2', delta=f'{delta}', effective_level=f'{effective_level}') if delta else "")
     )
     summary.setStyleSheet("font-weight:bold;color:#58a6ff;")
     dialog_layout.addWidget(summary)
     table = QTableWidget(len(rows), 4)
-    table.setHorizontalHeaderLabels(("倍率项", "倍率属性", "伤害类型", "当前倍率"))
+    table.setHorizontalHeaderLabels((resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.table'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.table_2'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.table_3'), resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.table_4')))
     table.verticalHeader().setVisible(False)
     table.setEditTriggers(QTableWidget.NoEditTriggers)
     table.setSelectionBehavior(QTableWidget.SelectRows)
-    for row_index, (damage, values) in enumerate(rows):
+    for row_index, (_damage, values) in enumerate(rows):
         for column_index, value in enumerate(values):
             item = QTableWidgetItem(value)
-            if column_index == 0:
-                item.setToolTip(str(damage.get("damage_id") or ""))
-            elif column_index == 2:
-                item.setToolTip(str(damage.get("damage_type") or ""))
             table.setItem(row_index, column_index, item)
     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
     for column in range(1, 4):
         table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
     dialog_layout.addWidget(table)
     if not rows:
-        dialog_layout.addWidget(QLabel("当前静态资料没有可展示的技能倍率。"))
-    close = QPushButton("关闭")
+        dialog_layout.addWidget(plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_skill_detail.caption')))
+    close = TextActionButton(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('common.close'))
     close.clicked.connect(dialog.accept)
     dialog_layout.addWidget(close)
     fit_dialog_to_available_screen(dialog, QSize(820, 560))
@@ -114,7 +110,7 @@ def _build_skill_group(
     editor: dict,
 ) -> QGroupBox:
     profile = detail["profile"]
-    group = QGroupBox("技能")
+    group = QGroupBox(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_skill_group.group'))
     group.setObjectName("officialRoleSkillGroup")
     layout = QVBoxLayout(group)
 
@@ -130,21 +126,21 @@ def _build_skill_group(
         maximum = max(levels, default=0) + 1
         skill_levels.setdefault(skill_id, maximum)
         row = QHBoxLayout()
-        name = QLabel(_skill_name(skill))
+        name = plain_label(_skill_name(skill))
         name.setMinimumWidth(64)
         row.addWidget(name)
-        row.addWidget(QLabel("等级:"))
+        row.addWidget(plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.caption_2')))
         level = NoWheelSpinBox()
         level.setRange(1, maximum)
         level.setValue(skill_levels[skill_id])
         level.setFixedWidth(72)
         row.addWidget(level)
-        effective = QLabel()
+        effective = plain_label()
         effective.setStyleSheet("color:#8b949e;")
         effective_labels[skill_id] = effective
         row.addWidget(effective)
         row.addStretch()
-        detail_button = QPushButton("详情")
+        detail_button = TextActionButton(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.battle_report.init.table_9'))
         detail_button.clicked.connect(
             lambda _checked=False, target=skill: _show_skill_detail(
                 window, detail, editor, target
@@ -189,9 +185,9 @@ def _build_skill_group(
             )
             effective_level = skill_levels[skill_id] + delta
             effective_labels[skill_id].setText(
-                f"生效 {effective_level} 级（3觉 +1）"
+                resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh_effective_levels.effective_labels_skill_id', effective_level=f'{effective_level}')
                 if delta
-                else f"生效 {effective_level} 级"
+                else resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh_effective_levels.effective_labels_skill_id_2', effective_level=f'{effective_level}')
             )
 
     editor.setdefault("awakening_refreshers", []).append(refresh_effective_levels)

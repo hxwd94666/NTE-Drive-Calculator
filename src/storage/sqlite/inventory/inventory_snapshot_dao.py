@@ -27,7 +27,8 @@ from src.storage.sqlite.protocols import UserDataDaoMixinHost
 # equipment UID consumes two parameters, while the snapshot id consumes one.
 # Keep comfortably below that portable limit when reading a full inventory.
 _SQLITE_QUERY_PARAMETER_BUDGET = 900
-_UID_PAIR_QUERY_BATCH_SIZE = (_SQLITE_QUERY_PARAMETER_BUDGET - 1) // 2
+# 为快照、类型、穿戴、角色及 limit 五个可选/固定参数留出同一预算。
+_UID_PAIR_QUERY_BATCH_SIZE = (_SQLITE_QUERY_PARAMETER_BUDGET - 5) // 2
 
 
 class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
@@ -567,6 +568,15 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             limit=limit,
         )
 
+    def inventory_module_geometry_counts(self, snapshot_id: int) -> list[dict[str, Any]]:
+        """只统计固定快照的驱动数量，不水合词条或解析原始物品 JSON。"""
+        return self._rows(
+            """SELECT geometry, COUNT(*) AS item_count FROM inventory_item
+               WHERE snapshot_id = ? AND kind = 'module'
+               GROUP BY geometry ORDER BY geometry""",
+            (_integer(snapshot_id, "snapshot_id", minimum=1),),
+        )
+
     def list_inventory_items(
         self,
         snapshot_id: int,
@@ -593,6 +603,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
         if character_id is not None:
             conditions.append("equipped_character_id = ?")
             parameters.append(_integer(character_id, "character_id", minimum=1))
+        prefix, source_sql = "", "inventory_item"
         normalized_uids: tuple[tuple[int, int], ...] | None = None
         if uids is not None:
             normalized_uids = tuple(sorted({
@@ -604,12 +615,17 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             }))
             if not normalized_uids:
                 return []
-            conditions.append("(" + " OR ".join(
-                "(uid_serial = ? AND uid_slot = ?)"
-                for _uid in normalized_uids
-            ) + ")")
-            for uid_serial, uid_slot in normalized_uids:
-                parameters.extend((uid_serial, uid_slot))
+            if len(normalized_uids) > _UID_PAIR_QUERY_BATCH_SIZE:
+                rows = [row for offset in range(0, len(normalized_uids), _UID_PAIR_QUERY_BATCH_SIZE)
+                        for row in self.list_inventory_items(raw_snapshot_id, kind=kind, equipped=equipped,
+                            character_id=character_id, limit=limit,
+                            uids=normalized_uids[offset:offset + _UID_PAIR_QUERY_BATCH_SIZE])]
+                rows.sort(key=lambda row: (row["kind"], row["uid_slot"], row["uid_serial"]))
+                return rows if limit is None else rows[:_integer(limit, "limit", minimum=1)]
+            prefix = "WITH requested(requested_serial, requested_slot) AS (VALUES " + ",".join("(?,?)" for _ in normalized_uids) + ")"
+            source_sql = "requested CROSS JOIN inventory_item INDEXED BY sqlite_autoindex_inventory_item_1"
+            conditions.append("uid_serial = requested_serial AND uid_slot = requested_slot")
+            parameters = [value for uid in normalized_uids for value in uid] + parameters
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         limit_sql = ""
         if limit is not None:
@@ -618,11 +634,12 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             parameters.append(limit_value)
         rows = self._rows(
             f"""
+            {prefix}
             SELECT snapshot_id, uid_serial, uid_slot, kind, item_id, suit_id,
                    geometry, grid_count, quality, level, max_level, locked,
                    equipped, equipped_character_uid_json, equipped_character_id,
                    names_json, suit_names_json, raw_item_json
-            FROM inventory_item
+            FROM {source_sql}
             {where}
             ORDER BY kind, uid_slot, uid_serial{limit_sql}
             """,
@@ -634,25 +651,23 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             (int(row["uid_serial"]), int(row["uid_slot"])) for row in rows
         }))
         stats: list[dict[str, Any]] = []
-        # A 2,000-item inventory needs 4,001 bound parameters if queried in
-        # one statement.  That raises "too many SQL variables" on the normal
-        # SQLite build, preventing the virtualized warehouse from loading at
-        # all.  The card model remains virtualized; only this SQLite fetch is
-        # split into stable, order-preserving UID batches.
+        # VALUES 小表为外层，按已发布 schema 的复合主键逐 UID 定位；
+        # 显式指定主键，避免 SQLite 为每块重新扫描词条并构建临时覆盖索引。
+        # 物品与词条均受同一参数预算约束，仍保留全部字段、词条顺序和全局 limit。
         for start in range(0, len(selected_uids), _UID_PAIR_QUERY_BATCH_SIZE):
             uid_batch = selected_uids[start:start + _UID_PAIR_QUERY_BATCH_SIZE]
-            stat_parameters: list[Any] = [raw_snapshot_id]
+            stat_parameters: list[Any] = []
             for uid_serial, uid_slot in uid_batch:
                 stat_parameters.extend((uid_serial, uid_slot))
-            uid_sql = " OR ".join(
-                "(uid_serial = ? AND uid_slot = ?)" for _uid in uid_batch
-            )
+            stat_parameters.append(raw_snapshot_id)
+            uid_sql = ",".join("(?,?)" for _ in uid_batch)
             stats.extend(self._rows(
                 f"""
+                WITH requested(requested_serial, requested_slot) AS (VALUES {uid_sql})
                 SELECT uid_serial, uid_slot, stat_group, ordinal, property_id,
                        value, is_percent, names_json
-                FROM inventory_item_stat
-                WHERE snapshot_id = ? AND ({uid_sql})
+                FROM requested CROSS JOIN inventory_item_stat INDEXED BY sqlite_autoindex_inventory_item_stat_1
+                WHERE snapshot_id = ? AND uid_serial = requested_serial AND uid_slot = requested_slot
                 ORDER BY uid_slot, uid_serial, stat_group, ordinal
                 """,
                 stat_parameters,

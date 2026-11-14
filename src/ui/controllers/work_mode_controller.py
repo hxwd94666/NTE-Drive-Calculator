@@ -1,13 +1,16 @@
 # 管理模式切换意图、单一后台观察和一次性检测弹窗。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from dataclasses import dataclass, replace
 from PySide6.QtCore import QObject, Signal, QTimer, Qt
 from PySide6.QtWidgets import QDialog, QMessageBox, QInputDialog
 
-from src.domain.work_mode import allowed_capabilities
+from src.domain.preferences.work_mode import allowed_capabilities
 from src.app.theme import theme_color
-from src.ui.operation_guidance import allow_operation_entry, explain_operation_unavailable
+from src.ui.common.operation_guidance import allow_operation_entry, explain_operation_unavailable
 from src.features.settings.work_mode_card import (
     MODE_LABELS, CleanupResultDialog, confirm_mode, report_summary,
 )
@@ -43,8 +46,9 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
     plugins_applied = Signal(object)
 
     def __init__(self, *, window, policy, runtime, navigate=None, observe_plugins=None,
-                 apply_plugin_policy=None, apply_plugins=None) -> None:
+                 apply_plugin_policy=None, apply_plugins=None, text_catalog=None) -> None:
         super().__init__(window)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.window, self.policy, self.runtime = window, policy, runtime
         self._navigate = navigate
         self._observe_plugins = observe_plugins
@@ -150,7 +154,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             return False
         self._guidance_active = True
         try:
-            return allow_operation_entry(self.window, self.policy, capability, feature, self.open_settings)
+            return allow_operation_entry(self.window, self.policy, capability, feature, self.open_settings, text_catalog=getattr(self, 'text_catalog', None))
         finally:
             self._guidance_active = False
 
@@ -160,7 +164,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         self._guidance_active = True
         try:
             navigate = self._navigate if target == "home" and self._navigate is not None else self.open_settings
-            explain_operation_unavailable(self.window, feature, detail, navigate, target)
+            explain_operation_unavailable(self.window, feature, detail, navigate, target, text_catalog=getattr(self, 'text_catalog', None))
         finally:
             self._guidance_active = False
 
@@ -184,7 +188,8 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             return None
         try:
             preview = preview or self.policy.machine_revalidation_required is True
-            tick_args = {"allow_connect": allow_connect and not self.policy.settings.paused}
+            tick_args = {"allow_connect": allow_connect and not self.policy.settings.paused,
+                         "text_catalog": getattr(self, 'text_catalog', None)}
             if allow_unrecorded_legacy_cleanup:
                 tick_args["allow_unrecorded_legacy_cleanup"] = True
             if preview:
@@ -199,7 +204,8 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         except Exception as error:
             if getattr(self.runtime.native_session, 'maintenance_active', False):
                 return None
-            detail = detection_failure_detail(error, record=bool(request_id or allow_connect))
+            detail = detection_failure_detail(error, record=bool(request_id or allow_connect),
+                                              text_catalog=getattr(self, 'text_catalog', None))
             return ObservationResult("fault", detail, revision, generation, request_id)
 
     def _stop_live_work(self) -> None:
@@ -232,7 +238,11 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             try:
                 action()
             except Exception:
-                errors.append("后台服务收尾未完成，请重新检测。")
+                errors.append(localized_text(
+                    getattr(self, 'text_catalog', None),
+                    "ui.work_mode_controller.teardown.incomplete",
+                    "后台服务收尾未完成，请重新检测。",
+                ))
         return "; ".join(errors)
 
     def _queue_teardown(self, service) -> None:
@@ -253,13 +263,17 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             try:
                 self._stop_live_work()
             except Exception:
-                return "；停止请求未全部完成，请保持当前模式并重新检测"
+                return localized_text(
+                    getattr(self, 'text_catalog', None),
+                    "ui.work_mode_controller.stop_failed_revocation",
+                    "；停止请求未全部完成，请保持当前模式并重新检测",
+                )
         return ""
 
     def select_mode(self, mode: str) -> None:
-        if self._closed or mode not in MODE_LABELS:
+        if self._closed or mode not in ui_enum_text(getattr(self, 'text_catalog', None), MODE_LABELS):
             return
-        if not confirm_mode(self.window, mode):
+        if not confirm_mode(self.window, mode, text_catalog=getattr(self, 'text_catalog', None)):
             self.refresh_controls(reset_selection=True)
             return
         before = self.policy.settings
@@ -277,10 +291,17 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         except Exception as error:
             stop_error = self._stop_after_failed_revocation(before)
             self.refresh_controls(reset_selection=True)
-            QMessageBox.warning(self.window, "工作模式", f"模式设置或收尾未完成：{error}{stop_error}")
+            QMessageBox.warning(self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.build_work_mode_card.card'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.select_mode.qmessagebox', error=f'{error}', stop_error=f'{stop_error}')))
 
     def set_raw_capture_draft(self, enabled: bool) -> None:
-        if not enabled or self.operation_entry("diagnostics", "保存原始抓包"):
+        if not enabled or self.operation_entry(
+            "diagnostics",
+            localized_text(
+                getattr(self, 'text_catalog', None),
+                "ui.work_mode_controller.feature.raw_capture",
+                "保存原始抓包",
+            ),
+        ):
             return
         toggle = self.window._sync_raw_capture_toggle
         toggle.blockSignals(True)
@@ -339,14 +360,18 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         request_id = self._request_serial
         self._cleanup_request_id = request_id
         generation = self.window.app_context.generation
-        dialog = CleanupResultDialog(self.window, continue_upgrade=self._upgrade_cleanup_resume)
+        dialog = CleanupResultDialog(self.window, continue_upgrade=self._upgrade_cleanup_resume, text_catalog=getattr(self, 'text_catalog', None))
         self._cleanup_dialog = dialog
         dialog.finished.connect(lambda result: self._dismiss_cleanup_dialog(dialog, result))
         dialog.begin()
         if errors:
             self._apply(_CleanupResult(
                 request_id, generation, True, "fault",
-                "清理准备未完成；请检查配置保存权限与后台服务状态后重试。",
+                localized_text(
+                    getattr(self, 'text_catalog', None),
+                    "ui.work_mode_controller.cleanup.prepare_incomplete",
+                    "清理准备未完成；请检查配置保存权限与后台服务状态后重试。",
+                ),
             ))
             return
 
@@ -356,17 +381,29 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
                 self.runtime.cleanup(allow_unrecorded_legacy_workspace=True)
             except Exception:
                 failure = (self.runtime.cleanup_detail or
-                           "清理过程异常；已保留待清理状态，请检查环境设置后重试。")
+                           localized_text(
+                               getattr(self, 'text_catalog', None),
+                               "ui.work_mode_controller.cleanup.exception",
+                               "清理过程异常；已保留待清理状态，请检查环境设置后重试。",
+                           ))
             state = getattr(self.runtime, "cleanup_state", None)
             return _CleanupResult(
                 request_id, generation, self.policy.settings.pending_cleanup,
                 "fault" if failure else getattr(state, "value", state) or "waiting",
-                failure or self.runtime.cleanup_detail or "尚未确认清理结果，请重试。",
+                failure or self.runtime.cleanup_detail or localized_text(
+                    getattr(self, 'text_catalog', None),
+                    "ui.work_mode_controller.cleanup.unconfirmed",
+                    "尚未确认清理结果，请重试。",
+                ),
             )
 
         if not self._observer.submit(perform, key="cleanup"):
             self._apply(_CleanupResult(
-                request_id, generation, True, "fault", "后台服务已停止；请重新打开程序后清理。",
+                request_id, generation, True, "fault", localized_text(
+                    getattr(self, 'text_catalog', None),
+                    "ui.work_mode_controller.cleanup.service_stopped",
+                    "后台服务已停止；请重新打开程序后清理。",
+                ),
             ))
 
     def _dismiss_cleanup_dialog(self, dialog, result: int) -> None:
@@ -409,7 +446,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
                 self._selector_settings = selection
         button = getattr(self.window, "work_mode_button", None)
         if button is not None:
-            button.setText("模式：" + MODE_LABELS[settings.mode.value])
+            button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.refresh_controls.button') + ui_enum_text(getattr(self, 'text_catalog', None), MODE_LABELS)[settings.mode.value])
         self.window.battle_report_controller.set_work_mode_presentation()
 
     def _apply(self, result) -> None:
@@ -466,7 +503,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             if result.error and (result.revision, result.generation) == (
                 self.policy.settings.revision, self.window.app_context.generation,
             ):
-                QMessageBox.warning(self.window, "服务收尾", result.error)
+                QMessageBox.warning(self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.apply.qmessagebox'), result.error)
             return
         if isinstance(result, _PathResult):
             if (result.revision, result.generation) != (
@@ -475,13 +512,13 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
                 return
             if len(result.paths) > 1:
                 path, accepted = QInputDialog.getItem(
-                    self.window, "选择游戏位置", "发现多个游戏目录，请选择正在使用的：",
+                    self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.finish.selected_accepted'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.apply.path_accepted')),
                     list(result.paths), 0, False,
                 )
                 if accepted:
                     self.policy.set_game_executable(path)
             elif not result.paths:
-                QMessageBox.information(self.window, "游戏位置", "有限范围检测未发现游戏，请选择 HTGame.exe。")
+                QMessageBox.information(self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.apply.qmessagebox_2'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.apply.qmessagebox_3')))
             self.check(show=True)
             return
         if isinstance(result, ObservationResult):
@@ -497,10 +534,10 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
                         self.check(show=True, preview=result.request_id == self._sync_preflight_request)
                     else:
                         self._show_request_id = None
-                        self._report_dialog.set_error("账号已切换，请重新检测当前账号环境。")
+                        self._report_dialog.set_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.apply.report_dialog'))
                 return
             if self._controls:
-                self._controls[1].setText("检测失败，请查看检测详情。")
+                self._controls[1].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.apply.controls_1'))
             if result.request_id == self._show_request_id:
                 self._show_request_id = None
                 if self._report_dialog is not None:
@@ -511,14 +548,18 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         revision, generation, probe, request_id = result
         if generation != self.window.app_context.generation or revision != self.policy.settings.revision:
             if request_id == self._sync_activation_request:
-                self._finish_sync_activation(error="准备上下文已改变，自动同步仍保持关闭。")
+                self._finish_sync_activation(error=localized_text(
+                    getattr(self, 'text_catalog', None),
+                    "ui.work_mode_controller.sync.context_changed",
+                    "准备上下文已改变，自动同步仍保持关闭。",
+                ))
                 self._show_request_id = None
                 return
             if generation == self.window.app_context.generation and request_id == self._show_request_id:
                 self.check(show=True, preview=request_id == self._sync_preflight_request)
             elif request_id == self._show_request_id and self._report_dialog is not None:
                 self._show_request_id = None
-                self._report_dialog.set_error("账号已切换，请重新检测当前账号环境。")
+                self._report_dialog.set_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.apply.report_dialog'))
             return
         service = self.window._inventory_sync_service
         if service is not None and getattr(service.state, "capture_source", "packet") == "packet":
@@ -535,14 +576,14 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         if auto_sync is not None:
             auto_sync.observe_probe(probe)
         self.refresh_controls()
-        report = self.policy.build_report(probe)
+        report = self.policy.build_report(probe, text_catalog=getattr(self, 'text_catalog', None))
         if self._controls and (self._show_request_id is None or request_id == self._show_request_id):
-            self._controls[1].setText(report_summary(report))
+            self._controls[1].setText(report_summary(report, text_catalog=getattr(self, 'text_catalog', None)))
         if request_id == self._show_request_id:
             self._show_request_id = None
             if self._report_dialog is not None:
                 self._report_dialog.set_report(report)
-                from src.ui.migrated_machine_confirmation import confirm_migrated_machine
+                from src.ui.startup.migrated_machine_confirmation import confirm_migrated_machine
                 confirm_migrated_machine(self.window, self.policy, probe)
                 if request_id == self._sync_preflight_request and self._sync_preflight_callback:
                     decision = decide_sync_enable(
@@ -560,7 +601,11 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             return
         self._closed = True
         if self._sync_activation_request is not None:
-            self._finish_sync_activation(error="程序正在退出，自动同步仍保持关闭。")
+            self._finish_sync_activation(error=localized_text(
+                getattr(self, 'text_catalog', None),
+                "ui.work_mode_controller.sync.closing",
+                "程序正在退出，自动同步仍保持关闭。",
+            ))
         if self._report_dialog is not None:
             self._report_dialog.close()
         if self._cleanup_dialog is not None:
@@ -580,7 +625,6 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
         detail = self.runtime.cleanup_exit_detail
         if detail:
             QMessageBox.information(
-                self.window, "游戏组件清理提示",
-                detail + "\n\nCalc 退出后不会继续后台监控。按上述原因处理后，重新打开 Calc "
-                "继续核对和清理；无需重装或清空账号数据。",
+                self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.close.qmessagebox'),
+                plain_tooltip(detail + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.close.qmessagebox_2')),
             )

@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QLabel
 
 from src.app.theme import apply_app_theme
-from src.domain.static_catalog import CatalogLink
+from src.domain.catalog.static_catalog import CatalogLink
 from src.features.static_catalog.domain_pages.forks.page import (
     ForkOwnedResources,
     build_fork_catalog_page,
@@ -28,7 +28,7 @@ from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.ui.progression_material_card import ProgressionMaterialCard
+from src.ui.progression.progression_material_card import ProgressionMaterialCard
 
 
 ROOT = Path(__file__).resolve().parents[2]

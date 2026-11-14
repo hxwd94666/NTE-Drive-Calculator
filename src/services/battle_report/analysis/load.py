@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.history.service import BattleReportHistoryService
 from src.domain.battle_report.counterfactual.results import BattleMarginalCandidate
 from src.services.battle_report.analysis.progress import (
@@ -46,9 +46,11 @@ class BattleReportAnalysisLoadService:
         request: BattleReportAnalysisLoadRequest,
         *,
         progress_callback: BattleAnalysisProgressCallback | None = None,
+        timings=None,
     ) -> battle_page_models.BattleReportAnalysisLoadResult:
         """所有正式战报页统一走原生准备与计算入口，包括边际及反事实。"""
         if history.native_page_loader is None:
             raise NativeAnalysisError('战报分析需要新原生组件，旧计算入口已废弃，不能自动回退')
-        return history.native_page_loader.load(request, progress_callback=progress_callback)
+        options = {} if timings is None else {"timings": timings}
+        return history.native_page_loader.load(request, progress_callback=progress_callback, **options)
 

@@ -40,7 +40,7 @@ def isolate_source(source):
         return getattr(value, '__module__', '').startswith('__editable___nte_drive_calculator_')
     sys.meta_path[:] = [value for value in sys.meta_path if not editable(value)]
     sys.path_hooks[:] = [value for value in sys.path_hooks if not editable(value)]
-    sys.path[:] = [str(source), str(source / 'tests'), *[value for value in sys.path
+    sys.path[:] = [str(source), *[value for value in sys.path
                    if not str(value).startswith('__editable__.nte_drive_calculator-')]]
     sys.path_importer_cache.clear()
 
@@ -159,7 +159,7 @@ def worker(args):
     from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QMessageBox, QPushButton, QWidget
     from shiboken6 import isValid
     from src.app.page_tasks import PageTaskLane, PageCommitLane
-    from src.domain.recommended_weights import base_weight_character_id
+    from src.domain.characters.recommended_weights import base_weight_character_id
     from src.features.configuration.controller import BasicWeightController
     from src.features.configuration.page_owner import BasicWeightPage
     from src.services.characters.basic_weight.service import BasicWeightService

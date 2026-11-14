@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.domain.battle_report.build.inputs import GRADUATION_ASSUMPTION_TITLE
-from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
 from src.services.battle_report.build.equipment import battle_equipment_items
 from src.services.battle_report.history.projection import character_analysis_scopes
 from src.services.characters.character_shape_bonus_service import static_character_shape_profile_fields

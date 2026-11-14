@@ -5,7 +5,9 @@ import unittest
 from src.observability import OperationContext
 from src.services.battle_report.capture.metadata import with_comparison_metadata
 from src.services.battle_report.capture.service import BattleCaptureService
-from tests.test_battle_capture_axis_service import _Core, _Writer, _wait_until
+from tests.battle_report.capture.test_battle_capture_axis_service import _Core
+from tests.battle_report.capture.test_battle_capture_axis_service import _Writer
+from tests.battle_report.capture.test_battle_capture_axis_service import _wait_until
 from tests.battle_report.capture.test_battle_native_capture_lifecycle import _NativeCore
 
 

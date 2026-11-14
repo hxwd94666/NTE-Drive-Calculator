@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QLayout, QPushBu
 
 from src.features.settings.language.controller import LanguageActionResult, LanguageController
 from src.services.preferences.language_settings_service import LanguageSettingsService
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 
 
 class LanguageSettingsWidget(QWidget):
@@ -32,7 +32,7 @@ class LanguageSettingsWidget(QWidget):
         row.addWidget(self.title_label)
         self.combo = NoWheelComboBox()
         self.combo.setAccessibleName(self._catalog.render("settings.language.label"))
-        self.combo.setToolTip(self._catalog.render("settings.language.label"))
+        self.combo.setToolTip('')
         self.combo.setMinimumWidth(140)
         self.combo.setMaximumWidth(240)
         for catalog in self._controller.choices():

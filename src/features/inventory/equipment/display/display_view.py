@@ -1,0 +1,533 @@
+# 加载、分页并惰性渲染当前账号已保存的配装方案。
+"""MainWindow methods for inventory."""
+
+from __future__ import annotations
+
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
+from src.ui.common.tooltip_policy import suppress_empty_tooltips
+from pathlib import Path
+from functools import partial
+from time import perf_counter
+from typing import Any
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.app.theme import themed_style
+from src.app.page_tasks import PageRequest, PageTaskLane
+from src.features.scanning.files.file_lifecycle import equipment_compare_signature
+from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from src.storage.sqlite.user_data_dao import UserDataDao
+from src.ui.common.widgets import match_pinyin as _match_pinyin
+from src.utils.logger import logger
+from src.utils.perf import log_perf
+from src.features.inventory.equipment.display.master_detail_view import (
+    build_equipment_master_detail,
+    capture_equipment_navigation_state,
+    clear_equipment_master_detail,
+    filter_equipment_master_detail,
+    show_equipment_master_detail,
+    sorted_equipment_role_states,
+)
+from src.features.inventory.equipment.display.display_context import equipment_presentation
+from src.features.inventory.equipment.display.loadout_scoring import score_equipment_display_states
+from src.features.inventory.equipment.display.plan_display_state import _sqlite_plan_display_state
+from src.features.inventory.equipment.display.plan_renderer import _render_equip_batch
+from src.features.inventory.equipment.sharing.practice_share_dialog import open_practice_share
+
+
+EQUIPMENT_INITIAL_RENDER_COUNT = 8
+
+
+def _equipment_paths(window) -> tuple[Path, Path, Path]:
+    context = getattr(window, "app_context", None)
+    if context is None:
+        database_path = getattr(window, "user_database_path", None)
+        static_database_path = getattr(
+            window,
+            "static_database_path",
+            None,
+        )
+        asset_root = getattr(window, "game_ui_asset_root", None)
+        if database_path is None or static_database_path is None or asset_root is None:
+            raise RuntimeError("配装展示缺少 AppContext 或显式路径依赖")
+        return (
+            Path(database_path),
+            Path(static_database_path),
+            Path(asset_root),
+        )
+    return (
+        Path(context.account.user_database_path),
+        Path(context.paths.static_database_path),
+        Path(context.paths.game_ui_asset_root),
+    )
+
+
+def _equipment_compare_signature(self, item):
+    return equipment_compare_signature(item)
+
+
+def _same_equipment_by_ocr(self, left: Path, right: Path):
+    return self._scan_lifecycle().same_equipment_by_ocr(left, right)
+
+
+def build_equipment_mode_switch(self: Any, parent: QWidget | None = None) -> QWidget:
+    _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
+    container = QWidget(parent)
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    self.equip_saved_mode_btn = QPushButton(_ui_text('loadouts.page.build_equipment_mode_switch.equip_saved_mode_btn'))
+    self.equip_game_mode_btn = QPushButton(_ui_text('loadouts.page.build_equipment_mode_switch.equip_game_mode_btn'))
+    for button in (self.equip_saved_mode_btn, self.equip_game_mode_btn):
+        button.setCheckable(True)
+        button.setFixedWidth(104)
+        button.setStyleSheet(
+            themed_style(
+                "QPushButton{padding:5px 14px;border:1px solid #30363d;"
+                "border-radius:6px;background:#161b22;color:#8b949e}"
+                "QPushButton:checked{background:#1f6feb;color:#ffffff;"
+                "border-color:#58a6ff;font-weight:700}"
+            )
+        )
+    self.equip_saved_mode_btn.setChecked(True)
+    self.equip_saved_mode_btn.clicked.connect(
+        lambda _checked=False: _set_equipment_mode(self, "saved")
+    )
+    self.equip_game_mode_btn.clicked.connect(
+        lambda _checked=False: _set_equipment_mode(self, "game")
+    )
+    layout.addWidget(self.equip_saved_mode_btn)
+    layout.addWidget(self.equip_game_mode_btn)
+    return container
+
+
+def _page_equipment(self):
+    _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
+    text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
+    page = QWidget()
+    suppress_empty_tooltips(page)
+    l = QVBoxLayout(page)
+    l.setContentsMargins(20, 16, 20, 16)
+    l.setSpacing(8)
+    if not hasattr(self, "equip_saved_mode_btn"):
+        self._equipment_mode_switch_fallback = build_equipment_mode_switch(
+            self,
+            page,
+        )
+        self._equipment_mode_switch_fallback.hide()
+    # 正常数据不显示重复状态栏；读取失败保留旧详情时，必须有独立可见的失效说明。
+    self.equip_mode_status = plain_label("", page)
+    self.equip_mode_status.setWordWrap(True)
+    self.equip_mode_status.hide()
+    sh = QHBoxLayout()
+    sh.addWidget(plain_label(_ui_text('loadouts.page.page_equipment.label')))
+    self.equip_search = QLineEdit()
+    self.equip_search.setPlaceholderText(_ui_text('loadouts.page.page_equipment.equip_search.placeholder'))
+    self.equip_search.setClearButtonEnabled(True)
+    self._equip_search_timer = QTimer(page)
+    self._equip_search_timer.setSingleShot(True)
+    self._equip_search_timer.setInterval(120)
+    self._equip_search_timer.timeout.connect(
+        lambda: filter_equipment_master_detail(self)
+    )
+    self.equip_search.textChanged.connect(lambda _text: self._equip_search_timer.start())
+    sh.addWidget(self.equip_search, 1)
+    self.equip_practice_share_btn = QPushButton(_ui_text('loadouts.page.page_equipment.equip_practice_share_btn'))
+    self.equip_practice_share_btn.setObjectName('btnNew')
+    self.equip_practice_share_btn.setToolTip('')
+    self.equip_practice_share_btn.clicked.connect(lambda _checked=False: open_practice_share(self, text_catalog=getattr(self, 'text_catalog', None)))
+    self.equip_practice_share_btn.setVisible(False)
+    self.equip_practice_share_btn.setEnabled(False)
+    sh.addWidget(self.equip_practice_share_btn)
+    self.equip_import_all_btn = TextActionButton(text("batch.import"))
+    self.equip_import_all_btn.setObjectName("btnPrimary")
+    self.equip_import_all_btn.setToolTip('')
+    self.equip_import_all_btn.clicked.connect(
+        lambda _checked=False: self._batch_import_game_loadouts()
+    )
+    self.equip_import_all_btn.setVisible(False)
+    sh.addWidget(self.equip_import_all_btn)
+    clear_btn = TextActionButton(text("batch.delete"))
+    clear_btn.setObjectName("btnDanger")
+    clear_btn.clicked.connect(self._batch_delete_equipment)
+    sh.addWidget(clear_btn)
+    fast_btn = TextActionButton(text("assembly.fast.title"))
+    fast_btn.setObjectName("btnPrimary")
+    fast_btn.clicked.connect(self._preview_fast_assemble_all_roles)
+    fast_btn.setToolTip(plain_tooltip(text("assembly.fast.entry_hint")))
+    sh.addWidget(fast_btn)
+    automatic_btn = TextActionButton(text("assembly.auto.title"))
+    automatic_btn.setObjectName("btnPrimary")
+    automatic_btn.clicked.connect(self._preview_automatic_assemble_all_roles)
+    automatic_btn.setToolTip(plain_tooltip(text("assembly.auto.entry_hint")))
+    sh.addWidget(automatic_btn)
+    self._equip_saved_action_buttons = (clear_btn, fast_btn, automatic_btn)
+    self._equipment_mode = getattr(self, "_equipment_mode", "saved")
+    l.addLayout(sh)
+    l.addWidget(self.equip_mode_status)
+    build_equipment_master_detail(self, l)
+    return page
+
+
+def _set_equipment_mode(self: Any, mode: str) -> None:
+    _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
+    selected = "game" if mode == "game" else "saved"
+    if getattr(self, "_equipment_mode", "saved") == selected:
+        self.equip_saved_mode_btn.setChecked(selected == "saved")
+        self.equip_game_mode_btn.setChecked(selected == "game")
+        return
+    self._equipment_mode = selected
+    self.equip_saved_mode_btn.setChecked(selected == "saved")
+    self.equip_game_mode_btn.setChecked(selected == "game")
+    for button in getattr(self, "_equip_saved_action_buttons", ()):
+        button.setVisible(selected == "saved")
+    self.equip_import_all_btn.setVisible(selected == "game")
+    self.equip_import_all_btn.setEnabled(False)
+    self.equip_practice_share_btn.setVisible(selected == 'game')
+    self.equip_practice_share_btn.setEnabled(False)
+    self.equip_mode_status.setText(
+        _ui_text('loadouts.page.set_equipment_mode.equip_mode_status.state')
+        if selected == "game"
+        else ""
+    )
+    self._refresh_equip()
+
+
+def _clear_equip_content(self):
+    clear_equipment_master_detail(self)
+    self._equip_rendered_mode = None
+    self._equip_rendered_states = None
+
+
+def _publish_equipment_states(self, states):
+    """Keep the existing Qt tree when a fresh read proves it unchanged."""
+    started = perf_counter()
+    mode = getattr(self, "_equipment_mode", "saved")
+    for widget_name in ("equip_role_strip", "equip_content"):
+        widget = getattr(self, widget_name, None)
+        if widget is not None:
+            widget.setEnabled(True)
+    if (getattr(self, "_equip_rendered_mode", None) == mode
+            and getattr(self, "_equip_rendered_states", None) == states):
+        log_perf(logger, "equipment.render", elapsed_ms=(perf_counter() - started) * 1000,
+                 mode=mode, skipped=True)
+        return
+    _clear_equip_content(self)
+    _queue_equipment_render(self, states)
+    self._equip_rendered_mode = mode
+    self._equip_rendered_states = dict(states)
+    log_perf(logger, "equipment.render", elapsed_ms=(perf_counter() - started) * 1000,
+             mode=mode, skipped=False)
+
+
+def _request_equipment_graduation_rate(
+    self: Any,
+    role_name: str,
+    state: dict[str, Any],
+    value_label: QLabel,
+    tooltip_widget: QWidget | tuple[QWidget, ...] | None = None,
+) -> None:
+    from src.features.inventory.equipment.optimization.graduation_controller import request_equipment_graduation_rate
+
+    request_equipment_graduation_rate(
+        self,
+        role_name,
+        state,
+        value_label,
+        tooltip_widget,
+        database_path=_equipment_paths(self)[0],
+    )
+
+
+from src.features.inventory.equipment.display.display_loaders import (
+    _load_game_equipment_display_states,
+    _load_sqlite_equipment_display_states,
+)
+
+
+def _queue_equipment_render(self, eq):
+    filt = self.equip_search.text().strip() if hasattr(self, "equip_search") else ""
+    roles = []
+    for role_name, rd in sorted_equipment_role_states(eq):
+        if filt and not _match_pinyin(role_name, filt):
+            continue
+        roles.append((role_name, rd))
+
+    self._equip_render_token = object()
+    token = self._equip_render_token
+    self._equip_render_queue = roles
+    self._equip_lazy_entries = []
+
+    empty_text = (
+        getattr(self, "_game_loadout_message", "")
+        if getattr(self, "_equipment_mode", "saved") == "game"
+        else "暂无已保存的配装。请先执行分配并保存。"
+    )
+    if isinstance(self, QWidget):
+        show_equipment_master_detail(
+            self,
+            roles,
+            empty_message=(
+                empty_text or "当前游戏快照中没有可展示的角色装备。"
+            ),
+        )
+        return
+
+    if not roles:
+        ph = plain_label(empty_text or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.queue_equipment_render.ph'))
+        ph.setStyleSheet(themed_style("color:#6e7681;padding:24px"))
+        ph.setAlignment(Qt.AlignCenter)
+        self.equip_content_layout.addWidget(ph)
+        self.equip_content_layout.addStretch()
+        return
+
+    self._equip_render_queue = roles
+    self._equip_render_index = 0
+    self._equip_render_stretch_added = False
+    _render_equip_batch(self, token, EQUIPMENT_INITIAL_RENDER_COUNT)
+
+
+def _on_sqlite_equipment_display_loaded(self, token, eq):
+    if (
+        token is not getattr(self, "_equip_load_token", None)
+        or getattr(self, "_equipment_mode", "saved") != "saved"
+    ):
+        return
+    states = eq if isinstance(eq, dict) else {}
+    self.equip_mode_status.setText("")
+    self.equip_mode_status.hide()
+    self._saved_equipment_states = dict(states)
+    self._saved_equipment_cache_valid = True
+    _publish_equipment_states(self, states)
+
+
+def _on_sqlite_equipment_display_error(self, token, error):
+    _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
+    if (token is not getattr(self, "_equip_load_token", None)
+            or getattr(self, "_equipment_mode", "saved") != "saved"):
+        return
+    logger.error(f"刷新 SQLite 配装展示失败: {error}")
+    # 刷新失败不改上次已验证的方案事实；旧详情只供解释，不开放本次未核验的操作。
+    self._saved_equipment_cache_valid = False
+    self.equip_mode_status.setText(_ui_text('loadouts.page.on_sqlite_equipment_display_error.equip_mode_status'))
+    self.equip_mode_status.show()
+    QMessageBox.warning(
+        self,
+        _ui_text('loadouts.page.on_sqlite_equipment_display_error.qmessagebox'),
+        plain_tooltip(_ui_text('loadouts.page.on_sqlite_equipment_display_error.qmessagebox.body')),
+    )
+    # 模态框会嵌套 Qt 事件循环；其间转场或新读取后，旧错误不得清掉新账号投影。
+    if (token is not getattr(self, "_equip_load_token", None)
+            or getattr(self, "_equipment_mode", "saved") != "saved"):
+        return
+    if getattr(self, "_equip_rendered_mode", None) != "saved":
+        # 重试可能已清掉旧控件；恢复的仍是旧事实，失败提示与禁用态明确其非本次结果。
+        _publish_equipment_states(self, getattr(self, "_saved_equipment_states", {}))
+    for name in ("equip_role_strip", "equip_content"):
+        widget = getattr(self, name, None)
+        if widget is not None:
+            widget.setEnabled(False)
+
+
+def _on_game_equipment_display_loaded(self, token, result):
+    _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
+    if (
+        token is not getattr(self, "_equip_load_token", None)
+        or getattr(self, "_equipment_mode", "saved") != "game"
+    ):
+        return
+    projection = result.get("projection") if isinstance(result, dict) else None
+    states = result.get("states", {}) if isinstance(result, dict) else {}
+    saved_states = (
+        result.get("saved_states", {}) if isinstance(result, dict) else {}
+    )
+    if projection is None:
+        _on_game_equipment_display_error(self, token, "游戏内方案投影结果无效")
+        return
+    if projection.supported:
+        ready_count = sum(
+            isinstance(state, dict)
+            and bool(state.get("_game_importable"))
+            and not bool(state.get("_game_imported"))
+            and not bool(state.get("_game_existing_plan_locked"))
+            for state in states.values()
+        )
+        self.equip_mode_status.setText("")
+        self.equip_import_all_btn.setEnabled(ready_count > 0)
+        self.equip_import_all_btn.setToolTip(
+            plain_tooltip(_ui_text('loadouts.page.on_game_equipment_display_loaded.equip_import_all_btn.state', ready_count=f'{ready_count}'))
+        )
+        self._game_loadout_message = (
+            "当前游戏快照中没有已装备驱动或卡带。"
+            if not projection.roles
+            else ""
+        )
+    else:
+        self.equip_mode_status.setText(projection.message)
+        self._game_loadout_message = projection.message
+        self.equip_import_all_btn.setEnabled(False)
+    scored_states = dict(states)
+    try:
+        presentation = equipment_presentation(self)
+        score_equipment_display_states(presentation, scored_states, getattr(self, "roles_db", {}) or {})
+    except Exception as exc:
+        logger.warning(f"游戏配装评分投影失败: {exc}")
+    self._game_loadout_states = scored_states
+    button = getattr(self, 'equip_practice_share_btn', None)
+    if button is not None:
+        button.setEnabled(bool(projection.supported))
+    self._saved_equipment_states = dict(saved_states)
+    self._saved_equipment_cache_valid = True
+    self.equip_mode_status.hide()
+    _publish_equipment_states(self, scored_states)
+
+
+def _on_game_equipment_display_error(self, token, error):
+    _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
+    if (token is not getattr(self, "_equip_load_token", None)
+            or getattr(self, "_equipment_mode", "saved") != "game"):
+        return
+    logger.error(f"刷新游戏内配装展示失败: {error}")
+    self.equip_mode_status.setText(_ui_text('loadouts.page.on_game_equipment_display_error.equip_mode_status'))
+    self.equip_mode_status.show()
+    self.equip_import_all_btn.setEnabled(False)
+    button = getattr(self, 'equip_practice_share_btn', None)
+    if button is not None:
+        button.setEnabled(False)
+    self._game_loadout_message = "游戏配装读取中断；请重新检测连接后再试。原方案保持不变。"
+    # 与计算配装相同，故障不把已验证事实伪装成空结果，也不放行旧导入按钮。
+    if getattr(self, "_equip_rendered_mode", None) != "game":
+        _publish_equipment_states(self, getattr(self, "_game_loadout_states", {}))
+    for name in ("equip_role_strip", "equip_content"):
+        widget = getattr(self, name, None)
+        if widget is not None:
+            widget.setEnabled(False)
+
+
+def _refresh_equip(self, *, restore_role_name=None):
+    _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
+    button = getattr(self, 'equip_practice_share_btn', None)
+    if button is not None:
+        button.setEnabled(False)
+    database_path, static_database_path, _ = _equipment_paths(self)
+    capture_equipment_navigation_state(self)
+    if restore_role_name is None:
+        mode = getattr(self, "_equipment_mode", "saved")
+        selected_by_mode = getattr(self, "_equip_selected_role_by_mode", {})
+        if isinstance(selected_by_mode, dict):
+            selected = selected_by_mode.get(mode)
+            restore_role_name = str(selected) if selected else None
+    if restore_role_name:
+        self._equip_pending_role_name = restore_role_name
+    self._equip_render_token = object()
+    self._equip_lazy_entries = []
+    self._equip_render_queue = []
+    # 同模式读取保留已验证投影；写操作与模式切换使其失效，并撤销旧按钮交互。
+    retain_view = (
+        getattr(self, "_equip_rendered_mode", None)
+        == getattr(self, "_equipment_mode", "saved")
+        and getattr(self, "_saved_equipment_cache_valid", False)
+    )
+    if not retain_view:
+        _clear_equip_content(self)
+    elif isinstance(self, QWidget):
+        # 旧控件可以保留展示，但新数据库版本尚未验证时不得派发写操作。
+        for widget_name in ("equip_role_strip", "equip_content"):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setEnabled(False)
+    # 每份方案需要来源快照投影，正式页面将数据库工作移出 Qt 事件循环；简单宿主保留直接读取。
+    if isinstance(self, QWidget):
+        self.equip_mode_status.hide()
+        token = object()
+        self._equip_load_token = token
+        game_mode = getattr(self, "_equipment_mode", "saved") == "game"
+        if not retain_view:
+            loading = plain_label(
+                _ui_text('loadouts.page.refresh_equip.loading.state') if game_mode else _ui_text('loadouts.page.refresh_equip.loading.state_2')
+            )
+            loading.setStyleSheet(themed_style("color:#8b949e;padding:24px"))
+            loading.setAlignment(Qt.AlignCenter)
+            self.equip_content_layout.addWidget(loading)
+        if game_mode:
+            cached_saved_states = (
+                dict(getattr(self, "_saved_equipment_states", {}) or {})
+                if getattr(self, "_saved_equipment_cache_valid", False)
+                else None
+            )
+            target = partial(_load_game_equipment_display_states,
+                database_path,
+                static_database_path=static_database_path,
+                saved_states=cached_saved_states,
+                text_catalog=getattr(self, 'text_catalog', None),
+            )
+        else:
+            target = partial(_load_sqlite_equipment_display_states,
+                database_path,
+                static_database_path=static_database_path,
+                text_catalog=getattr(self, 'text_catalog', None),
+            )
+        lane = getattr(self, "_equip_read_lane", None)
+        if lane is None:
+            # 正式窗口的 close_page_tasks 会发现此 owner，等真实 IO 结束再销毁父窗口。
+            lane = PageTaskLane(self)
+            self._equip_read_lane = lane
+        context = getattr(self, "app_context", None)
+        identity = (getattr(getattr(context, "account", None), "active_account_id", str(database_path)),
+                    getattr(context, "generation", None), "game" if game_mode else "saved", token)
+        if game_mode:
+            apply = partial(_on_game_equipment_display_loaded, self, token)
+            failed = partial(_on_game_equipment_display_error, self, token)
+        else:
+            apply = partial(_on_sqlite_equipment_display_loaded, self, token)
+            failed = partial(_on_sqlite_equipment_display_error, self, token)
+        # 单个运行读与一个最新请求；目标冻结路径参数，不反向持有 QWidget。
+        lane.submit(PageRequest(key=identity, read=target, apply=apply, failed=failed))
+        return
+    if getattr(self, "_equipment_mode", "saved") == "game":
+        try:
+            result = _load_game_equipment_display_states(
+                database_path,
+                static_database_path=static_database_path,
+                saved_states=(
+                    dict(getattr(self, "_saved_equipment_states", {}) or {})
+                    if getattr(self, "_saved_equipment_cache_valid", False)
+                    else None
+                ),
+                text_catalog=getattr(self, 'text_catalog', None),
+            )
+            projection = result["projection"]
+            self._game_loadout_message = projection.message
+            states = dict(result["states"])
+            presentation = equipment_presentation(self)
+            score_equipment_display_states(presentation, states, getattr(self, "roles_db", {}) or {})
+            self._game_loadout_states = states
+            self._saved_equipment_states = dict(result.get("saved_states", {}))
+            self._saved_equipment_cache_valid = True
+            _queue_equipment_render(self, states)
+        except Exception as exc:
+            logger.error(f"刷新游戏内配装展示失败: {exc}")
+            self._game_loadout_message = str(exc)
+            _queue_equipment_render(self, {})
+        return
+    try:
+        with UserDataDao(database_path) as user_dao, StaticGameDataDao(static_database_path) as static_dao:
+            plans = user_dao.list_active_loadout_plans_by_role()
+            eq = {
+                role_name: _sqlite_plan_display_state(plan, user_dao, static_dao, text_catalog=getattr(self, 'text_catalog', None)) for role_name, plan in plans.items()
+            }
+    except Exception as exc:
+        logger.error(f"刷新 SQLite 配装展示失败: {exc}")
+        eq = {}
+    self._saved_equipment_states = dict(eq)
+    self._saved_equipment_cache_valid = True
+    _queue_equipment_render(self, eq)

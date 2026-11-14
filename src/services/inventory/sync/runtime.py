@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.observability import log_event
-from src.integrations.nte_core_protocol import NteCoreProcessError
+from src.services.inventory.sync.furniture import apply_native_furniture
+from src.integrations.native_core.nte_core_protocol import NteCoreProcessError
 from src.services.accounts.settings import AccountSettingsService
 from src.integrations.capture.raw_retention import prune_raw_capture_files
 from src.storage.sqlite.inventory.inventory_save_error import InventorySnapshotSaveError
@@ -237,6 +238,7 @@ def run_inventory_sync(service: Any) -> None:
                         0.2 if native_status.get("native_change_pending") else 1.0
                     )
                     _apply_native_profiles(service, native_status)
+                    apply_native_furniture(service, client, native_status)
                     store_all_item_snapshot(service, dao, client, native_status)
                     if not native_status.get("native_snapshot_ready", False):
                         stabilizer.discard_pending()

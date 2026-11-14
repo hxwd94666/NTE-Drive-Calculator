@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from src.integrations.nte_analysis_core import (
+from src.integrations.analysis_core.nte_analysis_core import (
     NteAnalysisCoreClient, NativeAnalysisError, NativeAnalysisCancelled,
     REQUEST_SCHEMA, RESPONSE_SCHEMA, ENGINE_VERSION,
 )
@@ -102,7 +102,7 @@ class NativeBlueprintProtocolTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_allocation_requires_complete_batch_and_converts_native_cancellation(self):
-        from src.integrations.native_blueprints import create_blueprint_executor
+        from src.integrations.allocation.native_blueprints import create_blueprint_executor
         client = self.client()
         execute = create_blueprint_executor(client)
         with patch.object(client, "generate_blueprints", return_value=response()) as generate:
@@ -146,3 +146,38 @@ class NativeBlueprintProtocolTests(unittest.TestCase):
                 allocation_executor=allocate, blueprint_executor=blueprint_executor)
         self.assertEqual({}, result)
         self.assertEqual(1, len(calls))
+
+    def test_facade_ordinary_mode_uses_bundled_blueprints_without_python_search(self):
+        """普通配装也经由既有 analysis-core 图纸能力，不回到 Python DFS。"""
+        from tests.allocation.direct_catalog_fixture import create_catalog_case
+        from src.app.facade import NTEAppFacade
+        from src.solver.orchestrator import NTEPipelineOrchestrator
+
+        with tempfile.TemporaryDirectory() as directory:
+            case = create_catalog_case(Path(directory), copies=2)
+            facade = NTEAppFacade(
+                config_dir=Path(__file__).resolve().parents[2] / "config",
+                user_config_dir=Path(__file__).resolve().parents[2] / "config",
+                user_database_path=case["user_database_path"],
+                allocation_static_database_path=case["static_database_path"],
+            )
+            captured = {}
+
+            def allocation_executor(request, _scorer):
+                captured["blueprints"] = request.blueprints_db
+                return {}
+
+            with patch(
+                "src.app.facade.create_allocation_executor",
+                return_value=allocation_executor,
+            ), patch.object(
+                NTEPipelineOrchestrator,
+                "solve_blueprints",
+                side_effect=AssertionError("ordinary facade called Python blueprint search"),
+            ):
+                plans, _ = facade.execute_allocation_inventory(
+                    case["inventory"], [case["selected_role"]], mode="role_priority",
+                )
+
+        self.assertEqual({}, plans)
+        self.assertGreater(sum(len(rows) for rows in captured["blueprints"].values()), 0)

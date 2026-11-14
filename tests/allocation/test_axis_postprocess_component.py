@@ -12,16 +12,16 @@ import pytest
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import create_axis_catalog_case, ROOT
 from src.app.facade import NTEAppFacade
 from tests.allocation.axis_team_fixture import attach_native_team, attach_fixed_builds
-from src.domain.equipment.equipment_normalizer import calculate_drive_main_stats
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient, NativeAnalysisError
-from src.integrations.static_catalog_release import static_catalog_read_unit
-from src.services.allocation.axis_selection import AxisAllocationSelectionService
-from src.services.allocation.inventory import SqliteAllocationInventory
-from src.services.allocation.locks import build_allocation_lock_snapshot
-from src.services.allocation.plan_save import save_allocation_plans, legacy_plan_tape_main_values
-from src.services.allocation.postprocess_facts import allocation_role_state_from_plan
-from src.services.allocation.direct_postprocess import optimization_payload
-from src.services.official_role.attributes import calculate_official_role_combat_stat_components
+from src.domain.equipment.properties.equipment_normalizer import calculate_drive_main_stats
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient, NativeAnalysisError
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+from src.services.allocation.axis.axis_selection import AxisAllocationSelectionService
+from src.services.allocation.inputs.inventory import SqliteAllocationInventory
+from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+from src.services.allocation.results.plan_save import save_allocation_plans, legacy_plan_tape_main_values
+from src.services.allocation.results.postprocess_facts import allocation_role_state_from_plan
+from src.services.allocation.direct.direct_postprocess import optimization_payload
+from src.services.official_role.panel.attributes import calculate_official_role_combat_stat_components
 from src.services.official_role.page import load_official_role_detail
 from src.storage.sqlite.user_data_dao import UserDataDao
 

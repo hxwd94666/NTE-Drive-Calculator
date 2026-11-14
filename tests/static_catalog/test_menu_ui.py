@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
-from src.domain.static_catalog import (
+from src.domain.catalog.static_catalog import (
     CatalogDomain,
     CatalogItem,
     CatalogPage,

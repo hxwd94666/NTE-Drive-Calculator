@@ -12,7 +12,7 @@ from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 from src.domain.battle_report.timeline.events import BattleTreatmentEvent
 from src.integrations.battle_analysis.page_wire import decode
-from tests.test_native_catalog_states import normalize
+from tests.battle_report.native.test_native_catalog_states import normalize
 from src.services.battle_report.build.stat_reconstruction import BattleBuildStatReconstructionService
 from src.services.battle_report.buffs.inference import BattleBuffInferenceService
 from src.services.battle_report.build.offline_analysis import _baselines

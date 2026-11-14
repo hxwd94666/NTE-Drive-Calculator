@@ -5,14 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.services.allocation.locks import (
+from src.services.allocation.inputs.locks import (
     build_allocation_lock_snapshot,
     filter_allocation_request_for_locks,
     selected_fully_locked_roles,
     verify_allocation_lock_snapshot,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
-from tests.test_user_data_loadout_dao import item, snapshot
+from tests.storage.test_user_data_loadout_dao import item
+from tests.storage.test_user_data_loadout_dao import snapshot
 
 
 def _official_payload(role_name: str) -> dict[str, str]:

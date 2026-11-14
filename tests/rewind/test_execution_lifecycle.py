@@ -1,14 +1,16 @@
 # 用真实 Qt 通道验证倒带确认代次、取消、热键与物理收尾，输入仅为假后端。
+from tests.rewind.preferences_fixture import ProfileServiceFixture
 from dataclasses import replace
 import threading
 import time
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QThread, QTimer
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QCoreApplication, QEvent, QThread, QTimer, Qt
+from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.app.context import AccountContext, AppContext
+from src.domain.rewind.dual_target import RewindInventoryChanged
 from src.app.page_tasks import close_page_tasks
 from src.features.toolbox import page
 from src.features.toolbox.rewind import execution_ui
@@ -36,7 +38,7 @@ def run_fixture(tmp_path, monkeypatch):
     context = AppContext(SimpleNamespace(), account, settings_factory=lambda *_a, **_k: None)
     state = SimpleNamespace(app=app, context=context, original=account, entered=threading.Event(),
                             release=threading.Event(), calls=[], backends=[], outcome="success",
-                            observed_stop=None, errors=[])
+                            observed_stop=None, errors=[], requests=[])
 
     class Service:
         def load_preferences(self):
@@ -68,7 +70,8 @@ def run_fixture(tmp_path, monkeypatch):
             self.active_owner = None
 
     class Backend:
-        def __init__(self, *, operation_guard):
+        def __init__(self, *, operation_guard, verify_delivery=False):
+            self.verify_delivery = verify_delivery
             if state.outcome == "factory_error":
                 raise RuntimeError("synthetic construction error")
             self.guard = operation_guard
@@ -81,13 +84,18 @@ def run_fixture(tmp_path, monkeypatch):
         def close(self):
             self.closed = True
 
-    def execute(_request, *, backend, should_stop):
+    def execute(_request, *, backend, should_stop, capture=None):
+        state.requests.append(_request)
         backend.guard("interface_input")
         state.entered.set()
         assert state.release.wait(4)
         state.observed_stop = should_stop()
         if state.outcome == "execute_error":
             raise RuntimeError("synthetic execution error")
+        if state.outcome == "focus_loss":
+            state.target.current = False
+            backend.guard("interface_input")
+            state.dispatched = True
         # 故意返回迟到成功：即便底层没有及时观察取消，UI 也不可重开旧窗口。
         return SimpleNamespace(planned_draws=30, remaining_currency=50)
 
@@ -97,12 +105,30 @@ def run_fixture(tmp_path, monkeypatch):
     state.hotkeys = state.host.global_hotkey_manager = Hotkeys()
     state.service = Service()
     state.dialog = page._RewindRecommendationDialog(
-        state.service, state.host,
+        ProfileServiceFixture(state.service), state.host,
         operation_generation=lambda: (context.account.active_account_id, context.generation),
         operation_guard=lambda capability: state.calls.append(capability),
         operation_entry=lambda *_: True,
         operation_unavailable=lambda *_args: state.errors.append(_args),
     )
+    class Target:
+        current = True
+        bound = False
+
+        def bind_foreground(self):
+            self.check()
+            self.bound = True
+
+        def check(self):
+            if not self.current:
+                raise RuntimeError("target_focus_lost")
+
+        def capture(self):
+            raise AssertionError("synthetic executor never captures")
+
+    state.target = Target()
+    state.dispatched = False
+    state.dialog._rewind_target_factory = lambda: state.target
     state.dialog._rewind_foreground_settle_seconds = 0
     until(app, lambda: not state.dialog._catalog_loading)
     try:
@@ -126,8 +152,8 @@ def test_confirmation_never_rebinds_old_draft_to_new_generation(run_fixture, mon
         if boundary == "aba":
             state.context.switch_account(state.original)
 
-    def confirmation(parent, *, initial):
-        dialog = RewindExecutionDialog(parent, initial=initial)
+    def confirmation(parent, *, initial, text_catalog=None):
+        dialog = RewindExecutionDialog(parent, initial=initial, text_catalog=text_catalog)
         def accept():
             switch()
             dialog.accept()
@@ -198,6 +224,124 @@ def test_cancel_during_foreground_delay_creates_no_backend(run_fixture):
     assert state.hotkeys.active_owner is None
 
 
+@pytest.mark.parametrize('strategy', ['balanced', 'focused', 'dual_target'])
+@pytest.mark.parametrize('phase', ['entry', 'delayed'])
+def test_saved_pool_source_is_checked_before_input_resource_creation(run_fixture, monkeypatch, phase, strategy):
+    state, dialog = run_fixture, run_fixture.dialog
+    dialog._strategy_key = strategy
+    dialog._saved_rewind_shape_ids = ('EquipmentGeometry_Hen4',) * 8
+    dialog._rewind_options = replace(dialog._rewind_options, drive_customization='apply_plan')
+    dialog._preferences = dict(plan_origin='dual_target' if strategy == 'dual_target' else 'generated',
+                               saved_guard={'fixture': 'immutable'})
+    dialog._dual_preferences = dialog._preferences
+    validations = []
+    def validate(guard, *, checkpoint, inventory_change_confirmed=False):
+        checkpoint()
+        validations.append(guard)
+        if phase == 'entry' or len(validations) == 2:
+            raise ValueError('synthetic source changed')
+    monkeypatch.setattr(state.service, 'validate_dual_target_guard', validate, raising=False)
+    monkeypatch.setattr(dialog, '_dual_request_matches_saved', lambda: True)
+    warnings = []
+    monkeypatch.setattr(execution_ui.QMessageBox, 'warning', lambda *_args: warnings.append(_args))
+    monkeypatch.setattr(dialog, '_prepare_rewind_game_foreground', lambda: None)
+    dialog._start_rewind_execution()
+    until(state.app, lambda: not dialog.is_rewind_running())
+    assert len(validations) == (1 if phase == 'entry' else 2)
+    assert state.backends == [] and state.hotkeys.active_owner is None
+    assert warnings if phase == 'entry' else state.errors
+
+
+def saved_pool(state, strategy):
+    dialog = state.dialog
+    dialog._strategy_key = strategy
+    dialog._saved_rewind_shape_ids = ('EquipmentGeometry_Hen4',) * 8
+    dialog._rewind_options = replace(dialog._rewind_options, drive_customization='apply_plan')
+    dialog._preferences = dict(plan_origin='dual_target' if strategy == 'dual_target' else 'generated',
+                               saved_guard={'fixture': 'immutable'})
+    dialog._dual_preferences = dialog._preferences
+    dialog._dual_request_matches_saved = lambda: True
+
+
+@pytest.mark.parametrize('strategy', ['balanced', 'focused', 'dual_target'])
+@pytest.mark.parametrize('phase', ['entry', 'delayed'])
+@pytest.mark.parametrize('accept', [False, True])
+def test_inventory_changes_require_one_confirmation_and_never_replay_input(run_fixture, monkeypatch, strategy, phase, accept):
+    state = run_fixture
+    saved_pool(state, strategy)
+    validations, prompts = [], []
+
+    def validate(guard, *, checkpoint, inventory_change_confirmed=False):
+        checkpoint()
+        validations.append((guard, inventory_change_confirmed))
+        if not inventory_change_confirmed and (phase == 'entry' or len(validations) >= 2):
+            raise RewindInventoryChanged('inventory changed')
+
+    def confirm():
+        assert len(state.backends) == len(prompts) and state.hotkeys.active_owner is None
+        prompts.append(True)
+        return accept
+
+    monkeypatch.setattr(state.service, 'validate_dual_target_guard', validate, raising=False)
+    monkeypatch.setattr(state.dialog, '_confirm_rewind_inventory_change', confirm)
+    state.release.set()
+    state.dialog._start_rewind_execution()
+    until(state.app, lambda: len(prompts) == 1 and not state.dialog.is_rewind_running())
+    assert len(state.backends) == int(accept)
+    assert state.entered.is_set() == accept and not state.errors
+    assert state.hotkeys.active_owner is None
+    if accept:
+        assert state.requests[0].shape_ids == ('EquipmentGeometry_Hen4',) * 8
+        assert sum(confirmed for _, confirmed in validations) == 2
+        # 下次独立执行重新确认；没有持久的“忽略库存变化”状态。
+        state.dialog._start_rewind_execution()
+        until(state.app, lambda: len(prompts) == 2 and not state.dialog.is_rewind_running())
+
+
+@pytest.mark.parametrize('change', ['account', 'plan', 'options'])
+def test_confirmation_does_not_authorize_a_new_account_or_changed_plan(run_fixture, monkeypatch, change):
+    state = run_fixture
+    saved_pool(state, 'balanced')
+
+    def validate(_guard, *, checkpoint, **_kwargs):
+        checkpoint()
+        raise RewindInventoryChanged('inventory changed')
+
+    def confirm():
+        if change == 'account':
+            state.context.switch_account(replace(state.original, active_account_id='second',
+                user_database_path=state.original.account_data_root / 'other.sqlite3'))
+        elif change == 'plan':
+            state.dialog._saved_rewind_shape_ids = ('EquipmentGeometry_Hen2',) * 8
+        else:
+            state.dialog._rewind_options = replace(state.dialog._rewind_options, qualities=('purple',))
+        return True
+
+    monkeypatch.setattr(state.service, 'validate_dual_target_guard', validate, raising=False)
+    monkeypatch.setattr(state.dialog, '_confirm_rewind_inventory_change', confirm)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *_args: warnings.append(_args))
+    state.dialog._start_rewind_execution()
+    assert state.backends == [] and state.hotkeys.active_owner is None
+    assert bool(warnings) == (change != 'account')
+
+
+def test_inventory_confirmation_is_plain_text_with_cancel_as_default(run_fixture, monkeypatch):
+    seen = []
+
+    def show(message):
+        seen.append(message.text())
+        assert message.textFormat() == Qt.PlainText
+        assert message.standardButton(message.defaultButton()) == QMessageBox.Cancel
+        assert message.standardButton(message.escapeButton()) == QMessageBox.Cancel
+        return QMessageBox.Cancel
+
+    monkeypatch.setattr(QMessageBox, 'exec', show)
+    monkeypatch.setattr(QApplication, 'beep', lambda: None)
+    assert not run_fixture.dialog._confirm_rewind_inventory_change()
+    assert seen and '已保存' in seen[0]
+
+
 def test_account_change_discards_delayed_terminal_projection(run_fixture):
     state = run_fixture
     state.dialog._start_rewind_execution()
@@ -215,7 +359,7 @@ def test_account_change_discards_delayed_terminal_projection(run_fixture):
 def test_toolbox_retains_active_dialog_until_shutdown_physically_finishes(run_fixture, monkeypatch):
     state = run_fixture
     toolbox = page.ToolboxPage(dependencies=SimpleNamespace(rewind_service=lambda: state.service,
-        operation_guard=None, operation_generation=None, operation_entry=None, operation_unavailable=None),
+        operation_guard=None, operation_generation=None, operation_entry=None, operation_unavailable=None, rewind_target_factory=None),
         dialog_parent=state.host)
     monkeypatch.setattr(page, "_RewindRecommendationDialog", lambda *_a, **_k: state.dialog)
     observations = []
@@ -241,3 +385,71 @@ def test_toolbox_retains_active_dialog_until_shutdown_physically_finishes(run_fi
     assert observations == [True, True]
     assert not toolbox.is_rewind_running() and toolbox._rewind_dialog is None
     assert state.observed_stop is True and not state.dialog.isVisible()
+
+
+def test_focus_loss_after_wait_stops_instead_of_clicking_calculator(run_fixture):
+    state = run_fixture
+    state.outcome = "focus_loss"
+    state.dialog._start_rewind_execution()
+    until(state.app, state.entered.is_set)
+    state.release.set()
+    until(state.app, lambda: not state.dialog.is_rewind_running())
+    assert not state.dispatched, "rewind dispatched input to the calculator after focus changed"
+    assert state.errors
+    assert state.target.bound and all(backend.verify_delivery for backend in state.backends)
+    assert all(backend.released and backend.closed for backend in state.backends)
+
+
+@pytest.mark.parametrize("stage", ["path", "activation", "focus"])
+def test_window_precheck_failure_creates_no_backend_and_returns_hotkey(run_fixture, stage):
+    state = run_fixture
+    if stage == "path":
+        state.dialog._rewind_target_factory = None
+    elif stage == "activation":
+        def fail():
+            raise RuntimeError("target_activation_failed")
+        state.target.bind_foreground = fail
+    else:
+        state.target.current = False
+    state.dialog._start_rewind_execution()
+    until(state.app, lambda: not state.dialog.is_rewind_running())
+    assert state.backends == [] and not state.entered.is_set()
+    assert state.hotkeys.active_owner is None and state.errors
+    assert "target_" not in str(state.errors)
+
+
+def test_execution_cleanup_error_does_not_replace_the_focus_loss_reason(run_fixture):
+    state = run_fixture
+    state.outcome = "focus_loss"
+    state.dialog._start_rewind_execution()
+    until(state.app, state.entered.is_set)
+
+    def rejected_release():
+        raise RuntimeError("input_delivery_rejected")
+
+    state.backends[0].force_mouse_release = rejected_release
+    state.release.set()
+    until(state.app, lambda: not state.dialog.is_rewind_running())
+    assert state.backends[0].closed and not state.dispatched
+    assert any("游戏窗口失去焦点" in str(error) for error in state.errors)
+    assert state.hotkeys.active_owner is None
+
+
+def test_background_game_gets_the_original_settle_time_before_any_target_check(run_fixture, monkeypatch):
+    state = run_fixture
+    state.target.current = False
+    state.dialog._rewind_foreground_settle_seconds = 0.30
+    original_prepare = state.dialog._prepare_rewind_game_foreground
+
+    def prepare():
+        original_prepare()
+        # 模拟宿主最小化后 Windows 稍晚才把后面的游戏变为前台。
+        QTimer.singleShot(100, state.dialog, lambda: setattr(state.target, "current", True))
+
+    monkeypatch.setattr(state.dialog, "_prepare_rewind_game_foreground", prepare)
+    state.release.set()
+    state.dialog._start_rewind_execution()
+    until(state.app, lambda: not state.dialog.is_rewind_running())
+    assert state.entered.is_set(), "startup checked/activated the game before the original foreground settle delay"
+    assert state.errors == [] and state.target.current
+    assert all(backend.released and backend.closed for backend in state.backends)

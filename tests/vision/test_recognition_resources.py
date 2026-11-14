@@ -15,17 +15,17 @@ from PySide6.QtWidgets import QApplication
 from src.features.identification.controller import IdentificationController
 from src.features.identification.dependencies import IdentificationDependencies
 from src.features.identification.task_controller import IdentificationTaskController
-from src.features.scanning.manual_recovery import _stat_pool
+from src.features.scanning.vision.manual_recovery import _stat_pool
 from src.integrations.vision.recognition.parser import DriveDataParser
 from src.integrations.vision.recognition.shape_recognizer import ShapeRecognizer
 from src.models.equipment import Tape
 from src.optimizer.scoring import ScoringEngine
 from src.services.identification import tasks
-from src.domain.equipment.matching import EquipmentMatchContext
+from src.domain.equipment.eligibility.matching import EquipmentMatchContext
 from src.services.identification.matching_settings import MatchingSettingsService, matching_settings_identity
 from src.services.identification.tasks import IdentificationMatchRequest, IdentificationParsedBatch
-from src.services.inventory import vision_snapshot
-from src.services.inventory.visual_scan_commit import commit_completed_vision_inventory
+from src.services.inventory.scanning import vision_snapshot
+from src.services.inventory.scanning.visual_scan_commit import commit_completed_vision_inventory
 from src.services.recognition import resources as resource_service
 from src.services.recognition.resources import (
     RecognitionResourceError, check_recognition_resources, load_recognition_resources,
@@ -331,8 +331,8 @@ def test_independent_match_freezes_once_and_copies_form_items(selected, tmp_path
 
 def test_cached_old_actual_dao_is_rejected_before_role_or_scoring_reads(selected, tmp_path, monkeypatch):
     from contextlib import closing
-    from src.integrations import static_catalog_release as release_reader
-    from src.services import legacy_allocation_static_catalog as legacy
+    from src.integrations.static_catalog import static_catalog_release as release_reader
+    from src.services.allocation.execution import legacy_allocation_static_catalog as legacy
     from tests.allocation.static_release_helpers import publish_test_manifest
 
     resources = freeze(selected)
@@ -367,7 +367,7 @@ def test_facade_actual_batch_rejects_partial_and_saves_complete(selected, tmp_pa
     from unittest.mock import Mock
     from src.app.facade import NTEAppFacade
     from src.integrations.vision.recognition import batch_processor as batch
-    from src.services.inventory.visual_scan_commit import IncompleteVisionScanError
+    from src.services.inventory.scanning.visual_scan_commit import IncompleteVisionScanError
     shots = tmp_path / "shots"
     shots.mkdir()
     for name in (() if mode == "empty" else ("good.png", "second.png")):

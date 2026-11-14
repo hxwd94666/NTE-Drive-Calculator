@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from src.integrations.battle_axis_evaluation import validate_axis_request
-from src.integrations.nte_analysis_core import MAX_BYTES, NativeAnalysisError
+from src.integrations.battle_analysis.battle_axis_evaluation import validate_axis_request
+from src.integrations.analysis_core.nte_analysis_core import MAX_BYTES, NativeAnalysisError
 from src.services.battle_report.analysis.page_cache import file_identity
 from src.services.battle_report.build.equipment import freeze_equipment_context
 
@@ -86,8 +86,10 @@ def _owner(dependencies, semantics_path: Path) -> tuple:
 
 def _resources(client, dependencies, semantics_path: Path) -> tuple:
     # 静态、机制文件和组件是整个作业的输入；账号库按正式战报摘要核对，非相关 WAL/mtime 不作事实。
-    paths = (Path(dependencies.static_database_path).resolve(), semantics_path.resolve(), Path(client.executable).resolve())
-    return tuple(file_identity(path) for path in paths)
+    paths = (Path(dependencies.static_database_path), semantics_path, Path(client.executable))
+    resource_identities = getattr(type(client), "resource_identities", None)
+    pinned = resource_identities(client, paths) if resource_identities else None
+    return pinned if pinned is not None else tuple(file_identity(path) for path in paths)
 
 
 def freeze_axis_source(client, dependencies, semantics_path, context_is_current, request, *, checkpoint=None):

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
@@ -67,7 +69,9 @@ class StaticCatalogPage:
         dialog_parent: QWidget,
         game_ui_asset_root: str | Path | None = None,
         domain_pages: tuple[StaticCatalogDomainPageSpec, ...] = (),
+        text_catalog=None,
     ) -> None:
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._controller = controller
         self._dialog_parent = dialog_parent
         self._game_ui_asset_root = game_ui_asset_root
@@ -110,6 +114,7 @@ class StaticCatalogPage:
         self._menu = StaticCatalogMenu(
             game_ui_asset_root=self._game_ui_asset_root,
             parent=self._stack,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self._menu.domain_selected.connect(self._open_domain)
         self._stack.addWidget(self._menu)
@@ -127,7 +132,7 @@ class StaticCatalogPage:
         try:
             request = self._controller.refresh_release()
         except Exception as exc:
-            self._show_error("无法打开游戏资料库", exc)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh.self'), exc)
             return
         provider_domains = tuple(
             domain for domain in request.domains if domain.key != "coverage"
@@ -151,7 +156,7 @@ class StaticCatalogPage:
             try:
                 spec.refresh()
             except Exception as exc:
-                self._show_error(f"刷新{spec.title}失败", exc)
+                self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh.self_2', title=f'{spec.title}'), exc)
         self._domain_key = ""
         self._navigation_history.clear()
         self._update_navigation_buttons()
@@ -192,7 +197,7 @@ class StaticCatalogPage:
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(0, 0, 0, 5)
         back = self._navigation_button(bar)
-        self._domain_title = QLabel("", bar)
+        self._domain_title = plain_label("", bar)
         self._domain_title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:16px;font-weight:900"
         ))
@@ -229,7 +234,7 @@ class StaticCatalogPage:
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(0, 0, 0, 5)
         back = self._navigation_button(bar)
-        title = QLabel(spec.title, bar)
+        title = plain_label(spec.title, bar)
         title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:16px;font-weight:900"
         ))
@@ -256,7 +261,7 @@ class StaticCatalogPage:
         layout.setContentsMargins(10, 12, 10, 10)
         self._search_edit = QLineEdit(pane)
         self._search_edit.setClearButtonEnabled(True)
-        self._search_edit.setPlaceholderText("搜索中文名、正式 ID、GA、GE、Buff key、Gameplay Tag、资源路径")
+        self._search_edit.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_result_pane.search_edit'))
         self._search_edit.textChanged.connect(lambda _text: self._queue_search())
         layout.addWidget(self._search_edit)
         self._result_list = QListWidget(pane)
@@ -264,9 +269,9 @@ class StaticCatalogPage:
         self._result_list.currentItemChanged.connect(self._on_result_changed)
         layout.addWidget(self._result_list, 1)
         pager = QHBoxLayout()
-        self._previous_button = QPushButton("上一页", pane)
-        self._next_button = QPushButton("下一页", pane)
-        self._page_label = QLabel("0 项", pane)
+        self._previous_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.graduation.history_previous'), pane)
+        self._next_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.graduation.history_next'), pane)
+        self._page_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_result_pane.page_label'), pane)
         self._page_label.setAlignment(Qt.AlignCenter)
         self._page_label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         self._previous_button.clicked.connect(lambda: self._change_page(-1))
@@ -295,7 +300,7 @@ class StaticCatalogPage:
         self._detail_layout.setSpacing(10)
         scroll.setWidget(host)
         outer.addWidget(scroll)
-        self._render_empty_detail("选择一条资料查看正式字段、关联与来源标记。")
+        self._render_empty_detail(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_detail_pane.self'))
         return pane
 
     def _queue_search(self) -> None:
@@ -320,7 +325,7 @@ class StaticCatalogPage:
                 try:
                     dedicated_page, content = self._build_domain_page(spec, stack)
                 except Exception as exc:
-                    self._show_error(f"无法打开{spec.title}", exc)
+                    self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.open_domain.self', title=f'{spec.title}'), exc)
                     self._show_menu()
                     return
                 self._domain_pages[domain_key] = dedicated_page
@@ -392,8 +397,8 @@ class StaticCatalogPage:
             self._update_navigation_buttons()
             QMessageBox.warning(
                 self._dialog_parent,
-                "无法打开关联资料",
-                "该关联资料暂不可用，已返回原页面。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.open_catalog_link.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.open_catalog_link.qmessagebox_2')),
             )
             return False
         self._update_navigation_buttons()
@@ -407,7 +412,7 @@ class StaticCatalogPage:
         self._update_navigation_buttons()
 
     def _navigation_button(self, parent: QWidget) -> QPushButton:
-        button = QPushButton("‹ 资料库", parent)
+        button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.navigation_button.button'), parent)
         button.setObjectName("staticCatalogNavigateBack")
         button.setMinimumHeight(28)
         button.clicked.connect(self._go_back)
@@ -464,8 +469,8 @@ class StaticCatalogPage:
             text = "‹ 资料库"
             tooltip = "返回游戏资料库"
         for button in self._navigation_buttons:
-            button.setText(text)
-            button.setToolTip(tooltip)
+            button.setText(ui_enum_text(getattr(self, 'text_catalog', None), text))
+            button.setToolTip(plain_tooltip(ui_enum_text(getattr(self, 'text_catalog', None), tooltip)))
 
     def _run_search(self) -> None:
         if self._page is None or not self._domain_key:
@@ -478,7 +483,7 @@ class StaticCatalogPage:
                 offset=self._offset,
             )
         except Exception as exc:
-            self._show_error("查询游戏资料库失败", exc)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.run_search.self_2'), exc)
             return
         self._total = page.total
         results = self._require(self._result_list)
@@ -493,7 +498,7 @@ class StaticCatalogPage:
         if results.count():
             results.setCurrentRow(0)
         else:
-            self._render_empty_detail("没有匹配的资料。")
+            self._render_empty_detail(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.run_search.self'))
         start = page.offset + 1 if page.items else 0
         end = page.offset + len(page.items)
         self._require(self._page_label).setText(f"{start}–{end} / {page.total}")
@@ -517,26 +522,26 @@ class StaticCatalogPage:
         try:
             detail = self._controller.detail(domain_key=domain_key, record_id=record_id)
         except Exception as exc:
-            self._show_error("读取资料详情失败", exc)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.load_detail.self_2'), exc)
             return
         if detail is None:
-            self._render_empty_detail("该记录已不存在或不属于当前 dataset。")
+            self._render_empty_detail(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.load_detail.self'))
             return
         self._render_detail(detail)
 
     def _render_detail(self, detail: CatalogDetail) -> None:
         layout = self._clear_detail()
-        title = QLabel(detail.item.title)
+        title = plain_label(detail.item.title)
         title.setWordWrap(True)
         title.setStyleSheet(themed_style("font-size:18px;font-weight:800;color:#f0f6fc"))
         layout.addWidget(title)
         if detail.item.subtitle:
-            subtitle = QLabel(detail.item.subtitle)
+            subtitle = plain_label(detail.item.subtitle)
             subtitle.setWordWrap(True)
             subtitle.setStyleSheet(themed_style("color:#8b949e"))
             layout.addWidget(subtitle)
         for section in detail.sections:
-            heading = QLabel(section.title)
+            heading = plain_label(section.title)
             heading.setStyleSheet(themed_style(
                 "font-size:14px;font-weight:800;color:#58a6ff;margin-top:6px"
             ))
@@ -560,7 +565,7 @@ class StaticCatalogPage:
         for group in detail.relation_groups:
             layout.addWidget(self._relation_group_widget(detail, group))
         for note in detail.notes:
-            label = QLabel(note)
+            label = plain_label(note)
             label.setWordWrap(True)
             label.setStyleSheet(themed_style(
                 "color:#d29922;background:#d2992222;border:1px solid #d2992266;"
@@ -583,13 +588,13 @@ class StaticCatalogPage:
         layout = QVBoxLayout(host)
         layout.setContentsMargins(8, 6, 8, 8)
         layout.setSpacing(7)
-        heading = QLabel(f"{group.label}（{group.total}）", host)
+        heading = plain_label(f"{group.label}（{group.total}）", host)
         heading.setStyleSheet(themed_style("font-weight:800;color:#58a6ff"))
         layout.addWidget(heading)
         rows_layout = QVBoxLayout()
         rows_layout.setSpacing(7)
         layout.addLayout(rows_layout)
-        button = QPushButton(f"加载{group.label}", host)
+        button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.relation_group_widget.button', label=f'{group.label}'), host)
         button.setObjectName("staticCatalogLoadRelations")
         layout.addWidget(button)
         state = {"offset": 0}
@@ -603,7 +608,7 @@ class StaticCatalogPage:
                     offset=state["offset"],
                 )
             except Exception as exc:
-                button.setText(f"加载失败：{exc}")
+                button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.load_page.button_3', exc=f'{exc}'))
                 button.setEnabled(False)
                 return
             for row in page.rows:
@@ -612,8 +617,8 @@ class StaticCatalogPage:
             has_more = state["offset"] < page.total
             button.setEnabled(has_more)
             button.setText(
-                f"加载下一页（{state['offset']} / {page.total}）"
-                if has_more else f"已加载全部（{page.total}）"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.load_page.button', value=f"{state['offset']}", total=f'{page.total}')
+                if has_more else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.load_page.button_2', total=f'{page.total}')
             )
 
         button.clicked.connect(load_page)
@@ -628,7 +633,7 @@ class StaticCatalogPage:
         ))
         layout = QVBoxLayout(host)
         layout.setContentsMargins(7, 5, 7, 6)
-        title = QLabel(section.title, host)
+        title = plain_label(section.title, host)
         title.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
         layout.addWidget(title)
         for field in section.fields:
@@ -653,14 +658,14 @@ class StaticCatalogPage:
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(8)
-        name = QLabel(field.label)
+        name = plain_label(field.label)
         name.setMinimumWidth(96)
         name.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
-        value = QLabel(field.value or "—")
+        value = plain_label(field.value or "—")
         value.setWordWrap(True)
         value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         value.setStyleSheet(themed_style("color:#c9d1d9"))
-        source = QLabel(SOURCE_LABELS[field.source])
+        source = plain_label(SOURCE_LABELS[field.source])
         source.setStyleSheet(themed_style(
             "color:#58a6ff;background:#1f6feb22;border:1px solid #1f6feb66;"
             "border-radius:5px;padding:2px 5px;font-size:10px"
@@ -669,7 +674,7 @@ class StaticCatalogPage:
         layout.addWidget(value, 1)
         layout.addWidget(source, 0, Qt.AlignTop)
         if field.copyable:
-            copy_button = QPushButton("复制")
+            copy_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('warehouse.management.rules.copy'))
             copy_button.setObjectName("btnSm")
             copy_button.clicked.connect(
                 lambda _checked=False, text=field.value: QApplication.clipboard().setText(text)
@@ -679,7 +684,7 @@ class StaticCatalogPage:
 
     def _render_empty_detail(self, message: str) -> None:
         layout = self._clear_detail()
-        label = QLabel(message)
+        label = plain_label(message)
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet(themed_style("color:#8b949e;padding:24px"))

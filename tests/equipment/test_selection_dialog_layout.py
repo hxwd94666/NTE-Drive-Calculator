@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QScrollArea
 
 from src.app import window_geometry
 from src.domain.localization.catalog import make_catalog
-from src.features.inventory.equipment.automatic_assembly_dialog import AutomaticAssemblyDialog
+from src.features.inventory.equipment.assembly.automatic_assembly_dialog import AutomaticAssemblyDialog
 from src.features.toolbox.rewind.role_picker import _RoleSelectionDialog
 from src.integrations.preferences.locale_files import bundled_text_catalog, read_catalog_file
 from tests.rewind.test_slot_selection_ui import role_fixture

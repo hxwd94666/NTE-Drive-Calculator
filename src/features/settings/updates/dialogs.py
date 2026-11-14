@@ -1,11 +1,12 @@
 # 展示更新说明、旧版确认和下载提示，所有动作由注入的 owner 回调决定。
 from __future__ import annotations
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog, rich_label
 from html import escape
 import re
 from typing import Any
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFrame,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QTextBrowser, QVBoxLayout)
+    QHBoxLayout, QMessageBox, QTextBrowser, QVBoxLayout)
 from src.app.constants import NETDISK_DOWNLOAD_LINKS, MIRROR_PROJECT_URL
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
@@ -43,10 +44,10 @@ def should_show_startup_update(update_config: dict, info: dict) -> bool:
 
 
 def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str, *,
-                       show_group, show_netdisk, start_download) -> dict:
+                       show_group, show_netdisk, start_download, text_catalog=None) -> dict:
     latest = str(info.get("latest") or "未知")
     dialog = QDialog(parent)
-    dialog.setWindowTitle("发现更新")
+    dialog.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.settings.show_update_dialog.dialog'))
     dialog.setMinimumSize(620, 480)
     dialog.setStyleSheet(style_sheet)
 
@@ -57,18 +58,18 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str, *
     header.setSpacing(12)
     heading = QVBoxLayout()
     heading.setSpacing(6)
-    title = QLabel(f"发现新版本 {latest}")
+    title = plain_label(resolve_text_catalog(text_catalog).render('ui.settings.show_update_dialog.title', latest=f'{latest}'))
     title.setStyleSheet(themed_style("font-size:21px;font-weight:600;color:#f0f6fc"))
     heading.addWidget(title)
-    subtitle = QLabel(f"当前版本 {app_version}  →  最新版本 {latest}")
+    subtitle = plain_label(resolve_text_catalog(text_catalog).render('ui.settings.show_update_dialog.subtitle', app_version=f'{app_version}', latest=f'{latest}'))
     subtitle.setStyleSheet(themed_style("color:#8b949e"))
     heading.addWidget(subtitle)
     header.addLayout(heading)
     header.addStretch()
     release_url = str(info.get("release_url") or "").strip()
     if release_url.lower().startswith(("https://", "http://")):
-        link = QLabel(
-            f'<a href="{escape(release_url, quote=True)}">查看 GitHub 发布页 ↗</a>'
+        link = rich_label(
+            f'<a href="{escape(release_url, quote=True)}">{escape(resolve_text_catalog(text_catalog).render("ui.settings.release_link"))}</a>'
         )
         link.setOpenExternalLinks(True)
         link.setTextInteractionFlags(Qt.TextBrowserInteraction)
@@ -84,7 +85,7 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str, *
     notes_layout = QVBoxLayout(notes_card)
     notes_layout.setContentsMargins(18, 14, 18, 14)
     notes_layout.setSpacing(8)
-    notes_heading = QLabel("更新内容")
+    notes_heading = plain_label(resolve_text_catalog(text_catalog).render('ui.settings.show_update_dialog.notes_heading'))
     notes_heading.setStyleSheet(themed_style("font-size:15px;font-weight:600;color:#f0f6fc"))
     notes_layout.addWidget(notes_heading)
     notes = QTextBrowser()
@@ -102,8 +103,8 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str, *
 
     preferences = QHBoxLayout()
     preferences.setSpacing(24)
-    ignore_cb = QCheckBox("此版本不再提醒")
-    never_cb = QCheckBox("关闭自动更新提醒")
+    ignore_cb = QCheckBox(resolve_text_catalog(text_catalog).render('ui.settings.show_update_dialog.ignore_cb'))
+    never_cb = QCheckBox(resolve_text_catalog(text_catalog).render('ui.settings.show_update_dialog.never_cb'))
     preferences.addWidget(ignore_cb)
     preferences.addWidget(never_cb)
     preferences.addStretch()
@@ -115,7 +116,7 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str, *
     layout.addWidget(separator)
     footer = QHBoxLayout()
     footer.setSpacing(10)
-    group_button = QPushButton("加入群聊")
+    group_button = TextActionButton(resolve_text_catalog(text_catalog).render('settings.page.build_settings_page.group_chat_btn'))
     group_button.setObjectName("updateGroupChatButton")
     group_button.setStyleSheet(themed_style(
         "QPushButton#updateGroupChatButton{background:transparent;border:none;color:#8b949e;padding:0 4px}"
@@ -124,12 +125,12 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str, *
     group_button.clicked.connect(show_group)
     footer.addWidget(group_button)
     footer.addStretch()
-    later_button = QPushButton("暂不更新")
+    later_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.show_update_dialog.later_button'))
     later_button.clicked.connect(dialog.accept)
     later_button.setDefault(True)
-    netdisk_button = QPushButton("网盘下载")
+    netdisk_button = TextActionButton(resolve_text_catalog(text_catalog).render('settings.page.build_settings_page.netdisk_btn'))
     netdisk_button.setObjectName("btnNew")
-    mirror_button = QPushButton("Mirror 下载")
+    mirror_button = TextActionButton(resolve_text_catalog(text_catalog).render('settings.page.build_settings_page.mirror_download_btn'))
 
     def open_netdisk_download():
         dialog.accept()
@@ -159,14 +160,14 @@ def show_update_dialog(parent, style_sheet: str, info: dict, app_version: str, *
 
 def _show_mirror_cdk_required_dialog(self):
     dialog = QDialog(self)
-    dialog.setWindowTitle("Mirror 下载")
+    dialog.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('settings.page.build_settings_page.mirror_download_btn'))
     dialog.setMinimumWidth(460)
     if hasattr(self, "_current_style_sheet"):
         dialog.setStyleSheet(self._current_style_sheet())
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 16, 18, 16)
     layout.setSpacing(10)
-    message = QLabel("请先填写 Mirror CDK 后再下载。<br><br>" + _mirror_project_link_text("获取 CDK"))
+    message = rich_label(escape(resolve_text_catalog(getattr(self, "text_catalog", None)).render("ui.settings.mirror.cdk_required")) + "<br><br>" + _mirror_project_link_text(resolve_text_catalog(getattr(self, "text_catalog", None)).render("ui.settings.mirror.get_cdk"), text_catalog=getattr(self, "text_catalog", None)))
     message.setWordWrap(True)
     message.setTextFormat(Qt.TextFormat.RichText)
     message.setOpenExternalLinks(True)
@@ -180,25 +181,25 @@ def _show_mirror_cdk_required_dialog(self):
     dialog.exec()
 
 
-def _mirror_project_link_text(action: str) -> str:
+def _mirror_project_link_text(action: str, *, text_catalog=None) -> str:
     """复用公共项目页链接，只提供浏览器入口，不自动执行安装。"""
     return (
-        f"可前往 Mirror 项目页面{action}："
-        f'<a href="{MIRROR_PROJECT_URL}">{MIRROR_PROJECT_URL}</a>'
+        escape(resolve_text_catalog(text_catalog).render("ui.settings.mirror.project_line", action=action))
+        + f'<a href="{escape(MIRROR_PROJECT_URL, quote=True)}">{escape(MIRROR_PROJECT_URL)}</a>'
     )
 
 
 def _confirm_mirror_older_version_download(self: Any, current: str, latest: str) -> bool:
     dialog = QMessageBox(self)
+    dialog.setTextFormat(Qt.PlainText)
     dialog.setIcon(QMessageBox.Icon.Warning)
-    dialog.setWindowTitle("Mirror 下载较旧版本")
-    dialog.setText("Mirror 提供的版本低于当前安装版本。")
+    dialog.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.confirm_mirror_older_version_download.dialog'))
+    dialog.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.confirm_mirror_older_version_download.dialog_2'))
     dialog.setInformativeText(
-        f"当前版本：{current}\nMirror 版本：{latest}\n"
-        "下载完成后会自动启动安装程序，可能覆盖当前版本。是否继续下载？"
+        resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.confirm_mirror_older_version_download.dialog_3', current=f'{current}', latest=f'{latest}')
     )
-    download = dialog.addButton("下载", QMessageBox.ButtonRole.AcceptRole)
-    cancel = dialog.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+    download = dialog.addButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.confirm_mirror_older_version_download.download'), QMessageBox.ButtonRole.AcceptRole)
+    cancel = dialog.addButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('common.cancel'), QMessageBox.ButtonRole.RejectRole)
     dialog.setDefaultButton(cancel)
     dialog.setEscapeButton(cancel)
     if hasattr(self, "_current_style_sheet"):
@@ -212,17 +213,17 @@ def _confirm_mirror_older_version_download(self: Any, current: str, latest: str)
 def _show_mirror_project_download_dialog(self: Any, summary: str) -> None:
     """下载失败保留可重试状态，并提供显式项目页入口。"""
     dialog = QDialog(self)
-    dialog.setWindowTitle("Mirror 下载")
+    dialog.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('settings.page.build_settings_page.mirror_download_btn'))
     dialog.setMinimumWidth(460)
     if hasattr(self, "_current_style_sheet"):
         dialog.setStyleSheet(self._current_style_sheet())
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 16, 18, 16)
     layout.setSpacing(10)
-    message = QLabel(summary)
+    message = plain_label(summary)
     message.setWordWrap(True)
     layout.addWidget(message)
-    link = QLabel(_mirror_project_link_text("尝试下载"))
+    link = rich_label(_mirror_project_link_text(resolve_text_catalog(getattr(self, "text_catalog", None)).render("ui.settings.mirror.try_download"), text_catalog=getattr(self, "text_catalog", None)))
     link.setWordWrap(True)
     link.setTextFormat(Qt.TextFormat.RichText)
     link.setOpenExternalLinks(True)

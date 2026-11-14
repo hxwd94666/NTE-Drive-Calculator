@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 import json
 import re
 import shutil
@@ -16,10 +18,8 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QLineEdit,
     QMessageBox,
-    QPushButton,
     QVBoxLayout,
 )
 
@@ -297,9 +297,9 @@ def populate_account_combo(combo: QComboBox, accounts_index: dict, active_accoun
     combo.blockSignals(False)
 
 
-def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManager, active_account_id: str, switch_account_callback, refresh_account_combo_callback) -> None:
+def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManager, active_account_id: str, switch_account_callback, refresh_account_combo_callback, *, text_catalog=None) -> None:
     dialog = QDialog(parent)
-    dialog.setWindowTitle("管理账号")
+    dialog.setWindowTitle(resolve_text_catalog(text_catalog).render('navigation.main.build_ui.account_btn'))
     dialog.setMinimumSize(460, 220)
     dialog.setStyleSheet(style_sheet)
 
@@ -307,27 +307,27 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
     layout.setSpacing(10)
 
     row = QHBoxLayout()
-    row.addWidget(QLabel("账号"))
+    row.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.accounts.show_account_manager_dialog.caption')))
     combo = QComboBox()
     row.addWidget(combo, 1)
     layout.addLayout(row)
 
     name_edit = QLineEdit()
-    name_edit.setPlaceholderText("账号名称")
+    name_edit.setPlaceholderText(resolve_text_catalog(text_catalog).render('ui.accounts.show_account_manager_dialog.name_edit'))
     layout.addWidget(name_edit)
 
     btn_row = QHBoxLayout()
-    add_btn = QPushButton("新建")
+    add_btn = TextActionButton(resolve_text_catalog(text_catalog).render('ui.accounts.show_account_manager_dialog.add_btn'))
     add_btn.setObjectName("btnPrimary")
-    rename_btn = QPushButton("保存命名")
+    rename_btn = TextActionButton(resolve_text_catalog(text_catalog).render('ui.accounts.show_account_manager_dialog.rename_btn'))
     rename_btn.setObjectName("btnAction")
-    delete_btn = QPushButton("删除")
-    export_btn = QPushButton("导出数据")
+    delete_btn = TextActionButton(resolve_text_catalog(text_catalog).render('warehouse.management.rules.delete'))
+    export_btn = TextActionButton(resolve_text_catalog(text_catalog).render('ui.accounts.show_account_manager_dialog.export_btn'))
     export_btn.setObjectName("btnAction")
-    import_btn = QPushButton("导入数据")
+    import_btn = TextActionButton(resolve_text_catalog(text_catalog).render('ui.accounts.show_account_manager_dialog.import_btn'))
     import_btn.setObjectName("btnAction")
     delete_btn.setObjectName("btnDanger")
-    close_btn = QPushButton("关闭")
+    close_btn = TextActionButton(resolve_text_catalog(text_catalog).render('common.close'))
     for btn in (rename_btn, export_btn, import_btn, add_btn, delete_btn):
         btn_row.addWidget(btn)
     btn_row.addStretch()
@@ -350,28 +350,28 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         name_edit.setText(account.get("name", ""))
 
     def add_account():
-        name, ok = QInputDialog.getText(dialog, "新建账号", "请输入账号名称：")
+        name, ok = QInputDialog.getText(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.add_account.name_ok'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.add_account.name_ok_2')))
         if not ok or not name.strip():
             return
         try:
             account_id = manager.create_account(name.strip())
         except Exception as exc:
-            QMessageBox.warning(dialog, "新建账号未完成", f"原账号保持不变，请排除故障后重试。\n{exc}")
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.add_account.qmessagebox'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.add_account.qmessagebox_2', exc=f'{exc}')))
             return
         refresh(account_id)
         refresh_account_combo_callback()
 
     def report_cleanup(result: AccountDeletionResult) -> None:
         if result.cleanup_pending is not None:
-            QMessageBox.warning(dialog, "账号已移除，文件清理待完成",
-                                f"账号已从列表移除，部分文件仍被占用或目录状态已变化。\n请关闭程序后核对并清理：{result.cleanup_pending}")
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.report_cleanup.qmessagebox'),
+                                plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.report_cleanup.qmessagebox_2', cleanup_pending=f'{result.cleanup_pending}')))
 
     def remove_temporary_account(account_id: str) -> None:
         # 导入/切换完成与临时目录清理是两项结果；清理失败不反转已提交的当前账号。
         try:
             result = manager.delete_account(account_id)
         except Exception as exc:
-            QMessageBox.warning(dialog, "临时账号清理待完成", f"当前账号保持不变，临时账号已保留，请稍后重试。\n{exc}")
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.remove_temporary_account.qmessagebox'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.remove_temporary_account.qmessagebox_2', exc=f'{exc}')))
             return
         report_cleanup(result)
 
@@ -391,15 +391,15 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         try:
             target = manager.prepare_account_deletion(account_id)
         except AccountMutationRecoveryError as exc:
-            QMessageBox.warning(dialog, "账号恢复待完成", str(exc))
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.qmessagebox'), str(exc))
             return
         except ValueError:
-            QMessageBox.information(dialog, "删除账号", "账号状态已变化或只剩一个账号，请刷新后重试。")
+            QMessageBox.information(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.ret'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.qmessagebox_2')))
             return
         ret = QMessageBox.question(
             dialog,
-            "删除账号",
-            f"确定删除账号「{target.account.get('name', account_id)}」及其库存、配装、截图等数据吗？\n此操作不可恢复。",
+            resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.ret'),
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.ret_2', value=f"{target.account.get('name', account_id)}")),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -414,7 +414,7 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
             except Exception:
                 switched = False
             if not switched:
-                QMessageBox.warning(dialog, "删除账号", "账号切换尚未完成，删除未开始。原账号已保留，请重试切换。")
+                QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.ret'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.qmessagebox_3')))
                 return
             runtime["active_id"] = replacement_id
         try:
@@ -422,7 +422,7 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         except Exception as exc:
             refresh(runtime["active_id"])
             refresh_account_combo_callback()
-            QMessageBox.warning(dialog, "删除账号", f"账号删除尚未完成：{exc}\n当前运行账号已保留，请刷新后重试。")
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.ret'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.qmessagebox_4', exc=f'{exc}')))
             return
         refresh(runtime["active_id"])
         refresh_account_combo_callback()
@@ -434,18 +434,18 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
             return
         account = manager.account_meta(account_id)
         default_name = f"{manager.safe_account_id(account.get('name') or account_id)}_nte_account.zip"
-        path, _ = QFileDialog.getSaveFileName(dialog, "导出账号数据", default_name, "NTE Account Export (*.zip)")
+        path, _ = QFileDialog.getSaveFileName(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.export_account.path'), default_name, "NTE Account Export (*.zip)")
         if not path:
             return
         try:
             export_account_data(manager, account_id, Path(path))
         except Exception as exc:
-            QMessageBox.critical(dialog, "导出账号数据", f"导出失败：{exc}")
+            QMessageBox.critical(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.export_account.path'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.export_account.qmessagebox_2', exc=f'{exc}')))
             return
-        QMessageBox.information(dialog, "导出账号数据", "当前账号数据已导出。")
+        QMessageBox.information(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.export_account.path'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.export_account.qmessagebox')))
 
     def import_account():
-        path, _ = QFileDialog.getOpenFileName(dialog, "导入账号数据", "", "NTE Account Export (*.zip)")
+        path, _ = QFileDialog.getOpenFileName(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.import_account.path'), "", "NTE Account Export (*.zip)")
         if not path:
             return
         temporary_account_id: str | None = None
@@ -489,7 +489,7 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
                     refresh(runtime["active_id"])
                     refresh_account_combo_callback()
             detail = "\n账号回切尚未完成，临时账号已保留，请重试切换。" if switch_pending else ""
-            QMessageBox.critical(dialog, "导入账号数据", f"导入失败：{exc}{detail}")
+            QMessageBox.critical(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.import_account.path'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.import_account.qmessagebox_3', exc=f'{exc}', detail=ui_enum_text(text_catalog, f'{detail}'))))
             return
         try:
             switched = switch_account_callback(imported_id) is True
@@ -499,14 +499,14 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
             # 数据导入与运行时切换是两项结果，保留实际 owner，不把索引 active 当成切换。
             refresh(runtime["active_id"])
             refresh_account_combo_callback()
-            QMessageBox.warning(dialog, "导入账号数据", "账号数据已导入，但账号切换尚未完成。当前账号已保留，请重试切换。")
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.import_account.path'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.import_account.qmessagebox_2')))
             return
         runtime["active_id"] = imported_id
         if temporary_account_id is not None:
             remove_temporary_account(temporary_account_id)
         refresh(imported_id)
         refresh_account_combo_callback()
-        QMessageBox.information(dialog, "导入账号数据", "账号数据已导入。")
+        QMessageBox.information(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.import_account.path'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.import_account.qmessagebox')))
 
     combo.currentIndexChanged.connect(on_combo_changed)
     add_btn.clicked.connect(add_account)

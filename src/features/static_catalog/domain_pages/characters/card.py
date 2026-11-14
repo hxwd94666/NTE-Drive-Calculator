@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -27,8 +28,10 @@ class CharacterGalleryCard(QFrame):
         variant_art_paths: tuple[tuple[int, Path | None], ...] = (),
         release_metadata: CharacterReleaseMetadata | None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.summary = summary
         self.release_metadata = release_metadata
         self.setObjectName(f"characterGalleryCard_{summary.character_id}")
@@ -65,7 +68,7 @@ class CharacterGalleryCard(QFrame):
         root.setSpacing(4)
 
         top = QHBoxLayout()
-        element = QLabel(self.summary.element_label, self)
+        element = plain_label(self.summary.element_label, self)
         element.setObjectName("characterElementBadge")
         element.setStyleSheet(themed_style(
             "background:#1f6feb33;color:#58a6ff;border:1px solid #58a6ff;"
@@ -91,7 +94,7 @@ class CharacterGalleryCard(QFrame):
             if self.summary.classification == "scheduled_character"
             else ""
         )
-        state = QLabel(f"{quality} · {acquisition}{availability}", self)
+        state = plain_label(f"{quality} · {acquisition}{availability}", self)
         state.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px;font-weight:700"
         ))
@@ -114,7 +117,7 @@ class CharacterGalleryCard(QFrame):
         portrait_paths = variant_art_paths or ((self.summary.character_id, art_path),)
         avatar_labels: list[QLabel] = []
         for _character_id, path in portrait_paths:
-            art = QLabel(visual)
+            art = plain_label(visual)
             art.setObjectName("characterAvatar")
             art.setMinimumHeight(98)
             art.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -129,15 +132,15 @@ class CharacterGalleryCard(QFrame):
                         Qt.TransformationMode.SmoothTransformation,
                     ))
             if art.pixmap().isNull():
-                art.setText("头像未提供")
+                art.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build.art'))
                 art.setStyleSheet(themed_style(
                     "color:#6e7681;background:#0d1117;border:1px dashed #30363d;"
                     "border-radius:12px;font-size:10px"
                 ))
             portraits.addWidget(art, 1)
             avatar_labels.append(art)
-        avatar_caption = QLabel(
-            f"{len(portrait_paths)} 种形象" if len(portrait_paths) > 1 else "角色头像",
+        avatar_caption = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build.avatar_caption', value=f'{len(portrait_paths)}') if len(portrait_paths) > 1 else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build.avatar_caption_2'),
             visual,
         )
         avatar_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -149,12 +152,12 @@ class CharacterGalleryCard(QFrame):
         visual_layout.addWidget(avatar_caption)
         root.addWidget(visual)
 
-        name = QLabel(self.summary.name_zh, self)
+        name = plain_label(self.summary.name_zh, self)
         name.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:17px;font-weight:900"
         ))
         variant_ids = " / ".join(str(character_id) for character_id, _path in portrait_paths)
-        identity = QLabel(f"ID {variant_ids}", self)
+        identity = plain_label(f"ID {variant_ids}", self)
         identity.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px;font-weight:700;letter-spacing:1px"
         ))
@@ -165,11 +168,11 @@ class CharacterGalleryCard(QFrame):
             if self.summary.classification == "scheduled_character"
             else "上线 "
         )
-        release = QLabel(
+        release = plain_label(
             release_prefix + (
                 metadata.release_date
                 if metadata is not None and metadata.release_date
-                else "当前正式数据未提供"
+                else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build.release')
             ),
             self,
         )

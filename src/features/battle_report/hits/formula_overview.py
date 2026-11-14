@@ -1,6 +1,7 @@
 # 以参与方头像、结算对照和可点击因子展示已有逐击结果，不重算伤害。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -62,7 +63,7 @@ def target_portrait_identity(hit, raw, resolutions):
 
 
 def _label(text="", *, secondary=False):
-    label = QLabel(text)
+    label = plain_label(text)
     label.setTextFormat(Qt.TextFormat.PlainText)
     label.setWordWrap(True)
     label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -72,8 +73,9 @@ def _label(text="", *, secondary=False):
 
 
 class ParticipantButton(QPushButton):
-    def __init__(self, side, *, right=False, parent=None):
+    def __init__(self, side, *, right=False, parent=None, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setMinimumHeight(86)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setStyleSheet(themed_style(
@@ -91,7 +93,7 @@ class ParticipantButton(QPushButton):
         self.side = _label(side, secondary=True)
         self.name = _label()
         self.name.setStyleSheet("font-weight:600;font-size:14px;")
-        link = _label("查看本击属性 ›")
+        link = _label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.link'))
         link.setStyleSheet(themed_style("color:#58a6ff;font-size:11px;"))
         for label in (self.side, self.name, link):
             label.setAlignment(Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
@@ -107,7 +109,7 @@ class ParticipantButton(QPushButton):
 
     def set_person(self, name, icon_path):
         self.name.setText(name)
-        self.setAccessibleName(f"{self.side.text()} · {name}，查看本击属性")
+        self.setAccessibleName(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_person.self', value=f'{self.side.text()}', name=f'{name}'))
         self.portrait.clear()
         image = QPixmap(str(icon_path)) if icon_path else QPixmap()
         if image.isNull():
@@ -121,8 +123,9 @@ class HitFormulaOverview(QWidget):
     participant_requested = Signal(str)
     factor_requested = Signal(object)
 
-    def __init__(self, parent=None, *, game_ui_asset_root=None):
+    def __init__(self, parent=None, *, game_ui_asset_root=None, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._catalog = GameUiAssetCatalog(game_ui_asset_root) if game_ui_asset_root else None
         self._tiles = []
         self._extra_tiles = []
@@ -133,8 +136,8 @@ class HitFormulaOverview(QWidget):
         root.setSpacing(14)
         header = QHBoxLayout()
         header.setSpacing(12)
-        self.attacker = ParticipantButton("攻击方", parent=self)
-        self.victim = ParticipantButton("受击方", right=True, parent=self)
+        self.attacker = ParticipantButton("攻击方", parent=self, text_catalog=text_catalog)
+        self.victim = ParticipantButton("受击方", right=True, parent=self, text_catalog=text_catalog)
         self.attacker.clicked.connect(lambda: self.participant_requested.emit("attacker"))
         self.victim.clicked.connect(lambda: self.participant_requested.emit("victim"))
         skill = QVBoxLayout()
@@ -163,7 +166,7 @@ class HitFormulaOverview(QWidget):
         self.observed = self._stat(result_layout, "实测伤害")
         self.delta = self._stat(result_layout, "公式 − 实测", small=True)
         root.addWidget(result)
-        self.formula_title = _label("本击总公式")
+        self.formula_title = _label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.formula_title'))
         self.formula_title.setStyleSheet("font-weight:600;font-size:14px;")
         root.addWidget(self.formula_title)
         self.expression = _label(secondary=True)
@@ -174,7 +177,7 @@ class HitFormulaOverview(QWidget):
         self.settlement = _label(secondary=True)
         self.settlement.setAlignment(Qt.AlignmentFlag.AlignRight)
         root.addWidget(self.settlement)
-        self.extra_title = _label("系数展开／计算输入", secondary=True)
+        self.extra_title = _label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.extra_title'), secondary=True)
         root.addWidget(self.extra_title)
         self.extra_grid = QGridLayout()
         self.extra_grid.setSpacing(9)
@@ -219,7 +222,7 @@ class HitFormulaOverview(QWidget):
         for label in (name, owner, amount):
             label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         box.addWidget(amount)
-        button.setAccessibleName(f"{factor_name(factor)}：{value}，查看详情")
+        button.setAccessibleName(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.tile.button', value=f'{factor_name(factor)}', value_2=f'{value}'))
         button.setToolTip(f"{factor.label}：{factor.value:.15g}\n{factor.formula}\n{factor.evidence_basis}")
         button.clicked.connect(lambda _checked=False, f=factor: self.factor_requested.emit(f))
         return button
@@ -230,12 +233,12 @@ class HitFormulaOverview(QWidget):
         monster, portrait_basis = target_portrait_identity(hit, raw, target_resolutions)
         victim_icon = (catalog.monster_variant_icon(monster) or catalog.monster_family_icon(monster)) if catalog and monster else None
         self.victim.set_person(hit.target_name or "未知目标", victim_icon)
-        self.victim.setToolTip(f"头像来源：{portrait_basis}" + (f"\n怪物标识：{monster}" if monster else "")
-                              + ("\n暂无对应头像资源" if monster and victim_icon is None else ""))
+        self.victim.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.victim', portrait_basis=f'{portrait_basis}') + (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.victim_2', monster=f'{monster}') if monster else "")
+                              + (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.victim_3') if monster and victim_icon is None else "")))
         self.hit_identity.setText(f"Hit #{hit.sequence} · {hit.relative_time_us / 1_000_000:.3f} s")
-        self.hit_identity.setToolTip(f"命中 ID：{hit.event_id}\n技能标识：{hit.ability_id or '未取得'}")
+        self.hit_identity.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.hit_identity', event_id=f'{hit.event_id}', value=f"{hit.ability_id or '未取得'}")))
         self.skill_name.setText(battle_hit_skill_label(hit.damage_name, hit.skill_name, hit.ability_id))
-        self.skill_name.setToolTip(f"技能：{hit.skill_name}\n伤害项：{hit.damage_name}\n命中 ID：{hit.event_id}")
+        self.skill_name.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.skill_name', skill_name=f'{hit.skill_name}', damage_name=f'{hit.damage_name}', event_id=f'{hit.event_id}')))
         crit = "" if replay is None else {
             "critical": "暴击", "non_critical": "未暴击", "not_applicable": "不适用暴击",
             "ambiguous": "暴击待定", "unreplayable": "暴击未知",
@@ -244,18 +247,18 @@ class HitFormulaOverview(QWidget):
         panel = None if replay is None else replay.formula_panel_character_id
         self.formula_party.setVisible(panel not in (None, 0, hit.character_id))
         name = (participant_names or {}).get(panel, str(panel))
-        self.formula_party.setText(f"公式属性方 · {name}    查看本击属性 ›")
+        self.formula_party.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.formula_party', name=f'{name}'))
         selected = None if replay is None else replay.selected_damage
         observed = hit.damage if replay is None else getattr(replay, "observed_damage", hit.damage)
         self.calculated.setText("—" if selected is None else f"{selected:,.0f}")
         self.observed.setText(f"{observed:,.0f}")
-        self.observed.setToolTip("本击公式可比观测；原始记录与扣血口径见取值证据。")
+        self.observed.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.observed')))
         # 只计算展示差值；伤害、暴击判定及误差依据均由核心结果给出，未知仍显示横线。
         self.delta.setText("—" if selected is None else f"{selected - observed:+,.2f}")
         error = None if replay is None else getattr(replay, "signed_error_percent", None)
         if selected is not None and error is not None:
             self.delta.setText(f"{selected - observed:+,.2f}\n({error:+.2f}%)")
-        self.delta.setToolTip("公式 − 实测" if error is None else f"公式相对实测：{error:+.4f}%")
+        self.delta.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.delta') if error is None else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.delta_2', error=f'{error:+.4f}')))
         for grid in (self.factor_grid, self.extra_grid):
             while grid.count():
                 item = grid.takeAt(0)
@@ -263,20 +266,20 @@ class HitFormulaOverview(QWidget):
         self._tiles, self._extra_tiles = [], []
         primary, extras, operator = ((), (), "") if replay is None else formula_layout(replay)
         if not primary:
-            self.expression.setText("当前逐击尚无可展示的结构化公式；实测伤害与证据仍保留。")
+            self.expression.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.expression'))
         elif not operator:
-            self.expression.setText("计算因子如下；当前类型的组合关系见因子详情。")
+            self.expression.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.expression_2'))
         else:
-            self.expression.setText("伤害 = " + f" {operator} ".join(factor_name(f) for f in primary))
-        self.formula_title.setText(f"本击总公式 · {len(primary)} 项" if primary else "本击总公式")
+            self.expression.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.expression_3') + f" {operator} ".join(factor_name(f) for f in primary))
+        self.formula_title.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.formula_title', value=f'{len(primary)}') if primary else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.formula_title'))
         for i, factor in enumerate(primary):
             self._tiles.append(self._tile(factor, factor_value(factor, replay.critical_state), operator if i else ""))
         for factor in extras:
             self._extra_tiles.append(self._tile(factor, factor_value(factor, replay.critical_state), ""))
         self.extra_title.setVisible(bool(extras))
-        self.settlement.setText("" if selected is None else f"核心结算结果 {selected:,.0f} · 点击各项查看完整精度与依据")
+        self.settlement.setText("" if selected is None else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.settlement', selected=f'{selected:,.0f}'))
         if replay is not None and replay.critical_state in {"non_critical", "not_applicable"} and any(f.factor_id == "critical" for f in primary):
-            self.settlement.setText(self.settlement.text() + "；本击暴击倍率采用 1")
+            self.settlement.setText(self.settlement.text() + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.settlement_2'))
         self._columns = 0
         self._reflow()
 

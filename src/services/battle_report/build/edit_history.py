@@ -10,7 +10,7 @@ from src.services.battle_report.build.equipment import (
     BattleRolePageImportService,
 )
 from src.services.official_role.page import load_official_role_detail
-from src.services.official_role.profiles import (
+from src.services.official_role.profile_data.profiles import (
     OfficialRoleProfileService,
     OfficialRoleProfileUpdate,
 )

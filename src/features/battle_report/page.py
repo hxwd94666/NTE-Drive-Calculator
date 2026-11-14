@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -39,7 +41,7 @@ from src.services.battle_report.damage.passive_counterfactual import (
 )
 from src.services.battle_report.analysis.metrics import project_report_metrics
 
-from src.ui.dashboard_widgets import metric_card, set_status_badge
+from src.ui.common.dashboard_widgets import metric_card, set_status_badge
 
 
 def _section(title: str) -> tuple[QFrame, QVBoxLayout]:
@@ -48,7 +50,7 @@ def _section(title: str) -> tuple[QFrame, QVBoxLayout]:
     layout = QVBoxLayout(card)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(10)
-    label = QLabel(title)
+    label = plain_label(title)
     label.setObjectName("cardTitle")
     layout.addWidget(label)
     return card, layout
@@ -83,8 +85,9 @@ class BattleReportPage(QWidget):
     axis_allocation_requested = Signal()
     analysis_details_requested = Signal(str, object)
 
-    def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None) -> None:
+    def __init__(self, *, game_ui_asset_root, parent: QWidget | None = None, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._latest_summary: BattleSummary | None = None
         self._summary_record_id: int | None = None
         self._source_analysis = None
@@ -103,7 +106,7 @@ class BattleReportPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._stack, 1)
-        self.analysis_progress = BattleAnalysisProgressBar(self)
+        self.analysis_progress = BattleAnalysisProgressBar(self, text_catalog=text_catalog)
         layout.addWidget(self.analysis_progress)
         self._build_report(game_ui_asset_root)
         self._build_marginal(game_ui_asset_root)
@@ -125,74 +128,73 @@ class BattleReportPage(QWidget):
         root.setContentsMargins(22, 18, 22, 22)
         root.setSpacing(16)
 
-        control_card, control_layout = _section("战报采集工作台")
+        control_card, control_layout = _section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.control_card_control_layout'))
         status_row = QHBoxLayout()
-        self.status_badge = QLabel()
+        self.status_badge = plain_label()
         self.status_badge.setAlignment(Qt.AlignCenter)
-        set_status_badge(self.status_badge, "未开始", "neutral")
-        self.status_detail = QLabel("尚未开始战报采集。")
+        set_status_badge(self.status_badge, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.caption'), "neutral")
+        self.status_detail = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.status_detail'))
         self.status_detail.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         status_row.addWidget(self.status_badge)
         status_row.addWidget(self.status_detail, 1)
         help_text = (
-            "使用游戏内组件采集战斗；采集期间暂停背包同步，结束后自动恢复。"
-            "悬浮窗只在当前采集会话中显示。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.help_text_text')
         )
         help_button = QPushButton("?")
         help_button.setObjectName("btnHelp")
-        help_button.setToolTip(help_text)
+        help_button.setToolTip(plain_tooltip(ui_enum_text(getattr(self, 'text_catalog', None), help_text)))
         help_button.clicked.connect(
             lambda _checked=False, button=help_button: show_help(
                 button,
-                "战报采集工作台",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.control_card_control_layout'),
                 help_text,
             )
         )
-        self.export_button = QPushButton("导出战报")
+        self.export_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.export_button'))
         self.export_button.setObjectName("btnAction")
         self.export_button.clicked.connect(self.export_requested)
         status_row.addWidget(self.export_button)
         status_row.addWidget(help_button)
         control_layout.addLayout(status_row)
         actions = QHBoxLayout()
-        self.capture_button = QPushButton("开始采集")
+        self.capture_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.capture_button'))
         self.capture_button.setObjectName("btnPrimary")
         self.capture_button.clicked.connect(self._request_capture_action)
         actions.addWidget(self.capture_button)
-        self.rerecord_button = QPushButton("放弃重录")
+        self.rerecord_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.rerecord_button'))
         self.rerecord_button.setObjectName("btnDanger")
         self.rerecord_button.setToolTip(
-            "丢弃本次尚未保存的战报，并立即重新开始采集。"
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.rerecord_button_2'))
         )
         self.rerecord_button.hide()
         self.rerecord_button.clicked.connect(self.rerecord_requested)
-        self.save_result_button = QPushButton("保存伤害结果")
+        self.save_result_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.save_result_button'))
         self.save_result_button.setEnabled(False)
         self.save_result_button.clicked.connect(self.save_result_requested)
         actions.addWidget(self.save_result_button)
-        self.history_button = QPushButton("读取历史战报")
+        self.history_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.history_button'))
         self.history_button.clicked.connect(self.history_requested)
         actions.addWidget(self.history_button)
         actions.addSpacing(12)
-        self.overlay_toggle = QCheckBox("显示实时悬浮窗")
+        self.overlay_toggle = QCheckBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.overlay_toggle'))
         self.overlay_toggle.setChecked(True)
         self.overlay_toggle.toggled.connect(self.overlay_visibility_changed)
         actions.addWidget(self.overlay_toggle)
-        self.passthrough_toggle = QCheckBox("鼠标穿透")
+        self.passthrough_toggle = QCheckBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.passthrough_toggle'))
         self.passthrough_toggle.setChecked(True)
-        self.passthrough_toggle.setToolTip("关闭后可拖动悬浮窗；开启后鼠标操作落到游戏。")
+        self.passthrough_toggle.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.passthrough_toggle_2')))
         self.passthrough_toggle.toggled.connect(self.overlay_passthrough_changed)
         actions.addWidget(self.passthrough_toggle)
         actions.addSpacing(12)
         actions.addWidget(self.rerecord_button)
         actions.addStretch()
         control_layout.addLayout(actions)
-        self.comparison_toggle = QCheckBox("同时抓包对照")
+        self.comparison_toggle = QCheckBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.comparison_toggle'))
         self.comparison_toggle.setChecked(False)
-        self.comparison_toggle.setToolTip("DLL 就绪时同时运行抓包，各自保存战报；仅对照本次配对结果。")
+        self.comparison_toggle.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.comparison_toggle_2')))
         control_layout.addWidget(self.comparison_toggle)
         root.addWidget(control_card)
-        self.comparison_panel = BattleCaptureComparisonPanel(content)
+        self.comparison_panel = BattleCaptureComparisonPanel(content, text_catalog=getattr(self, 'text_catalog', None))
         root.addWidget(self.comparison_panel)
 
         metrics = QGridLayout()
@@ -212,7 +214,8 @@ class BattleReportPage(QWidget):
         root.addLayout(metrics)
 
         self.long_analysis_view = BattleLongAnalysisView(
-            game_ui_asset_root=game_ui_asset_root
+            game_ui_asset_root=game_ui_asset_root,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.long_analysis_view.range_requested.connect(self.analysis_range_requested)
         self.long_analysis_view.range_reset_requested.connect(
@@ -237,7 +240,7 @@ class BattleReportPage(QWidget):
             self.build_edit_requested
         )
         root.addWidget(self.long_analysis_view)
-        self.quality_label = QLabel("数据质量：等待采集")
+        self.quality_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.quality_label'))
         self.quality_label.hide()
         root.addWidget(self.quality_label)
         root.addStretch()
@@ -245,6 +248,7 @@ class BattleReportPage(QWidget):
     def _build_marginal(self, game_ui_asset_root) -> None:
         self.marginal_page = BattleMarginalPage(
             game_ui_asset_root=game_ui_asset_root,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.marginal_page.axis_optimization_requested.connect(self.axis_allocation_requested)
         self.marginal_page.back_requested.connect(self.show_report)
@@ -386,7 +390,7 @@ class BattleReportPage(QWidget):
             not self._capture_busy and not self._comparison_running
         )
         stopping = state.phase == "stopping"
-        self.capture_button.setText("结束保存" if state.running else "开始采集")
+        self.capture_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.update_state.capture_button') if state.running else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.capture_button'))
         object_name = "btnDanger" if state.running else "btnPrimary"
         if self.capture_button.objectName() != object_name:
             self.capture_button.setObjectName(object_name)
@@ -397,7 +401,7 @@ class BattleReportPage(QWidget):
         self.rerecord_button.setEnabled(state.phase == "running")
         self.history_button.setEnabled(not state.running)
         is_manual = state.retention_kind == "manual"
-        self.save_result_button.setText("已手动保存" if is_manual else "保存伤害结果")
+        self.save_result_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.update_state.save_result_button') if is_manual else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_report.save_result_button'))
         self.save_result_button.setEnabled(
             not state.running
             and state.battle_record_id is not None
@@ -414,8 +418,7 @@ class BattleReportPage(QWidget):
 
     def set_rerecord_hotkey_label(self, hotkey: str) -> None:
         self.rerecord_button.setToolTip(
-            "丢弃本次尚未保存的战报，并立即重新开始采集。"
-            f"全局快捷键：连续按两次 {hotkey}。"
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_rerecord_hotkey_label.rerecord_button', hotkey=f'{hotkey}'))
         )
 
     def show_rerecord_hotkey_confirmation(
@@ -424,7 +427,7 @@ class BattleReportPage(QWidget):
         seconds: float,
     ) -> None:
         self.status_detail.setText(
-            f"请在 {seconds:g} 秒内再次按 {hotkey}，确认放弃当前战报并重录。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_rerecord_hotkey_confirmation.status_detail', seconds=f'{seconds:g}', hotkey=f'{hotkey}')
         )
 
     def set_overlay_checked(self, visible: bool) -> None:
@@ -477,13 +480,13 @@ class BattleReportPage(QWidget):
             )
             subtitles = getattr(self, "metric_subtitles", {})
             if subtitles:
-                subtitles["dps"].setText("真实时间（时停证据不完整）" if metrics.partial_clock else "有效时间")
-                subtitles["duration"].setText("时停覆盖不完整，未扣时停" if metrics.partial_clock else "扣除停表（括号为真实时长）")
+                subtitles["dps"].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_dps') if metrics.partial_clock else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_dps_2'))
+                subtitles["duration"].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_duration') if metrics.partial_clock else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_duration_2'))
                 for key in ("damage", "taken"):
                     if key in subtitles:
-                        subtitles[key].setText("当前范围已记录值（覆盖不完整）" if metrics.incomplete_scope else "当前分析范围")
+                        subtitles[key].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_key') if metrics.incomplete_scope else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_key_2'))
                 if metrics.incomplete_scope:
-                    subtitles["dps"].setText("已记录伤害 / " + ("真实时间" if metrics.partial_clock else "有效时间"))
+                    subtitles["dps"].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_dps_3') + (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_dps_4') if metrics.partial_clock else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_analysis.subtitles_dps_2')))
         self.long_analysis_view.set_analysis(
             analysis,
             selected_character_id=selected_character_id,
@@ -536,7 +539,7 @@ class BattleReportPage(QWidget):
 
     def show_marginal_error(self, message: str) -> None:
         self.analysis_progress.show_error(
-            f"边际计算未完成：{message}。请点击“重算”重试。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_marginal_error.analysis_progress', message=f'{message}')
         )
 
     def set_target_catalog(self, catalog: dict[str, object]) -> None:
@@ -605,7 +608,7 @@ class BattleReportPage(QWidget):
         self.set_detail_scope(self._detail_scope)
         quality = summary.quality
         self.quality_label.setText(
-            f"{quality.source} · {quality.packet_count:,}包 · {quality.hit_count:,}击"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_summary.quality_label', source=f'{quality.source}', packet_count=f'{quality.packet_count:,}', hit_count=f'{quality.hit_count:,}')
         )
 
     def _select_detail_scope(self, mode: str) -> None:

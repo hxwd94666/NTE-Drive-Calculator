@@ -2,6 +2,7 @@
 """加载方式只记录本机意图；启动与清理复用正式模式 owner。"""
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from typing import Any
 
 from PySide6.QtWidgets import QMessageBox
@@ -29,7 +30,7 @@ def equipment_plugin_loading_method_changed(window: Any, _index: int) -> None:
             combo.blockSignals(True)
             combo.setCurrentIndex(max(0, combo.findData("loader")))
             combo.blockSignals(False)
-            QMessageBox.warning(window, "切换加载方式", "Loader 正在等待加载，请先清理当前加载入口后再切换。")
+            QMessageBox.warning(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.equipment_plugin_loading_method_changed.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.equipment_plugin_loading_method_changed.qmessagebox_2')))
             return
         record = window.work_mode_service.deployment_record
         record["loading_method"] = method
@@ -37,7 +38,7 @@ def equipment_plugin_loading_method_changed(window: Any, _index: int) -> None:
         window.work_mode_runtime.invalidate()
         window._refresh_equipment_plugin_status()
     except (EquipmentPluginDeploymentError, ModPluginLoadingError) as error:
-        QMessageBox.warning(window, "切换加载方式", str(error))
+        QMessageBox.warning(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.equipment_plugin_loading_method_changed.qmessagebox'), str(error))
 
 
 def activate_equipment_plugin_loading_method(window: Any) -> None:
@@ -57,7 +58,7 @@ def start_equipment_mod_loader(window: Any) -> None:
     try:
         window.work_mode_service.require("native_load")
     except PermissionError as error:
-        QMessageBox.warning(window, "启动 Mod Loader", str(error))
+        QMessageBox.warning(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.start_equipment_mod_loader.qmessagebox'), str(error))
         return
     executable = window.work_mode_service.settings.game_executable
     if not executable.strip():

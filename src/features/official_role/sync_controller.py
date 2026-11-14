@@ -1,6 +1,7 @@
 # 在角色页同步已证实的原生养成字段，并冻结账号、代次和取消边界。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 import threading
@@ -9,18 +10,19 @@ from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QMessageBox, QPlainTextEdit, QSizePolicy
 
 from src.features.official_role.dependencies import OfficialRoleDependencies
-from src.integrations.operation_guard import require_operation
-from src.services.official_role.profiles import OfficialRoleProfileService
+from src.integrations.runtime.operation_guard import require_operation
+from src.services.official_role.profile_data.profiles import OfficialRoleProfileService
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 
 
 class RoleSyncResultText(QPlainTextEdit):
     """同步结果随实际换行收缩；较长诊断保留有界滚动和复制。"""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setReadOnly(True)
-        self.setAccessibleName("角色同步结果")
+        self.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.official_role.init.self'))
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._fitting = False
         self.document().documentLayout().documentSizeChanged.connect(self._fit_content)
@@ -65,8 +67,10 @@ class CharacterProfileSyncController(QObject):
         profile_service_factory=OfficialRoleProfileService,
         thread_factory=threading.Thread, connection_paused=None,
         sync_ready=None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._dependencies_factory = dependencies_factory
         self._operation_generation = operation_generation
         self._read_profiles = read_profiles
@@ -92,8 +96,8 @@ class CharacterProfileSyncController(QObject):
         self._button = button
         self._result_text = result_text
         self._edit_controls = tuple(edit_controls)
-        button.setText('同步状态')
-        button.setToolTip('从游戏同步已确认的等级、突破、技能、好感度和弧盘；未知字段保留原值。')
+        button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('roles.page.page_my_role.sync'))
+        button.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.official_role.attach_controls.button')))
         button.clicked.connect(self.start)
 
     def is_running(self) -> bool:
@@ -129,7 +133,7 @@ class CharacterProfileSyncController(QObject):
 
     def _set_busy(self, busy: bool) -> None:
         if self._button is not None:
-            self._button.setText('取消同步' if busy else '同步状态')
+            self._button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.official_role.set_busy.button') if busy else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('roles.page.page_my_role.sync'))
         if busy:
             self._enabled_states = tuple(control.isEnabled() for control in self._edit_controls)
             for control in self._edit_controls:
@@ -169,8 +173,8 @@ class CharacterProfileSyncController(QObject):
             return
         if self._hotkeys.active_owner is not None:
             QMessageBox.information(
-                self.parent(), '同步状态',
-                '另一个游戏操作正在运行，请先结束该操作，再同步角色状态。',
+                self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('roles.page.page_my_role.sync'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.official_role.start.qmessagebox')),
             )
             return
         job = _SyncJob(self._dependencies_factory(), self._operation_generation())
@@ -226,7 +230,7 @@ class CharacterProfileSyncController(QObject):
             except (CancelledError, InventorySyncCancelled):
                 return
             except Exception as exc:
-                QMessageBox.warning(self.parent(), '角色状态未保存', str(exc))
+                QMessageBox.warning(self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.official_role.finish.qmessagebox'), str(exc))
                 return
             self._check(job)
             if result.saved_count:

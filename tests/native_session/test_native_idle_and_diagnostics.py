@@ -4,8 +4,8 @@ from threading import Event, Thread
 
 import pytest
 
-from src.integrations import native_transport_diagnostics as diagnostics
-from tests.test_native_game_session import make_session
+from src.integrations.native_core import native_transport_diagnostics as diagnostics
+from tests.native_session.test_native_game_session import make_session
 
 
 def test_idle_connection_closes_and_next_operation_reconnects():
@@ -131,7 +131,8 @@ def test_notification_diagnostics_only_include_bounded_counters(monkeypatch):
 def test_refresh_diagnostics_preserve_unknown_and_only_log_safe_fields(monkeypatch):
     rows = []
     monkeypatch.setattr(diagnostics, "log_event", lambda *a, **kw: rows.append(kw))
-    diagnostics.snapshot_refresh_diagnostic({
+    observer = diagnostics.SnapshotReadLog()
+    observer.refresh({
         "ready": False, "dirty": "private", "recordCount": 1609, "sourceRecordCount": True,
         "missing": ["object_domain_not_ready", "private payload", {"secret": 1}],
         "domainKey": "private-key", "records": ["private record"],
@@ -146,12 +147,12 @@ def test_refresh_diagnostics_preserve_unknown_and_only_log_safe_fields(monkeypat
                                       "rows_read": 1, "rows_reused": 1608, "incremental": True}
     assert row["missing_count"] == 3 and row["missing_codes"] == ["object_domain_not_ready"]
     assert "private" not in str(row) and "sourceRecordCount" not in row and "dirty" not in row
-    diagnostics.snapshot_refresh_diagnostic({}, {"domain": "character"}, 1)
+    observer.refresh({}, {"domain": "character"}, 1)
     assert "collection_work" not in rows[1] and "ready" not in rows[1]
 
 
 def test_inventory_source_change_waits_without_stopping_shared_core():
-    from src.integrations.nte_core_protocol import NteCoreRpcError
+    from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
     session, clients = make_session()
     session.inspect()
     client = clients[0]

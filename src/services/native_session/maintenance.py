@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from time import monotonic, sleep
 
-from src.integrations.nte_core_protocol import NteCoreError
+from src.integrations.native_core.nte_core_protocol import NteCoreError
 
 
 class NativeSessionMaintenance:

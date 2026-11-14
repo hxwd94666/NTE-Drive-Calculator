@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from typing import Any
@@ -10,10 +11,10 @@ from typing import Any
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 from src.features.official_role.replacement_tasks import ReplacementTaskOwner
-from src.domain.allocation_rating import allocation_grade
-from src.features.inventory.warehouse.cards import warehouse_item_view
-from src.services.official_role.replacement import replacement_candidates_for_frozen_context
-from src.ui.equipment_replacement_dialog import (
+from src.domain.equipment.scoring.allocation_rating import allocation_grade
+from src.features.inventory.warehouse.display.cards import warehouse_item_view
+from src.services.official_role.equipment.replacement import replacement_candidates_for_frozen_context
+from src.ui.equipment.equipment_replacement_dialog import (
     EquipmentReplacementCard,
     show_equipment_replacement_dialog,
 )
@@ -32,10 +33,11 @@ def _card(
     gain_percent: float,
     payload: object,
     item_icon_path,
+    text_catalog=None,
 ) -> EquipmentReplacementCard:
     return EquipmentReplacementCard(
         key=f"{item.get('uid_slot')}:{item.get('uid_serial')}",
-        item_view=warehouse_item_view({**item, "item_icon_path": item_icon_path}, frozen_projection=True),
+        item_view=warehouse_item_view({**item, "item_icon_path": item_icon_path}, frozen_projection=True, text_catalog=text_catalog),
         score=score,
         grade=allocation_grade(score, _area(item)),
         direct_damage_score=gain_percent,
@@ -57,12 +59,13 @@ def show_battle_equipment_replacement(
         "这里只修改当前边际页的内存候选；关闭页面后丢弃。"
         "卡片收益用于候选筛选，确认后点击重算取得固定轴实际收益。"
     ),
+    text_catalog=None,
 ) -> bool:
     """Select one candidate and mutate only the caller-owned memory draft."""
 
     frozen_detail, frozen_target = deepcopy(dict(detail)), deepcopy(dict(target))
     owner = ReplacementTaskOwner(parent, app_context=getattr(parent.window(), "app_context", None),
-                                 is_current=is_current)
+                                 is_current=is_current, text_catalog=text_catalog)
     try:
         ranked = owner.prepare(lambda: replacement_candidates_for_frozen_context(
             frozen_detail, context_key, frozen_target, static_database_path=static_database_path,
@@ -71,17 +74,17 @@ def show_battle_equipment_replacement(
         if ranked is None or not owner.current():
             return False
         return _show_prepared_candidates(parent, frozen_detail, ranked[:20], on_replaced=on_replaced,
-                                      title=title, summary=summary, is_current=owner.current)
+                                      title=title, summary=summary, is_current=owner.current, text_catalog=text_catalog)
     finally:
         owner.close()
 
 
-def _show_prepared_candidates(parent, detail, ranked, *, on_replaced, title, summary, is_current):
+def _show_prepared_candidates(parent, detail, ranked, *, on_replaced, title, summary, is_current, text_catalog=None):
     if not ranked:
         QMessageBox.information(
             parent,
-            "临时替换",
-            "没有同套装、同形状且未被当前候选使用的可替换装备。",
+            resolve_text_catalog(text_catalog).render('ui.battle_report.show_prepared_candidates.qmessagebox'),
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.show_prepared_candidates.qmessagebox_2')),
         )
         return False
     first = ranked[0]
@@ -92,6 +95,7 @@ def _show_prepared_candidates(parent, detail, ranked, *, on_replaced, title, sum
         gain_percent=0.0,
         payload=None,
         item_icon_path=(detail.get("item_icon_paths") or {}).get(str(current_item.get("item_id") or "")),
+        text_catalog=text_catalog,
     )
     choices = [
         _card(
@@ -100,6 +104,7 @@ def _show_prepared_candidates(parent, detail, ranked, *, on_replaced, title, sum
             gain_percent=float(row.get("gain_percent") or 0.0),
             payload=row,
             item_icon_path=(detail.get("item_icon_paths") or {}).get(str(row["item"].get("item_id") or "")),
+            text_catalog=text_catalog,
         )
         for row in ranked
     ]
@@ -123,6 +128,7 @@ def _show_prepared_candidates(parent, detail, ranked, *, on_replaced, title, sum
         current=current,
         candidates=choices,
         on_confirm=apply_choice, is_current=is_current,
+        text_catalog=text_catalog,
     )
 
 

@@ -8,17 +8,17 @@ from threading import RLock
 from time import monotonic
 from typing import Callable
 
-from src.domain.work_mode import CheckState, WorkModeProbe
-from src.integrations.analysis_core_release import create_bundled_analysis_client
-from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.integrations.component_deployment_failure import ComponentDeploymentFailure
-from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS
-from src.integrations.legacy_game_proxy import legacy_game_proxy_present
-from src.integrations.game_path_discovery import running_game_executables
-from src.integrations.native_capture_process import native_capture_game_pid
-from src.integrations.launcher_process import LauncherProcessProbeError, selected_launcher_running
-from src.integrations.mod_loader import ModLoaderRuntimeError, game_launcher_candidates
-from src.integrations.nte_core import resolve_nte_core_executable
+from src.domain.preferences.work_mode import CheckState, WorkModeProbe
+from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
+from src.integrations.components.game_component_bundle import inspect_game_component_bundle
+from src.integrations.components.component_deployment_failure import ComponentDeploymentFailure
+from src.integrations.components.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS
+from src.integrations.components.legacy_game_proxy import legacy_game_proxy_present
+from src.integrations.game_runtime.game_path_discovery import running_game_executables
+from src.integrations.game_runtime.native_capture_process import native_capture_game_pid
+from src.integrations.game_runtime.launcher_process import LauncherProcessProbeError, selected_launcher_running
+from src.integrations.components.mod_loader import ModLoaderRuntimeError, game_launcher_candidates
+from src.integrations.native_core.nte_core import resolve_nte_core_executable
 from src.integrations.components.inspection import inspect_deployed_native_plugin
 from src.integrations.components.native_files import PluginDeploymentPendingCleanup
 from src.integrations.components.native_files import (
@@ -584,6 +584,7 @@ class WorkModeRuntime:
         self, *, allow_connect: bool = False,
         allow_unrecorded_legacy_cleanup: bool = False,
         preview: bool = False,
+        text_catalog=None,
     ) -> WorkModeProbe:
         with self._lock:
             if self._closed:
@@ -686,6 +687,7 @@ class WorkModeRuntime:
                 cleanup_state=self.cleanup_state, cleanup_detail=self.cleanup_detail,
                 path_valid=path_valid, running=running,
                 launcher_running=launcher_running, launcher_error=launcher_error,
+                text_catalog=text_catalog,
             )
             # 文件预检到此结束；inspect 即使不刷新也可能创建 Core 连接，留给显式激活。
             if preview:
@@ -700,7 +702,7 @@ class WorkModeRuntime:
             try:
                 pipe = native_capture_game_pid() is not None
             except Exception as error:
-                return project_inspection_failure(probe, error, record=allow_connect)
+                return project_inspection_failure(probe, error, record=allow_connect, text_catalog=text_catalog)
             if not pipe:
                 return project_transport_probe(probe, pipe=False)
             try:
@@ -710,7 +712,8 @@ class WorkModeRuntime:
                     project_transport_probe(probe, pipe=True), response, mode=settings.mode,
                 )
             except Exception as error:
-                return project_inspection_failure(probe, error, record=allow_connect, pipe=True)
+                return project_inspection_failure(probe, error, record=allow_connect, pipe=True,
+                                                      text_catalog=text_catalog)
 
     def request_close(self) -> None:
         # 先撤销新工作，再由实际会话 owner 有界收尾；preview 不派发副作用。

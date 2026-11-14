@@ -1,5 +1,5 @@
 # 冻结性能请求的账号代次与原连接；未知派发保留占用，关闭不重连也不提升权限。
-from src.integrations.nte_core_protocol import NteCoreRpcError
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
 
 
 def _check_performance_request(session, context_key):

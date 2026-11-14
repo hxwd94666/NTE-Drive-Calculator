@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol
 
-from src.domain.static_catalog_terminology import (
+from src.domain.catalog.static_catalog_terminology import (
     ForkCampaignRecord,
     LocalizedForkCampaign,
     LocalizedTerm,

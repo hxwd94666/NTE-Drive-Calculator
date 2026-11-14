@@ -1,0 +1,335 @@
+# 验证插件偏好、风险模式和共享原生会话的独立生命周期。
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from src.domain.preferences.plugin_settings import PluginSettings
+from src.integrations.preferences.plugin_settings_store import PluginSettingsStore
+from src.services.plugins.hud import PluginService
+from src.services.native_session.session import NativeGameSession
+from tests.native_session.test_native_game_session import FakeNativeCore
+
+
+class Policy:
+    def __init__(self):
+        self.enabled = True
+        self.settings = SimpleNamespace(paused=False)
+
+    def allowed(self, _, *, automatic=False):
+        return self.enabled
+
+
+def make_service(tmp_path):
+    policy = Policy()
+    core = FakeNativeCore()
+    core.hello_result["capabilities"].append("native_hud_v1")
+    session = NativeGameSession(factory=lambda: core, guard=lambda _: None)
+    service = PluginService(store=PluginSettingsStore(tmp_path / "plugins.json"), policy=policy, session=session)
+    return service, session, core, policy
+
+
+def test_defaults_do_not_start_native_client(tmp_path):
+    service, _, core, _ = make_service(tmp_path)
+    service.observe(SimpleNamespace(game_running=True))
+    assert not core.is_running
+    assert not core.calls
+
+
+def test_both_plugins_and_auto_sync_off_release_existing_idle_connection(tmp_path):
+    service, session, core, policy = make_service(tmp_path)
+    session.inspect()
+    policy.allowed = lambda _, automatic=False: not automatic
+    service.observe(SimpleNamespace(game_running=True))
+    assert core.closed
+    assert not core.is_running
+
+
+def test_direct_plugin_change_uses_existing_session_without_starting_capture(tmp_path):
+    service, session, core, _ = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True)
+    service.apply_current()
+    assert not core.is_running  # No second connection or automatic load for a switch.
+    service.observe(SimpleNamespace(game_running=True))
+    lease = session.battle_client()
+    before = len(core.calls)
+    service.update(cooldown=False)
+    assert service.status_for("cooldown") == "关闭显示待确认"
+    service.apply_current()
+    assert core.calls[before:] == [("native.hud.configure", service.settings.payload())]
+    assert not core.calls[-1][1]["cooldown"] and core.calls[-1][1]["enemy_bars"]
+    assert session.battle_active and not core.closed
+    lease.close()
+    session.close()
+
+
+def test_failed_hud_disable_is_not_reported_as_closed(tmp_path):
+    from src.features.plugins.page import PluginsPage
+    service, session, core, _ = make_service(tmp_path)
+    service.update(cooldown=True)
+    service.observe(SimpleNamespace(game_running=True))
+    core.on_call = lambda *_: (_ for _ in ()).throw(RuntimeError("busy"))
+    service.update(cooldown=False)
+    service.apply_current()
+    assert PluginsPage._status_presentation(service.status_for("cooldown"), False) == (
+        "关闭待确认", "warning")
+    core.on_call = None
+    service.apply_current()
+    assert PluginsPage._status_presentation(service.status_for("cooldown"), False)[0] == "已关闭"
+    session.close()
+
+
+def test_global_preferences_and_independent_switches(tmp_path):
+    service, _, _, _ = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True, hp=False)
+    service.update(cooldown=False)
+    saved = service.store.load()
+    assert saved == PluginSettings(cooldown=False, enemy_bars=True, hp=False)
+    service.observe(SimpleNamespace(game_running=False))
+    assert service.status == "等待游戏"
+
+
+def test_plugin_apply_status_only_changes_the_affected_card(tmp_path):
+    service, _, _, _ = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True)
+    service.observe(SimpleNamespace(game_running=False))
+    assert service.status_for("cooldown") == "等待游戏"
+    assert service.status_for("enemy_bars") == "等待游戏"
+    service.update(hp=False)
+    assert service.status_for("cooldown") == "等待游戏"
+    assert service.status_for("enemy_bars") == "设置已保存，等待应用"
+    assert service.store.load().hp is False  # 单卡状态与已保存偏好分开验证。
+
+
+def test_low_mode_disables_live_hud_and_persists_switches_without_losing_options(tmp_path):
+    service, _, core, policy = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True, hp=False)
+    service.observe(SimpleNamespace(game_running=True))
+    assert core.calls[-1][1]["cooldown"]
+    policy.enabled = False
+    service.observe(SimpleNamespace(game_running=True))
+    assert not core.calls[-1][1]["cooldown"]
+    assert service.settings == PluginSettings(hp=False)
+    assert service.store.load() == service.settings
+    with pytest.raises(PermissionError):
+        service.update(enemy_bars=True)
+    policy.enabled = True
+    service.observe(SimpleNamespace(game_running=True))
+    assert not core.calls[-1][1]["cooldown"]
+    assert not core.calls[-1][1]["enemy_bars"]
+
+
+def test_pause_does_not_clear_saved_plugin_switches(tmp_path):
+    service, _, core, policy = make_service(tmp_path)
+    service.update(cooldown=True)
+    service.observe(SimpleNamespace(game_running=True))
+    policy.settings.paused = True
+    service.observe(SimpleNamespace(game_running=True))
+    assert not core.calls[-1][1]["cooldown"]
+    assert service.store.load().cooldown
+
+
+@pytest.mark.parametrize('mode', ['offline', 'low'])
+def test_downgrade_disables_even_enemy_bars_with_no_selected_content(tmp_path, mode):
+    from src.services.work_modes.service import WorkModeService
+    service, _, core, _ = make_service(tmp_path)
+    policy = WorkModeService(tmp_path / 'mode.json')
+    policy.select_mode('medium', risk_confirmed=True)
+    service.policy = policy
+    service.update(enemy_bars=True, hp=False, unbalance=False)
+    policy.select_mode(mode, risk_confirmed=mode == 'low')
+    service.apply_mode_policy()
+    assert service.store.load() == PluginSettings(hp=False, unbalance=False)
+    assert not core.calls
+
+
+@pytest.mark.parametrize('mode', ['offline', 'low', 'medium', 'developer'])
+def test_plugins_page_is_viewable_in_every_mode(tmp_path, monkeypatch, mode):
+    from unittest.mock import Mock
+    from src.services.work_modes.service import WorkModeService
+    from src.ui.common import operation_guidance
+    from src.ui.main_window.main_window_navigation_mixin import MainWindowNavigationMixin
+    from src.ui.main_window.navigation import nav_index_map
+    policy = WorkModeService(tmp_path / 'mode.json')
+    policy.select_mode(mode, risk_confirmed=mode != 'offline')
+    prompts = []
+    monkeypatch.setattr(operation_guidance, 'prompt_operation_settings',
+                        lambda *args, **kwargs: prompts.append(kwargs))
+    window = SimpleNamespace(
+        stack=SimpleNamespace(currentIndex=lambda: 0, setCurrentIndex=Mock()),
+        _nav_key_for_index=lambda _: 'home', topbar_title=Mock(), topbar_team_notice=Mock(), topbar_catalog_return=Mock(),
+        topbar_source_label=Mock(), topbar_equipment_modes=Mock(), _nav_buttons={},
+        _refresh_navigation_item=Mock(),
+    )
+    window.operation_entry = lambda cap, feature: operation_guidance.allow_operation_entry(
+        None, policy, cap, feature, lambda _: None)
+    MainWindowNavigationMixin._go(window, 'plugins')
+    assert not prompts
+    window.stack.setCurrentIndex.assert_called_once_with(nav_index_map()['plugins'])
+
+
+def test_display_changes_reuse_capture_client_without_start_or_stop(tmp_path):
+    service, session, core, _ = make_service(tmp_path)
+    service.update(cooldown=True)
+    service.observe(SimpleNamespace(game_running=True))
+    service.update(enemy_bars=True)
+    service.observe(SimpleNamespace(game_running=True))
+    assert all(method == "native.hud.configure" for method, _ in core.calls)
+    session.close()
+    disabled = [params for method, params in core.calls if method == "native.hud.configure"][-1]
+    assert not any(disabled.values())
+    assert core.closed
+
+
+def test_unsupported_components_show_update_reason(tmp_path):
+    service, _, core, _ = make_service(tmp_path)
+    core.hello_result["capabilities"].remove("native_hud_v1")
+    service.update(cooldown=True)
+    service.observe(SimpleNamespace(game_running=True))
+    assert "更新配套" in service.status
+    assert not core.calls
+
+
+def test_plugin_cards_remain_editable_across_modes_and_themes(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.app.theme import apply_app_theme
+    from src.features.plugins.page import PluginsPage
+    app = QApplication.instance() or QApplication([])
+    service, _, _, policy = make_service(tmp_path)
+    applied = []
+    routes = []
+    page = PluginsPage(
+        service=service, request_apply=lambda: applied.append(True),
+        show_detection=lambda: routes.append("detection"),
+    )
+    page.resize(820, 540)
+    for theme in ("black", "dark", "light"):
+        apply_app_theme(app, theme)
+        page.show()
+        app.processEvents()
+        assert page.cards["cooldown"][0].isEnabled()
+    page.cards["cooldown"][0].click()
+    assert service.settings.cooldown and applied
+    policy.enabled = False
+    page.refresh()
+    assert page.cards["cooldown"][0].isEnabled()  # Can still turn the saved selection off.
+    assert not page.cards["enemy_bars"][0].isEnabled()
+    page.environment_button.click()
+    assert page.environment_button.text() == "检测详情"
+    assert routes == ["detection"]
+    page.close()
+
+
+def test_plugin_page_uses_inline_options_and_clear_status_labels(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+    from src.features.plugins.page import PluginsPage
+    QApplication.instance() or QApplication([])
+    service, _, _, _ = make_service(tmp_path)
+    service.update(cooldown=True, enemy_bars=True)
+    service.observe(SimpleNamespace(game_running=False))
+    applied = []
+    page = PluginsPage(
+        service=service, request_apply=lambda: applied.append(True),
+        show_detection=lambda: None,
+    )
+    labels = {label.text() for label in page.findChildren(QLabel)}
+    buttons = {button.text() for button in page.findChildren(QPushButton)}
+    assert {"技能冷却", "敌人状态", "等待启动游戏"} <= labels
+    assert {"刷新状态", "检测详情"} <= buttons
+    assert "设置" not in buttons
+    from PySide6.QtWidgets import QCheckBox
+    assert not any("就绪" in box.text() for box in page.findChildren(QCheckBox))
+    page.option_boxes["enemy_bars"]["hp"].click()
+    assert not service.settings.hp and applied
+    assert page.cards["cooldown"][1].text() == "等待启动游戏"
+    assert page.cards["enemy_bars"][1].text() == "正在应用"
+    page.close()
+
+
+def test_refresh_button_reports_progress_until_observation_arrives(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.features.plugins.page import PluginsPage
+    QApplication.instance() or QApplication([])
+    service, _, _, _ = make_service(tmp_path)
+    requested = []
+    page = PluginsPage(
+        service=service, request_apply=lambda: requested.append(True),
+        show_detection=lambda: None,
+    )
+    page.refresh_button.click()
+    assert requested == [True]
+    assert page.refresh_button.text() == "正在刷新…"
+    assert not page.refresh_button.isEnabled()
+    page.refresh(SimpleNamespace())
+    assert page.refresh_button.text() == "刷新状态"
+    assert page.refresh_button.isEnabled()
+    page.close()
+
+
+def test_enemy_display_never_stays_enabled_without_content(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from src.features.plugins.page import PluginsPage
+    QApplication.instance() or QApplication([])
+    service, _, _, _ = make_service(tmp_path)
+    service.update(hp=False, unbalance=False)
+    page = PluginsPage(
+        service=service, request_apply=lambda: None,
+        show_detection=lambda: None,
+    )
+    page.cards["enemy_bars"][0].click()
+    assert service.settings.enemy_bars and service.settings.hp
+    page.option_boxes["enemy_bars"]["hp"].click()
+    assert not service.settings.enemy_bars
+    page.close()
+
+
+def test_plugin_detection_uses_settings_explicit_check_and_processing_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication, QWidget
+    from src.ui.main_window.main_window_data_mixin import MainWindowDataMixin
+
+    app = QApplication.instance() or QApplication([])
+    owner = QWidget()
+    service, _, _, policy = make_service(tmp_path)
+    owner.plugin_service = service
+    owner.quick_wheel_controller = None
+    owner.work_mode_controller = SimpleNamespace(
+        check=Mock(), refresh_plugins=Mock(),
+        observed=SimpleNamespace(connect=Mock()), plugins_applied=SimpleNamespace(connect=Mock()),
+    )
+    page = MainWindowDataMixin._page_plugins(owner)
+    for allowed in (True, False):
+        policy.enabled = allowed
+        page.refresh()
+        assert page.environment_button.text() == "检测详情"
+        page.environment_button.click()
+        owner.work_mode_controller.check.assert_called_once_with(show=True, retry_deployment=True)
+        owner.work_mode_controller.check.reset_mock()
+    owner.work_mode_controller.refresh_plugins.assert_not_called()
+    owner.close()
+    owner.deleteLater()
+    app.processEvents()
+
+
+def test_legacy_disabled_glow_does_not_override_skill_display_switch(tmp_path):
+    path = tmp_path / 'plugins.json'
+    path.write_text(json.dumps({'cooldown': True, 'enemy_bars': False,
+                                'ready_cue': False, 'hp': False, 'unbalance': True}), encoding='utf-8')
+    service, session, core, _ = make_service(tmp_path)
+    try:
+        service.observe(SimpleNamespace(game_running=True))
+        assert core.calls[-1][1]['cooldown'] is True
+        assert core.calls[-1][1]['ready_cue'] is True
+        assert not service.settings.hp
+        service.update(cooldown=False)
+        service.apply_current()
+        assert core.calls[-1][1]['cooldown'] is False
+        assert core.calls[-1][1]['ready_cue'] is False
+        assert 'ready_cue' not in json.loads(path.read_text(encoding='utf-8'))
+    finally:
+        session.close()

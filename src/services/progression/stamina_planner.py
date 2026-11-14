@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Iterable, Mapping
+from dataclasses import fields, is_dataclass
 from typing import Protocol
 
 from src.domain.progression.materials import (
@@ -17,7 +19,7 @@ from src.domain.progression.stamina import (
     ProgressionStaminaRequest,
     ProgressionStaminaResult,
 )
-from src.integrations.progression.solver_process import calculate_isolated_progression_stamina
+from src.integrations.progression.solver_process import calculate_isolated_progression_stamina, StaminaSolverSession
 from src.services.progression.estimates import add_boss_estimates, with_material_gaps
 from src.domain.progression.stamina import project_identification_level
 
@@ -25,6 +27,45 @@ from src.domain.progression.stamina import project_identification_level
 class CultivationMaterialLike(Protocol):
     item_id: str
     quantity: int
+
+
+def _typed_input(value):
+    # bool/int/float 不因 Python 的相等规则混为同一请求，错误输入仍交原求解器核验。
+    if is_dataclass(value):
+        return type(value), tuple(_typed_input(getattr(value, field.name)) for field in fields(value))
+    if isinstance(value, (tuple, list)):
+        return type(value), tuple(map(_typed_input, value))
+    return type(value), value
+
+
+class StaminaPlanningSession:
+    """只属于一次单/多角色计算，复用完整相同的冻结求解请求及静态来源准备。"""
+
+    def __init__(self):
+        self._results = OrderedDict()
+        self._stages = OrderedDict()
+        self._solver_session = StaminaSolverSession()
+
+    def stages(self, stages, boss_ids, identification_level):
+        key = (_typed_input(stages), tuple(sorted(set(boss_ids))), identification_level)
+        if key not in self._stages:
+            expanded = add_boss_estimates(stages, key[1], identification_level)
+            self._stages[key] = expanded, frozenset(item.item_id for stage in expanded for item in stage.yields)
+            if len(self._stages) > 32:
+                self._stages.popitem(last=False)
+        return self._stages[key]
+
+    def solve(self, request):
+        key = _typed_input(request)
+        if key in self._results:
+            self._results.move_to_end(key)
+            return self._results[key]
+        # 只缓存成功响应；异常不保存，不跨账号/请求 owner 复用。未知结果保留原 DTO。
+        result = calculate_isolated_progression_stamina(request, session=self._solver_session)
+        self._results[key] = result
+        if len(self._results) > 128:
+            self._results.popitem(last=False)
+        return result
 
 
 _NON_STAMINA_CURRENCY_ITEM_IDS = frozenset({"Fons"})
@@ -80,16 +121,18 @@ def calculate_stamina_result(
     hunter_level: int,
     effective_identification_level: int | None,
     material_gaps: tuple[str, ...] = (),
+    session: StaminaPlanningSession | None = None,
 ) -> ProgressionStaminaResult:
     """按冻结的产出假设估算体力，不补造缺失的成本或平均掉落。"""
 
     materials = tuple(materials)
     identification = project_identification_level(hunter_level, effective_level=effective_identification_level)
-    stages = add_boss_estimates(
-        stages, (item.item_id for item in materials if is_world_boss_stamina_material(item.item_id)),
-        identification.effective_level,
-    )
-    stage_item_ids = {item.item_id for stage in stages for item in stage.yields}
+    boss_ids = tuple(item.item_id for item in materials if is_world_boss_stamina_material(item.item_id))
+    if session is None:
+        stages = add_boss_estimates(stages, boss_ids, identification.effective_level)
+        stage_item_ids = {item.item_id for stage in stages for item in stage.yields}
+    else:
+        stages, stage_item_ids = session.stages(stages, boss_ids, identification.effective_level)
     relevant = tuple(
         material for material in materials
         if material.item_id not in _NON_STAMINA_CURRENCY_ITEM_IDS
@@ -112,7 +155,8 @@ def calculate_stamina_result(
         MaterialRequirement(item_id, 0, owned_quantities.get(item_id, 0))
         for item_id in sorted(item_ids - {item.item_id for item in relevant})
     )
-    result = calculate_isolated_progression_stamina(ProgressionStaminaRequest(
+    solve = calculate_isolated_progression_stamina if session is None else session.solve
+    result = solve(ProgressionStaminaRequest(
         hunter_level=int(hunter_level),
         effective_identification_level=effective_identification_level,
         requirements=requirements,

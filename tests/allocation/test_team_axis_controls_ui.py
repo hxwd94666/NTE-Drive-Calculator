@@ -7,11 +7,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QFrame, QLabel, QRadioButton, QVBoxLayout, QWidget
 
-from auto_sync_ui_fixture import application, dispose
+from tests.support.auto_sync_ui_fixture import application
+from tests.support.auto_sync_ui_fixture import dispose
 from src.app.theme import apply_app_theme
-from src.features.allocation import team_axis_controls as controls
+from src.features.allocation.team_axis import team_axis_controls as controls
 from src.features.allocation.execute_page import _build_strategy_card
-from src.services.allocation.search_settings import load_search_mode
+from src.services.allocation.inputs.search_settings import load_search_mode
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -158,5 +159,16 @@ def test_scanning_account_reset_clears_disabled_draft_and_reloads_new_account_mo
         assert owner.team_axis_search.currentData() == 'fast'
         assert load_search_mode(database) == 'deep' and load_search_mode(other) == 'fast'
         owner._allocation_controller.reset_account_state.assert_called_once()
+    finally:
+        dispose(page)
+
+
+def test_direct_strategy_caption_is_localized_and_has_no_hover_explanation(tmp_path):
+    page, owner, _ = ui_case(tmp_path)
+    try:
+        button = owner.strategy_group.button(2)
+        assert button.text() == '直伤优先 — 仅考虑单人直伤输出，无拐，非最优解'
+        assert button.toolTip() == ''
+        assert owner.strategy_group.checkedId() == 0
     finally:
         dispose(page)

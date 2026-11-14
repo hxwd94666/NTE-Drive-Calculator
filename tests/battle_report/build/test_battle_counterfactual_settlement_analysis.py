@@ -6,7 +6,7 @@ import unittest
 from src.services.battle_report.build.offline_analysis import (
     BattleCounterfactualAnalysisService,
 )
-from tests.battle_counterfactual_fixtures import evidence_fixture as _evidence
+from tests.battle_report.damage.battle_counterfactual_fixtures import evidence_fixture as _evidence
 
 
 NTE_TEST_TIER = "core"

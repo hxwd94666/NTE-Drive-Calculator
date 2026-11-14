@@ -10,8 +10,8 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from src.integrations.battle_report_bundle import read_battle_report_bundle, write_battle_report_bundle_atomic
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.capture.battle_report_bundle import read_battle_report_bundle, write_battle_report_bundle_atomic
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.history.service import BattleReportHistoryService
 from src.services.battle_report.persistence import BattleReportPersistenceDependencies
 from src.services.battle_report.history.transfer import (
@@ -108,7 +108,7 @@ class BattleHistoryTransferLifecycleTests(TestCase):
         def replace_with_competing_writer(source, target):
             self._try_change_manifest(blocked)
             return replace(source, target)
-        with patch("src.integrations.battle_report_bundle.os.replace", side_effect=replace_with_competing_writer):
+        with patch("src.integrations.capture.battle_report_bundle.os.replace", side_effect=replace_with_competing_writer):
             outcome = self.service.export_reports([self.record_id], self.target)
         self.assertEqual([True], blocked)
         self.assertEqual(1, outcome.report_count)

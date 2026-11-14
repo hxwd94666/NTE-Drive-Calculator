@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from src.domain.localization.catalog import TextCatalog, localized_text
 from src.domain.progression.stamina import project_identification_level
 
 PAYLOAD_VERSION = 3
@@ -334,11 +335,13 @@ def _configuration_projection(raw: str) -> dict[str, Any]:
         raise ValueError("历史配置名称解析失败") from error
 
 
-def configuration_character_labels(raw: str) -> tuple[str, ...]:
+def configuration_character_labels(raw: str, *, text_catalog: TextCatalog | None = None) -> tuple[str, ...]:
     """从本页历史的原配置投影名称，不改持久化摘要或消费当前资料。"""
     config = _configuration_projection(raw)
-    return tuple(target["name"] + (f"（{target['fork']['name']}）" if target["fork"] else "")
-                 for target in config["targets"])
+    return tuple(target["name"] + (
+        localized_text(text_catalog, "progression.history.character_label.fork",
+                       "（{name}）", name=target["fork"]["name"]) if target["fork"] else "")
+        for target in config["targets"])
 
 
 def configuration_search_names(raw: str) -> tuple[str, ...]:
@@ -363,21 +366,35 @@ class HistoryCalculationEnvelope:
     explicit_calculation: bool
 
 
-def _target_label(target: dict[str, Any]) -> str:
+def _target_label(target: dict[str, Any], *, text_catalog: TextCatalog | None = None) -> str:
     parts = []
     if target["character_enabled"]:
-        parts.append(f"人物 {target['current_level']}/{target['current_stage']}→{target['target_level']}/{target['target_stage']}")
+        parts.append(localized_text(
+            text_catalog, "progression.history.target_label.character",
+            "人物 {current_level}/{current_stage}→{target_level}/{target_stage}",
+            current_level=target["current_level"], current_stage=target["current_stage"],
+            target_level=target["target_level"], target_stage=target["target_stage"]))
     if target["skills_enabled"] and target["skills"]:
         levels = [skill["target_level"] for skill in target["skills"]]
-        parts.append(f"技能 {len(levels)} 项，目标 {min(levels)}–{max(levels)} 级")
+        parts.append(localized_text(
+            text_catalog, "progression.history.target_label.skills",
+            "技能 {count} 项，目标 {minimum}–{maximum} 级",
+            count=len(levels), minimum=min(levels), maximum=max(levels)))
     if target["skills_enabled"] and target.get("passives"):
         # 只复现旧 v2 摘要，不参与当前养成计算或目标恢复。
         count = sum(item["target_unlocked"] and not item["current_unlocked"] for item in target["passives"])
-        parts.append(f"被动解锁 {count} 项")
+        parts.append(localized_text(
+            text_catalog, "progression.history.target_label.passives", "被动解锁 {count} 项", count=count))
     fork = target["fork"]
     if fork is not None and fork["enabled"]:
-        parts.append(f"弧盘 {fork['current_level']}/{fork['current_stage']}→{fork['target_level']}/{fork['target_stage']}")
-    return "；".join(parts) or "未启用养成模块"
+        parts.append(localized_text(
+            text_catalog, "progression.history.target_label.fork",
+            "弧盘 {current_level}/{current_stage}→{target_level}/{target_stage}",
+            current_level=fork["current_level"], current_stage=fork["current_stage"],
+            target_level=fork["target_level"], target_stage=fork["target_stage"]))
+    separator = localized_text(text_catalog, "progression.history.target_label.separator", "；")
+    return separator.join(parts) or localized_text(
+        text_catalog, "progression.history.target_label.empty", "未启用养成模块")
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,7 +408,8 @@ class HistoryPayload:
     content_sha256: str
 
     @classmethod
-    def create(cls, configuration: object, result: object) -> HistoryPayload:
+    def create(cls, configuration: object, result: object, *,
+               text_catalog: TextCatalog | None = None) -> HistoryPayload:
         # 先检查嵌套与大小预算，再规范化调用方结构，失败保留计算结果。
         _encoded(configuration)
         _encoded(result)
@@ -403,7 +421,7 @@ class HistoryPayload:
         summary = {
             "version": config["version"],
             "characters": [{"character_id": target["character_id"], "name": target["name"],
-                            "target_label": _target_label(target)}
+                            "target_label": _target_label(target, text_catalog=text_catalog)}
                            for target in config["targets"]],
             "status": snapshot["stamina"]["status"],
             "known_stamina": snapshot["stamina"]["known_stamina"],
@@ -414,14 +432,15 @@ class HistoryPayload:
         return cls(config["mode"], config_raw, snapshot_raw, _encoded(summary), fingerprint)
 
     @classmethod
-    def decode(cls, configuration_json: str, result_snapshot_json: str) -> HistoryPayload:
+    def decode(cls, configuration_json: str, result_snapshot_json: str, *,
+               text_catalog: TextCatalog | None = None) -> HistoryPayload:
         if (not isinstance(configuration_json, str) or not isinstance(result_snapshot_json, str)
                 or len(configuration_json.encode("utf-8")) + len(result_snapshot_json.encode("utf-8")) > MAX_PAYLOAD_BYTES):
             raise ValueError("养成历史正文格式或大小无效")
         try:
             config = json.loads(configuration_json, object_pairs_hook=_no_duplicate_keys)
             snapshot = json.loads(result_snapshot_json, object_pairs_hook=_no_duplicate_keys)
-            return cls.create(config, snapshot)
+            return cls.create(config, snapshot, text_catalog=text_catalog)
         except (RecursionError, TypeError, json.JSONDecodeError) as error:
             raise ValueError("养成历史正文解析失败") from error
 

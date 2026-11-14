@@ -3,10 +3,10 @@ from copy import deepcopy
 
 import pytest
 
-from src.features.allocation.damage_result_summary import damage_optimization_presentation
-from src.integrations.allocation_group_postprocess import postprocess_allocation_groups
-from src.integrations.nte_analysis_core import NativeAnalysisError
-from src.services.allocation.direct_postprocess import optimization_payload
+from src.features.allocation.results.damage_result_summary import damage_optimization_presentation
+from src.integrations.allocation.allocation_group_postprocess import postprocess_allocation_groups
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
+from src.services.allocation.direct.direct_postprocess import optimization_payload
 from tests.allocation.test_group_postprocess_wire import client, group_request, group_response
 
 NTE_TEST_TIER = "core"

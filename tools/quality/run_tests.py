@@ -90,9 +90,9 @@ def run_parallel(selection: TierSelection, *, jobs: int, verbose: bool) -> int:
     """收集成功才启动子进程；任何 shard 非零都保留为整次验证失败。"""
     shards = module_shards(selection.modules, jobs)
     environment = os.environ.copy()
-    # 兼容尚未迁移的平铺夹具；正式测试包身份由文件位置唯一确定。
+    # 夹具只通过 tests 包的完整模块名共享，不为根目录裸导入增加第二身份。
     environment["PYTHONPATH"] = os.pathsep.join(
-        [str(ROOT), str(ROOT / "tests"), environment.get("PYTHONPATH", "")]
+        [str(ROOT), environment.get("PYTHONPATH", "")]
     )
     processes = [
         subprocess.Popen(
@@ -127,9 +127,8 @@ def main(argv: list[str] | None = None, *, tests_root: Path | None = None) -> in
     jobs = args.jobs if args.jobs is not None else (3 if args.tier == "core" else 1)
     if jobs < 1:
         raise SystemExit("--jobs 必须大于等于 1")
-    for directory in (ROOT, ROOT / "tests"):
-        if str(directory) not in sys.path:
-            sys.path.insert(0, str(directory))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
     directory = tests_root or ROOT / "tests"
     files = sorted(directory.rglob(args.pattern))
     if not files:
@@ -146,7 +145,7 @@ def main(argv: list[str] | None = None, *, tests_root: Path | None = None) -> in
         arguments = ["-v" if args.verbose else "-q", *map(str, files)]
     if args.collect_only or jobs > 1:
         arguments.insert(0, "--collect-only")
-    # pytest 原生支持 TestCase；旧 load_tests 仅是同文件 pytest 包装，无须重复执行。
+    # pytest 原生支持函数与 TestCase，用同一收集结果分片，不另外加载一套入口。
     result = int(pytest.main(arguments, plugins=plugins))
     if result or args.collect_only or jobs == 1:
         return result

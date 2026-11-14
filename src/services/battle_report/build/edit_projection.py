@@ -33,7 +33,9 @@ def apply_battle_build_edit(
             if str(row.get("source_group") or "") == "world_bonus"
         ]
         if "battle_world_bonus" in profile:
-            frozen_world_bonus = world_bonus_edit_stats(profile["battle_world_bonus"])
+            # 旧编辑界面只修改攻击/暴伤；已冻结的防御家具仍保留本场来源。
+            defense = [row for row in frozen_world_bonus if row.get("property_id") == "DefAdd"]
+            frozen_world_bonus = world_bonus_edit_stats(profile["battle_world_bonus"]) + defense
         character.update({
             "profile_source": "user_edited_snapshot",
             "character_level": int(edited["character_level"]),

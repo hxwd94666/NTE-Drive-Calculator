@@ -1,10 +1,11 @@
 # 构建独立觉醒等级、普通效果选择与共鸣显示控件。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 import re
 from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QVBoxLayout
-from src.services.official_role.awakening import render_awaken_effect_description
-from src.ui.widgets import NoWheelSpinBox
+from src.services.official_role.panel.awakening import render_awaken_effect_description
+from src.ui.common.widgets import NoWheelSpinBox
 from .role_calculation import _mark_dirty, _refresh_role_calculations
 
 
@@ -23,7 +24,7 @@ def _build_awakening_group(
     detail: dict,
     editor: dict,
 ) -> QGroupBox:
-    group = QGroupBox("人物觉醒")
+    group = QGroupBox(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_awakening_group.group'))
     group.setObjectName("officialRoleAwakeningGroup")
     layout = QVBoxLayout(group)
     layout.setSpacing(8)
@@ -34,14 +35,14 @@ def _build_awakening_group(
     awakening_level = NoWheelSpinBox()
     awakening_level.setObjectName("officialRoleAwakeningLevel")
     awakening_level.setRange(0, 6)
-    awakening_level.setPrefix("觉醒等级：")
+    awakening_level.setPrefix(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_awakening_group.awakening_level'))
     awakening_level.setToolTip(
-        "已解锁的觉醒槽位数，可留空；三觉和六觉共鸣按此等级激活。滚轮仅滚动页面。"
+        plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_awakening_group.awakening_level_2'))
     )
     awakening_level.setValue(int(detail["profile"].get("awakening_level") or 0))
     layout.addWidget(awakening_level)
-    explanation = QLabel(
-        "等级＝已解锁槽位；下方勾选＝实际启用的普通效果。空槽可保留，三／六觉共鸣按等级激活。"
+    explanation = plain_label(
+        resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_awakening_group.explanation')
     )
     explanation.setWordWrap(True)
     explanation.setStyleSheet("color:#8b949e;")
@@ -65,7 +66,7 @@ def _build_awakening_group(
         check = QCheckBox(f"{index}. {title}")
         check.setChecked(effect_id in selected_ids)
         layout.addWidget(check)
-        description = QLabel(_plain_effect_text(effect.get("description_zh")) or "暂无效果说明")
+        description = plain_label(_plain_effect_text(effect.get("description_zh")) or resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_awakening_group.description'))
         description.setWordWrap(True)
         description.setContentsMargins(24, 0, 8, 2)
         description.setStyleSheet("color:#8b949e;")
@@ -75,7 +76,7 @@ def _build_awakening_group(
 
     resonance_labels: list[tuple[dict, int, QLabel]] = []
     if resonance_effects:
-        resonance_title = QLabel("觉醒共鸣")
+        resonance_title = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_awakening_group.resonance_title'))
         resonance_title.setStyleSheet("font-weight:bold;color:#58a6ff;margin-top:4px;")
         layout.addWidget(resonance_title)
     for effect in resonance_effects:
@@ -83,7 +84,7 @@ def _build_awakening_group(
         if threshold is None:
             continue
         title = str(effect.get("title_zh") or f"{threshold} 觉效果")
-        label = QLabel()
+        label = plain_label()
         label.setWordWrap(True)
         label.setContentsMargins(8, 0, 8, 0)
         label.setProperty("resonance_title", title)

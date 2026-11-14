@@ -1,6 +1,7 @@
 # 独立拥有基础权重页控件、账号草稿及后台任务，向组合根提供窄生命周期接口。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Callable
 
 from PySide6.QtWidgets import QWidget
@@ -16,14 +17,15 @@ class BasicWeightPage(QWidget):
     """保留原界面；角色编辑状态不再动态挂到 MainWindow。"""
 
     def __init__(self, app_context: AppContext, navigate: Callable[[str], None],
-                 changed: Callable[[], None], parent: QWidget | None = None) -> None:
+                 changed: Callable[[], None], parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.app_context = app_context
         self._navigate = navigate
         self._changed = changed
         self._basic_weight_controller: BasicWeightController | None = None
         self._clear_account_draft()
-        view.build_config_widgets(self)
+        view.build_config_widgets(self, text_catalog=text_catalog)
 
     @property
     def task_owner(self) -> BasicWeightController | None:
@@ -85,14 +87,14 @@ class BasicWeightPage(QWidget):
 
     def refresh(self) -> None:
         self.controller()
-        view.switch_config_form(self)
+        view.switch_config_form(self, text_catalog=getattr(self, 'text_catalog', None))
 
     def deactivate(self) -> None:
         if self.task_owner is not None:
             self.task_owner.cancel_reads()
 
     def confirm_leave(self, completion: Callable[[bool], None]) -> bool:
-        return confirm_pending_config_changes(self, completion=completion)
+        return confirm_pending_config_changes(self, completion=completion, text_catalog=getattr(self, 'text_catalog', None))
 
     def close_tasks(self) -> None:
         if self.task_owner is not None:

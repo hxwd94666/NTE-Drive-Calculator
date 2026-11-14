@@ -14,9 +14,9 @@ import pytest
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QVBoxLayout, QWidget
 
-from src.domain.equipment.loadout_management import LoadoutAccount, LoadoutMutation
-from src.features.inventory.equipment.persistence_controller import EquipmentPersistenceController, LoadoutOperation
-from src.services.equipment.loadout_management import LoadoutManagementService
+from src.domain.equipment.loadouts.loadout_management import LoadoutAccount, LoadoutMutation
+from src.features.inventory.equipment.management.persistence_controller import EquipmentPersistenceController, LoadoutOperation
+from src.services.equipment.loadouts.loadout_management import LoadoutManagementService
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 from tests.equipment.test_role_loadout_slots import inventory_snapshot, assignment
 
@@ -238,8 +238,8 @@ def test_account_retirement_waits_for_physical_worker_and_drops_old_callbacks(da
 
 
 def test_real_ui_lock_and_slot_buttons_use_owner_and_projection_failure_never_replays(database, app, monkeypatch):
-    from src.features.inventory.equipment import display_controller as display
-    from src.features.inventory.equipment.slot_manager_dialog import LoadoutSlotDialog
+    from src.features.inventory.equipment.display import display_controller as display
+    from src.features.inventory.equipment.management.slot_manager_dialog import LoadoutSlotDialog
     account, plans = database
     host = QWidget()
     service = LoadoutManagementService()
@@ -281,7 +281,7 @@ def test_real_ui_lock_and_slot_buttons_use_owner_and_projection_failure_never_re
 @pytest.mark.parametrize("advanced", [False, True])
 def test_root_switch_failure_restores_real_context_owner_and_discards_old_projection(database, app, monkeypatch, advanced):
     from src.app.context import AccountContext, AppContext, CallbackAccountLifecycle
-    from src.features.inventory.equipment.display_controller import reset_equipment_account_state
+    from src.features.inventory.equipment.display.display_controller import reset_equipment_account_state
     from src.features.settings.native_plugin_update_controller import NativePluginUpdateController
     from src.services.work_modes.service import WorkModeService
     from src.ui.app import MainWindow
@@ -365,8 +365,8 @@ def test_root_switch_failure_restores_real_context_owner_and_discards_old_projec
 
 
 def test_account_reset_rebuilds_an_equal_equipment_projection(app):
-    from src.features.inventory.equipment.display_controller import reset_equipment_account_state
-    from src.features.inventory.equipment.display_view import _publish_equipment_states
+    from src.features.inventory.equipment.display.display_controller import reset_equipment_account_state
+    from src.features.inventory.equipment.display.display_view import _publish_equipment_states
 
     host = QWidget()
     host.equip_role_strip, host.equip_content = QWidget(host), QWidget(host)

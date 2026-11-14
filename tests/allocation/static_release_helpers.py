@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 from shutil import copyfile
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 ROOT = Path(__file__).resolve().parents[2]

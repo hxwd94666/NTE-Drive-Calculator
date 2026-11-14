@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from PySide6.QtWidgets import QMessageBox
 
 
@@ -57,12 +58,8 @@ def _save_hotkeys(self, *, announce=False):
     if announce:
         QMessageBox.information(
             self,
-            "保存",
-            "快捷键已保存！\n"
-            f"全局截图: {self._hk_capture}\n"
-            f"截图完成: {self._hk_finish}\n"
-            f"停止: {self._hk_stop}\n"
-            f"战报重录: {self._hk_battle_rerecord}",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('common.save'),
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.save_hotkeys.qmessagebox', hk_capture=f'{self._hk_capture}', hk_finish=f'{self._hk_finish}', hk_stop=f'{self._hk_stop}', hk_battle_rerecord=f'{self._hk_battle_rerecord}')),
         )
     return True
 

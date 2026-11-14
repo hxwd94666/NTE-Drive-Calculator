@@ -4,10 +4,65 @@
 from __future__ import annotations
 
 import re
+from array import array
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import reduce
 from math import gcd
+from sys import getsizeof
+from threading import Lock
+
+
+# 仅保留纯经验面额的 DP 前缀，不含账号/库存；限制表数、状态数和实际数组占用。
+_EXPERIENCE_TABLES = OrderedDict()
+_EXPERIENCE_LOCK = Lock()
+_EXPERIENCE_MAX_STATES = 131_072
+_EXPERIENCE_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _experience_quantities(values, minimum, limit):
+    def solve(table):
+        counts, choices = table
+        target = next((n for n in range(minimum, min(limit + 1, len(counts))) if choices[n] >= 0), None)
+        if target is None:
+            for amount in range(len(counts), limit + 1):
+                best, selected = -1, -1
+                for index, value in enumerate(values):
+                    if amount >= value and counts[amount - value] >= 0:
+                        candidate = counts[amount - value] + 1
+                        if best < 0 or candidate < best:
+                            best, selected = candidate, index
+                counts.append(best)
+                choices.append(selected)
+                # 后续金额不会改变此前最优解；到首个满足需求的可达金额即停止扩展。
+                if amount >= minimum and selected >= 0:
+                    target = amount
+                    break
+        quantities = [0] * len(values)
+        cursor = target or 0
+        while cursor > 0:
+            index = choices[cursor]
+            quantities[index] += 1
+            cursor -= values[index]
+        return quantities, target
+
+    def fresh():
+        return array("q", [0]), array("q", [-1])
+
+    if limit >= _EXPERIENCE_MAX_STATES or len(values) > 128:
+        return solve(fresh())  # 超出缓存预算仍精确求解，不截断业务结果。
+    with _EXPERIENCE_LOCK:
+        table = _EXPERIENCE_TABLES.pop(values, None)
+        table = fresh() if table is None else table
+        result = solve(table)
+        _EXPERIENCE_TABLES[values] = table
+        while len(_EXPERIENCE_TABLES) > 4 or sum(
+            getsizeof(key) + sum(map(getsizeof, key)) + sum(map(getsizeof, value))
+            for key, value in _EXPERIENCE_TABLES.items()
+        ) > _EXPERIENCE_MAX_BYTES:
+            _EXPERIENCE_TABLES.popitem(last=False)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,32 +95,9 @@ def least_waste_experience_materials(
     values = tuple(item.experience_value // divisor for item in usable)
     minimum = (required_experience + divisor - 1) // divisor
     limit = minimum + max(values) ** 2
-    unreachable = limit + 1
-    counts = [unreachable] * (limit + 1)
-    choices = [-1] * (limit + 1)
-    counts[0] = 0
-    for amount in range(1, limit + 1):
-        for index, value in enumerate(values):
-            if amount < value or counts[amount - value] == unreachable:
-                continue
-            candidate = counts[amount - value] + 1
-            if candidate < counts[amount]:
-                counts[amount] = candidate
-                choices[amount] = index
-    target = next(
-        (amount for amount in range(minimum, limit + 1) if choices[amount] >= 0),
-        None,
-    )
+    material_counts, target = _experience_quantities(values, minimum, limit)
     if target is None:
         return (), 0
-    material_counts = [0] * len(usable)
-    cursor = target
-    while cursor > 0:
-        index = choices[cursor]
-        if index < 0:
-            return (), 0
-        material_counts[index] += 1
-        cursor -= values[index]
     requirements = tuple(
         MaterialQuantity(item_id=material.item_id, quantity=quantity)
         for material, quantity in zip(usable, material_counts)

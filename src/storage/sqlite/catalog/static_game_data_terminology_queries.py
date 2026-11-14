@@ -7,7 +7,7 @@ import json
 import sqlite3
 from typing import Any, Iterable, NoReturn, Protocol, cast
 
-from src.domain.static_catalog_terminology import (
+from src.domain.catalog.static_catalog_terminology import (
     ForkCampaignRecord,
     LocalizedTermRecord,
     TermSourceKind,

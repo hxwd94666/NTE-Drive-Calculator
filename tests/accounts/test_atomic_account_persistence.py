@@ -308,7 +308,8 @@ def test_account_writers_wait_for_naming_index_lock(tmp_path, monkeypatch, write
 
 
 def _ui_import_switch_case(manager, export, failure, monkeypatch):
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     from PySide6.QtWidgets import QComboBox, QDialog, QFileDialog, QMessageBox, QPushButton, QWidget
 
     app = application()
@@ -473,7 +474,8 @@ def test_import_rollback_io_failure_retains_original_recovery_directory(tmp_path
 
 @pytest.mark.parametrize("failure", ("false", "error", "success", "target-index", "target-directory", "file", "nonactive"))
 def test_delete_stops_actual_owner_before_guarded_publication(tmp_path, monkeypatch, failure):
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     from PySide6.QtWidgets import QComboBox, QDialog, QMessageBox, QPushButton, QWidget
 
     manager = _manager(tmp_path)

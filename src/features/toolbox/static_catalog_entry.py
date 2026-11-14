@@ -3,16 +3,18 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QWidget
 
 from src.app.theme import themed_style
 
 
 def build_static_catalog_entry(
-    parent: QWidget, *, navigate: Callable[[], None]
+    parent: QWidget, *, navigate: Callable[[], None],
+    text_catalog=None,
 ) -> QFrame:
     row = QFrame(parent)
     row.setObjectName("toolboxStaticCatalogRow")
@@ -27,18 +29,18 @@ def build_static_catalog_entry(
     layout.setSpacing(15)
     copy = QVBoxLayout()
     copy.setSpacing(4)
-    title = QLabel("游戏资料库", row)
+    title = plain_label(resolve_text_catalog(text_catalog).render('navigation.page.static_catalog'), row)
     title.setStyleSheet(themed_style("font-size:16px;font-weight:800;color:#58a6ff"))
     copy.addWidget(title)
-    description = QLabel(
-        "只读浏览角色、弧盘、怪物、装备、正式技能/效果、公式证据与 110 表覆盖总览。",
+    description = plain_label(
+        resolve_text_catalog(text_catalog).render('ui.toolbox.build_static_catalog_entry.description'),
         row,
     )
     description.setWordWrap(True)
     description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     copy.addWidget(description)
     layout.addLayout(copy, 1)
-    button = QPushButton("打开", row)
+    button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.toolbox.build_static_catalog_entry.button'), row)
     button.setObjectName("toolboxStaticCatalog")
     button.setCursor(Qt.PointingHandCursor)
     button.setMinimumSize(76, 38)

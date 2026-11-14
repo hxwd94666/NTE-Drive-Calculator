@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
@@ -72,8 +74,10 @@ class CharacterDetailView(QWidget):
         asset_catalog: GameUiAssetCatalog,
         terminology: StaticCatalogTerminologyService | None = None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("characterDetailView")
         self.setStyleSheet(themed_style(
             "QWidget#characterDetailView{background:#0d1117;}"
@@ -108,7 +112,7 @@ class CharacterDetailView(QWidget):
         ))
         art_layout = QVBoxLayout(self.art_panel)
         art_layout.setContentsMargins(2, 2, 2, 2)
-        self.art = QLabel("立绘未提供", self.art_panel)
+        self.art = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.art'), self.art_panel)
         self.art.setObjectName("characterFullArt")
         self.art.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.art.setWordWrap(True)
@@ -127,22 +131,22 @@ class CharacterDetailView(QWidget):
         identity_layout.setSpacing(12)
         copy = QVBoxLayout()
         copy.setSpacing(4)
-        self.eyebrow = QLabel("角色图鉴", self.identity_panel)
+        self.eyebrow = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.build_static_catalog_domain_pages.caption'), self.identity_panel)
         self.eyebrow.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:10px;font-weight:900"
         ))
-        self.name = QLabel("选择角色", self.identity_panel)
+        self.name = plain_label(resolve_text_catalog(text_catalog).render('matching.role'), self.identity_panel)
         self.name.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:25px;font-weight:900"
         ))
-        self.identity = QLabel("—", self.identity_panel)
+        self.identity = plain_label("—", self.identity_panel)
         self.identity.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse,
         )
         self.identity.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:12px;font-weight:700"
         ))
-        self.release_line = QLabel("上线信息未提供", self.identity_panel)
+        self.release_line = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.release_line'), self.identity_panel)
         self.release_line.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px;font-weight:700"
         ))
@@ -172,34 +176,39 @@ class CharacterDetailView(QWidget):
         self.skill_view = CharacterSkillView(
             terminology=terminology,
             parent=self,
+            text_catalog=text_catalog,
         )
         self.cultivation_tabs = QTabWidget(self)
         self.cultivation_tabs.setObjectName("characterCultivationTabs")
         self.growth_view = CharacterGrowthView(
             terminology=terminology,
             parent=self.cultivation_tabs,
+            text_catalog=text_catalog,
         )
         self.skill_training_view = CharacterSkillTrainingView(
             terminology=terminology,
             parent=self.cultivation_tabs,
+            text_catalog=text_catalog,
         )
-        self.cultivation_tabs.addTab(self.growth_view, "等级养成")
-        self.cultivation_tabs.addTab(self.skill_training_view, "技能养成")
+        self.cultivation_tabs.addTab(self.growth_view, resolve_text_catalog(text_catalog).render('ui.static_catalog.init.cultivation_tabs'))
+        self.cultivation_tabs.addTab(self.skill_training_view, resolve_text_catalog(text_catalog).render('ui.static_catalog.prepare_character.caption'))
         self.awakening_view = CharacterAwakeningView(
             terminology=terminology,
             parent=self,
+            text_catalog=text_catalog,
         )
         self.affinity_host, self.affinity_layout = self._scroll_tab()
         self.route_view = CharacterBuildView(
             terminology=terminology,
             parent=self,
+            text_catalog=text_catalog,
         )
-        self.tabs.addTab(self.overview_host, "角色档案")
-        self.tabs.addTab(self.skill_view, "技能")
-        self.tabs.addTab(self.cultivation_tabs, "养成")
-        self.tabs.addTab(self.awakening_view, "觉醒")
-        self.tabs.addTab(self.affinity_host, "好感度")
-        self.tabs.addTab(self.route_view, "图纸与毕业")
+        self.tabs.addTab(self.overview_host, resolve_text_catalog(text_catalog).render('ui.static_catalog.init.tabs'))
+        self.tabs.addTab(self.skill_view, resolve_text_catalog(text_catalog).render('ui.official_role.build_skill_group.group'))
+        self.tabs.addTab(self.cultivation_tabs, resolve_text_catalog(text_catalog).render('ui.static_catalog.init.tabs_2'))
+        self.tabs.addTab(self.awakening_view, resolve_text_catalog(text_catalog).render('ui.static_catalog.init.tabs_3'))
+        self.tabs.addTab(self.affinity_host, resolve_text_catalog(text_catalog).render('ui.static_catalog.init.tabs_4'))
+        self.tabs.addTab(self.route_view, resolve_text_catalog(text_catalog).render('ui.static_catalog.init.tabs_5'))
         root.addWidget(self.tabs, 1)
 
     def _layout_hero(self, compact: bool) -> None:
@@ -253,7 +262,7 @@ class CharacterDetailView(QWidget):
 
     @staticmethod
     def _badge(text: str, color: str) -> QLabel:
-        label = QLabel(text)
+        label = plain_label(text)
         label.setStyleSheet(themed_style(
             f"color:{color};background:#0d1117;border:1px solid {color};"
             "border-radius:10px;padding:3px 9px;font-size:10px;font-weight:800"
@@ -279,18 +288,18 @@ class CharacterDetailView(QWidget):
         self.identity.setText(f"ID  {character.character_id}")
         image_note = self._asset_catalog.character_image_note(character_id)
         if image_note:
-            self.identity.setText(self.identity.text() + ' · 临时替代图片')
+            self.identity.setText(self.identity.text() + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.identity'))
         self.identity.setToolTip(image_note)
         self.art.setToolTip(image_note)
-        self.element_badge.setText(f"{character.element_label}属性")
+        self.element_badge.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.element_badge', element_label=f'{character.element_label}'))
         acquisition_label = _acquisition_name(release)
         if character.classification == "scheduled_character":
             acquisition_label += " · 待上线"
         self.availability_badge.setText(acquisition_label)
         self.quality_badge.setText(
-            f"{release.quality} 级"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.quality_badge', quality=f'{release.quality}')
             if release is not None and release.quality
-            else "品质未提供"
+            else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.quality_badge_2')
         )
         if release is not None and release.release_date:
             prefix = (
@@ -300,13 +309,13 @@ class CharacterDetailView(QWidget):
             )
             self.release_line.setText(prefix + release.release_date)
         else:
-            self.release_line.setText("上线信息未提供")
+            self.release_line.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.init.release_line'))
         self.art.clear()
         art_path = self._asset_catalog.character_art(character_id)
         pixmap = QPixmap(str(art_path)) if art_path is not None else QPixmap()
         if pixmap.isNull():
             self.art.setPixmap(QPixmap())
-            self.art.setText("立绘未提供")
+            self.art.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.init.art'))
         else:
             self.art.setText("")
             self.art.setPixmap(pixmap.scaled(
@@ -346,7 +355,7 @@ class CharacterDetailView(QWidget):
                 label = "男性形象"
             else:
                 label = f"形象 {index}"
-            button = QPushButton(label, self.identity_panel)
+            button = QPushButton(ui_enum_text(getattr(self, 'text_catalog', None), label), self.identity_panel)
             button.setCheckable(True)
             button.setChecked(character_id == active_character_id)
             button.setEnabled(character_id != active_character_id)
@@ -363,10 +372,9 @@ class CharacterDetailView(QWidget):
         release: CharacterReleaseMetadata | None,
     ) -> None:
         self._clear(self.overview_layout)
-        summary = QLabel(
-            f"{detail.character.skill_count} 项技能  ·  "
-            f"{detail.character.awakening_count} 项觉醒  ·  "
-            + ("有毕业模板" if detail.character.has_graduation else "暂无毕业模板"),
+        summary = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_overview.summary', skill_count=f'{detail.character.skill_count}', awakening_count=f'{detail.character.awakening_count}')
+            + (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_overview.summary_2') if detail.character.has_graduation else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_overview.summary_3')),
         )
         summary.setStyleSheet(themed_style(
             "color:#8b949e;background:transparent;font-size:11px"
@@ -436,7 +444,7 @@ class CharacterDetailView(QWidget):
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(6)
-        heading = QLabel(title, frame)
+        heading = plain_label(title, frame)
         heading.setStyleSheet(themed_style(
             "color:#58a6ff;background:transparent;border:none;"
             "font-size:14px;font-weight:900"
@@ -451,11 +459,11 @@ class CharacterDetailView(QWidget):
             "background:#10243f;border:1px solid #1f6feb;border-radius:12px"
         ))
         layout = QVBoxLayout(card)
-        caption = QLabel(title, card)
+        caption = plain_label(title, card)
         caption.setStyleSheet(themed_style(
             "color:#8b949e;background:transparent;border:none;font-size:10px"
         ))
-        metric = QLabel(value, card)
+        metric = plain_label(value, card)
         metric.setStyleSheet(themed_style(
             "color:#f0f6fc;background:transparent;border:none;"
             "font-size:16px;font-weight:900"
@@ -473,12 +481,12 @@ class CharacterDetailView(QWidget):
         ))
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 2, 0, 2)
-        caption = QLabel(title, row)
+        caption = plain_label(title, row)
         caption.setMinimumWidth(120)
         caption.setStyleSheet(themed_style(
             "color:#8b949e;background:transparent;border:none;font-size:11px"
         ))
-        content = QLabel(value, row)
+        content = plain_label(value, row)
         content.setWordWrap(True)
         content.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse,
@@ -502,12 +510,12 @@ class CharacterDetailView(QWidget):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(9, 6, 9, 6)
         layout.setSpacing(2)
-        caption = QLabel(title, card)
+        caption = plain_label(title, card)
         caption.setStyleSheet(themed_style(
             "color:#58a6ff;background:transparent;border:none;"
             "font-size:10px;font-weight:800"
         ))
-        content = QLabel(value, card)
+        content = plain_label(value, card)
         content.setWordWrap(True)
         content.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse,
@@ -521,7 +529,7 @@ class CharacterDetailView(QWidget):
 
     @staticmethod
     def _muted(text: str) -> QLabel:
-        label = QLabel(text)
+        label = plain_label(text)
         label.setWordWrap(True)
         label.setStyleSheet(themed_style(
             "color:#8b949e;background:#161b22;border:1px dashed #30363d;"

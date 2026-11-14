@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.services.equipment.loadout_slot_selection_service import LoadoutSlotSelectionService
+from src.services.equipment.loadouts.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 from tests.equipment.test_role_loadout_slots import assignment, inventory_snapshot
 
@@ -63,7 +63,7 @@ class LoadoutSlotSelectionServiceTests(unittest.TestCase):
 
     def test_fast_apply_checks_frozen_identity_before_constructing_input_service(self) -> None:
         from unittest.mock import Mock
-        from src.services.equipment.bulk_apply import BulkEquipmentApplyService
+        from src.services.equipment.assembly.bulk_apply import BulkEquipmentApplyService
         slot_id = self._save_primary(1003, "甲")
         selected = self.service.resolve([slot_id])[0]
         factory = Mock()
@@ -75,7 +75,7 @@ class LoadoutSlotSelectionServiceTests(unittest.TestCase):
 
     def test_fast_apply_does_not_consume_a_plan_replaced_during_preparation(self) -> None:
         from unittest.mock import Mock, patch
-        from src.services.equipment.bulk_apply import BulkEquipmentApplyService
+        from src.services.equipment.assembly.bulk_apply import BulkEquipmentApplyService
         slot_id = self._save_primary(1003, "甲")
         selected = self.service.resolve([slot_id])[0]
         factory = Mock()

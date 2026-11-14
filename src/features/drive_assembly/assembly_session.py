@@ -14,6 +14,8 @@ import cv2
 import mss
 import numpy as np
 
+from src.domain.localization.catalog import localized_text
+from src.ui.common.enum_text import ui_enum_text
 from src.features.drive_assembly.executor import (
     AssemblyExecutionReport,
     AssemblyExecutionStopped,
@@ -157,6 +159,8 @@ def build_single_role_assembly_plan(
     role_name: str,
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
+    *,
+    text_catalog=None,
 ) -> dict[str, Any]:
     """Return the planned tape and drive actions for one role."""
 
@@ -166,7 +170,11 @@ def build_single_role_assembly_plan(
         return {
             "role_name": role_name,
             "available": False,
-            "reason": "未找到该角色的已保存装配数据。",
+            "reason": localized_text(
+                text_catalog,
+                "drive_assembly.session.missing_saved_payload",
+                "未找到该角色的已保存装配数据。",
+            ),
             "actions": [],
         }
     actions: list[dict[str, Any]] = []
@@ -201,7 +209,11 @@ def build_single_role_assembly_plan(
     return {
         "role_name": role_name,
         "available": bool(actions),
-        "reason": "" if actions else "该角色没有可装配的卡带或驱动块。",
+        "reason": "" if actions else localized_text(
+            text_catalog,
+            "drive_assembly.session.no_assemblable_blocks",
+            "该角色没有可装配的卡带或驱动块。",
+        ),
         "tape_count": 1 if tape_filter else 0,
         "drive_count": len(drive_blocks),
         "drive_blocks": drive_blocks,
@@ -213,12 +225,19 @@ def build_all_role_assembly_plan(
     equipped_state: dict[str, Any] | None,
     screen_size: tuple[int, int] | None = None,
     content_rect: tuple[int, int, int, int] | None = None,
+    *,
+    text_catalog=None,
 ) -> dict[str, Any]:
     """Return per-role assembly plans for all roles with saved payloads."""
 
     payloads = build_role_assembly_payloads(equipped_state, screen_size, content_rect)
     roles = required_roles_from_payloads(payloads)
-    role_plans = [build_single_role_assembly_plan(equipped_state, role, screen_size, content_rect) for role in roles]
+    role_plans = [
+        build_single_role_assembly_plan(
+            equipped_state, role, screen_size, content_rect, text_catalog=text_catalog,
+        )
+        for role in roles
+    ]
     ready = [plan for plan in role_plans if plan["available"]]
     return {
         "role_count": len(roles),
@@ -696,22 +715,54 @@ def verify_blueprint_against_screenshot(
     return {"ok": not missing, "missing_blocks": missing}
 
 
-def summarize_assembly_plan(plan: dict[str, Any]) -> str:
+def summarize_assembly_plan(plan: dict[str, Any], *, text_catalog=None) -> str:
     """Return a concise human-readable plan summary."""
 
     if "role_plans" in plan:
-        lines = [f"可装配角色：{plan.get('ready_count', 0)}/{plan.get('role_count', 0)}"]
+        lines = [localized_text(
+            text_catalog,
+            "drive_assembly.session.summary.roles",
+            "可装配角色：{ready}/{total}",
+            ready=plan.get('ready_count', 0),
+            total=plan.get('role_count', 0),
+        )]
         for role_plan in plan.get("role_plans", []):
             if role_plan.get("available"):
                 lines.append(
-                    f"- {role_plan['role_name']}：卡带 {role_plan.get('tape_count', 0)}，驱动 {role_plan.get('drive_count', 0)}"
+                    localized_text(
+                        text_catalog,
+                        "drive_assembly.session.summary.role_counts",
+                        "- {role}：卡带 {tape}，驱动 {drive}",
+                        role=role_plan['role_name'],
+                        tape=role_plan.get('tape_count', 0),
+                        drive=role_plan.get('drive_count', 0),
+                    )
                 )
             else:
-                lines.append(f"- {role_plan['role_name']}：{role_plan.get('reason', '不可装配')}")
+                lines.append(localized_text(
+                    text_catalog,
+                    "drive_assembly.session.summary.role_reason",
+                    "- {role}：{reason}",
+                    role=role_plan['role_name'],
+                    reason=role_plan.get('reason', ui_enum_text(text_catalog, "不可装配")),
+                ))
         return "\n".join(lines)
     if not plan.get("available"):
-        return f"{plan.get('role_name', '角色')}：{plan.get('reason', '不可装配')}"
-    return f"{plan['role_name']}：卡带 {plan.get('tape_count', 0)}，驱动 {plan.get('drive_count', 0)}"
+        return localized_text(
+            text_catalog,
+            "drive_assembly.session.summary.role_reason_plain",
+            "{role}：{reason}",
+            role=plan.get('role_name', ui_enum_text(text_catalog, "角色")),
+            reason=plan.get('reason', ui_enum_text(text_catalog, "不可装配")),
+        )
+    return localized_text(
+        text_catalog,
+        "drive_assembly.session.summary.role_counts_plain",
+        "{role}：卡带 {tape}，驱动 {drive}",
+        role=plan['role_name'],
+        tape=plan.get('tape_count', 0),
+        drive=plan.get('drive_count', 0),
+    )
 
 
 def _capture_foreground_client_image():

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections import deque
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
@@ -34,9 +35,10 @@ def _format_number(value: float) -> str:
 class BattleReportOverlay(QWidget):
     """A 380x238 frameless overlay matching the partner HUD information density."""
 
-    def __init__(self, *, game_ui_asset_root) -> None:
+    def __init__(self, *, game_ui_asset_root, text_catalog=None) -> None:
         super().__init__(None)
-        self.setWindowTitle("NTE 实时战报")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.battle_report.init.self_3'))
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowFlag(Qt.WindowTransparentForInput, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -102,7 +104,7 @@ class BattleReportOverlay(QWidget):
             self._halo_text(
                 painter,
                 QRectF(16, 0, self.width() - 32, self.height()),
-                "等待战斗数据…",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.paintevent.self_2'),
                 15,
                 Qt.AlignCenter,
                 QColor("#f0f6fc"),
@@ -128,7 +130,7 @@ class BattleReportOverlay(QWidget):
         self._halo_text(
             painter,
             QRectF(self.width() - 152, 8, 138, 18),
-            "总伤害 / 受击",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.paintevent.self'),
             9,
             Qt.AlignRight | Qt.AlignVCenter,
             QColor("#d8dee9"),
@@ -167,7 +169,7 @@ class BattleReportOverlay(QWidget):
         self._halo_text(
             painter,
             QRectF(14, 69, self.width() - 28, 16),
-            half_label or "深渊战斗",
+            half_label or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.paintevent.self_3'),
             9,
             Qt.AlignLeft | Qt.AlignVCenter,
             QColor("#b8c0cc"),

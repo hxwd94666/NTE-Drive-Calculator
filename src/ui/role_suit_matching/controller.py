@@ -15,7 +15,7 @@ from src.services.identification.matching_editor import (
 )
 from src.services.identification.matching_settings import matching_settings_identity, normalize_matching_settings
 from src.ui.role_suit_matching.dialog import MatchingEditorDialog
-from src.domain.equipment.management_settings import MatchingScope
+from src.domain.equipment.eligibility.management_settings import MatchingScope
 
 
 class RoleSuitMatchingController(QObject):

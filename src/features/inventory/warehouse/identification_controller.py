@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from typing import Any
 from functools import partial
 
@@ -12,9 +13,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -26,10 +25,8 @@ from src.app.window_geometry import fit_dialog_to_available_screen
 from src.services.identification.matching_settings import MatchingSettingsService
 from src.app.workers import WorkerThread
 from src.features.identification.page import build_identify_result_row
-from src.features.inventory.warehouse.cards import warehouse_item_compare_category
-from src.services.inventory.warehouse_identification_service import (
-    WarehouseIdentificationService,
-)
+from src.features.inventory.warehouse.display.cards import warehouse_item_compare_category
+from src.services.inventory.browsing.warehouse_identification_service import WarehouseIdentificationService
 from src.services.identification.equipment_service import (
     EquipmentIdentificationService,
 )
@@ -58,6 +55,7 @@ def _identify_snapshot_items(
 def show_warehouse_item_identification(
     owner: Any,
     index: QModelIndex | None,
+    *, text_catalog=None,
 ) -> None:
     item = (
         index.data(Qt.ItemDataRole.UserRole)
@@ -71,12 +69,13 @@ def show_warehouse_item_identification(
     if active_worker is not None and active_worker.isRunning():
         return
     _submit_identification(owner, snapshot_id, (str(item.get("uid") or ""),),
-        lambda result: show_warehouse_identification_dialog(owner, dict(item), result[0]))
+        lambda result: show_warehouse_identification_dialog(owner, dict(item), result[0], text_catalog=text_catalog), text_catalog=text_catalog)
 
 
 def select_warehouse_compare_item(
     owner: Any,
     index: QModelIndex | None,
+    *, text_catalog=None,
 ) -> None:
     item = (
         index.data(Qt.ItemDataRole.UserRole)
@@ -94,20 +93,19 @@ def select_warehouse_compare_item(
             "category": category,
         }
         owner.warehouse_hint.setText(
-            f"已选择左栏 [{item.get('display_name') or item.get('title')}]；"
-            "请选择同类别装备作为右栏。"
+            resolve_text_catalog(text_catalog).render('ui.inventory.select_warehouse_compare_item.warehouse_hint', value=f"{item.get('display_name') or item.get('title')}")
         )
         owner.warehouse_hint.show()
         return
     first_item = first["item"]
     if str(first_item.get("uid")) == str(item.get("uid")):
         QMessageBox.information(
-            owner, "装备对比", "请再选择另一件同类别装备进行对比。"
+            owner, resolve_text_catalog(text_catalog).render('ui.inventory.select_warehouse_compare_item.qmessagebox'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.inventory.select_warehouse_compare_item.qmessagebox_2'))
         )
         return
     if first["category"] != category:
         QMessageBox.warning(
-            owner, "装备对比", "驱动和卡带不能互相对比；请选择同类别装备。"
+            owner, resolve_text_catalog(text_catalog).render('ui.inventory.select_warehouse_compare_item.qmessagebox'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.inventory.select_warehouse_compare_item.qmessagebox_3'))
         )
         return
     active_worker = getattr(owner, "_warehouse_identification_worker", None)
@@ -116,10 +114,10 @@ def select_warehouse_compare_item(
     owner._warehouse_compare_first = None
     _submit_identification(owner, snapshot_id,
         (str(first_item.get("uid") or ""), str(item.get("uid") or "")),
-        lambda result: show_warehouse_identification_comparison(owner, dict(first_item), dict(item), result))
+        lambda result: show_warehouse_identification_comparison(owner, dict(first_item), dict(item), result, text_catalog=text_catalog), text_catalog=text_catalog)
 
 
-def _submit_identification(owner, snapshot_id, uids, deliver):
+def _submit_identification(owner, snapshot_id, uids, deliver, *, text_catalog=None):
     context = owner.app_context
     database = context.account.user_database_path
     generation = context.generation
@@ -142,13 +140,13 @@ def _submit_identification(owner, snapshot_id, uids, deliver):
         snapshot_id=snapshot_id, uids=uids), parent=owner)
     owner._warehouse_identification_worker = worker
     worker.result_ready.connect(received)
-    worker.error.connect(lambda error: QMessageBox.warning(owner, "装备鉴定失败", str(error)) if current() else None)
+    worker.error.connect(lambda error: QMessageBox.warning(owner, resolve_text_catalog(text_catalog).render('ui.inventory.submit_identification.qmessagebox'), str(error)) if current() else None)
     worker.start()
 
 
 def _matching_controls(owner, dialog, layout, content, results):
     matching = owner.role_suit_matching
-    notice = QLabel()
+    notice = plain_label()
     notice.setTextFormat(Qt.PlainText)
     notice.setWordWrap(True)
     if any(result.get("matching_status") == "incomplete" for result in results):
@@ -158,10 +156,10 @@ def _matching_controls(owner, dialog, layout, content, results):
     # 两种鉴定弹窗共用紧凑页脚；打开套装编辑不接受或关闭当前结果窗口。
     footer = QHBoxLayout()
     footer.addStretch()
-    button = QPushButton(matching.catalog.render("matching.title"))
+    button = TextActionButton(matching.catalog.render("matching.title"))
     button.setObjectName("btnNew")
     button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-    button.setToolTip(matching.catalog.render("matching.scope_hint"))
+    button.setToolTip(plain_tooltip(matching.catalog.render("matching.scope_hint")))
     button.clicked.connect(lambda: matching.open(dialog))
     footer.addWidget(button)
     buttons = QDialogButtonBox(QDialogButtonBox.Close)
@@ -183,10 +181,11 @@ def show_warehouse_identification_dialog(
     owner: Any,
     item: dict[str, Any],
     result: dict[str, Any],
+    *, text_catalog=None,
 ) -> None:
     del item
     dialog = QDialog(owner)
-    dialog.setWindowTitle("装备鉴定结果")
+    dialog.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.inventory.show_warehouse_identification_dialog.dialog'))
     dialog.resize(560, 520)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(16, 16, 16, 12)
@@ -200,7 +199,7 @@ def show_warehouse_identification_dialog(
     content_layout = QVBoxLayout(content)
     content_layout.setContentsMargins(2, 2, 2, 2)
     content_layout.setSpacing(8)
-    match_group = QGroupBox("匹配角色评分")
+    match_group = QGroupBox(resolve_text_catalog(text_catalog).render('ui.inventory.show_warehouse_identification_dialog.match_group'))
     match_layout = QVBoxLayout(match_group)
     match_layout.setSpacing(8)
     rows = list(result.get("rows") or []) if isinstance(result, dict) else []
@@ -215,7 +214,7 @@ def show_warehouse_identification_dialog(
                 )
             )
     else:
-        empty = QLabel(owner.role_suit_matching.catalog.render(
+        empty = plain_label(owner.role_suit_matching.catalog.render(
             "matching.incomplete" if result.get("matching_status") == "incomplete" else "matching.unmatched"))
         empty.setWordWrap(True)
         empty.setStyleSheet(themed_style("color:#8b949e"))
@@ -235,9 +234,10 @@ def show_warehouse_identification_comparison(
     left: dict[str, Any],
     right: dict[str, Any],
     results: tuple[dict[str, Any], dict[str, Any]],
+    *, text_catalog=None,
 ) -> None:
     dialog = QDialog(owner)
-    dialog.setWindowTitle("装备鉴定对比")
+    dialog.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.inventory.show_warehouse_identification_comparison.dialog'))
     dialog.resize(1120, 620)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(16, 16, 16, 12)
@@ -277,7 +277,7 @@ def show_warehouse_identification_comparison(
                     )
                 )
         else:
-            empty = QLabel(owner.role_suit_matching.catalog.render(
+            empty = plain_label(owner.role_suit_matching.catalog.render(
                 "matching.incomplete" if result.get("matching_status") == "incomplete" else "matching.unmatched"))
             empty.setWordWrap(True)
             empty.setStyleSheet(themed_style("color:#8b949e"))

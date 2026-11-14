@@ -2,8 +2,8 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
-from src.services.damage_calculation_service import skill_tier_for_effective_level
-from src.services.official_role.awakening import awaken_skill_level_delta
+from src.services.damage.damage_calculation_service import skill_tier_for_effective_level
+from src.services.official_role.panel.awakening import awaken_skill_level_delta
 
 
 _SAGIRI_TABLE = "/Game/DataTable/Skill/GlobalCharacterData/DT_SagiriEffectFigure"

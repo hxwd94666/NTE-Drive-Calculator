@@ -4,9 +4,10 @@ import shutil
 
 import pytest
 
-from tests.test_native_plugin_bundle import make_bundle, write_manifest
-from src.integrations.native_plugin_bundle import HOT_PLUGIN_DEPLOYMENT_PATHS, inspect_native_plugin_bundle
-from src.integrations.native_host_control import NativeHostClient, NativeHostError, NativeHostOutcomeUnknown
+from tests.plugins.test_native_plugin_bundle import make_bundle
+from tests.plugins.test_native_plugin_bundle import write_manifest
+from src.integrations.components.native_plugin_bundle import HOT_PLUGIN_DEPLOYMENT_PATHS, inspect_native_plugin_bundle
+from src.integrations.native_core.native_host_control import NativeHostClient, NativeHostError, NativeHostOutcomeUnknown
 from src.integrations.components.native_files import update_native_plugins, USER, COMBAT
 from src.integrations.components.native_files import deploy_native_component_files
 from src.integrations.components.inspection import inspect_deployed_native_plugin
@@ -135,7 +136,7 @@ def test_operation_polls_the_accepted_id_and_never_repeats_mutation():
 
 def test_maintenance_blocks_new_connections_and_releases_on_error():
     from src.services.native_session.session import NativeGameSession
-    from src.integrations.nte_core_protocol import NteCoreError
+    from src.integrations.native_core.nte_core_protocol import NteCoreError
     session = NativeGameSession(factory=lambda: pytest.fail('must not connect'), guard=lambda _: None)
     with pytest.raises(ValueError):
         with session.plugin_maintenance():
@@ -150,7 +151,7 @@ def test_maintenance_blocks_new_connections_and_releases_on_error():
 
 
 def test_declared_performance_plugin_is_deployed_and_updated_as_signed_pair(tmp_path):
-    from src.integrations.native_plugin_bundle import PERFORMANCE_DEPLOYMENT_PATHS
+    from src.integrations.components.native_plugin_bundle import PERFORMANCE_DEPLOYMENT_PATHS
     root, directory, host = scenario(tmp_path)
     import json
     # Use the actual fixture manifest location rather than a production directory.

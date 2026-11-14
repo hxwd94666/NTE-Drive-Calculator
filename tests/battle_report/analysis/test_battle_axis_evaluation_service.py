@@ -10,11 +10,12 @@ from unittest.mock import Mock, patch
 import pytest
 
 from tests.battle_report.analysis.axis_evaluation_fixture import gear, wire_response
-from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_report.analysis.axis_evaluation import freeze_actual_axis_equipment
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest
 from src.services.battle_report.analysis.native_page import BattleNativePageService
 from src.services.battle_report.persistence import BattleReportPersistenceDependencies
+from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 NTE_TEST_TIER = "core"
@@ -23,7 +24,9 @@ NTE_TEST_TIER = "core"
 def owner(tmp_path, current=lambda _: True):
     user, static, semantics, executable = (tmp_path / name for name in
                                          ("user.sqlite3", "static.sqlite3", "semantics.json", "nte-analysis-core.exe"))
-    for path in (user, static, semantics, executable):
+    with UserDataDao(user, account_id="fixture"):
+        pass
+    for path in (static, semantics, executable):
         path.write_bytes(b"public-fixture")
     # 合成响应固定旧协议版本；不能随产品默认引擎升级而让假握手与响应身份分离。
     client = NteAnalysisCoreClient(executable, "fixture-static", engine_version="0.3.0",
@@ -91,10 +94,12 @@ def test_frozen_resource_changes_cancel_before_dispatch(tmp_path, resource):
 def test_unrelated_database_and_wal_changes_do_not_invalidate_scoped_report(tmp_path):
     service, client, dependencies, _ = owner(tmp_path)
     frozen = freeze(service)
-    dependencies.user_database_path.write_bytes(b"unrelated-ui-setting")
-    Path(str(dependencies.user_database_path) + "-wal").write_bytes(b"unrelated-ui-setting")
-    with patch.object(client, "_run", side_effect=lambda data, **_: json.dumps(wire_response(json.loads(data)["request"])).encode("utf8")):
-        assert service.evaluate_axis(frozen)["baseline"]["status"] == "complete"
+    # 使用真实无关提交与有效 WAL，而不是把文本伪装成数据库/共享内存。
+    with UserDataDao(dependencies.user_database_path) as writer:
+        writer._db().execute("PRAGMA journal_mode=WAL")
+        writer.replace_application_setting_copy("unrelated", {"fixture": True})
+        with patch.object(client, "_run", side_effect=lambda data, **_: json.dumps(wire_response(json.loads(data)["request"])).encode("utf8")):
+            assert service.evaluate_axis(frozen)["baseline"]["status"] == "complete"
 
 
 def test_response_from_another_engine_version_is_still_rejected(tmp_path):
@@ -200,9 +205,9 @@ def test_actual_inventory_batched_projection_matches_whole_and_never_uses_full_l
 def test_axis_preparation_native_cancel_is_not_reported_as_model_unavailable(tmp_path, phase):
     from types import SimpleNamespace
     from unittest.mock import MagicMock
-    from src.integrations.nte_analysis_core import NativeAnalysisCancelled
-    from src.services.allocation.axis_postprocess import freeze_axis_allocation_inputs
-    from src.services.allocation.axis_selection import AxisAllocationSelection
+    from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled
+    from src.services.allocation.axis.axis_postprocess import freeze_axis_allocation_inputs
+    from src.services.allocation.axis.axis_selection import AxisAllocationSelection
     _service, client, dependencies, semantics = owner(tmp_path)
     release = SimpleNamespace(database_path=dependencies.static_database_path.resolve(), dataset_id=client.dataset_version)
     selection = AxisAllocationSelection(dependencies.account_id, dependencies.generation,
@@ -217,7 +222,7 @@ def test_axis_preparation_native_cancel_is_not_reported_as_model_unavailable(tmp
     dao.list_current_loadout_equipment_owners.return_value = []
     dao.current_inventory_snapshot_id.return_value = 7
     cancelled = NativeAnalysisCancelled("cancelled by user")
-    base = "src.services.allocation.axis_postprocess."
+    base = "src.services.allocation.axis.axis_postprocess."
     with patch(base + "UserDataDao", return_value=dao), \
          patch(base + "freeze_actual_allocation_inventory", **({"side_effect": cancelled} if phase == "inventory" else {"return_value": {}})), \
          patch(base + "freeze_axis_source", side_effect=cancelled):

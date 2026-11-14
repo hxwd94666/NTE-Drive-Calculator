@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.features.inventory.equipment import assembly_controller as controller
+from src.features.inventory.equipment.assembly import assembly_controller as controller
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,9 +26,9 @@ def imported_modules(relative_path: str) -> set[str]:
 
 class EquipmentAssemblyBoundaryTests(unittest.TestCase):
     def test_controller_and_ui_bridge_do_not_read_runtime_paths(self):
-        controller_modules = imported_modules("src/features/inventory/equipment/assembly_controller.py")
+        controller_modules = imported_modules("src/features/inventory/equipment/assembly/assembly_controller.py")
         automatic_modules = imported_modules(
-            "src/features/inventory/equipment/automatic_assembly_controller.py"
+            "src/features/inventory/equipment/assembly/automatic_assembly_controller.py"
         )
         bridge_modules = imported_modules("src/features/drive_assembly/ui_bridge.py")
 

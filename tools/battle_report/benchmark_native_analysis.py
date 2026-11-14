@@ -79,7 +79,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _marginal(history, record_id, static_database, source_root, progress, metrics):
-    from src.domain.stat_catalog import StatCatalog
+    from src.domain.equipment.properties.stat_catalog import StatCatalog
     from src.features.battle_report.marginal.page import BattleMarginalPage
     from src.services.battle_report.marginal.calculation import BattleMarginalCalculationService
     from src.services.battle_report.marginal.calculation_support import drive_substat_marginal_units
@@ -261,7 +261,7 @@ def _worker(args) -> int:
                 account = connection.execute("SELECT account_id FROM database_profile LIMIT 1").fetchone()[0]
             kwargs = {}
             if args.backend in {"native", "database"}:
-                from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+                from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
                 executable = args.executable or source_root / "third_party/analysis-core/bin/nte-analysis-core.exe"
                 # Frozen source baselines predate identity discovery; their paired
                 # executable still uses the original constructor contract.

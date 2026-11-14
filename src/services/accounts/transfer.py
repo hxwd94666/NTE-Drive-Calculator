@@ -8,12 +8,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from src.domain.post_actions import merge_post_action_config
-from src.integrations.team_axis_graduation_archive import validate_saved_axis_result
+from src.domain.inventory.post_actions import merge_post_action_config
+from src.integrations.battle_analysis.graduation.team_axis_graduation_archive import validate_saved_axis_result
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.accounts.settings import AccountSettingsService, SETTING_GROUPS
 from src.services.identification.matching_settings import MatchingSettingsService
-from src.domain.equipment.management_settings import MatchingScope, normalize_warehouse_config
+from src.domain.equipment.eligibility.management_settings import MatchingScope, normalize_warehouse_config
 from src.integrations.accounts.index_file import locked_account_index
 from src.integrations.accounts.mutation_directories import (
     preserve_deleted_account_cleanup, require_account_directory_ready, retired_account_directory,

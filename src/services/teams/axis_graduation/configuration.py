@@ -3,15 +3,18 @@ from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
-from src.domain.equipment.equipment_normalizer import equipment_quality_coefficient
-from src.domain.teams.axis_graduation_configuration import (
-    ConfigurationMember, GraduationConfiguration, LayoutTemplate, layout_from_saved_items,
+from src.domain.equipment.properties.equipment_normalizer import equipment_quality_coefficient
+from src.domain.teams.graduation.axis_graduation_configuration import (
+    ConfigurationMember,
+    GraduationConfiguration,
+    LayoutTemplate,
+    layout_from_saved_items,
 )
-from src.domain.teams.axis_graduation_rules import compile_theory_equipment_rules
-from src.domain.teams.axis_graduation_target import TargetFork, TargetMember
-from src.integrations.static_catalog_release import static_catalog_read_unit
-from src.services.allocation.context_builder import read_allocation_scoring_rules
-from src.services.equipment.frozen_loadout import resolve_plan_inventory_items
+from src.domain.teams.graduation.axis_graduation_rules import compile_theory_equipment_rules
+from src.domain.teams.graduation.axis_graduation_target import TargetFork, TargetMember
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+from src.services.allocation.inputs.context_builder import read_allocation_scoring_rules
+from src.services.equipment.loadouts.frozen_loadout import resolve_plan_inventory_items
 from src.services.teams.axis_graduation.requests import actual_component_input
 from src.storage.sqlite.user_data_dao import UserDataDao
 

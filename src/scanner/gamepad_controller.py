@@ -12,7 +12,7 @@ from src.integrations.vision.capture_files import (
 import time
 from dataclasses import dataclass
 from typing import Literal
-from src.integrations.operation_guard import OperationGuard, bind_stop_guard, require_operation
+from src.integrations.runtime.operation_guard import OperationGuard, bind_stop_guard, require_operation
 
 import mss
 import mss.tools

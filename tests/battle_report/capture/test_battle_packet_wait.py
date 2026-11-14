@@ -7,7 +7,10 @@ from unittest.mock import Mock, patch
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService
 from src.services.battle_report.capture.lifecycle import BattleCaptureStartError, start_battle_capture
-from tests.test_battle_capture_axis_service import _Core, _Writer, _summary_payload, _wait_until
+from tests.battle_report.capture.test_battle_capture_axis_service import _Core
+from tests.battle_report.capture.test_battle_capture_axis_service import _Writer
+from tests.battle_report.capture.test_battle_capture_axis_service import _summary_payload
+from tests.battle_report.capture.test_battle_capture_axis_service import _wait_until
 
 
 def payload(status, operation="current", **extra):

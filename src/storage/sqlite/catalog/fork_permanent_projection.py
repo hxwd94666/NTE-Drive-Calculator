@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from src.domain.fork_permanent_property import (
+from src.domain.equipment.properties.fork_permanent_property import (
     ForkPermanentAudit,
     ForkPermanentProperty,
     resolve_fork_permanent_properties,

@@ -6,12 +6,20 @@
     "dataset_id": "cn_reference_20261105_7a8bf1f0",
     "schema_version": 42,
     "size_bytes": 29487104,
-    "sha256": "58C877A23F439F5E17CC701BC52F7FFFC6D34F4E401526625398FF5AECD0D0CA",
+    "sha256": "763C57071CE73CA169640F5AEED2923CE5F9AF0E428701A017C8E313824BA484",
     "generated_at_utc": "2026-11-05T05:23:58+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_reference_catalog.py",
     "importer_version": 58
+  },
+  "metadata_revision": {
+    "operation": "character-release-v1",
+    "characters": {
+      "1042": "2026-09-24",
+      "1057": "2026-10-15",
+      "1090": "2026-11-05"
+    }
   }
 }

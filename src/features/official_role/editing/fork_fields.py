@@ -1,18 +1,19 @@
 # 编辑正式弧盘身份及成长草稿，展示已证实的常驻属性与直伤投影。
 from __future__ import annotations
 
-from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QWidget
 
 from src.domain.official_role.advancement import (
     fork_active_panel_stats, fork_breakthrough_choices, fork_permanent_stats,
     select_fork_breakthrough,
 )
-from src.services.official_role.marginal_scoring import calculate_official_role_margins
-from src.ui.widgets import NoWheelComboBox, NoWheelSpinBox
+from src.services.official_role.equipment.marginal_scoring import calculate_official_role_damage_batch
+from src.ui.common.widgets import NoWheelComboBox, NoWheelSpinBox
 from ..fork_display import render_fork_skill_description
 from ..role_calculation import (
     _attribute_name, _calculation_detail, _clear_layout, _mark_dirty,
-    _refresh_role_calculations, _selected_fork_stage,
+    _refresh_role_calculations, _selected_fork_stage, _register_calculation_refresh,
 )
 from .growth_fields import _display_property_value, _replace_breakthrough_choices
 
@@ -25,14 +26,14 @@ def _build_fork_group(
     show_direct_damage_margin: bool = True,
 ) -> QGroupBox:
     profile = detail["profile"]
-    group = QGroupBox("弧盘加成")
+    group = QGroupBox(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.group'))
     group.setObjectName("officialRoleForkGroup")
     layout = QVBoxLayout(group)
     identity = QHBoxLayout()
-    identity.addWidget(QLabel("名称:"))
+    identity.addWidget(plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.caption')))
     fork_combo = NoWheelComboBox()
     fork_combo.setMaxVisibleItems(10)
-    fork_combo.addItem("未装备弧盘", None)
+    fork_combo.addItem(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('teams.target_view.no_fork'), None)
     # itemData 保留正式 fork_id；名称和专属外观后缀都不参与选择或保存身份。
     for fork in detail["forks"]:
         exclusive = str(character_id) in {str(value) for value in fork.get("exclusive_character_ids") or []}
@@ -44,9 +45,9 @@ def _build_fork_group(
     fork_level = NoWheelSpinBox()
     fork_level.setRange(1, 80)
     fork_level.setValue(int(profile.get("fork_level") or 80))
-    identity.addWidget(QLabel("等级:"))
+    identity.addWidget(plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.caption_2')))
     identity.addWidget(fork_level)
-    fork_breakthrough_label = QLabel("突破:")
+    fork_breakthrough_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.fork_breakthrough_label'))
     fork_breakthrough = NoWheelComboBox()
     fork_breakthrough.setFixedWidth(96)
     identity.addWidget(fork_breakthrough_label)
@@ -57,25 +58,25 @@ def _build_fork_group(
         refinement.addItem(str(level), level)
     refinement_index = refinement.findData(int(profile.get("fork_refinement_level") or 1))
     refinement.setCurrentIndex(refinement_index if refinement_index >= 0 else 0)
-    identity.addWidget(QLabel("精炼:"))
+    identity.addWidget(plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.caption_3')))
     identity.addWidget(refinement)
-    margin_label = QLabel("直伤收益: --")
+    margin_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_drive_summary_group.margin_label'))
     margin_label.setStyleSheet("color:#ffaa00;font-weight:bold;font-size:13px;")
     identity.addWidget(margin_label)
     layout.addLayout(identity)
     # 先挂入 group，避免可见标签短暂成为顶层窗口。
     margin_label.setVisible(show_direct_damage_margin)
-    base_label = QLabel("基础加成（橙色为精炼无条件常驻）：")
+    base_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.base_label'))
     base_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(base_label)
     stats_widget = QWidget()
     stats_layout = QVBoxLayout(stats_widget)
     stats_layout.setContentsMargins(0, 0, 0, 0)
     layout.addWidget(stats_widget)
-    effect_label = QLabel("技能描述：")
+    effect_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.effect_label'))
     effect_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     layout.addWidget(effect_label)
-    effect_text = QLabel()
+    effect_text = plain_label()
     effect_text.setWordWrap(True)
     effect_text.setMinimumHeight(72)
     layout.addWidget(effect_text)
@@ -110,6 +111,7 @@ def _build_fork_group(
             choices,
             selected,
             stage_key="stage",
+            text_catalog=getattr(window, 'text_catalog', None),
         )
 
     editor.update(
@@ -130,16 +132,16 @@ def _build_fork_group(
             refinement_level=refinement.currentData(),
         )
         if not stats:
-            stats_layout.addWidget(QLabel("未装备弧盘"))
+            stats_layout.addWidget(plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('teams.target_view.no_fork')))
         for property_id, value in stats.items():
             row = QHBoxLayout()
             property_label = _attribute_name(detail, property_id)
             permanent_value = permanent_stats.get(property_id)
             if permanent_value is not None:
                 property_label += f"（常驻 {_display_property_value(detail, property_id, permanent_value)}）"
-            row.addWidget(QLabel(property_label))
+            row.addWidget(plain_label(property_label))
             row.addStretch()
-            shown = QLabel(_display_property_value(detail, property_id, value))
+            shown = plain_label(_display_property_value(detail, property_id, value))
             shown.setStyleSheet(
                 "color:#ffb75d;font-weight:700;" if permanent_value is not None
                 else "color:#58a6ff;font-weight:700;"
@@ -164,13 +166,13 @@ def _build_fork_group(
         }
         # 图鉴输入不升级为伤害证据；未证实口径继续显示待验证，绝不补公式。
         limited_catalog = detail.get("catalog_scope") in {"role_page", "reference"}
-        current = None if limited_catalog else calculate_official_role_margins(with_fork, context_key)
-        baseline = None if limited_catalog else calculate_official_role_margins(without_fork, context_key)
-        if current and baseline and baseline["damage"] > 0:
-            gain = (current["damage"] / baseline["damage"] - 1.0) * 100.0
-            margin_label.setText(f"直伤收益: {gain:+.2f}%")
+        current, baseline = ((None, None) if limited_catalog else
+            calculate_official_role_damage_batch((with_fork, without_fork), context_key))
+        if current is not None and baseline is not None and baseline > 0:
+            gain = (current / baseline - 1.0) * 100.0
+            margin_label.setText(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh_fork_summary.margin_label', gain=f'{gain:+.2f}'))
         else:
-            margin_label.setText("直伤收益：待验证" if limited_catalog else "直伤收益: --")
+            margin_label.setText(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh_fork_summary.margin_label_2') if limited_catalog else resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_drive_summary_group.margin_label'))
         star_rows = list((fork or {}).get("star_levels") or ())
         star = next(
             (row for row in star_rows if int(row.get("star_level") or 0) == refinement.currentData()),
@@ -180,14 +182,12 @@ def _build_fork_group(
             description = render_fork_skill_description(star)
             effect_text.setText(f"{star.get('title_zh') or ''}\n{description}".strip())
         else:
-            effect_text.setText("暂无官方精炼说明。")
+            effect_text.setText(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.refresh_fork_summary.effect_text'))
 
     fork_combo.currentIndexChanged.connect(lambda _index: sync_fork_breakthrough_choices())
     fork_level.valueChanged.connect(lambda _value: sync_fork_breakthrough_choices())
-    fork_combo.currentIndexChanged.connect(refresh_fork_summary)
-    fork_level.valueChanged.connect(refresh_fork_summary)
-    fork_breakthrough.currentIndexChanged.connect(refresh_fork_summary)
-    refinement.currentIndexChanged.connect(refresh_fork_summary)
+    # 弧盘收益也属于同份后台数值回执，避免控件信号先在GUI线程触发一次旧公式求值。
+    refresh_fork_summary = _register_calculation_refresh(editor, refresh_fork_summary)
     refresh_fork_summary()
 
     def mark_and_refresh(*_args) -> None:

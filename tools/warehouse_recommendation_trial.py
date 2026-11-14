@@ -11,12 +11,13 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.services.inventory.warehouse_recommendation import run_warehouse_trial
-from src.services.inventory.warehouse_recommendation_preview import post_config
-from src.services.inventory.warehouse_predecessors import evaluate_predecessors
+from src.services.inventory.recommendation.warehouse_recommendation import run_warehouse_trial
+from src.services.inventory.recommendation.warehouse_recommendation_preview import post_config
+from src.services.inventory.recommendation.warehouse_predecessors import evaluate_predecessors
+from src.services.inventory.recommendation.warehouse_calculation_inputs import freeze_warehouse_calculation_inputs
 from src.services.identification.matching_settings import MatchingSettingsService
-from src.domain.equipment.management_settings import MatchingScope
-from src.domain.equipment.intelligent_rules import RULE_SCHEME_VERSION
+from src.domain.equipment.eligibility.management_settings import MatchingScope
+from src.domain.equipment.warehouse.intelligent_rules import RULE_SCHEME_VERSION
 from src.utils.logger import logger
 from tools.warehouse_recommendation_report import render_report
 
@@ -47,24 +48,25 @@ def main():
     shutil.copy2(ROOT / "config/stats.json", config / "stats.json")
     logger.remove()  # 离线命令不保留进程启动时的控制台 sink。
     sources = [
-        ROOT / "src/domain/equipment/warehouse_recommendation.py",
-        ROOT / "src/domain/equipment/intelligent_rules.py",
-        ROOT / "src/domain/post_actions.py",
-        ROOT / "src/domain/equipment/warehouse_decisions.py",
-        ROOT / "src/domain/equipment/management_settings.py",
-        ROOT / "src/services/inventory/warehouse_predecessors.py",
+        ROOT / "src/domain/equipment/warehouse/warehouse_recommendation.py",
+        ROOT / "src/domain/equipment/warehouse/intelligent_rules.py",
+        ROOT / "src/domain/inventory/post_actions.py",
+        ROOT / "src/domain/equipment/warehouse/warehouse_decisions.py",
+        ROOT / "src/domain/equipment/eligibility/management_settings.py",
+        ROOT / "src/services/inventory/recommendation/warehouse_predecessors.py",
         ROOT / "src/services/identification/scoring_scope.py",
-        ROOT / "src/services/inventory/warehouse_recommendation.py",
+        ROOT / "src/services/inventory/recommendation/warehouse_recommendation.py",
         ROOT / "src/solver/blueprint_utils.py",
         ROOT / "src/optimizer/scoring.py",
         ROOT / "third_party/analysis-core/component.json",
     ]
     source_hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     print("开始只读试算", flush=True)
-    batch = evaluate_predecessors(account, static / 'game_static.sqlite3', config, plan)
+    inputs = freeze_warehouse_calculation_inputs(account, static / 'game_static.sqlite3', config, include_profiles=True)
+    batch = evaluate_predecessors(inputs, static / 'game_static.sqlite3', config, plan)
     matching = MatchingSettingsService(account, scope=MatchingScope.WAREHOUSE).load()
     result = run_warehouse_trial(
-        account_snapshot=account,
+        inputs=inputs,
         static_database=static / "game_static.sqlite3",
         config_dir=config,
         preserve_rules=tuple(rule for rule in plan['preserve_rules'] if rule.get('intelligent') or rule.get('smart_kind')),

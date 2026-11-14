@@ -18,7 +18,7 @@ from tools.release.game_component_bundle_build import ComponentBuildInput, Prepa
 from tools.release.ocr_build_inputs import OcrBuildInputs
 from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport
 from src.app.constants import APP_VERSION
-from src.integrations.nte_analysis_core import ENGINE_VERSION
+from src.integrations.analysis_core.nte_analysis_core import ENGINE_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,6 +78,19 @@ class PackagingScriptTests(unittest.TestCase):
         self.assertIn("VersionInfoTextVersion={#MyAppVersion}", text)
         self.assertIn("VersionInfoProductTextVersion={#MyAppVersion}", text)
 
+    def test_postinstall_uses_explicit_shell_admin_launch_and_install_directory(self):
+        build_installer._write_iss(APP_VERSION, build_installer.VIGEM_BUNDLE_EXE, True)
+        text = build_installer.ISS_PATH.read_text(encoding="utf-8-sig")
+        entries = [line for line in text.splitlines()
+                   if line.startswith('Filename: "{app}\\{#MyAppExeName}";')]
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertIn('Verb: "runas";', entry)
+        self.assertIn('WorkingDir: "{app}";', entry)
+        flags = set(entry.split("Flags: ", 1)[1].split())
+        self.assertTrue({"shellexec", "nowait", "postinstall", "skipifsilent", "runascurrentuser"} <= flags)
+        self.assertNotIn("--admin-restarted", entry)
+
     def test_stats_catalog_is_always_replaced_without_an_installer_choice(self):
         build_installer._write_iss(APP_VERSION, build_installer.VIGEM_BUNDLE_EXE, True)
 
@@ -98,7 +111,8 @@ class PackagingScriptTests(unittest.TestCase):
 
     def test_installer_rejects_bundle_missing_runtime_data_files(self):
         from contextlib import ExitStack
-        from tests.test_native_component_bundle_build import native_source, prepare
+        from tests.components.test_native_component_bundle_build import native_source
+        from tests.components.test_native_component_bundle_build import prepare
 
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root, _manifest, _payload = native_source(Path(temporary))
@@ -170,7 +184,7 @@ print('BUILD_IMPORT_OK: no inputs prepared, cleaned or compiled')
 @pytest.fixture
 def executable_inputs(tmp_path, monkeypatch):
     import build_exe as build
-    from src.integrations import role_catalog_release
+    from src.integrations.static_catalog import role_catalog_release
 
     root = tmp_path / "release inputs"
     fields = {
@@ -215,7 +229,7 @@ def executable_inputs(tmp_path, monkeypatch):
     (root / "third_party/presentmon/component.json").write_text(json.dumps({"sha256": payload_hash}))
     build.ANALYSIS_CORE_MANIFEST_PATH.write_text(json.dumps({
         "engine": "nte-analysis-core", "engine_version": ENGINE_VERSION, "sha256": payload_hash,
-        "capabilities": ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1"],
+        "capabilities": ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1", "analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"],
     }))
     role = SimpleNamespace(database_path=root / "data/role_catalog/game_static.sqlite3",
                            asset_root=root / "data/role_catalog/game_ui", dataset_id="synthetic", sha256="fixture")

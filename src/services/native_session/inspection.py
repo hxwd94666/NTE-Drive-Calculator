@@ -1,12 +1,12 @@
 # 共享同一连接的在途状态读取；只读检测不夺取业务租约，迟到结果复核原连接。
 from dataclasses import dataclass, field
 from threading import Event, Lock
-from src.integrations.nte_core_protocol import NteCoreRpcError, NteCoreTimeoutError
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError, NteCoreTimeoutError
 from src.observability import OperationContext, log_event
-from src.integrations.native_inventory_snapshot import NativeSnapshotPending
+from src.integrations.native_core.snapshots.native_inventory_snapshot import NativeSnapshotPending
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 from typing import Any
-from src.integrations.native_raw_snapshot import read_native_raw_domain
+from src.integrations.native_core.snapshots.native_raw_snapshot import read_native_raw_domain
 
 
 @dataclass
@@ -100,7 +100,7 @@ def _inspect_snapshot(self, *, refresh: bool = False, check_equipment: bool = Tr
                                   or (domain == "inventory" and "native_inventory_dto_v1" in capabilities)):
                                 self._read_projection(client, domain, check)
                             else:
-                                from src.integrations.native_battle_snapshot import validate_native_snapshot_current
+                                from src.integrations.native_core.snapshots.native_battle_snapshot import validate_native_snapshot_current
                                 baseline = self._baseline
                                 current = client.call("native.snapshot.status", {}, check_cancelled=check)
                                 if baseline.get(domain, current) is None:

@@ -3,20 +3,21 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from time import monotonic
 from concurrent.futures import CancelledError
 
 from PySide6.QtWidgets import QMessageBox
 
 from src.domain.battle_report.capture.state import BattleCaptureState
-from src.integrations.global_hotkeys import GlobalHotkeyManager
+from src.integrations.runtime.global_hotkeys import GlobalHotkeyManager
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService
 from src.services.battle_report.persistence import BattleReportPersistenceDependencies
 from src.features.battle_report.capture.comparison import ComparisonCapture
 from src.features.battle_report.capture.entry_guidance import capture_entry_allowed, capture_unavailable
-from src.integrations.nte_core_protocol import NteCoreError
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.native_core.nte_core_protocol import NteCoreError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 
 class BattleCaptureControlsMixin:
@@ -71,8 +72,8 @@ class BattleCaptureControlsMixin:
         except Exception as error:
             QMessageBox.warning(
                 self._dialog_parent,
-                "无法开始战报",
-                f"读取抓包设置失败，未启动战报采集：{error}",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.start.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.start.qmessagebox_2', error=f'{error}')),
             )
             if preserve_inventory_pause:
                 self._restore_inventory_sync()
@@ -94,8 +95,8 @@ class BattleCaptureControlsMixin:
                 self._resume_inventory = False
                 QMessageBox.warning(
                     self._dialog_parent,
-                    "无法开始战报",
-                    f"停止背包同步失败，未启动战报采集：{error}",
+                    resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.start.qmessagebox'),
+                    plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.start.qmessagebox_3', error=f'{error}')),
                 )
                 return
         self._overlay_capture_active = True
@@ -171,7 +172,7 @@ class BattleCaptureControlsMixin:
                 comparison_id=operation.operation_id,
             )
             service = ComparisonCapture(services={"native": service, "packet": packet}, parent=self,
-                                        defer_packet_start=True)
+                                        defer_packet_start=True, text_catalog=getattr(self, 'text_catalog', None))
             service.comparison_changed.connect(
                 lambda snapshot, operation_token=token: self._apply_comparison(operation_token, snapshot)
             )
@@ -253,8 +254,8 @@ class BattleCaptureControlsMixin:
         if confirm:
             answer = QMessageBox.question(
                 self._dialog_parent,
-                "放弃当前战报",
-                "确定放弃本次尚未保存的战报，并立即重新开始采集吗？",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.rerecord.answer'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.rerecord.answer_2')),
                 (
                     QMessageBox.StandardButton.Yes
                     | QMessageBox.StandardButton.No

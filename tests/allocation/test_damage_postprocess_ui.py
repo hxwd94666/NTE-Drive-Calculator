@@ -10,8 +10,8 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QButtonGroup, QLabel, QPushButton, QRadioButton, QToolButton, QWidget
 import pytest
 
-from src.features.allocation.damage_result_summary import damage_optimization_presentation, damage_optimization_summary
-from src.ui.damage_optimization_panel import damage_optimization_panel
+from src.features.allocation.results.damage_result_summary import damage_optimization_presentation, damage_optimization_summary
+from src.ui.equipment.damage_optimization_panel import damage_optimization_panel
 from src.features.battle_report.controller import BattleReportController
 from src.features.battle_report.page import BattleReportPage
 from src.features.scanning.controller import ScanningController
@@ -195,7 +195,7 @@ def test_historical_large_or_malformed_metadata_does_not_break_result_page():
 
 
 def test_expanded_neighborhood_and_time_budget_are_explained_without_fixed_layout_claim():
-    from src.features.allocation.damage_result_summary import damage_optimization_presentation
+    from src.features.allocation.results.damage_result_summary import damage_optimization_presentation
     value = {"objective": "standard_direct_v1", "status": "completed", "baseline_value": 100.0,
              "candidate_value": 110.0, "termination": "local_optimum", "neighborhood_complete": True,
              "exchange_complete": True, "blueprint_complete": True, "neighborhood": "single_pair_exchange_blueprint"}

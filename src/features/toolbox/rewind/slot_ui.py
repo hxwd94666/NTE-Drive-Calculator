@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from decimal import Decimal, ROUND_CEILING
@@ -20,11 +21,11 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.rewind_shape_recommendation import RewindPricingRule, RewindShape, RewindShapeRecommendation
+from src.domain.rewind.rewind_shape_recommendation import RewindPricingRule, RewindShape, RewindShapeRecommendation
 from src.domain.inventory.warehouse_filter import warehouse_shape_order
-from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
+from src.features.inventory.warehouse.display.cards import warehouse_shape_pixmap
 from src.features.toolbox.rewind.execution_dialog import RewindShapeReplacementDialog
-from src.domain.equipment.shapes import OFFICIAL_SHAPE_LABELS
+from src.domain.equipment.geometry.shapes import OFFICIAL_SHAPE_LABELS
 
 
 REWIND_SLOT_COUNT = 8
@@ -104,11 +105,12 @@ class RewindSlotUiMixin:
         self._editable_slots.extend([None] * (REWIND_SLOT_COUNT - len(self._editable_slots)))
         self._editable_pricing_rule = RewindPricingRule()
         self._render_rewind_slots(
-            "已保存方案" if self._slots_complete() else "自定义方案",
-            "已载入上次保存的八槽方案。" if self._slots_complete() else "点击空槽，从 12 种驱动中逐个添加。",
+            resolve_text_catalog(self.text_catalog).render('rewind.slots.saved') if self._slots_complete() else resolve_text_catalog(self.text_catalog).render('rewind.slots.custom'),
+            resolve_text_catalog(self.text_catalog).render('rewind.slots.restored') if self._slots_complete() else resolve_text_catalog(self.text_catalog).render('rewind.slots.add'),
         )
 
     def _render_rewind_slots(self, title: str, detail: str) -> None:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         while self._result_tabs.count():
             tab = self._result_tabs.widget(0)
             self._result_tabs.removeTab(0)
@@ -119,11 +121,11 @@ class RewindSlotUiMixin:
         layout = QVBoxLayout(page)
         layout.setContentsMargins(4, 8, 4, 4)
         header = QHBoxLayout()
-        label = QLabel(f"{title}：{detail}")
+        label = plain_label(f"{title}：{detail}")
         label.setWordWrap(True)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:12px;padding:2px 4px"))
         header.addWidget(label, 1)
-        clear_button = QPushButton("清空候选")
+        clear_button = QPushButton(_ui_text('rewind.slots.render_rewind_slots.clear_button'))
         clear_button.setObjectName("rewindClearCandidates")
         clear_button.setEnabled(any(self._editable_slots))
         clear_button.clicked.connect(self._clear_rewind_slots)
@@ -137,13 +139,14 @@ class RewindSlotUiMixin:
         self._populate_rewind_slot_grid(grid)
         layout.addLayout(grid)
         layout.addStretch(1)
-        self._result_tabs.addTab(page, "推荐结果")
+        self._result_tabs.addTab(page, resolve_text_catalog(self.text_catalog).render('rewind.results.tab'))
         complete = self._slots_complete()
         self._save_plan_button.setEnabled(complete and not getattr(self, "_recommendation_invalidated", False))
         self._start_rewind_button.setEnabled(True)
-        self._save_plan_button.setText("保存方案" if complete else "填满八槽后保存")
+        self._save_plan_button.setText(_ui_text('rewind.slots.render_rewind_slots.save_plan_button.state') if complete else _ui_text('rewind.slots.render_rewind_slots.save_plan_button.state_2'))
 
     def _populate_rewind_slot_grid(self, grid: QGridLayout) -> None:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         filled = [slot for slot in self._editable_slots if slot is not None]
         for index, recommendation in enumerate(self._editable_slots):
             card = QFrame()
@@ -157,32 +160,31 @@ class RewindSlotUiMixin:
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(10, 9, 10, 9)
             card_layout.setSpacing(4)
-            slot_label = QLabel(f"第 {index + 1} 槽")
+            slot_label = plain_label(_ui_text('rewind.slots.populate_rewind_slot_grid.slot_label.state', value=f'{index + 1}'))
             slot_label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
             card_layout.addWidget(slot_label)
             if recommendation is None:
-                empty = QLabel("+\n点击添加驱动")
+                empty = plain_label(_ui_text('rewind.slots.populate_rewind_slot_grid.empty'))
                 empty.setAlignment(Qt.AlignCenter)
                 empty.setStyleSheet(themed_style("font-size:15px;font-weight:700;color:#58a6ff"))
                 card_layout.addWidget(empty, 1)
             else:
-                icon = QLabel()
+                icon = plain_label()
                 icon.setAlignment(Qt.AlignCenter)
-                pixmap = warehouse_shape_pixmap(recommendation.shape.shape_id, "Gold")
+                pixmap = warehouse_shape_pixmap(recommendation.shape.shape_id, "Gold", text_catalog=getattr(self, 'text_catalog', None))
                 if not pixmap.isNull():
                     icon.setPixmap(pixmap.scaled(86, 86, Qt.KeepAspectRatio, Qt.SmoothTransformation))
                 else:
-                    icon.setText("驱动")
+                    icon.setText(_ui_text('rewind.slots.populate_rewind_slot_grid.icon'))
                 card_layout.addWidget(icon, 1)
-                shape_label = QLabel(f"{recommendation.shape.cell_count} 型驱动")
+                shape_label = plain_label(_ui_text('rewind.slots.populate_rewind_slot_grid.shape_label.state', cell_count=f'{recommendation.shape.cell_count}'))
                 shape_label.setAlignment(Qt.AlignCenter)
                 shape_label.setStyleSheet(themed_style("font-weight:700;color:#f0f6fc"))
                 card_layout.addWidget(shape_label)
                 quantity = sum(slot.shape.shape_id == recommendation.shape.shape_id for slot in filled)
                 probability = self._editable_pricing_rule.probability_for_quantity(quantity)
-                probability_label = QLabel(
-                    f"缺分 {_format_quality_gap(recommendation.quality_gap)} · "
-                    f"库存 {recommendation.owned_count} · 概率 {probability:.0%}"
+                probability_label = plain_label(
+                    self._rewind_metric_text(recommendation, probability)
                 )
                 probability_label.setObjectName("rewindShapeMetrics")
                 probability_label.setProperty("slotIndex", index)
@@ -203,6 +205,7 @@ class RewindSlotUiMixin:
                 self._editable_slots[slot_index].shape.shape_id
                 if self._editable_slots[slot_index] is not None else None
             ),
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -210,7 +213,11 @@ class RewindSlotUiMixin:
         if selected is None:
             return
         self._editable_slots[slot_index] = selected
-        self._render_rewind_slots("自定义方案", "点击槽位可继续逐个调整形状。")
+        self._save_preferences()
+        if self._strategy_key == 'dual_target' and self._generated_analysis is not None:
+            self._render_dual_results(self._generated_analysis, preserve_edits=True)
+            return
+        self._render_rewind_slots(resolve_text_catalog(self.text_catalog).render('rewind.slots.custom'), resolve_text_catalog(self.text_catalog).render('rewind.slots.adjust'))
 
     def _serialize_rewind_slots(self) -> list[dict[str, object]]:
         """Serialize the durable plan fields; inventory remains snapshot-derived."""
@@ -227,9 +234,10 @@ class RewindSlotUiMixin:
     def _clear_rewind_slots(self) -> None:
         self._begin_manual_draft()
         self._editable_slots = [None] * REWIND_SLOT_COUNT
+        self._save_preferences()
         self._render_rewind_slots(
-            "自定义方案",
-            "当前页面候选已清空；已保存方案保持不变，重新打开后会再次载入。",
+            resolve_text_catalog(self.text_catalog).render('rewind.slots.custom'),
+            resolve_text_catalog(self.text_catalog).render('rewind.slots.cleared'),
         )
 
     def _slots_complete(self) -> bool:
@@ -257,6 +265,7 @@ class RewindSlotUiMixin:
         self._refresh_rewind_metric_labels()
 
     def _refresh_rewind_metric_labels(self) -> None:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         filled = [slot for slot in self._editable_slots if slot is not None]
         for label in self.findChildren(QLabel, "rewindShapeMetrics"):
             index = int(label.property("slotIndex"))
@@ -269,9 +278,17 @@ class RewindSlotUiMixin:
             )
             probability = self._editable_pricing_rule.probability_for_quantity(quantity)
             label.setText(
-                f"缺分 {_format_quality_gap(recommendation.quality_gap)} · "
-                f"库存 {recommendation.owned_count} · 概率 {probability:.0%}"
+                self._rewind_metric_text(recommendation, probability)
             )
+
+    def _rewind_metric_text(self, recommendation, probability):
+        text = self.text_catalog.render
+        if self._strategy_key == 'dual_target':
+            return text('rewind.dual.slot_metrics', count=recommendation.suit_demand,
+                        owned=recommendation.owned_count, share=f'{probability:.0%}')
+        return text('rewind.slots.populate_rewind_slot_grid.probability_label.state',
+                    value=_format_quality_gap(recommendation.quality_gap),
+                    owned_count=str(recommendation.owned_count), probability=f'{probability:.0%}')
 
     def _apply_recommendations(self, recommendations: Iterable[RewindShapeRecommendation]) -> None:
         """Replace the transient eight slots with the newly generated strategy result.

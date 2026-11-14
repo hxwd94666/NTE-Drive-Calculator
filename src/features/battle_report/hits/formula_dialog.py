@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Sequence
 
 from PySide6.QtGui import QTextCursor
@@ -22,9 +24,10 @@ from .inspection_dialog import HitInspectionDialog
 class BattleHitFormulaDialog(HitInspectionDialog):
     """Keep one non-modal dialog reusable while the user explores nearby hits."""
 
-    def __init__(self, parent: QWidget | None = None, *, game_ui_asset_root=None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, game_ui_asset_root=None, text_catalog=None) -> None:
         super().__init__(parent, game_ui_asset_root=game_ui_asset_root)
-        self.setWindowTitle("逐击伤害公式")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.battle_report.init.self_8'))
         self.detail.setObjectName("battleHitFormulaDetail")
 
     def set_hit(
@@ -38,7 +41,7 @@ class BattleHitFormulaDialog(HitInspectionDialog):
         related_analysis: BattleAnalysisSnapshot | None = None,
         projection=None, related_hit_details=None, participant_names=None, target_resolutions=(),
     ) -> None:
-        self.setWindowTitle(f"逐击伤害公式 · Hit #{hit.sequence} · {hit.character_name}")
+        self.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.self', sequence=f'{hit.sequence}', character_name=f'{hit.character_name}'))
         self.inspection.set_hit(hit, replay, projection, participant_names=participant_names, target_resolutions=target_resolutions)
         sections = [BattleHitReplayExplanationService.build(
             hit,
@@ -46,6 +49,7 @@ class BattleHitFormulaDialog(HitInspectionDialog):
             active_buffs=active_buffs,
             counterfactual=counterfactual,
             projection=projection, allow_projection_fallback=False,
+            text_catalog=getattr(self, 'text_catalog', None),
         )]
         related_hits = {
             row.event_id: row for row in (() if related_analysis is None else related_analysis.hits)
@@ -86,16 +90,17 @@ class BattleHitFormulaDialog(HitInspectionDialog):
                 for row in quantified
                 if row.candidate_damage is not None
             )
-            sections.append(
+            sections.append(localized_text(
+                getattr(self, 'text_catalog', None),
+                "battle_report.formula_dialog.candidate_block",
                 "【关联候选新增结算】\n"
-                "上方团队倾陷及所有角色贡献完整保留；下列候选事件只是在同一"
-                "触发时点额外追加，不替代原始团队倾陷。\n"
-                f"固定轴结算簇 = 上方调整后逐击 {base:,.2f} + "
-                f"关联新增 {added:,.2f} = {base + added:,.2f}\n"
-                f"候选公式审计合计 = 团队倾陷公式 {formula_base:,.2f} + "
-                f"五觉新增公式 {formula_added:,.2f} = "
-                f"{formula_base + formula_added:,.2f}"
-            )
+                "上方团队倾陷及所有角色贡献完整保留；下列候选事件只是在同一触发时点额外追加，不替代原始团队倾陷。\n"
+                "固定轴结算簇 = 上方调整后逐击 {base} + 关联新增 {added} = {total}\n"
+                "候选公式审计合计 = 团队倾陷公式 {formula_base} + 五觉新增公式 {formula_added} = {formula_total}",
+                base=f"{base:,.2f}", added=f"{added:,.2f}", total=f"{base + added:,.2f}",
+                formula_base=f"{formula_base:,.2f}", formula_added=f"{formula_added:,.2f}",
+                formula_total=f"{formula_base + formula_added:,.2f}",
+            ))
             for row in quantified:
                 related_hit = related_hits[row.event_id]
                 related_projection, related_buffs = ((None, ()) if related_hit_details is None
@@ -106,6 +111,7 @@ class BattleHitFormulaDialog(HitInspectionDialog):
                     active_buffs=related_buffs,
                     counterfactual=row,
                     projection=related_projection, allow_projection_fallback=False,
+                    text_catalog=getattr(self, 'text_catalog', None),
                 ))
         self.detail.setPlainText(
             "\n\n".join(sections)

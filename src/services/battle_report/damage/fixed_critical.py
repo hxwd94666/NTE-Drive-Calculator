@@ -12,7 +12,7 @@ from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.services.battle_report.damage.composition import (
     classify_battle_hit_channel,
 )
-from src.services.damage_calculation_service import calculate_critical_multiplier
+from src.services.damage.damage_calculation_service import calculate_critical_multiplier
 
 
 CONTINUOUS_DIRECT_CHANNEL_IDS = frozenset({

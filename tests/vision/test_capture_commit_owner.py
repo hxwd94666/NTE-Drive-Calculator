@@ -12,9 +12,9 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from src.app.page_tasks import close_page_tasks
 from src.features.scanning.dependencies import ScanningDependencies
-from src.features.scanning.manual_recovery import ManualRecoverySession
-from src.features.scanning.vision_commit_controller import VisionCommitController
-from src.services.inventory.vision_commit import VisionCommitRequest, VisionCommitResult
+from src.features.scanning.vision.manual_recovery import ManualRecoverySession
+from src.features.scanning.vision.vision_commit_controller import VisionCommitController
+from src.services.inventory.scanning.vision_commit import VisionCommitRequest, VisionCommitResult
 
 NTE_TEST_TIER = "core"
 
@@ -79,7 +79,7 @@ def test_actual_window_exit_revokes_visual_submit_before_wait_gate(tmp_path, mon
     from PySide6.QtCore import QEvent, QThread
     from src.features.onboarding.guide import OnboardingGuide
     from src.ui.app import MainWindow
-    from src.ui.application_runtime import prepare_application_runtime
+    from src.ui.startup.application_runtime import prepare_application_runtime
     from src.ui.controllers.auto_sync_controller import AutoSyncController
     from src.ui.controllers.work_mode_controller import WorkModeController
 
@@ -237,7 +237,7 @@ def test_actual_cancelled_exit_keeps_owner_available_for_a_fresh_request(tmp_pat
 def test_parse_completion_without_vision_worker_uses_real_commit_owner(tmp_path, monkeypatch):
     from PySide6.QtWidgets import QPushButton
     from src.features.scanning import workflow
-    from src.services.inventory.vision_commit import commit_vision_result
+    from src.services.inventory.scanning.vision_commit import commit_vision_result
 
     app = QApplication.instance() or QApplication([])
     root = QWidget()

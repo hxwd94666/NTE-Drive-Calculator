@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
@@ -19,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.static_catalog_terminology import LocalizedForkCampaign
+from src.domain.catalog.static_catalog_terminology import LocalizedForkCampaign
 from src.features.static_catalog.domain_pages.forks.components import (
     ForkCharacterCard,
     add_effect_tiles,
@@ -40,7 +42,7 @@ from src.services.static_catalog.forks.service import (
     ForkModifier,
     ForkRefinementLevel,
 )
-from src.ui.progression_material_card import ProgressionMaterialCard
+from src.ui.progression.progression_material_card import ProgressionMaterialCard
 
 
 class ForkProfileView(QWidget):
@@ -51,8 +53,10 @@ class ForkProfileView(QWidget):
         item_name_service: ForkItemDisplayNameService,
         display_campaigns: dict[str, LocalizedForkCampaign],
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("forkProfileView")
         self._asset_catalog = asset_catalog
         self._item_names = item_name_service
@@ -85,8 +89,8 @@ class ForkProfileView(QWidget):
         self._cultivation_layout = cultivation_host
         self._build_detail_tab()
         self._build_cultivation_tab()
-        self.tabs.addTab(detail_scroll, "详情")
-        self.tabs.addTab(cultivation_scroll, "养成")
+        self.tabs.addTab(detail_scroll, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.table_9'))
+        self.tabs.addTab(cultivation_scroll, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.init.tabs_2'))
         root.addWidget(self.tabs, 1)
 
     def _build_hero(self) -> QFrame:
@@ -103,17 +107,17 @@ class ForkProfileView(QWidget):
         ))
         layout = QHBoxLayout(hero)
         layout.setContentsMargins(16, 8, 16, 8)
-        self.art = QLabel(hero)
+        self.art = plain_label(hero)
         self.art.setFixedSize(142, 142)
         self.art.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.art)
         copy = QVBoxLayout()
         copy.setSpacing(7)
-        eyebrow = QLabel("FORK ARCHIVE", hero)
+        eyebrow = plain_label("FORK ARCHIVE", hero)
         eyebrow.setStyleSheet(themed_style(
             "color:#a371f7;font-size:10px;font-weight:900;letter-spacing:2px"
         ))
-        self.name = QLabel("选择弧盘", hero)
+        self.name = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_hero.name'), hero)
         self.name.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:23px;font-weight:900"
         ))
@@ -125,12 +129,12 @@ class ForkProfileView(QWidget):
         badges.addWidget(self.type_badge)
         badges.addWidget(self.release_badge)
         badges.addStretch(1)
-        self.owner_label = QLabel("归属角色 · 尚未载入", hero)
+        self.owner_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_hero.owner_label'), hero)
         self.owner_label.setWordWrap(True)
         self.owner_label.setStyleSheet(themed_style(
             "color:#d29922;font-size:13px;font-weight:900"
         ))
-        self.description = QLabel("", hero)
+        self.description = plain_label("", hero)
         self.description.setWordWrap(True)
         self.description.setStyleSheet(themed_style(
             "color:#8b949e;font-size:11px;line-height:1.45"
@@ -158,8 +162,8 @@ class ForkProfileView(QWidget):
 
     def _build_detail_tab(self) -> None:
         controls = self._panel("等级与混频")
-        hint = QLabel(
-            "选择 1–80 级；20/30/40/50/60/70 级会同时保留突破前与突破后。",
+        hint = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_detail_tab.hint'),
             controls,
         )
         hint.setWordWrap(True)
@@ -176,12 +180,12 @@ class ForkProfileView(QWidget):
             nodes.addWidget(button, index // 4, index % 4)
         controls.layout().addLayout(nodes)
         level_row = QHBoxLayout()
-        level_row.addWidget(QLabel("等级", controls))
+        level_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.init.caption_2'), controls))
         self.level_slider = QSlider(Qt.Orientation.Horizontal, controls)
         self.level_slider.setRange(1, 80)
         self.level_slider.setValue(80)
         self.level_slider.valueChanged.connect(self._level_changed)
-        self.level_label = QLabel("Lv.80", controls)
+        self.level_label = plain_label("Lv.80", controls)
         self.level_label.setMinimumWidth(60)
         self.level_label.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:15px;font-weight:900"
@@ -191,7 +195,7 @@ class ForkProfileView(QWidget):
         controls.layout().addLayout(level_row)
         self.stage_layout = QHBoxLayout()
         controls.layout().addLayout(self.stage_layout)
-        refinement_caption = QLabel("混频节点", controls)
+        refinement_caption = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_detail_tab.refinement_caption'), controls)
         refinement_caption.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:11px;font-weight:900"
         ))
@@ -213,11 +217,11 @@ class ForkProfileView(QWidget):
         self.panel_host.layout().addLayout(self.panel_grid)
         self._detail_layout.addWidget(self.panel_host)
         self.refinement_host = self._panel("弧盘技能")
-        self.refinement_title = QLabel("混频 1", self.refinement_host)
+        self.refinement_title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_detail_tab.refinement_title'), self.refinement_host)
         self.refinement_title.setStyleSheet(themed_style(
             "color:#a371f7;font-size:16px;font-weight:900"
         ))
-        self.refinement_description = QLabel("", self.refinement_host)
+        self.refinement_description = plain_label("", self.refinement_host)
         self.refinement_description.setWordWrap(True)
         self.refinement_description.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse,
@@ -237,7 +241,7 @@ class ForkProfileView(QWidget):
 
     def _build_cultivation_tab(self) -> None:
         current = self._panel("当前等级养成信息")
-        self.current_level_cost = QLabel("尚未选择弧盘", current)
+        self.current_level_cost = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_cultivation_tab.current_level_cost'), current)
         self.current_level_cost.setWordWrap(True)
         self.current_level_cost.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:12px;font-weight:800"
@@ -276,17 +280,17 @@ class ForkProfileView(QWidget):
         summary = detail.summary
         self.name.setText(summary.name_zh)
         self.quality_badge.setText(self._item_names.quality_name(summary.quality))
-        self.type_badge.setText(summary.fork_type_name_zh or "类型未提供")
+        self.type_badge.setText(summary.fork_type_name_zh or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.type_badge'))
         campaign = self._display_campaigns.get(summary.fork_id)
         campaign_title = campaign.title.display_name if campaign else "首发弧盘"
-        self.release_badge.setText(campaign_title or "名称暂未提供")
+        self.release_badge.setText(campaign_title or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.card.card'))
         self.description.setText(
-            plain_text(summary.description_zh) or "说明 · 当前正式数据未提供"
+            plain_text(summary.description_zh) or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.description')
         )
         art_path = self._asset_catalog.fork_icon(summary.fork_id)
         pixmap = QPixmap(str(art_path)) if art_path is not None else QPixmap()
         if pixmap.isNull():
-            self.art.setText("弧盘大图\n当前正式资源未提供")
+            self.art.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.art'))
             self.art.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         else:
             self.art.setText("")
@@ -333,7 +337,7 @@ class ForkProfileView(QWidget):
             preferred_stage=self._stage,
         )
         self._stage = int(selected["stage"]) if selected is not None else None
-        label = QLabel("突破状态", self)
+        label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.sync_stage_buttons.label'), self)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         self.stage_layout.addWidget(label)
         for index, row in enumerate(choices):
@@ -390,10 +394,10 @@ class ForkProfileView(QWidget):
         )
         stage_text = f"突破 {self._stage} 阶" if self._stage is not None else "突破阶段未提供"
         exp_text = f"升级经验 {growth.need_exp}" if growth is not None else "升级经验未提供"
-        material_text = breakthrough_cost_text(stage, self._item_names)
+        material_text = breakthrough_cost_text(stage, self._item_names,
+                                             text_catalog=getattr(self, 'text_catalog', None))
         self.current_level_cost.setText(
-            f"Lv.{self._level} · {stage_text} · {exp_text}\n{material_text}\n"
-            "单级经验来自正式等级曲线；可用升级材料规格见下方。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_selection.current_level_cost', level=f'{self._level}', stage_text=ui_enum_text(getattr(self, 'text_catalog', None), f'{stage_text}'), exp_text=ui_enum_text(getattr(self, 'text_catalog', None), f'{exp_text}'), material_text=f'{material_text}')
         )
         self._refresh_refinement()
         self._refresh_node_states()
@@ -433,12 +437,12 @@ class ForkProfileView(QWidget):
             (item for item in detail.refinement_levels if item.level == self._refinement),
             None,
         )
-        self.refinement_title.setText(f"混频 {self._refinement}")
+        self.refinement_title.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_refinement.refinement_title', refinement=f'{self._refinement}'))
         if refinement is None:
-            self.refinement_description.setText("弧盘技能 · 当前正式数据未提供")
+            self.refinement_description.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_refinement.refinement_description'))
         else:
             title = refinement.title_zh or "技能标题未提供"
-            description = refinement_skill_text(refinement)
+            description = refinement_skill_text(refinement, text_catalog=getattr(self, 'text_catalog', None))
             self.refinement_description.setText(f"{title}\n{description}")
         self._render_effects(detail, refinement)
 
@@ -452,7 +456,7 @@ class ForkProfileView(QWidget):
             item for item in detail.buff_definitions
             if item.refinement_level == self._refinement
         )
-        presentation = present_effects(buffs)
+        presentation = present_effects(buffs, text_catalog=getattr(self, 'text_catalog', None))
         if presentation is None:
             message = (
                 "当前混频没有额外效果说明"
@@ -460,7 +464,8 @@ class ForkProfileView(QWidget):
             )
             self.effects_layout.addWidget(self._gap(message))
         else:
-            add_effect_tiles(self.effects_layout, presentation)
+            add_effect_tiles(self.effects_layout, presentation,
+                                     text_catalog=getattr(self, 'text_catalog', None))
 
     def _render_characters(self) -> None:
         clear_layout(self.characters_grid)
@@ -489,11 +494,11 @@ class ForkProfileView(QWidget):
             by_id[item].name_zh for item in sorted(recommended_ids) if item in by_id
         ]
         if owner_names:
-            self.owner_label.setText(f"专属弧盘 · {'、'.join(owner_names)}")
+            self.owner_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_characters.owner_label', value=f"{'、'.join(owner_names)}"))
         elif recommended_names:
-            self.owner_label.setText(f"养成推荐 · {'、'.join(recommended_names)}")
+            self.owner_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_characters.owner_label_2', value=f"{'、'.join(recommended_names)}"))
         else:
-            self.owner_label.setText("通用弧盘 · 无专属角色")
+            self.owner_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_characters.owner_label_3'))
         compatible = tuple(
             item for item in self._characters
             if detail.summary.raw_group_type
@@ -699,7 +704,7 @@ class ForkProfileView(QWidget):
 
     @staticmethod
     def _badge(text: str, color: str) -> QLabel:
-        label = QLabel(text)
+        label = plain_label(text)
         label.setStyleSheet(themed_style(
             f"color:{color};background:#0d1117;border:1px solid {color};"
             "border-radius:10px;padding:3px 9px;font-size:10px;font-weight:800"
@@ -717,7 +722,7 @@ class ForkProfileView(QWidget):
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(8)
-        heading = QLabel(title, frame)
+        heading = plain_label(title, frame)
         heading.setStyleSheet(themed_style(
             "color:#a371f7;background:transparent;border:none;"
             "font-size:14px;font-weight:900"
@@ -732,11 +737,11 @@ class ForkProfileView(QWidget):
             "background:#10243f;border:1px solid #1f6feb;border-radius:12px"
         ))
         layout = QVBoxLayout(card)
-        caption = QLabel(title, card)
+        caption = plain_label(title, card)
         caption.setStyleSheet(themed_style(
             "color:#8b949e;background:transparent;border:none;font-size:10px"
         ))
-        metric = QLabel(value, card)
+        metric = plain_label(value, card)
         metric.setStyleSheet(themed_style(
             "color:#f0f6fc;background:transparent;border:none;"
             "font-size:18px;font-weight:900"
@@ -750,12 +755,12 @@ class ForkProfileView(QWidget):
         row = QFrame()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 2, 0, 2)
-        caption = QLabel(title, row)
+        caption = plain_label(title, row)
         caption.setMinimumWidth(88)
         caption.setStyleSheet(themed_style(
             "color:#8b949e;background:transparent;border:none;font-size:11px"
         ))
-        content = QLabel(value, row)
+        content = plain_label(value, row)
         content.setWordWrap(True)
         content.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         content.setStyleSheet(themed_style(
@@ -767,7 +772,7 @@ class ForkProfileView(QWidget):
 
     @staticmethod
     def _gap(text: str) -> QLabel:
-        label = QLabel(text)
+        label = plain_label(text)
         label.setWordWrap(True)
         label.setStyleSheet(themed_style(
             "color:#d29922;background:#0d1117;border:1px solid #d29922;"

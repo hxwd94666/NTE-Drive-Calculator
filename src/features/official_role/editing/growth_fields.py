@@ -1,6 +1,7 @@
 # 编辑官方角色成长与好感草稿，并投影基础属性及突破选择。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -13,7 +14,7 @@ from src.domain.official_role.advancement import (
 )
 from src.domain.official_role.models import world_bonus_property_stats
 from src.domain.official_role.likeability import likeability_unavailable
-from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
+from src.ui.common.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
 from ..role_calculation import (
     _attribute_name, _mark_dirty, _refresh_role_calculations, _selected_growth,
 )
@@ -25,12 +26,13 @@ def _replace_breakthrough_choices(
     choices,
     selected,
     *, stage_key: str,
+    text_catalog=None,
 ) -> None:
     combo.blockSignals(True)
     combo.clear()
     for index, row in enumerate(choices):
         combo.addItem(
-            "突破前" if index == 0 else "突破后",
+            resolve_text_catalog(text_catalog).render('ui.official_role.replace_breakthrough_choices.combo') if index == 0 else resolve_text_catalog(text_catalog).render('ui.official_role.replace_breakthrough_choices.combo_2'),
             int(row.get(stage_key) or 0),
         )
     if selected is not None:
@@ -55,7 +57,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     character = detail["character"]
     profile = detail["profile"]
     growth_rows = detail["growth_rows"]
-    group = QGroupBox("基础加成")
+    group = QGroupBox(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.group'))
     group.setObjectName("officialRoleBaseGroup")
     group.setStyleSheet("QGroupBox{font-weight:bold;}")
     layout = QVBoxLayout(group)
@@ -73,24 +75,24 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     if icon_path:
         pixmap = QPixmap(str(icon_path))
         if not pixmap.isNull():
-            avatar = QLabel()
+            avatar = plain_label()
             avatar.setObjectName("officialRoleBaseAvatar")
             avatar.setFixedSize(96, 96)
             avatar.setScaledContents(True)
             avatar.setPixmap(pixmap)
             left_layout.addWidget(avatar, alignment=Qt.AlignHCenter)
     # 中文名只作展示；脏草稿始终以传入的正式 character_id 标记。
-    role_name = QLabel(str(character.get("name_zh") or character_id))
+    role_name = plain_label(str(character.get("name_zh") or character_id))
     role_name.setAlignment(Qt.AlignHCenter)
     role_name.setStyleSheet("font-weight:bold;color:#58a6ff;")
     left_layout.addWidget(role_name)
     if detail.get('image_note'):
-        note = QLabel('临时替代图片')
+        note = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.note'))
         note.setToolTip(detail['image_note'])
         note.setAlignment(Qt.AlignHCenter)
         left_layout.addWidget(note)
         if icon_path and not pixmap.isNull():
-            from src.ui.role_portrait import temporary_role_portrait
+            from src.ui.roles.role_portrait import temporary_role_portrait
             avatar.setScaledContents(False)
             avatar.setPixmap(temporary_role_portrait(str(icon_path), 96, avatar.devicePixelRatioF()))
             avatar.setToolTip(detail['image_note'])
@@ -103,7 +105,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     growth_combo.setButtonSymbols(QSpinBox.NoButtons)
     level_row = QHBoxLayout()
     level_row.setSpacing(6)
-    level_label = QLabel("等级:")
+    level_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.caption_2'))
     level_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     level_row.addWidget(level_label)
     growth_combo.setFixedWidth(72)
@@ -111,7 +113,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     left_layout.addLayout(level_row)
     breakthrough_row = QHBoxLayout()
     breakthrough_row.setSpacing(6)
-    breakthrough_label = QLabel("突破:")
+    breakthrough_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_fork_group.fork_breakthrough_label'))
     breakthrough_label.setStyleSheet("font-weight:bold;color:#58a6ff;")
     breakthrough_combo = NoWheelComboBox()
     breakthrough_combo.setFixedWidth(96)
@@ -137,7 +139,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
         for property_id, value in likeability_properties.items()
     ]
     likeability = QCheckBox(
-        "好感度 10 级" + (f"（{'、'.join(likeability_parts)}）" if likeability_parts else "")
+        resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.likeability_6') + (f"（{'、'.join(likeability_parts)}）" if likeability_parts else "")
     )
     likeability.setChecked(
         bool(profile.get("likeability_level_10_enabled"))
@@ -145,14 +147,14 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     )
     likeability.setEnabled(bool(likeability_properties) or likeability_unknown)
     if likeability_unknown:
-        likeability.setText("好感度 10 级（属性资料缺失）")
-        likeability.setToolTip("开启状态保持原选择；属性未知时不生成完整面板与直伤结果。关闭此选项后仅使用其余已证实输入。")
+        likeability.setText(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.likeability'))
+        likeability.setToolTip(plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.likeability_2')))
     if not likeability_properties and not likeability_unknown:
         if str((detail.get("character") or {}).get("logical_character_key")) == "protagonist":
-            likeability.setText("玩家角色无好感度系统")
-            likeability.setToolTip("零是玩家自身，不提供好感度等级与十级属性加成。")
+            likeability.setText(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.likeability_3'))
+            likeability.setToolTip(plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.likeability_4')))
         else:
-            likeability.setToolTip("当前静态资料未提供该角色的好感度 10 级属性。")
+            likeability.setToolTip(plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_base_group.likeability_5')))
     right_layout.addWidget(likeability)
 
     stats_grid = QGridLayout()
@@ -169,7 +171,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
     for stat_index, (label_text, key) in enumerate(stat_specs):
         grid_row = stat_index // 2
         grid_column = (stat_index % 2) * 2
-        label = QLabel(label_text)
+        label = plain_label(label_text)
         label.setMinimumWidth(92)
         spin = NoWheelDoubleSpinBox()
         spin.setRange(-999999, 999999)
@@ -205,6 +207,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
             choices,
             selected,
             stage_key="breakthrough_stage",
+            text_catalog=getattr(window, 'text_catalog', None),
         )
 
     editor.update(
@@ -218,7 +221,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
         # 本区是成长/家具/好感的基础展示，不冒充含弧盘和觉醒的完整有效面板。
         unknown = likeability_unknown and likeability.isChecked()
         for spin in stat_values.values():
-            spin.setSpecialValueText("未知" if unknown else "")
+            spin.setSpecialValueText(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.battle_report.build.current_scope_label') if unknown else "")
             if unknown:
                 spin.setValue(spin.minimum())
         if unknown:
@@ -258,6 +261,7 @@ def _build_base_group(window, character_id: int, detail: dict, editor: dict) -> 
             50.0 + bonus.get("CritDamageBase", 0.0) * 100.0
         )
 
+    editor.setdefault("calculation_refreshers", []).append(update_stats)
     update_stats()
     growth_combo.valueChanged.connect(lambda _value: sync_breakthrough_choices())
     growth_combo.valueChanged.connect(update_stats)

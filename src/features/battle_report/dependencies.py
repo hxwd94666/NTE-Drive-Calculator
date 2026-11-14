@@ -9,11 +9,11 @@ from PySide6.QtWidgets import QWidget
 
 from src.app.context import AppContext
 from src.app.constants import APP_VERSION
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.features.battle_report.controller import BattleReportController
-from src.integrations.global_hotkeys import GlobalHotkeyManager
-from src.integrations.nte_core import NteCoreClient
-from src.integrations.analysis_core_release import create_bundled_analysis_client
+from src.integrations.runtime.global_hotkeys import GlobalHotkeyManager
+from src.integrations.native_core.nte_core import NteCoreClient
+from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
 from src.observability import OperationContext
 from src.services.battle_report.history.service import BattleReportHistoryService
 from src.services.battle_report.analysis.native_page import BattleNativePageService
@@ -131,6 +131,7 @@ def build_battle_report_controller(
     operation_entry: Callable[[str, str], bool] | None = None,
     operation_unavailable: Callable[..., None] | None = None,
     axis_allocation_requested=None,
+    text_catalog=None,
 ) -> BattleReportController:
     service_factory = BattleReportServiceFactory(app_context)
     return BattleReportController(
@@ -157,4 +158,5 @@ def build_battle_report_controller(
         history_factory=service_factory.history_service,
         transfer_factory=service_factory.transfer_service,
         marginal_units_provider=service_factory.marginal_units,
+        text_catalog=text_catalog,
     )

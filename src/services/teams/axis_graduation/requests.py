@@ -2,10 +2,10 @@
 from dataclasses import asdict
 import json
 
-from src.domain.teams.axis_graduation_inputs import CurrentBuild
-from src.domain.teams.axis_graduation_rules import TheoryEquipmentRules
-from src.domain.teams.axis_graduation_target import GraduationTarget
-from src.integrations.team_axis_graduation import PROFILE_KEYS, validate_request
+from src.domain.teams.graduation.axis_graduation_inputs import CurrentBuild
+from src.domain.teams.graduation.axis_graduation_rules import TheoryEquipmentRules
+from src.domain.teams.graduation.axis_graduation_target import GraduationTarget
+from src.integrations.battle_analysis.graduation.team_axis_graduation import PROFILE_KEYS, validate_request
 
 
 def actual_component_input(frozen):
@@ -75,8 +75,8 @@ def build_benchmark_request(*, frozen, target, rules, battle_selector, source_in
 
 def build_current_request(*, frozen, target, rules, battle_selector, source_input_digest,
                           reference, axis_snapshot, request_id, component_provenance):
-    from src.domain.teams.axis_graduation_reference import FrozenBenchmarkReference
-    from src.domain.teams.axis_graduation_snapshot import FrozenAxisContextSnapshot
+    from src.domain.teams.graduation.axis_graduation_reference import FrozenBenchmarkReference
+    from src.domain.teams.graduation.axis_graduation_snapshot import FrozenAxisContextSnapshot
     if not isinstance(reference, FrozenBenchmarkReference) or not isinstance(axis_snapshot, FrozenAxisContextSnapshot):
         raise ValueError("更新当前评价需要不可变基准引用，不重新搜索或替换旧分母")
     if not isinstance(target, GraduationTarget) or not isinstance(rules, TheoryEquipmentRules):

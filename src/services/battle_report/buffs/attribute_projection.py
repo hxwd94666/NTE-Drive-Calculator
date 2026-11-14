@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
+from src.domain.localization.catalog import TextCatalog, localized_text
 from src.domain.battle_report.buffs.models import (
     BattleBuffProjectionDecision, BattleHitBuffProjection, BattleInferredBuffInterval, BattleProjectedBuffModifier,
 )
@@ -44,6 +45,7 @@ class BattleBuffAttributeProjectionService:
         active_intervals: Sequence[BattleInferredBuffInterval] | None = None,
         temporal_intervals: Sequence[BattleInferredBuffInterval] | None = None,
         projection_memo: BattleBuffProjectionMemo | None = None,
+        text_catalog: TextCatalog | None = None,
     ) -> BattleHitBuffProjection:
         indexed_intervals = isinstance(
             intervals,
@@ -170,7 +172,11 @@ class BattleBuffAttributeProjectionService:
                 status = "applied"
             elif interval_id in accepted_by_interval:
                 status = "not_applied"
-                interval_reasons.append("同一来源与属性的更新区间已覆盖该证据")
+                interval_reasons.append(localized_text(
+                    text_catalog,
+                    "battle_report.attribute_projection.reason.covered_by_newer_interval",
+                    "同一来源与属性的更新区间已覆盖该证据",
+                ))
             elif any(
                 marker in reason
                 for reason in interval_reasons

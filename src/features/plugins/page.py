@@ -1,9 +1,9 @@
 # 展示紧凑的游戏内显示卡片，并直接编辑各插件的显示选项。
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QVBoxLayout, QWidget,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget,
 )
 
 from src.app.theme import theme_color
@@ -37,8 +37,9 @@ class _ToggleSwitch(QCheckBox):
 
 
 class PluginsPage(QWidget):
-    def __init__(self, *, service, request_apply, show_detection, quick_wheel=None, parent=None):
+    def __init__(self, *, service, request_apply, show_detection, quick_wheel=None, parent=None, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.service, self.request_apply, self.show_detection = service, request_apply, show_detection
         self.quick_wheel = quick_wheel
         self.cards = {}
@@ -48,27 +49,27 @@ class PluginsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(14)
-        hint = QLabel("管理游戏内辅助功能。显示与轮盘偏好保存在本机；重启和重连后按当前模式自动恢复。")
+        hint = plain_label(resolve_text_catalog(text_catalog).render('ui.plugins.init.hint'))
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{theme_color('#c9d1d9')}")
         layout.addWidget(hint)
 
         self._add_card(
-            layout, "cooldown", "技能冷却", "显示队伍技能图标、倒计时、冷却遮罩与原生就绪光效。",
+            layout, "cooldown", resolve_text_catalog(text_catalog).render('ui.plugins.init.self'), resolve_text_catalog(text_catalog).render('ui.plugins.init.self_2'),
             (),
         )
         self._add_card(
-            layout, "enemy_bars", "敌人状态", "显示敌人的战斗状态。",
+            layout, "enemy_bars", resolve_text_catalog(text_catalog).render('ui.plugins.init.self_3'), resolve_text_catalog(text_catalog).render('ui.plugins.init.self_4'),
             (("hp", "血量"), ("unbalance", "倾陷")),
         )
 
         if quick_wheel is not None:
             self.wheel_toggle, self.wheel_badge, wheel_layout = self._add_card(
-                layout, "quick_wheel", "自定义打桩",
-                "按住 Tab 选择功能；指向木桩展开次轮盘，回中心返回。", (),
+                layout, "quick_wheel", resolve_text_catalog(text_catalog).render('ui.plugins.init.wheel_badge_wheel_layout'),
+                resolve_text_catalog(text_catalog).render('ui.plugins.init.wheel_badge_wheel_layout_2'), (),
                 on_toggle=self._toggle_wheel,
             )
-            self.wheel_status = QLabel()
+            self.wheel_status = plain_label()
             self.wheel_status.setTextFormat(Qt.PlainText)
             self.wheel_status.setWordWrap(True)
             self.wheel_status.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px")
@@ -76,16 +77,16 @@ class PluginsPage(QWidget):
             quick_wheel.changed.connect(self._refresh_wheel)
             self._refresh_wheel()
 
-        self.notice = QLabel("关闭窗口后继续在后台运行；从托盘退出 Calc 才停止显示。")
+        self.notice = plain_label(resolve_text_catalog(text_catalog).render('ui.plugins.init.notice'))
         self.notice.setObjectName("pluginPageNotice")
         self.notice.setWordWrap(True)
         self.notice.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px")
         layout.addWidget(self.notice)
 
         actions = QHBoxLayout()
-        self.refresh_button = QPushButton("刷新状态")
+        self.refresh_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.plugins.init.refresh_button'))
         self.refresh_button.clicked.connect(self._request_refresh)
-        self.environment_button = QPushButton("检测详情")
+        self.environment_button = TextActionButton(resolve_text_catalog(text_catalog).render('home.page.build_home_page.check'))
         self.environment_button.clicked.connect(self.show_detection)
         actions.addWidget(self.refresh_button)
         actions.addWidget(self.environment_button)
@@ -98,7 +99,7 @@ class PluginsPage(QWidget):
         try:
             self.quick_wheel.set_enabled(enabled)
         except (OSError, RuntimeError, ValueError) as error:
-            QMessageBox.warning(self, "自定义打桩", str(error))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.init.wheel_badge_wheel_layout'), str(error))
         self._refresh_wheel()
 
     def _refresh_wheel(self):
@@ -106,12 +107,12 @@ class PluginsPage(QWidget):
             return
         self.wheel_toggle.blockSignals(True)
         self.wheel_toggle.setChecked(self.quick_wheel.enabled)
-        self.wheel_toggle.setText("已开启" if self.quick_wheel.enabled else "已关闭")
+        self.wheel_toggle.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.refresh_wheel.wheel_toggle') if self.quick_wheel.enabled else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.graduation.state.closed'))
         self.wheel_toggle.blockSignals(False)
         self.wheel_toggle.setEnabled(self.service.policy.allowed("native_load") or self.quick_wheel.enabled)
         text, tone = self._wheel_status_presentation(self.quick_wheel.status, self.quick_wheel.enabled)
         self._set_badge(self.wheel_badge, text, tone, self.quick_wheel.status)
-        self.wheel_status.setText(f"自有木桩：{self.quick_wheel.owned_count}")
+        self.wheel_status.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.refresh_wheel.wheel_status', owned_count=f'{self.quick_wheel.owned_count}'))
 
     @staticmethod
     def _wheel_status_presentation(raw: str, checked: bool) -> tuple[str, str]:
@@ -139,12 +140,12 @@ class PluginsPage(QWidget):
 
         row = QHBoxLayout()
         row.setSpacing(10)
-        heading = QLabel(title)
+        heading = plain_label(title)
         font = heading.font()
         font.setBold(True)
         heading.setFont(font)
         row.addWidget(heading)
-        status = QLabel()
+        status = plain_label()
         status.setObjectName("statusBadge")
         row.addWidget(status)
         row.addStretch()
@@ -158,7 +159,7 @@ class PluginsPage(QWidget):
         row.addWidget(toggle)
         card.addLayout(row)
 
-        label = QLabel(description)
+        label = plain_label(description)
         label.setWordWrap(True)
         label.setStyleSheet(f"color:{theme_color('#8b949e')}")
         card.addWidget(label)
@@ -224,7 +225,7 @@ class PluginsPage(QWidget):
             raw_status = self.service.status_for(key)
             toggle.blockSignals(True)
             toggle.setChecked(checked)
-            toggle.setText("已开启" if checked else "已关闭")
+            toggle.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.refresh_wheel.wheel_toggle') if checked else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.graduation.state.closed'))
             toggle.setEnabled(allowed or checked)
             toggle.blockSignals(False)
             text, tone = self._status_presentation(raw_status, checked)
@@ -246,19 +247,19 @@ class PluginsPage(QWidget):
         self.notice.setText(
             self.service.load_error
             or next((status for status in active_statuses if status not in known_statuses), "")
-            or ("关闭窗口后继续在后台运行；从托盘退出 Calc 才停止显示。" if allowed else
-                "当前模式不支持插件；请切换到中风险或开发模式。")
+            or (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.init.notice') if allowed else
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.refresh.notice'))
         )
         if result is not None and self._refresh_pending:
             self._refresh_pending = False
-            self.refresh_button.setText("刷新状态")
+            self.refresh_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.init.refresh_button'))
             self.refresh_button.setEnabled(True)
 
     def _request_refresh(self) -> None:
         if self._refresh_pending:
             return
         self._refresh_pending = True
-        self.refresh_button.setText("正在刷新…")
+        self.refresh_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.request_refresh.refresh_button'))
         self.refresh_button.setEnabled(False)
         self.request_apply()
 
@@ -275,7 +276,7 @@ class PluginsPage(QWidget):
         try:
             self.service.update(**changes)
         except (PermissionError, OSError, ValueError) as error:
-            QMessageBox.warning(self, "插件设置", str(error))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.update.qmessagebox'), str(error))
         else:
             self.request_apply()
         self.refresh()

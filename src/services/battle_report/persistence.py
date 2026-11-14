@@ -18,7 +18,7 @@ from src.domain.battle_report.build.inputs import (
 )
 from src.services.battle_report.build.equipment import battle_equipment_items
 from src.services.battle_report.build.graduation_assumptions import freeze_graduation_assumptions
-from src.integrations.bundled_resources import bundled_config_dir
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.services.battle_report.build.offline_analysis import (
@@ -31,10 +31,10 @@ from src.services.battle_report.build.profile_normalization import (
 from src.services.characters.character_shape_bonus_service import (
     static_character_shape_profile_fields,
 )
-from src.services.official_role.awakening import resolve_awakening_profile
-from src.services.official_role.attributes import calculate_official_role_combat_stat_components, calculate_official_role_combat_stat_sources
+from src.services.official_role.panel.awakening import resolve_awakening_profile
+from src.services.official_role.panel.attributes import calculate_official_role_combat_stat_components, calculate_official_role_combat_stat_sources
 from src.services.official_role.page import load_official_role_detail
-from src.services.official_role.native_profiles import project_native_role_profile
+from src.services.official_role.profile_data.native_profiles import project_native_role_profile
 from src.services.battle_report.capture.build_context import (
     native_build_unavailable_reason, native_equipment_projection, native_profile_observations,
 )
@@ -205,7 +205,7 @@ class BattleReportPersistenceService:
                 profiles = {int(key): deepcopy(value) for key, value in build["profiles"].items() if int(key) in ids}
                 world_bonus, bonus_evidence = native_world_bonus(runtime, build["world_bonus"])
                 observations = native_profile_observations(runtime)
-                from src.services.official_role.native_profiles import validate_native_cultivation
+                from src.services.official_role.profile_data.native_profiles import validate_native_cultivation
                 selected_equipment = [item for item in equipment or [] if item.get("equipped_character_id") in ids]
                 stats = {}
                 unavailable_characters = []

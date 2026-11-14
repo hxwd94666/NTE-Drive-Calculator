@@ -1,5 +1,6 @@
 # 统筹库存、评分和求解器生成最终配装。
 """End-to-end pipeline for blueprints, scoring, dispatch, and output."""
+from src.observability.stage_timings import timed, timed_call
 
 import copy
 import json
@@ -8,11 +9,10 @@ from concurrent.futures import CancelledError
 from pathlib import Path
 from typing import Callable, List, Dict
 
-from src.domain.stat_catalog import StatCatalog
-from src.domain.allocation_rating import loadout_total_grade
-from src.integrations.bundled_resources import bundled_config_dir
+from src.domain.equipment.properties.stat_catalog import StatCatalog
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.optimizer.contracts import PLAN_CUSTOM_WEAPON
-from src.domain.equipment.equipment_normalizer import normalize_equipment_item
+from src.domain.equipment.properties.equipment_normalizer import normalize_equipment_item
 from src.models.equipment import DriveShape, Drive, Tape
 from src.solver.combinatorics import PuzzleCombinatorics
 from src.solver.dfs_puzzle import DFSPuzzleSolver
@@ -20,12 +20,10 @@ from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
 from src.solver.set_effects import normalize_set_effect_mode, set_piece_options_for_mode
 from src.optimizer.scoring import ScoringEngine
 from src.optimizer.allocation_kernel import AllocationKernelRequest, estimate_candidate_pool_limits
-from src.utils.visualizer import BoardVisualizer
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
 from src.utils.set_name import normalize_set_display_name
-from src.services.legacy_allocation_static_catalog import build_legacy_allocation_static_catalog
-from src.domain.allocation.failures import allocation_failure_text
+from src.services.allocation.execution.legacy_allocation_static_catalog import build_legacy_allocation_static_catalog
 
 
 class NTEPipelineOrchestrator:
@@ -36,7 +34,7 @@ class NTEPipelineOrchestrator:
         self, config_dir: str | Path | None = None, *, user_database_path=None,
         static_database_path: str | Path | None = None,
         expected_dataset: tuple[str, int, str] | None = None, stat_catalog: StatCatalog | None = None,
-        static_read_unit=None,
+        static_read_unit=None, blueprint_executor=None, timings=None,
     ):
         self.config_dir = str(Path(config_dir) if config_dir is not None else bundled_config_dir())
         self.user_database_path = user_database_path
@@ -44,6 +42,8 @@ class NTEPipelineOrchestrator:
         self._expected_dataset = expected_dataset
         self._stat_catalog = stat_catalog
         self._static_read_unit = static_read_unit
+        self._blueprint_executor = blueprint_executor
+        self._timings = timings
         self.roles_db = {}
         self.sets_db = {}
         self.shapes_db = {}
@@ -60,6 +60,7 @@ class NTEPipelineOrchestrator:
         shapes_db: dict[str, DriveShape],
         config_dir: str | Path | None = None,
         fork_ids_by_name: dict[str, str] | None = None,
+        board_matrices=None, static_database_path=None, blueprint_executor=None, timings=None,
     ) -> "NTEPipelineOrchestrator":
         """Create a puzzle-only orchestrator without rereading mutable config.
 
@@ -73,16 +74,19 @@ class NTEPipelineOrchestrator:
             Path(config_dir) if config_dir is not None else bundled_config_dir()
         )
         instance.user_database_path = None
-        instance.static_database_path = None
+        instance.static_database_path = static_database_path
+        instance._blueprint_executor = blueprint_executor
+        instance._timings = timings
         instance.roles_db = roles_db
         instance.sets_db = sets_db
         instance.shapes_db = shapes_db
         instance._fork_ids_by_name = dict(fork_ids_by_name or {})
-        instance._board_matrices = {
+        instance._board_matrices = board_matrices if board_matrices is not None else {
             role_name: role_data["board_matrix"]
             for role_name, role_data in roles_db.items()
         }
-        instance._blueprint_cache = {}
+        # 纯几何原生缓存仍沿用现有完整事实 key；账号权重和评分从不进入此共享缓存。
+        instance._blueprint_cache = cls._blueprint_cache if blueprint_executor is not None else {}
         return instance
 
     def _load_configs(self):
@@ -130,6 +134,9 @@ class NTEPipelineOrchestrator:
                          cancel_check: Callable[[], bool] | None = None) -> Dict[str, List[Dict]]:
         custom_sets = self._canonicalize_custom_sets(custom_sets)
         set_effect_modes = set_effect_modes or {}
+        if self._blueprint_executor is not None:
+            return self._solve_native_blueprints(target_roles, custom_sets, set_effect_modes,
+                                                 include_layout_variants, cancel_check)
         logger.info(f"\n[阶段 2] 求解 {target_roles} 的合法底盘图纸...")
         combinatorics = PuzzleCombinatorics(self.shapes_db)
         dfs_solver = DFSPuzzleSolver(self.shapes_db)
@@ -158,6 +165,9 @@ class NTEPipelineOrchestrator:
 
             logger.info(f"  -> [{role_name}] 套装: {set_name} | 套装效果: {set_effect_mode} | 求解中...")
             _t0 = time.perf_counter()
+            if self._timings is not None:
+                self._timings.note("blueprints.python_cache", cache_hit_count=int(cache_key in self._blueprint_cache),
+                                   cache_miss_count=int(cache_key not in self._blueprint_cache))
             if cache_key in self._blueprint_cache:
                 real_blueprints_db[role_name] = copy.deepcopy(self._blueprint_cache[cache_key])
                 logger.info(f"  [{role_name}] 图纸缓存命中，共 {len(real_blueprints_db[role_name])} 套合法方案。")
@@ -216,6 +226,48 @@ class NTEPipelineOrchestrator:
 
         return real_blueprints_db
 
+    def blueprint_request(self, roles, custom_sets, modes, include_layout_variants=False):
+        """只投影冻结盘面和正式形状；搜索、排序和合法摆盘由注入的计算核拥有。"""
+        return {
+            "version": 1, "include_layout_variants": include_layout_variants,
+            "roles": [{"role": name, "board": copy.deepcopy(self._board_matrices[name]),
+                       "set_shapes": list(self.sets_db[self._resolve_set_name(
+                           custom_sets.get(name, self.roles_db[name]["default_set"]))]["shapes"]),
+                       "extra_label": self.roles_db[name]["extra_shape_label"],
+                       "set_effect_mode": normalize_set_effect_mode(modes.get(name))} for name in roles],
+            "shapes": [shape.model_dump() for shape in self.shapes_db.values() if shape.shape_id != "TAPE_15"],
+        }
+
+    def _solve_native_blueprints(self, roles, custom_sets, modes, variants, cancelled, *, executor=None):
+        if cancelled is not None and cancelled():
+            raise CancelledError("分配图纸生成已取消")
+        request = self.blueprint_request(roles, custom_sets, modes, variants)
+        result, missing, keys = {}, [], {}
+        for row in request["roles"]:
+            if cancelled is not None and cancelled():
+                raise CancelledError("分配图纸生成已取消")
+            # key 含形状顺序、盘面和模式；与 Python 缓存隔离，不接受截断或失败的响应。
+            name = row["role"]
+            keys[name] = "native:" + json.dumps({"role": row, "shapes": request["shapes"],
+                                               "variants": variants}, ensure_ascii=False)
+            if self._timings is not None:
+                self._timings.note("blueprints.native_cache", cache_hit_count=int(keys[name] in self._blueprint_cache),
+                                   cache_miss_count=int(keys[name] not in self._blueprint_cache))
+            if keys[name] in self._blueprint_cache:
+                result[name] = timed_call(self._timings, "blueprints.cache_copy", copy.deepcopy, self._blueprint_cache[keys[name]])
+            else:
+                missing.append(row)
+        if missing:
+            generated = timed_call(self._timings, "blueprints.native_generate", executor or self._blueprint_executor,
+                                   {**request, "roles": missing})
+            if cancelled is not None and cancelled():
+                raise CancelledError("分配图纸生成已取消")
+            for row in missing:
+                name = row["role"]
+                result[name] = copy.deepcopy(generated[name])
+                self._remember_blueprint_cache(keys[name], result[name])
+        return {name: result[name] for name in roles}
+
     def _blueprint_cache_key(
         self,
         role_name: str,
@@ -255,6 +307,7 @@ class NTEPipelineOrchestrator:
             max_size = max(max_size, size)
         return max_size
 
+    @timed("allocation.pipeline")
     def run_full_allocation(self, inventory: List[Dict], priority_list: List[str],
                             custom_sets: Dict[str, str] = None, mode: str = "role_priority",
                             locked_uids: set = None, tape_main_filters: Dict[str, List[str]] = None,
@@ -263,7 +316,7 @@ class NTEPipelineOrchestrator:
                             crit_rate_baselines: Dict[str, float] = None,
                             custom_weapons: Dict[str, str] = None,
                             blueprint_combo_limit: int = 2000,
-                            cancel_check=None, *, allocation_executor, blueprint_executor=None):
+                            cancel_check=None, *, allocation_executor, blueprint_executor=None, timings=None):
         locked_uids = locked_uids or set()
         tape_main_filters = tape_main_filters or {}
         crit_priority_modes = crit_priority_modes or {}
@@ -313,23 +366,21 @@ class NTEPipelineOrchestrator:
             raise CancelledError("分配图纸生成已取消")
         if blueprint_executor is None:
             # 非伤害策略与尚未迁移的独立调用继续使用原入口；伤害策略显式注入 Rust，无失败回退。
-            blueprints_db = self.solve_blueprints(
+            blueprints_db = timed_call(timings, "allocation.python_blueprints", self.solve_blueprints,
                 priority_list, custom_sets, set_effect_modes, cancel_check=cancel_check,
             )
-        else:
+        elif getattr(blueprint_executor, "deferred", False):
             # 这里只冻结身份、盘面和形状事实；组合、排序、摆盘与预算由 Rust 执行。
-            roles = []
-            for role_name in priority_list:
-                role = self.roles_db[role_name]
-                set_name = self._resolve_set_name(custom_sets.get(role_name, role["default_set"]))
-                roles.append({"role": role_name, "board": copy.deepcopy(self._board_matrices[role_name]),
-                              "set_shapes": list(self.sets_db[set_name]["shapes"]),
-                              "extra_label": role["extra_shape_label"],
-                              "set_effect_mode": normalize_set_effect_mode(set_effect_modes.get(role_name))})
-            blueprints_db = blueprint_executor({
-                "version": 1, "roles": roles, "include_layout_variants": False,
-                "shapes": [shape.model_dump() for shape in self.shapes_db.values() if shape.shape_id != "TAPE_15"],
-            })
+            blueprints_db = timed_call(timings, "allocation.deferred_blueprints", blueprint_executor,
+                self.blueprint_request(priority_list, custom_sets, set_effect_modes))
+        else:
+            # 普通模式复用现有有界原生图纸缓存；失败/预算截断的结果不入缓存，
+            # 不能让正式接线退化成每次重复启动一个完整图纸作业。
+            blueprints_db = timed_call(
+                timings, "allocation.native_blueprints", self._solve_native_blueprints,
+                priority_list, custom_sets, set_effect_modes, False, cancel_check,
+                executor=blueprint_executor,
+            )
         if cancel_check is not None and cancel_check():
             raise CancelledError("分配图纸生成已取消")
         logger.info(f"[计时] 图纸求解阶段: {time.perf_counter() - stage_t0:.2f}s")
@@ -353,13 +404,19 @@ class NTEPipelineOrchestrator:
         if locked_uids:
             logger.info(
                 f"[模式四] 已屏蔽 {filtered_count} 件锁定装备，使用剩余 {len(parsed_inventory)} 件进行分配。")
+        if timings is not None:
+            timings.record("allocation.inventory_convert", (time.perf_counter() - stage_t0) * 1000,
+                           item_count=len(parsed_inventory))
         logger.info(f"[计时] 库存转换阶段: {time.perf_counter() - stage_t0:.2f}s")
 
         stage_t0 = time.perf_counter()
-        scoring_engine = ScoringEngine(
+        scoring_engine = timed_call(timings, "allocation.scorer_prepare", ScoringEngine,
             config_dir=self.config_dir,
             user_database_path=self.user_database_path,
             roles_db=self.roles_db,
+            # 评分器必须绑定本次分配冻结的静态发行库；缺省路径可能落到随附主库，
+            # 在 reference/role_page 目录下会把同名 ID 解释成另一套数据。
+            static_database_path=self.static_database_path,
         )
         # 完整 Rust 作业还未生成图纸，临时值不参与求解；需求上限在原生生成后统一计算。
         drive_screen_limit, tape_screen_limit = (15, 6) if getattr(blueprint_executor, "deferred", False) else estimate_candidate_pool_limits(
@@ -391,57 +448,14 @@ class NTEPipelineOrchestrator:
 
         logger.info(f"\n[阶段 4] 启动调度模式: [{mode}]...")
         stage_t0 = time.perf_counter()
-        final_plan = allocation_executor(kernel_request, scoring_engine)
+        final_plan = timed_call(timings, "allocation.dispatch", allocation_executor, kernel_request, scoring_engine)
         logger.info(f"[计时] 调度阶段: {time.perf_counter() - stage_t0:.2f}s")
 
-        stage_t0 = time.perf_counter()
-        self._render_results(final_plan, scoring_engine, custom_sets)
-        logger.info(f"[计时] 日志渲染阶段: {time.perf_counter() - stage_t0:.2f}s")
+        # 日志只消费已生成摘要，逐件评级会额外启动评分进程，且不能成为求解完成的前置步骤。
+        logger.info("分配结果已生成：角色数={}", len(final_plan))
         for role_name, plan in final_plan.items():
             if isinstance(plan, dict) and custom_weapons.get(role_name):
                 plan[PLAN_CUSTOM_WEAPON] = custom_weapons[role_name]
         logger.info(f"[计时] 完整分配流程总耗时: {time.perf_counter() - total_t0:.2f}s")
 
         return final_plan
-
-    def _render_results(self, final_plan: Dict, scoring_engine: ScoringEngine, custom_sets: Dict[str, str]):
-        custom_sets = custom_sets or {}
-        for role, plan in final_plan.items():
-            if not plan or not plan.get("valid", True):
-                logger.error("角色 [{}] 分配失败: {}\n", role, allocation_failure_text(plan))
-                continue
-
-            grade = loadout_total_grade(plan['score'])
-            used_set = custom_sets.get(role, self.roles_db[role]["default_set"])
-
-            BoardVisualizer.display_final_plan(role_name=role, plan=plan, default_set=used_set, grade=grade)
-
-            logger.opt(raw=True).info("  [卡带分配]\n")
-            assigned_tape: Tape = plan.get("assigned_tape")
-            if assigned_tape:
-                t_score = assigned_tape.role_scores.get(role, 0.0)
-                t_grade = scoring_engine.get_grade_tag(t_score, area=15)
-                logger.opt(raw=True).info(f"     - {assigned_tape.set_name.ljust(8)} | "
-                                          f"评级:[{t_grade.ljust(3)}] | "
-                                          f"总得分:{str(t_score).ljust(6)} | "
-                                          f"品质:{assigned_tape.quality.ljust(5)} |\n"
-                                          f"       主词条: {assigned_tape.main_stats}\n"
-                                          f"       副词条: {assigned_tape.sub_stats}\n")
-            else:
-                logger.warning("     - 未为此角色分配合法卡带。")
-
-            for category, key in [("\n  [套装效果驱动]\n", 'assigned_set_drives'),
-                                  ("  [额外散件]\n", 'assigned_extra_drives')]:
-                logger.opt(raw=True).info(f"{category}")
-                for d in plan.get(key, []):
-                    score = d.role_scores.get(role, 0.0)
-                    d_grade = scoring_engine.get_grade_tag(score, d.area)
-
-                    mvp_tag = f" [先选: 第 {d.pick_order} 顺位]" if d.is_mvp else ""
-
-                    logger.opt(raw=True).info(f"     - {d.shape_id.ljust(10)} | "
-                                              f"评级:[{d_grade.ljust(3)}] | "
-                                              f"得分:{str(score).ljust(5)} | "
-                                              f"品质:{d.quality.ljust(5)} | "
-                                              f"数值:{d.sub_stats}{mvp_tag}\n")
-            logger.opt(raw=True).info("\n" + "=" * 60 + "\n")

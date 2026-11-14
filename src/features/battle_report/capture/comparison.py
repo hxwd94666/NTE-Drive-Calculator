@@ -1,6 +1,8 @@
 # 在 Qt 线程协调固定 DLL 与抓包两路生命周期，各路继续独立采集和保存。
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 import time
@@ -24,8 +26,9 @@ class ComparisonCapture(QObject):
     _lane_changed = Signal(str, object)
 
     def __init__(self, services: Mapping[str, BattleCaptureService],
-                 parent: QObject | None = None, *, defer_packet_start: bool = False) -> None:
+                 parent: QObject | None = None, *, defer_packet_start: bool = False, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         if set(services) != set(_LANES) or services['native'] is services['packet']:
             raise ValueError('对照采集必须提供独立的 native 与 packet 两路')
         self._services = {lane: services[lane] for lane in _LANES}
@@ -79,7 +82,7 @@ class ComparisonCapture(QObject):
             return
         self._started = True
         self._states = {lane: BattleCaptureState(
-            phase='starting', message=f'正在启动{_LABELS[lane]}采集……', running=True,
+            phase='starting', message=f"正在启动{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}采集……", running=True,
         ) for lane in _LANES}
         self._publish()
         for index, lane in enumerate(_LANES):
@@ -94,7 +97,7 @@ class ComparisonCapture(QObject):
                     self._states[unstarted] = BattleCaptureState(
                         phase='stopped', message='另一路启动失败，本路未启动。', running=False)
                 self._accept_state(lane, BattleCaptureState(
-                    phase='error', message=f'{_LABELS[lane]}启动失败。', running=False,
+                    phase='error', message=f"{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}启动失败。", running=False,
                     error=str(error), error_code=type(error).__name__))
                 break
 
@@ -195,9 +198,9 @@ class ComparisonCapture(QObject):
             packet if packet.battle_record_id is not None else native)
         summary = primary.summary or native.summary or packet.summary
         if self._finished:
-            errors = [f'{_LABELS[lane]}：{state.error or state.message}'
+            errors = [f"{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}：{state.error or state.message}"
                       for lane, state in self._states.items() if state.phase == 'error']
-            message = '；'.join(f'{_LABELS[lane]}：{state.message}'
+            message = '；'.join(f"{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}：{state.message}"
                                for lane, state in self._states.items())
             if self._interrupted:
                 message = '本次对照不完整。' + message

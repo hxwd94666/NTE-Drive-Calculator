@@ -78,7 +78,7 @@ class BattleAnalysisTimelineMixin:
                                    else details.for_hit(hit, formula=True))
         dialog = getattr(self, "_hit_formula_dialog", None)
         if dialog is None:
-            dialog = BattleHitFormulaDialog(self, game_ui_asset_root=self._game_ui_asset_root)
+            dialog = BattleHitFormulaDialog(self, game_ui_asset_root=self._game_ui_asset_root, text_catalog=getattr(self, 'text_catalog', None))
             self._hit_formula_dialog = dialog
         dialog.show_for_hit(
             hit,

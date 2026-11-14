@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -13,9 +15,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
-    QPushButton,
     QScrollArea,
     QStackedWidget,
     QToolButton,
@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
 
 from src.domain.localization.catalog import TextCatalog
 from src.app.theme import themed_style
-from src.ui.text_catalog import resolve_text_catalog
 from src.features.static_catalog.domain_pages.monsters.browse_models import (
     PLAY_COPY as _PLAY_COPY,
     PLAY_LABELS as _PLAY_LABELS,
@@ -101,8 +100,8 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         self.stack = QStackedWidget(self)
         self.home = self._build_home()
         self.browser = self._build_browser()
-        self.detail_view = MonsterDetailView(self)
-        self.feast_view = FeastEncounterView(self)
+        self.detail_view = MonsterDetailView(self, text_catalog=catalog)
+        self.feast_view = FeastEncounterView(self, text_catalog=catalog)
         self.stack.addWidget(self.home)
         self.stack.addWidget(self.browser)
         self.stack.addWidget(self.detail_view)
@@ -123,11 +122,11 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         hero_layout = QHBoxLayout(hero)
         hero_layout.setContentsMargins(22, 17, 22, 17)
         copy = QVBoxLayout()
-        eyebrow = QLabel("敌方与挑战档案", hero)
+        eyebrow = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_home.eyebrow'), hero)
         eyebrow.setStyleSheet(themed_style("color:#58a6ff;font-size:10px;font-weight:900"))
-        title = QLabel("怪物与玩法", hero)
+        title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_static_catalog_domain_pages.caption_4'), hero)
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:28px;font-weight:900"))
-        subtitle = QLabel("从玩法进入期数、层、半场与刷怪槽位，查看当前选择下的怪物画像。", hero)
+        subtitle = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_home.subtitle'), hero)
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         copy.addWidget(eyebrow)
@@ -147,12 +146,12 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         self.home_grid.setContentsMargins(4, 15, 12, 20)
         self.home_grid.setSpacing(13)
         self.home_grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        for index, mode in enumerate(_PLAY_LABELS):
+        for index, mode in enumerate(ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS)):
             card = ArchiveCard(BrowseCard(
-                _PLAY_LABELS[mode], self.text_catalog.render("catalog.feast.browse_description") if mode == "feast" else _PLAY_COPY[mode], self._home_badge(mode),
+                ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS)[mode], self.text_catalog.render("catalog.feast.browse_description") if mode == "feast" else _PLAY_COPY[mode], self._home_badge(mode),
                 self._mode_icon(mode), lambda checked=False, key=mode: self.open_mode(key),
                 formal_id=mode,
-            ), host)
+            ), host, text_catalog=getattr(self, 'text_catalog', None))
             self.play_group_cards.append(card)
         self._layout_home(force=True)
         scroll.setWidget(host)
@@ -164,13 +163,13 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         root = QVBoxLayout(page)
         root.setContentsMargins(4, 2, 4, 8)
         top = QHBoxLayout()
-        self.browser_title = QLabel(page)
+        self.browser_title = plain_label(page)
         self.browser_title.setTextFormat(Qt.PlainText)
         self.browser_title.setStyleSheet(themed_style("color:#f0f6fc;font-size:22px;font-weight:900"))
         top.addWidget(self.browser_title)
         top.addStretch(1)
         root.addLayout(top)
-        self.browser_subtitle = QLabel(page)
+        self.browser_subtitle = plain_label(page)
         self.browser_subtitle.setTextFormat(Qt.PlainText)
         self.browser_subtitle.setWordWrap(True)
         self.browser_subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
@@ -178,11 +177,11 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         search_row = QHBoxLayout()
         self.browser_search = QLineEdit(page)
         self.browser_search.setClearButtonEnabled(True)
-        self.browser_search.setPlaceholderText("搜索怪物或玩法")
+        self.browser_search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_browser.browser_search'))
         self.browser_search.textChanged.connect(self._render_browser_state)
         search_row.addWidget(self.browser_search, 1)
         self.more_filters_button = QToolButton(page)
-        self.more_filters_button.setText("更多筛选")
+        self.more_filters_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_browser.more_filters_button'))
         self.more_filters_button.setCheckable(True)
         search_row.addWidget(self.more_filters_button)
         root.addLayout(search_row)
@@ -241,9 +240,9 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             grouped = _group(entries, lambda row: row.primary_id)
             cards = tuple(self._entity_card(mode, key, rows) for key, rows in grouped.items())
             state = BrowseState(
-                _PLAY_LABELS[mode], _PLAY_COPY[mode],
+                ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS)[mode], _PLAY_COPY[mode],
                 (BrowseSection(
-                    _PLAY_LABELS[mode], self._home_badge(mode), cards,
+                    ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS)[mode], self._home_badge(mode), cards,
                 ),),
             )
         self._show_state(state, push=True)
@@ -256,7 +255,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         if detail is not None:
             self.open_detail(detail)
             return True
-        for mode in _PLAY_LABELS:
+        for mode in ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS):
             matches = tuple(
                 entry for entry in self._controller.entries_for(mode)
                 if entry.key == requested or entry.primary_id == requested
@@ -302,7 +301,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
                 "正式关卡和怪物数据可用；仅开放时间不可用，不推测当前或往期状态。",
                 unscheduled,
             ))
-        return BrowseState(_PLAY_LABELS["outer_realm"], _PLAY_COPY["outer_realm"], tuple(sections))
+        return BrowseState(ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS)["outer_realm"], _PLAY_COPY["outer_realm"], tuple(sections))
 
     def _rotation_card(self, representative: CatalogEntry) -> BrowseCard:
         rows = tuple(
@@ -386,7 +385,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         )
         return BrowseCard(
             entry.title, f"{len(entries)} 个难度 / 档位" if len(entries) > 1 else entry.subtitle,
-            _PLAY_LABELS[mode], self._first_icon(entries), action, formal_id=formal_id,
+            ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS)[mode], self._first_icon(entries), action, formal_id=formal_id,
             category=self._entry_category(entry), region=self._entry_region(entry),
         )
 
@@ -478,7 +477,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             else:
                 level_label = ""
             context = MonsterContext(
-                play=_PLAY_LABELS.get(entry.play_mode, entry.play_mode),
+                play=ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS).get(entry.play_mode, entry.play_mode),
                 scene=entry.title,
                 level=level_label,
                 half=entry.secondary_label if entry.play_mode == "outer_realm" else "",
@@ -493,7 +492,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             )
             cards.append(BrowseCard(
                 localized_name, f"{section.title} · 数量 {fields.get('数量', '暂无数据')}",
-                _PLAY_LABELS.get(entry.play_mode, entry.play_mode),
+                ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS).get(entry.play_mode, entry.play_mode),
                 self._formal_icon(target_detail),
                 (lambda checked=False, value=target_detail, ctx=context: self.open_detail(value, ctx))
                 if target_detail else None,
@@ -511,7 +510,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             return ""
         return (
             self._controller.value(detail, "类目")
-            or _PLAY_LABELS.get(entry.play_mode, "")
+            or ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS).get(entry.play_mode, "")
         )
 
     def _entry_region(self, entry: CatalogEntry) -> str:
@@ -592,7 +591,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             if card.category
         )))
         for index, category in enumerate(categories):
-            button = QPushButton("全部" if not category else category, self.category_host)
+            button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.configure_filters.button') if not category else category, self.category_host)
             button.setCheckable(True)
             button.setChecked(index == 0)
             button.clicked.connect(
@@ -658,11 +657,11 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
                 grid.setColumnStretch(column, 1)
             for index, model in enumerate(limited):
                 grid.addWidget(
-                    ArchiveCard(model, host), index // columns, index % columns,
+                    ArchiveCard(model, host, text_catalog=getattr(self, 'text_catalog', None)), index // columns, index % columns,
                 )
             self.browser_body.addWidget(host)
             if len(limited) < len(cards):
-                expand = QPushButton(f"展开全部往期（{len(cards)}）", self.browser_host)
+                expand = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_browser_state.expand', value=f'{len(cards)}'), self.browser_host)
                 expand.clicked.connect(
                     lambda _checked=False, value=section.title: self._expand_section(value)
                 )

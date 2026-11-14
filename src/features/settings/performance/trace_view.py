@@ -1,6 +1,7 @@
 # 展示手动细分性能采样、服务选择与最近窗口的阶段耗时。
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-                               QPushButton, QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView)
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView)
 from PySide6.QtCore import Qt
 
 from src.integrations.performance.journals import SERVICES
@@ -15,12 +16,12 @@ PHASE_LABELS = {'original': '游戏原始回调（不属 Calc）', 'gate': '入�
 
 
 class PerformanceTraceView(QWidget):
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller, parent=None, *, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.controller = controller
         layout = QVBoxLayout(self)
-        note = QLabel('细分采样 · 记录已运行功能的分阶段耗时；最多 120 秒 / 64 MiB。'
-                      '结果是各服务最近一组最多 600 次回调，嵌套阶段不能相加，也不是游戏帧率。')
+        note = plain_label(resolve_text_catalog(text_catalog).render('ui.settings.init.note_2'))
         note.setWordWrap(True)
         layout.addWidget(note)
         grid = QGridLayout()
@@ -33,19 +34,19 @@ class PerformanceTraceView(QWidget):
             self.choices.append(box)
         layout.addLayout(grid)
         row = QHBoxLayout()
-        self.start = QPushButton('开始细分采样')
-        self.stop = QPushButton('停止并保存')
+        self.start = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.start'))
+        self.stop = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.stop'))
         self.start.clicked.connect(self.begin)
         self.stop.clicked.connect(controller.stop_trace)
         row.addWidget(self.start)
         row.addWidget(self.stop)
         layout.addLayout(row)
-        self.status = QLabel('尚未采样')
+        self.status = plain_label(resolve_text_catalog(text_catalog).render('ui.settings.init.status'))
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.status)
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(['服务 / 阶段', '样本数', 'P95 ms', 'P99 ms', '最大 ms'])
+        self.table.setHorizontalHeaderLabels([resolve_text_catalog(text_catalog).render('ui.settings.init.table_5'), resolve_text_catalog(text_catalog).render('ui.settings.init.table_6'), 'P95 ms', 'P99 ms', resolve_text_catalog(text_catalog).render('ui.settings.init.table_7')])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setWordWrap(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -69,7 +70,7 @@ class PerformanceTraceView(QWidget):
                  'saved': '已停止并保存', 'failed': '采样未完整完成', 'unconfirmed': '停止未确认'}.get(value.get('state'), '等待组件')
         if running and value.get('stopping'):
             state = '正在停止并落盘'
-        text = f"{state} · 已写入 {value.get('written', 0)} 条 · 丢失 {value.get('dropped', 0)} 条"
+        text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.settings.performance.trace_view.render.text', state=f'{state}', value=f"{value.get('written', 0)}", value_2=f"{value.get('dropped', 0)}")
         if value.get('error'):
             text += '\n' + value['error']
         if value.get('log_path'):
@@ -82,7 +83,7 @@ class PerformanceTraceView(QWidget):
             source = summary['source']
             for phase, result in summary['phases_us'].items():
                 if result['n']:
-                    label = PHASE_LABELS.get(phase, phase)
+                    label = ui_enum_text(getattr(self, 'text_catalog', None), PHASE_LABELS).get(phase, phase)
                     if phase == 'body' and source != 'hud_frame':
                         label = '本次服务总计'
                     rows.append((f'{LABELS[SERVICES.index(source)]} / {label}', result))

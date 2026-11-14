@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from src.domain.work_mode import CheckState, NativeFeatureProbe, WorkMode, WorkModeProbe, WorkModeSettings
+from src.domain.preferences.work_mode import CheckState, NativeFeatureProbe, WorkMode, WorkModeProbe, WorkModeSettings
 from src.services.work_modes.sync_preflight import decide_sync_enable
 
 

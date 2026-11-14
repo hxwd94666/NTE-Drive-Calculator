@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from src.integrations.operation_guard import OperationGuard, bind_execution_guard
+from src.integrations.runtime.operation_guard import OperationGuard, bind_execution_guard
 
 from src.app.context import AppContext
 

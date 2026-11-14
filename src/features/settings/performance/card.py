@@ -1,12 +1,11 @@
 # 在设置中展示性能开关、服务耗时曲线和排错记录状态。
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QSize, Qt
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
+from PySide6.QtCore import QPointF, QSize, QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QPainter, QPen
-from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
-    QTabWidget, QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView,
+    QTabWidget, QCheckBox, QComboBox, QDialog, QHBoxLayout, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView,
 )
 
 from src.app.window_geometry import fit_dialog_to_available_screen
@@ -42,11 +41,12 @@ SERVICE_NAMES.update({prefix + key: owner + label for prefix, owner in
 
 
 class CostPlot(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.points = []
         self.setMinimumHeight(130)
-        self.setAccessibleName("服务平均单次耗时曲线，单位毫秒")
+        self.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.settings.init.self_2'))
 
     def paintEvent(self, event):
         # 无样本保留间断，既有服务耗时不冒充 FPS 或零耗时。
@@ -55,10 +55,10 @@ class CostPlot(QWidget):
         painter.setPen(self.palette().text().color())
         values = [value for _, value in self.points if value is not None]
         if not values:
-            painter.drawText(self.rect(), Qt.AlignCenter, "等待新增调用；没有样本不记为零")
+            painter.drawText(self.rect(), Qt.AlignCenter, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.paintevent.painter_2'))
             return
         maximum = max(max(values), 0.001)
-        painter.drawText(8, 18, f"近 120 次观测 · 平均单次耗时 · 纵轴上限 {maximum:.3f} ms")
+        painter.drawText(8, 18, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.paintevent.painter', maximum=f'{maximum:.3f}'))
         area = self.rect().adjusted(12, 30, -12, -16)
         first, last = self.points[0][0], self.points[-1][0]
         painter.setPen(QPen(self.palette().highlight().color(), 2))
@@ -76,49 +76,48 @@ class CostPlot(QWidget):
 
 
 class PerformanceDetails(QDialog):
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller, parent=None, *, text_catalog=None):
         super().__init__(parent)
-        self.setWindowTitle("性能详情")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.settings.init.self_3'))
         self.controller = controller
         outer = QVBoxLayout(self)
         tabs = QTabWidget()
         outer.addWidget(tabs)
         overview = QWidget()
-        tabs.addTab(overview, '实时概览')
-        self.trace_view = PerformanceTraceView(controller)
-        tabs.addTab(self.trace_view, '细分采样')
+        tabs.addTab(overview, resolve_text_catalog(text_catalog).render('ui.settings.init.tabs'))
+        self.trace_view = PerformanceTraceView(controller, text_catalog=text_catalog)
+        tabs.addTab(self.trace_view, resolve_text_catalog(text_catalog).render('ui.settings.init.tabs_2'))
         layout = QVBoxLayout(overview)
-        self.status = QLabel()
+        self.status = plain_label()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
-        self.metrics = QLabel()
+        self.metrics = plain_label()
         self.metrics.setWordWrap(True)
         layout.addWidget(self.metrics)
-        note = QLabel("FPS/帧时间来自游戏提交呈现的间隔；1% Low 为最近 30 秒慢帧平均。"
-                      "Calc 耗时当前覆盖原生分发和 HUD，不代表全部组件开销。"
-                      "下方曲线是服务平均单次耗时，嵌套服务不能相加。")
+        note = plain_label(resolve_text_catalog(text_catalog).render('ui.settings.init.note'))
         note.setWordWrap(True)
         layout.addWidget(note)
         self.service = QComboBox()
-        self.service.setAccessibleName("曲线服务")
-        self.service.setPlaceholderText("等待可用服务计时")
+        self.service.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.settings.init.service'))
+        self.service.setPlaceholderText(resolve_text_catalog(text_catalog).render('ui.settings.init.service_2'))
         layout.addWidget(self.service)
-        self.plot = CostPlot()
+        self.plot = CostPlot(text_catalog=text_catalog)
         layout.addWidget(self.plot)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["服务", "区间调用数", "平均单次 ms", "来源累计最大 ms"])
+        self.table.setHorizontalHeaderLabels([resolve_text_catalog(text_catalog).render('ui.settings.init.table'), resolve_text_catalog(text_catalog).render('ui.settings.init.table_2'), resolve_text_catalog(text_catalog).render('ui.settings.init.table_3'), resolve_text_catalog(text_catalog).render('ui.settings.init.table_4')])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(self.table, 1)
-        self.path = QLabel()
+        self.path = plain_label()
         self.path.setWordWrap(True)
         self.path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.path)
         row = QHBoxLayout()
-        folder = QPushButton("打开性能日志目录")
+        folder = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.folder'))
         folder.clicked.connect(self.open_logs)
         row.addWidget(folder)
-        close = QPushButton("关闭")
+        close = TextActionButton(resolve_text_catalog(text_catalog).render('common.close'))
         close.clicked.connect(self.close)
         row.addWidget(close)
         layout.addLayout(row)
@@ -129,7 +128,7 @@ class PerformanceDetails(QDialog):
         if directory.is_dir():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
         else:
-            self.path.setText("尚未生成性能日志；开启采集排错并勾选“同时记录性能”后保存。")
+            self.path.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.open_logs.path'))
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -149,8 +148,7 @@ class PerformanceDetails(QDialog):
         def number(key):
             v = metrics.get(key)
             return f"{v / 1000:.2f}" if type(v) is int else "--"
-        self.metrics.setText(f"FPS  {number('fps_milli')}    帧时间  {number('frame_us')} ms    "
-                             f"1% Low  {number('low_milli')} FPS    Calc 耗时（已覆盖）  {number('cost_us')} ms/帧")
+        self.metrics.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render.metrics', value=f"{number('fps_milli')}", value_2=f"{number('frame_us')}", value_3=f"{number('low_milli')}", value_4=f"{number('cost_us')}"))
         rows = value["rows"]
         selected = self.service.currentData()
         names = list(rows)
@@ -173,7 +171,7 @@ class PerformanceDetails(QDialog):
                      f'{row["max_us"]/1000:.3f}' if row["calls"] else "—")
             for col, cell in enumerate(cells):
                 self.table.setItem(index, col, QTableWidgetItem(cell))
-        self.path.setText(value["log_error"] or value["log_path"] or "当前未记录（实时查看不自动落盘）；已有文件可从目录查看。")
+        self.path.setText(value["log_error"] or value["log_path"] or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render.path'))
 
 
 def trace_status_suffix(value):
@@ -197,17 +195,18 @@ def status_text(value):
 
 
 class PerformanceCard(QWidget):
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller, parent=None, *, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.controller = controller
         self.dialog = None
         layout = QVBoxLayout(self)
         row = QHBoxLayout()
-        self.toggle = QCheckBox("显示游戏内性能")
-        self.toggle.setToolTip("显示 FPS、帧时间、1% Low 与 Calc 组件耗时；不启动同步或战报。")
+        self.toggle = QCheckBox(resolve_text_catalog(text_catalog).render('ui.settings.init.toggle'))
+        self.toggle.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.settings.init.toggle_2')))
         self.toggle.clicked.connect(controller.set_enabled)
         row.addWidget(self.toggle)
-        details = QPushButton("性能详情…")
+        details = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.details'))
         details.clicked.connect(self.show_details)
         row.addWidget(details)
         row.addStretch()
@@ -223,7 +222,7 @@ class PerformanceCard(QWidget):
 
     def show_details(self):
         if self.dialog is None:
-            self.dialog = PerformanceDetails(self.controller, self)
+            self.dialog = PerformanceDetails(self.controller, self, text_catalog=getattr(self, 'text_catalog', None))
         self.dialog.render(self.controller.snapshot())
         self.dialog.show()
         self.dialog.raise_()

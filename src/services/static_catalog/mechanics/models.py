@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import quote, unquote
 
-from src.domain.static_catalog import CatalogLink
+from src.domain.catalog.static_catalog import CatalogLink
 
 
 @dataclass(frozen=True, slots=True)

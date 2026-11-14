@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
 from pathlib import Path
 
 from src.features.static_catalog.domain_pages.monsters.browse_models import (
@@ -51,7 +52,7 @@ class FeastCatalogBrowserMixin:
                 text("catalog.feast.unscheduled_note"), unscheduled,
             ))
         return BrowseState(
-            PLAY_LABELS["feast"],
+            ui_enum_text(getattr(self, 'text_catalog', None), PLAY_LABELS)["feast"],
             text("catalog.feast.browse_description"),
             tuple(sections),
         )

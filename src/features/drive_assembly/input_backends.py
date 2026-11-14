@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
-from src.integrations.operation_guard import GuardedGuiInput, OperationGuard, require_operation
+from src.integrations.runtime.operation_guard import GuardedGuiInput, OperationGuard, require_operation
 
 from src.features.drive_assembly.randomization import (
     RandomizationContext,
@@ -133,7 +133,7 @@ def f12_stop_checker() -> Callable[[], bool]:
 class PyAutoGuiMouseBackend:
     """Mouse backend powered by pyautogui."""
 
-    def __init__(self, randomization: RandomizationContext | None = None, *, operation_guard: OperationGuard | None = None, gui_driver: Any | None = None):
+    def __init__(self, randomization: RandomizationContext | None = None, *, operation_guard: OperationGuard | None = None, gui_driver: Any | None = None, verify_delivery: bool = False):
         self.operation_guard = operation_guard
         self._randomization = (
             randomization
@@ -146,7 +146,7 @@ class PyAutoGuiMouseBackend:
 
         gui_driver.FAILSAFE = True
         self._pyautogui = GuardedGuiInput(gui_driver, operation_guard)
-        self._send_input = _WindowsSendInputMouseDriver(randomization=self._randomization, operation_guard=operation_guard)
+        self._send_input = _WindowsSendInputMouseDriver(randomization=self._randomization, operation_guard=operation_guard, verify_delivery=verify_delivery)
         self._gamepad = _VirtualGamepadDriver(operation_guard=operation_guard)
         self._sleeper = time.sleep
         self._mouse_delivery_diagnostics: list[dict[str, Any]] = []
@@ -230,10 +230,15 @@ class PyAutoGuiMouseBackend:
         """Send both release routes so a cloud client never retains left-button state."""
 
         send_input_result: int | None = None
-        if self._send_input.available:
-            send_input_result = self._send_input.release_left()
-        self._pyautogui.mouseUp(button="left")
-        self._record_mouse_delivery("forced_release", send_input_result)
+        try:
+            if self._send_input.available:
+                send_input_result = self._send_input.release_left()
+        finally:
+            # 一路释放被系统拒绝时，另一路仍须尝试；故障保留给 owner。
+            try:
+                self._pyautogui.mouseUp(button="left")
+            finally:
+                self._record_mouse_delivery("forced_release", send_input_result)
 
     def consume_mouse_delivery_diagnostics(self) -> list[dict[str, Any]]:
         """Return and clear recent local button-state observations for one action batch."""
@@ -392,7 +397,9 @@ class _WindowsSendInputMouseDriver:
         sleeper: Callable[[float], None] = time.sleep,
         randomization: RandomizationContext | None = None,
         operation_guard: OperationGuard | None = None,
+        verify_delivery: bool = False,
     ):
+        self._verify_delivery = verify_delivery
         self.operation_guard = operation_guard
         self._randomization = randomization or _DEFAULT_RANDOMIZATION_CTX
         self._sleeper = sleeper
@@ -539,7 +546,11 @@ class _WindowsSendInputMouseDriver:
             require_operation(self.operation_guard, "interface_input")
         mouse_input = self._mouse_input_cls(dx, dy, mouse_data, flags, 0, None)
         input_value = self._input_cls(INPUT_MOUSE, mouse_input)
-        return int(self._user32.SendInput(1, self._ctypes.byref(input_value), self._ctypes.sizeof(input_value)))
+        delivered = int(self._user32.SendInput(1, self._ctypes.byref(input_value), self._ctypes.sizeof(input_value)))
+        # 倒带将拒绝派发视为本次故障；不回退另一输入路线或自动重发。
+        if getattr(self, "_verify_delivery", False) and delivered != 1:
+            raise RuntimeError("input_delivery_rejected")
+        return delivered
 
     @staticmethod
     def _build_structs(ctypes_module: Any, wintypes_module: Any) -> tuple[Any, Any]:

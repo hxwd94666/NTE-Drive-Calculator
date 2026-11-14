@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.integrations import bundled_resources
+from src.integrations.runtime import bundled_resources
 from src.integrations.vision.recognition.ocr import backend_runtime as runtime
 from src.integrations.vision.recognition.ocr import model_resources as models
 from src.integrations.vision.recognition.ocr.backend_support import (

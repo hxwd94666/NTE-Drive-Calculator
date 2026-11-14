@@ -6,11 +6,13 @@ import json
 
 import pytest
 
-from src.services.allocation.axis_postprocess import (
-    AxisOptimizationPreviewSource, verify_axis_postprocess_save,
+from src.services.allocation.axis.axis_postprocess import (
+    AxisOptimizationPreviewSource,
+    verify_axis_postprocess_save,
 )
-from src.services.allocation.postprocess_facts import (
-    allocation_inputs_digest, allocation_row_save_projection,
+from src.services.allocation.results.postprocess_facts import (
+    allocation_inputs_digest,
+    allocation_row_save_projection,
 )
 
 
@@ -48,8 +50,8 @@ def mixed_rows(tmp_path):
 
 
 def verify(tmp_path, rows, batch):
-    with patch("src.services.allocation.axis_postprocess.locked_allocation_owners", return_value=[]), \
-         patch("src.services.allocation.axis_postprocess.verify_axis_source"):
+    with patch("src.services.allocation.axis.axis_postprocess.locked_allocation_owners", return_value=[]), \
+         patch("src.services.allocation.axis.axis_postprocess.verify_axis_source"):
         verify_axis_postprocess_save(SimpleNamespace(database_path=tmp_path), rows, dataset_id="dataset",
             client=SimpleNamespace(dataset_version="dataset", engine_version="test", component_provenance={}),
             batch_rows=batch)
@@ -86,17 +88,17 @@ def test_axis_dependency_rejects_mixed_or_changed_baseline(tmp_path, field):
 def test_mixed_axis_and_baseline_are_saved_in_one_transaction(tmp_path):
     from dataclasses import replace
     from tests.allocation.test_axis_postprocess_component import axis_facade_case, run_axis_facade
-    from src.integrations.static_catalog_release import static_catalog_read_unit
-    from src.services.allocation.direct_postprocess import optimization_payload
-    from src.services.allocation.locks import build_allocation_lock_snapshot
-    from src.services.allocation.plan_save import save_allocation_plans, legacy_plan_tape_main_values
-    from src.services.allocation.postprocess_facts import allocation_role_state_from_plan
+    from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+    from src.services.allocation.direct.direct_postprocess import optimization_payload
+    from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+    from src.services.allocation.results.plan_save import save_allocation_plans, legacy_plan_tape_main_values
+    from src.services.allocation.results.postprocess_facts import allocation_role_state_from_plan
     from src.storage.sqlite.user_data_dao import UserDataDao
 
     case = axis_facade_case(tmp_path, joint=True, second=True)
     case["selection"] = replace(case["selection"], rank_baseline=True)
     # 真实组件先返回未改动的 B0；控制首扫接纳边界，稳定构造一组已接纳、一组基础回退。
-    with patch("src.services.allocation.axis_postprocess.postprocess_first_scan_cut",
+    with patch("src.services.allocation.axis.axis_postprocess.postprocess_first_scan_cut",
                side_effect=lambda group, **_: group["group_index"] != 0):
         plans, client = run_axis_facade(case, groups=[[role] for role in case["selected_roles"]],
                                       budget={"max_evaluations": 1, "max_rounds": 100})

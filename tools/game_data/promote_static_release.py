@@ -440,6 +440,9 @@ def _validate_candidate_database(
         from tools.game_data.build_analysis_catalogs import validate_catalog_inputs
 
         validate_catalog_inputs(database_path)
+        from tools.game_data.static_database_suit_permanent import validate_suit_permanent
+        with closing(_readonly_connection(database_path)) as connection:
+            validate_suit_permanent(connection)
     provenance_path = candidate_dir / PROVENANCE_FILENAME
     repack_path = candidate_dir / STORAGE_REPACK_PROVENANCE_FILENAME
     gold_fix_path = candidate_dir / GOLD_FIX_PROVENANCE_FILENAME
@@ -586,7 +589,7 @@ def verify_candidate(
     validate_manifest(database_path, manifest_path, summary)
     validate_final_report(database_path, report_path, summary)
     if summary.get("catalog_scope") in {"role_page", "reference"}:
-        from src.integrations.role_catalog_release import read_role_catalog
+        from src.integrations.static_catalog.role_catalog_release import read_role_catalog
         read_role_catalog(database_path.parent)
     return {
         "verified": True,
@@ -676,6 +679,18 @@ def promote_candidate(
         "target_manifest": str(target_manifest),
         "final_report": str(finalized["report_path"]),
     }
+
+
+def promote_character_release_metadata(candidate_dir: Path, target_dir: Path) -> dict:
+    """官方公告注解的窄维护入口；旧 schema 原样保持，不提升为当前完整导入器或战报能力。"""
+    from tools.game_data.refresh_character_release_metadata import validate_candidate
+    from tools.game_data.promote_role_catalog import promote_role_catalog
+    if target_dir.resolve() != (DEFAULT_TARGET_DIR / 'role_catalog').resolve():
+        raise StaticReleasePromotionError('角色上线注解只能晋升到独立图鉴目录')
+    verified = validate_candidate(candidate_dir, target_dir)
+    result = promote_role_catalog(verified, target_dir)
+    result['metadata_verification'] = {k: v for k, v in verified.items() if k != 'database_path'}
+    return result
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

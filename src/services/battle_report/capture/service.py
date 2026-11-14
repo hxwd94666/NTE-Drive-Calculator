@@ -12,14 +12,14 @@ from typing import Any, Literal
 from src.domain.battle_report.capture.state import BattleCaptureState, EMPTY_BATTLE_CAPTURE_STATE
 from src.domain.battle_report.capture.summary import BattleSummary
 from src.domain.battle_report.history.records import BattleSummaryPersistenceOutcome
-from src.integrations.nte_core_battle import (
+from src.integrations.native_core.nte_core_battle import (
     parse_battle_axis,
     parse_battle_record,
     parse_battle_summary,
     parse_battle_summary_event,
 )
-from src.integrations.nte_core import nte_core_error_has_domain_code
-from src.integrations.operation_guard import OperationGuard, require_operation
+from src.integrations.native_core.nte_core import nte_core_error_has_domain_code
+from src.integrations.runtime.operation_guard import OperationGuard, require_operation
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception

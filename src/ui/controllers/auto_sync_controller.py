@@ -1,6 +1,8 @@
 # 管理首页自动背包同步的进程观察、异步收尾和重新同步请求。
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from contextlib import contextmanager
 from threading import Thread
 
@@ -8,7 +10,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QMessageBox
 
 from src.app.context import AccountSwitchError
-from src.integrations.game_process_watcher import GameProcessWatcher
+from src.domain.localization.catalog import localized_text
+from src.integrations.game_runtime.game_process_watcher import GameProcessWatcher
 from src.ui.controllers.sync_recovery import SyncRecovery
 
 
@@ -19,8 +22,9 @@ class AutoSyncController(QObject):
     preparation_changed = Signal(object)
 
     def __init__(self, *, window, policy, request_check, watcher_factory=GameProcessWatcher,
-                 submit_stop=None, request_enable_preflight=None):
+                 submit_stop=None, request_enable_preflight=None, text_catalog=None):
         super().__init__(window)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.window, self.policy = window, policy
         self._request_check = request_check
         self._request_enable_preflight = request_enable_preflight
@@ -54,6 +58,10 @@ class AutoSyncController(QObject):
     @staticmethod
     def _background(job):
         Thread(target=job, name="inventory-sync-teardown", daemon=True).start()
+
+    def _t(self, key, fallback):
+        """同步卡片长句经稳定 key 取词；目录未注入或未登记该 key 时回退原文。"""
+        return localized_text(resolve_text_catalog(getattr(self, 'text_catalog', None)), key, fallback)
 
     def _context(self):
         settings = self.policy.settings
@@ -117,8 +125,8 @@ class AutoSyncController(QObject):
                     try:
                         self.policy.set_auto_sync_enabled(False)
                     except OSError:
-                        QMessageBox.warning(self.window, "自动同步设置待保存",
-                            "账号已切换，本次自动同步已关闭；设置保存失败，请检查配置目录后重试。")
+                        QMessageBox.warning(self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.account_switch.qmessagebox'),
+                            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.account_switch.qmessagebox_2')))
                 if self._context()[:2] != previous:
                     # 旧 owner 的收尾归 AppContext；首次刷新不停止新账号的手动会话。
                     self._key = None
@@ -168,14 +176,14 @@ class AutoSyncController(QObject):
             self._process = event.process
             self._attempt = None
             self._retry_cancelled = False
-            self._detail = "已发现游戏，正在准备背包监听。"
+            self._detail = self._t("home.sync.detail.game_found", "已发现游戏，正在准备背包监听。")
         elif event.kind == "exited":
             if self._process != event.process:
                 return
             self._process = None
             self._attempt = None
             self._retry_cancelled = False
-            self._detail = "游戏已退出，等待下次启动。已保存背包仍可用于计算。"
+            self._detail = self._t("home.sync.detail.game_exited", "游戏已退出，等待下次启动。已保存背包仍可用于计算。")
             self._stop_inventory()
         elif event.kind == "error":
             self._detail = event.error
@@ -183,7 +191,7 @@ class AutoSyncController(QObject):
             self._attempt = None
             self._stop_inventory()
         elif event.kind == "waiting" and self._process is None:
-            self._detail = "等待启动游戏；发现游戏后自动开始背包监听。"
+            self._detail = self._t("home.sync.detail.waiting_game_watch", "等待启动游戏；发现游戏后自动开始背包监听。")
         self.refresh()
 
     def set_enabled(self, enabled):
@@ -195,19 +203,21 @@ class AutoSyncController(QObject):
             self._request_enable_preflight(lambda: self._confirm_enable(frozen))
             return
         if enabled and not (self.policy.allowed("native_sync") or self.policy.allowed("packet_capture")):
-            self.window.operation_entry("game_sync", "自动同步")
+            self.window.operation_entry("game_sync", ui_enum_text(getattr(self, 'text_catalog', None), "自动同步"))
             self.render()
             return
         if enabled and self.policy.settings.paused:
             self.window.operation_unavailable(
-                "自动同步", "连接已暂停，请查看检测详情并完成同步条件核对。", target="detection",
+                ui_enum_text(getattr(self, 'text_catalog', None), "自动同步"),
+                self._t("home.sync.detail.paused_unavailable", "连接已暂停，请查看检测详情并完成同步条件核对。"),
+                target="detection",
             )
             self.render()
             return
         try:
             self.policy.set_auto_sync_enabled(enabled)
         except OSError:
-            QMessageBox.warning(self.window, "自动同步", "自动同步设置未能保存，请检查配置目录后重试。")
+            QMessageBox.warning(self.window, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('home.page.build_home_page.home_auto_sync_toggle'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.set_enabled.qmessagebox')))
         self.refresh()
         if self.policy.settings.auto_sync_enabled:
             self._request_check()
@@ -349,7 +359,7 @@ class AutoSyncController(QObject):
             self._dialog.raise_()
             return
         if not self.policy.allowed("native_sync") and not self.policy.allowed("packet_capture"):
-            self.window.operation_entry("game_sync", "重启同步")
+            self.window.operation_entry("game_sync", ui_enum_text(getattr(self, 'text_catalog', None), "重启同步"))
             return
         from src.features.home.sync_retry_dialog import SyncRetryDialog
         dialog = SyncRetryDialog(self.window, controller=self, native=self.policy.allowed("native_sync"))
@@ -373,7 +383,7 @@ class AutoSyncController(QObject):
         self._retry_cancelled = False
         self._stop_failed = False
         self._restarting = True
-        self._detail = "正在停止旧会话并重新建立同步，已保存背包保持可用。"
+        self._detail = self._t("home.sync.detail.restarting", "正在停止旧会话并重新建立同步，已保存背包保持可用。")
         if self._watcher is not None and not self._watcher.is_running:
             self._stop_watcher()
         self._stop_inventory()
@@ -384,7 +394,7 @@ class AutoSyncController(QObject):
             return
         self._restarting = False
         self._retry_cancelled = True
-        self._detail = "本次重启同步已取消，可点击“重启同步”重试。已保存背包保持可用。"
+        self._detail = self._t("home.sync.detail.restart_cancelled", "本次重启同步已取消，可点击“重启同步”重试。已保存背包保持可用。")
         self._stop_inventory()
         self.render()
 
@@ -414,19 +424,20 @@ class AutoSyncController(QObject):
         source = ("来源：游戏内组件" if native else
                   "来源：抓包（角色养成需手动维护）")
         source_tip = (
-            "同步背包、当前装备及角色养成（等级、突破、技能、好感度、弧盘），并持续监听变化。"
+            self._t("home.sync.source_tip.native",
+                    "同步背包、当前装备及角色养成（等级、突破、技能、好感度、弧盘），并持续监听变化。")
             if native else
-            "同步背包和当前装备并持续监听变化；角色养成需手动维护。"
+            self._t("home.sync.source_tip.packet", "同步背包和当前装备并持续监听变化；角色养成需手动维护。")
         )
         if not online:
             source = "离线模式：使用已保存数据"
-            source_tip = "不连接游戏，也不采集新数据。"
-        self.window.home_sync_source_label.setText(source)
-        self.window.home_sync_source_label.setToolTip(source_tip)
+            source_tip = self._t("home.sync.source_tip.offline", "不连接游戏，也不采集新数据。")
+        self.window.home_sync_source_label.setText(ui_enum_text(getattr(self, 'text_catalog', None), source))
+        self.window.home_sync_source_label.setToolTip(plain_tooltip(source_tip))
         self.window.home_sync_source_label.hide()
         title = getattr(self.window, "home_sync_title", None)
         if title is not None:
-            title.setText("背包同步" if online and not native else "游戏数据同步")
+            title.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.render.title') if online and not native else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.home.build_home_page.sync_card_sync_layout'))
         service = self.window._inventory_sync_service
         state = service.state if service is not None else None
         role_detail = getattr(self.window, "home_character_sync_detail", None)
@@ -437,54 +448,54 @@ class AutoSyncController(QObject):
                 role_detail.setText(error)
         battle = self.window.battle_report_controller.is_running()
         button = self.window.home_restart_sync_button
-        button.setText("恢复自动同步" if settings.paused else
-                       "重启同步" if settings.auto_sync_enabled else "开启自动同步")
-        button.setToolTip(
-            "先核对同步条件；组件已准备好且清理完成时恢复同步，无需重选工作模式。"
-            if settings.paused else
-            "停止当前同步连接并重新建立；用于同步异常或背包未更新。已保存数据不会删除。"
-            if settings.auto_sync_enabled else
-            "先显示环境检测，确认准备后进入游戏场景自动读取并保存数据。" if native else
-            "先显示抓包条件检测，确认后登录游戏并自动保存数据。"
-        )
+        button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.render.button') if settings.paused else
+                       resolve_text_catalog(getattr(self, 'text_catalog', None)).render('home.page.build_home_page.home_restart_sync_button') if settings.auto_sync_enabled else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.prompt_offline_sync_mode.dialog'))
+        button.setToolTip('')
         button.setEnabled(not self._maintenance and not self._stopping and (not battle or not settings.auto_sync_enabled))
-        hint = "请先结束战报，再重启同步。" if battle and settings.auto_sync_enabled else ""
+        hint = ""
+        if battle and settings.auto_sync_enabled:
+            hint = self._t("home.sync.hint.battle_running", "请先结束战报，再重启同步。")
         self.window.home_sync_action_hint.setText(hint)
         self.window.home_sync_action_hint.setVisible(bool(hint))
         detail = None
         if self._maintenance:
-            detail = '插件更新中，同步暂时暂停；已保存背包仍可使用。'
+            detail = self._t("home.sync.detail.plugin_update", "插件更新中，同步暂时暂停；已保存背包仍可使用。")
         elif not online:
-            detail = "离线模式，使用已保存背包。"
+            detail = self._t("home.sync.detail.offline", "离线模式，使用已保存背包。")
         elif settings.paused:
-            detail = "连接已暂停；点击“恢复自动同步”核对条件，无需重选工作模式。"
+            detail = self._t("home.sync.detail.paused", "连接已暂停；点击“恢复自动同步”核对条件，无需重选工作模式。")
         elif not settings.auto_sync_enabled:
-            detail = "自动同步已关闭，已保存背包仍可用于计算。"
+            detail = self._t("home.sync.detail.disabled", "自动同步已关闭，已保存背包仍可用于计算。")
         elif self._stopping or self._stop_failed or self._retry_cancelled:
-            detail = self._detail or "正在收尾上次同步，已保存背包仍可用于计算。"
+            detail = self._detail or self._t("home.sync.detail.stopping", "正在收尾上次同步，已保存背包仍可用于计算。")
         elif native and battle:
-            detail = "战报采集中，背包与角色刷新暂时等待，结束后自动恢复。"
+            detail = self._t("home.sync.detail.battle_report", "战报采集中，背包与角色刷新暂时等待，结束后自动恢复。")
         elif native and preparation == 'checking_game':
-            detail = "正在检测游戏是否启动。已保存背包仍可用于计算。"
+            detail = self._t("home.sync.detail.checking_game", "正在检测游戏是否启动。已保存背包仍可用于计算。")
         elif native and preparation == 'waiting_game_exit':
-            detail = "组件尚未完成部署或更新，请完全退出游戏，部署完成后再启动并进入游戏场景。"
+            detail = self._t("home.sync.detail.waiting_game_exit", "组件尚未完成部署或更新，请完全退出游戏，部署完成后再启动并进入游戏场景。")
         elif native and preparation == 'waiting_deployment':
-            detail = "组件尚未完成部署或更新，请暂勿启动游戏；查看检测详情，完成部署后再启动并进入游戏场景。"
+            detail = self._t("home.sync.detail.waiting_deployment", "组件尚未完成部署或更新，请暂勿启动游戏；查看检测详情，完成部署后再启动并进入游戏场景。")
         elif native and preparation == 'waiting_game':
-            detail = "等待启动游戏；请登录并进入游戏场景，等待背包与角色数据同步完成。"
+            detail = self._t("home.sync.detail.waiting_game", "等待启动游戏；请登录并进入游戏场景，等待背包与角色数据同步完成。")
         elif not native and self._process is None:
-            detail = self._detail or "等待启动游戏；发现游戏后自动开始背包监听。"
+            detail = self._detail or self._t("home.sync.detail.waiting_game_watch", "等待启动游戏；发现游戏后自动开始背包监听。")
         elif self._recovery.waiting:
-            detail = "原生连接已中断，正在等待自动恢复背包监听；已保存背包保持可用。"
+            detail = self._t("home.sync.detail.recovery_waiting", "原生连接已中断，正在等待自动恢复背包监听；已保存背包保持可用。")
         elif state is not None and state.phase == "stopped" and not service.is_running:
-            detail = "背包同步监听已停止，本次不会再接收数据。请点击“重启同步”；已保存背包仍可用于计算。"
+            detail = self._t("home.sync.detail.listening_stopped", "背包同步监听已停止，本次不会再接收数据。请点击“重启同步”；已保存背包仍可用于计算。")
         elif state is None or not service.is_running:
             detail = (state.message if state and state.phase == "error" else
-                      "等待游戏内组件就绪；请进入游戏场景，等待同步完成。" if native else self._detail or "正在准备背包监听。")
+                      self._t("home.sync.detail.waiting_component", "等待游戏内组件就绪；请进入游戏场景，等待同步完成。") if native else
+                      self._detail or self._t("home.sync.detail.preparing_watch", "正在准备背包监听。"))
         elif state.capturing and not state.source_snapshot_ready:
             detail = (
-                state.message + "\n请进入游戏场景，等待同步完成；当前显示的仍是上次保存的背包。" if native else
-                "抓包监听已就绪，请登录游戏以获取完整背包；当前显示的仍是上次保存的背包。"
+                state.message + "\n" + self._t(
+                    "home.sync.detail.capturing_suffix",
+                    "请进入游戏场景，等待同步完成；当前显示的仍是上次保存的背包。")
+                if native else
+                self._t("home.sync.detail.capturing_packet",
+                        "抓包监听已就绪，请登录游戏以获取完整背包；当前显示的仍是上次保存的背包。")
             )
         if detail is not None:
             self.window.home_sync_detail.setText(detail)
@@ -526,8 +537,10 @@ class AutoSyncController(QObject):
                 title, tone = "同步中", "active"
             else:
                 title, tone = "等待背包", "warning"
+            # 角标标题属于无参数短标签，按目录原文取词；未登记时仍显示原中文。
+            title = ui_enum_text(getattr(self, 'text_catalog', None), title)
             if badge.text() != title:
-                from src.ui.dashboard_widgets import set_status_badge
+                from src.ui.common.dashboard_widgets import set_status_badge
                 set_status_badge(badge, title, tone)
             header = getattr(self.window, "status_lbl", None)
             if header is not None:

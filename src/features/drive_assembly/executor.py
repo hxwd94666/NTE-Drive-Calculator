@@ -401,7 +401,9 @@ def _execute_one_action(
             raise RuntimeError('执行 OCR 目标缺少任务 owner')
         return _click_ocr_target(action, backend, ocr_session, should_stop)
     if "optional_confirm_position" in action:
-        return _maybe_click_optional_confirm(action, backend)
+        # 借用弹窗未出现时，该检查步骤正常完成；探测未知仍记为未完成。
+        # 这不替代后续驱动与整张图纸校验，也不补发已经执行过的输入。
+        return _maybe_click_optional_confirm(action, backend) is not None
     if "wheel_clicks" in action:
         scroll = getattr(backend, "scroll", None)
         if scroll is None:

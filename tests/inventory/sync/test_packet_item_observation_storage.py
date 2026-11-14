@@ -16,8 +16,9 @@ from src.storage.sqlite.inventory.packet_item_observation_dao import (
     read_latest_packet_item_observation,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError, UserDataValidationError
-from tests.test_user_data_inventory_dao import item, snapshot
-from tests.user_data_migration_helpers import create_user_database_at_version
+from tests.storage.test_user_data_inventory_dao import item
+from tests.storage.test_user_data_inventory_dao import snapshot
+from tests.storage.user_data_migration_helpers import create_user_database_at_version
 
 
 def observation(*, generation=1, sequence=1, amount=7):

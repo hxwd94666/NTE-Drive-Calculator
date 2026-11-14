@@ -1,49 +1,85 @@
-# 只读展示本队冻结增强历史及联合详情，翻页不发起伤害分析，关闭等待本 owner 退场。
+# 冻结增强历史按结果、来源、覆盖和关联分区展示；分页和取消仍由本窗口 owner 管理。
 import json
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QListWidget, QPushButton, QTextEdit, QVBoxLayout
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QListWidget, QScrollArea, QVBoxLayout, QWidget
 
-from src.app.window_geometry import fit_dialog_to_available_screen
+from src.features.teams.compact_details import CompactReadOnlyText, CurrentContentTabs, InitialContentFit, reveal_expanded_details
 from src.domain.teams.enhancement_presentation import team_enhancement_presentation
-from src.features.teams.report_match_controller import ReportMatchController
+from src.features.teams.report_matching.report_match_controller import ReportMatchController
+from src.features.teams.dialog_support import CompactFooter, ExplicitActionDialog, LocalizedDisclosure
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog, set_button_text
 
 
-class TeamEnhancementHistoryDialog(QDialog):
-    def __init__(self, *, service, team, names=None, parent=None):
+class TeamEnhancementHistoryDialog(ExplicitActionDialog):
+    def __init__(self, *, service, team, names=None, parent=None, catalog=None):
         super().__init__(parent)
-        self.setWindowTitle("增强记录 · " + team.name)
+        self.text_catalog = resolve_text_catalog(catalog)
+        self.text = self.text_catalog.render
+        self.setWindowTitle(self.text('teams.history.title', team=team.name))
         self._service, self._team, self._names = service, team, names or {}
         self._rows, self._offset, self._closing = [], 0, None
         self._reader = ReportMatchController(self)
         self._reader.result.connect(self._loaded)
         self._reader.error.connect(self._failed)
         self._reader.drained.connect(self._drained)
-        root = QVBoxLayout(self)
-        self.status = QLabel("正在读取增强记录…")
-        self.status.setTextFormat(Qt.PlainText)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 14, 16, 14)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setFrameShape(QScrollArea.NoFrame)
+        body = QWidget()
+        root = QVBoxLayout(body)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(8)
+        root.setAlignment(Qt.AlignTop)
+        self.scroll.setWidget(body)
+        outer.addWidget(self.scroll, 1)
+        self.status = plain_label(self.text('teams.history.loading'))
         self.status.setWordWrap(True)
         root.addWidget(self.status)
         self.list = QListWidget()
-        self.list.setAccessibleName("队伍已保存增强历史")
+        self.list.setAccessibleName(self.text('teams.history.list'))
+        self.list.setMaximumHeight(170)
+        self.list.setMinimumHeight(40)
         self.list.setWordWrap(True)
         self.list.currentRowChanged.connect(self._selected)
-        root.addWidget(self.list, 1)
-        self.details = QTextEdit()
-        self.details.setReadOnly(True)
-        self.details.setAccessibleName("冻结增强来源、覆盖与搜索详情")
-        root.addWidget(self.details, 2)
-        self.more = QPushButton("加载更多历史")
+        root.addWidget(self.list)
+        self.headline = plain_label('')
+        self.headline.setWordWrap(True)
+        self.headline.setStyleSheet('font-size:17px;font-weight:600;')
+        root.addWidget(self.headline)
+        self.tabs = CurrentContentTabs()
+        self.details, self.sources, self.coverage, self.association = (CompactReadOnlyText() for _ in range(4))
+        for key, edit in (('before_after', self.details), ('sources', self.sources), ('coverage', self.coverage), ('association', self.association)):
+            edit.setReadOnly(True)
+            edit.setAccessibleName(self.text('teams.history.' + key))
+            self.tabs.addTab(edit, self.text('teams.history.' + key))
+        root.addWidget(self.tabs)
+        self.technical = plain_label('')
+        self.technical.setWordWrap(True)
+        self.technical.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        technical_body = QWidget()
+        tech_layout = QVBoxLayout(technical_body)
+        tech_layout.setContentsMargins(0, 0, 0, 0)
+        tech_layout.addWidget(self.technical)
+        self.technical_section = LocalizedDisclosure(self.text('teams.history.diagnostics'), technical_body,
+                                                     catalog=self.text_catalog)
+        root.addWidget(self.technical_section)
+        reveal_expanded_details(self.scroll, self.technical_section)
+        self.more = TextActionButton(self.text('teams.history.more'))
         self.more.clicked.connect(self._load)
-        root.addWidget(self.more)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        set_button_text(self.buttons.button(QDialogButtonBox.Close), self.text('teams.history.close'))
         self.buttons.rejected.connect(self.reject)
-        root.addWidget(self.buttons)
-        fit_dialog_to_available_screen(self, QSize(800, 730))
+        self.footer = CompactFooter(leading=self.more, buttons=self.buttons)
+        outer.addWidget(self.footer)
+        self._initial_fit = InitialContentFit(self, body=body, footer=self.footer, width=720)
         QTimer.singleShot(0, self._load)
 
     def _load(self):
-        if self._closing is not None or self._offset is None:
+        if self._closing is not None or self._offset is None or self._reader.is_running():
             return
         service, team, offset = self._service, self._team, self._offset
         self.more.setEnabled(False)
@@ -57,15 +93,22 @@ class TeamEnhancementHistoryDialog(QDialog):
                 continue
             self._rows.append(row)
             shown = team_enhancement_presentation(row.payload)
-            historical = set(row.payload["character_ids"]) != set(self._team.character_ids)
-            self.list.addItem(f"{row.created_at_utc} · {shown.headline}" + (" · 历史阵容" if historical else ""))
-        self.status.setText(f"已加载 {len(self._rows)} 条记录，最新保存的在前。" if self._rows else
-                            "暂无增强记录。整队预览保存后会显示在这里。")
+            historical = set(row.payload['character_ids']) != set(self._team.character_ids)
+            self.list.addItem(f'{row.created_at_utc} · {shown.headline}'
+                              + (' · ' + self.text('teams.history.historical') if historical else ''))
+        # 少量记录不预留整屏列表，分页仍使用同一列表并保留当前选择。
+        content_height = sum(max(0, self.list.sizeHintForRow(i)) for i in range(min(self.list.count(), 8)))
+        self.list.setMaximumHeight(min(170, max(40, content_height + 2 * self.list.frameWidth())))
+        self.status.setText(self.text('teams.history.count', count=len(self._rows)) if self._rows else self.text('teams.history.empty'))
+        for widget in (self.list, self.headline, self.tabs, self.technical_section):
+            widget.setVisible(bool(self._rows))
         if self.list.currentRow() < 0 and self._rows:
             self.list.setCurrentRow(0)
+        self._initial_fit.ready()
 
     def _failed(self, message):
-        self.status.setText("历史读取未完成；旧结果仍保留：" + (message or "输入已变化，请重新打开"))
+        self.status.setText(self.text('teams.history.failed', reason=message or self.text('teams.history.changed')))
+        self._initial_fit.ready()
 
     def _selected(self, index):
         if not 0 <= index < len(self._rows):
@@ -73,31 +116,41 @@ class TeamEnhancementHistoryDialog(QDialog):
         row = self._rows[index]
         payload = row.payload
         shown = team_enhancement_presentation(payload)
-        lines = [shown.headline, shown.source, shown.coverage, shown.search,
-                 "；".join(row.association), f"优化前计分：{payload['baseline_value'] if payload['baseline_value'] is not None else '未记录'}",
-                 f"优化后计分：{payload['candidate_value'] if payload['candidate_value'] is not None else '未记录'}",
-                 "保存时的成员方案："]
+        self.headline.setText(shown.headline)
+        missing = self.text('teams.history.missing')
+        self.details.setPlainText('\n'.join((shown.headline,
+            self.text('teams.history.before', value=payload['baseline_value'] if payload['baseline_value'] is not None else missing),
+            self.text('teams.history.after', value=payload['candidate_value'] if payload['candidate_value'] is not None else missing))))
+        source = payload['provenance']
+        lines = [shown.source, '', self.text('teams.history.members')]
+        diagnostics = [self.text('teams.history.static', value=source.get('dataset_id') or missing),
+                       self.text('teams.history.engine', model=source.get('model_id') or missing,
+                                 engine=source.get('engine_version') or missing)]
         for member in row.members:
-            lines.append(f"{self._names.get(member['character_id'], '角色 '+str(member['character_id']))} · "
-                         f"槽位 {member['slot_id']} · 方案 {member['plan_id']} · 来源快照 {member['source_snapshot_id']}")
-        source = payload["provenance"]
-        lines += ["", "静态来源：" + str(source.get("dataset_id") or "未记录"),
-                  "模型／引擎：" + str(source.get("model_id") or "未记录") + " / " + str(source.get("engine_version") or "未记录"),
-                  "结果 ID：" + row.result_id, "作业 ID：" + row.run_id]
+            lines.append(self.text('teams.history.member_slot', name=self._names.get(member['character_id'],
+                self.text('teams.report.role', id=member['character_id'])),
+                slot=member['slot_id'] if member['slot_id'] is not None else missing))
+            diagnostics.append(self.text('teams.history.member', name=self._names.get(member['character_id'],
+                self.text('teams.report.role', id=member['character_id'])), slot=member['slot_id'] if member['slot_id'] is not None else missing, plan=member['plan_id'] if member['plan_id'] is not None else missing, snapshot=member['source_snapshot_id'] if member['source_snapshot_id'] is not None else missing))
+        self.sources.setPlainText('\n'.join(lines))
+        self.coverage.setPlainText(shown.coverage + '\n\n' + shown.search)
+        association = list(row.association)
         if row.joint_summary_json is not None:
             joint = json.loads(row.joint_summary_json)
-            lines += ["", "联合详情：两队各自 B0 归一为 100，再等权比较；以下为指数，不是本队伤害。"]
-            if joint["relative_gain"] is None:
-                lines.append("联合作业未取得已证实的综合增幅。")
+            association.extend(('', self.text('teams.history.joint')))
+            if joint['relative_gain'] is None:
+                association.append(self.text('teams.history.joint_unknown'))
             else:
-                lines.append(f"联合综合增幅：{joint['relative_gain']:+.2%}；归一指数 {joint['normalized_candidate']:.6g}。")
+                association.append(self.text('teams.history.joint_value', gain=f"{joint['relative_gain']:+.2%}", value=f"{joint['normalized_candidate']:.6g}"))
             for other in row.joint_results:
                 text = team_enhancement_presentation(other.payload)
-                names = "、".join(self._names.get(key, f"角色 {key}") for key in other.payload["character_ids"])
-                lines.extend(("另一队：" + names, text.headline, text.coverage, text.search))
+                names = '、'.join(self._names.get(key, self.text('teams.report.role', id=key)) for key in other.payload['character_ids'])
+                association.extend((self.text('teams.history.other', names=names), text.headline, text.coverage, text.search))
             if not row.joint_results:
-                lines.append("另一队结果已删除或未保留；本队冻结记录及联合身份仍保留。")
-        self.details.setPlainText("\n".join(lines))
+                association.append(self.text('teams.history.other_missing'))
+        self.association.setPlainText('\n'.join(association))
+        self.technical.setText('\n'.join((*diagnostics, self.text('teams.history.result', value=row.result_id),
+                                           self.text('teams.history.run', value=row.run_id))))
 
     def is_running(self):
         return self._reader.is_running()
@@ -121,3 +174,7 @@ class TeamEnhancementHistoryDialog(QDialog):
             super().done(self._closing)
         else:
             self.more.setEnabled(self._offset is not None and not self.is_running())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._initial_fit.shown()

@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
-    QPushButton,
     QWidget,
 )
 
@@ -17,32 +17,34 @@ class BattleBuildSnapshotControl(QWidget):
     role_page_import_requested = Signal()
     environment_requested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self._active = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         # 未放入布局的隐藏控制仍归本页，不随 Python 回调引用残留为顶层控件。
-        self.status = QLabel("等待战报角色配置", self)
+        self.status = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.status'), self)
         self.status.hide()
-        self.edit_button = QPushButton("编辑角色")
+        self.edit_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.battle_report.init.edit_button'))
         self.edit_button.clicked.connect(self.edit_requested)
         self.edit_button.setEnabled(False)
         layout.addWidget(self.edit_button)
-        self.import_button = QPushButton("从角色页同步", self)
+        self.import_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.battle_report.init.import_button'), self)
         self.import_button.setToolTip(
-            "用当前角色页养成覆盖本场修改副本；保留副本已选边际空幕/驱动。"
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.init.import_button_2'))
         )
         self.import_button.clicked.connect(self.role_page_import_requested)
         self.import_button.setEnabled(False)
         self.import_button.hide()
-        self.environment_button = QPushButton("环境配置 · 未配置", self)
+        self.environment_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_button'), self)
         self.environment_button.setToolTip(
-            "确认战斗模式、对象、难度、争锋加成与魔女赐福。"
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_button_2'))
         )
         self.environment_button.clicked.connect(self.environment_requested)
         self.environment_button.setEnabled(False)
         self.environment_button.hide()
-        self.activation_button = QPushButton("恢复原始快照", self)
+        self.activation_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.battle_report.init.activation_button'), self)
         self.activation_button.clicked.connect(self._request_activation)
         self.activation_button.setEnabled(False)
         self.activation_button.hide()
@@ -54,6 +56,7 @@ class BattleBuildSnapshotControl(QWidget):
         active: bool,
         available: bool = True,
     ) -> None:
+        self._active = bool(active)
         self.edit_button.setEnabled(available)
         self.import_button.setEnabled(available)
         self.activation_button.setEnabled(available and has_edit)
@@ -65,10 +68,10 @@ class BattleBuildSnapshotControl(QWidget):
             text = "当前使用修改副本；它只用于逐击重放和边际计算，主页面实测数据不变。"
         else:
             text = "当前已恢复原始快照；修改副本仍保留，可继续编辑或重新启用。"
-        self.status.setText(text)
-        self.edit_button.setToolTip(text)
+        self.status.setText(ui_enum_text(getattr(self, 'text_catalog', None), text))
+        self.edit_button.setToolTip(plain_tooltip(ui_enum_text(getattr(self, 'text_catalog', None), text)))
         self.activation_button.setText(
-            "恢复原始快照" if active else "使用修改副本"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.activation_button') if active else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_state.activation_button')
         )
 
     def set_environment_state(self, *, status: str, summary: str = "") -> None:
@@ -78,12 +81,12 @@ class BattleBuildSnapshotControl(QWidget):
             "unconfigured": "未配置",
         }
         label = labels.get(status, "未配置")
-        self.environment_button.setText(f"环境配置 · {label}")
+        self.environment_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_environment_state.environment_button', label=ui_enum_text(getattr(self, 'text_catalog', None), f'{label}')))
         self.environment_button.setToolTip(
-            summary or "确认战斗模式、对象、难度、争锋加成与魔女赐福。"
+            plain_tooltip(summary or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.environment_button_2'))
         )
 
     def _request_activation(self) -> None:
         self.activation_requested.emit(
-            self.activation_button.text() == "使用修改副本"
+            not self._active
         )

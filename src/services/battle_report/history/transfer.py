@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from concurrent.futures import CancelledError
-from src.domain.static_catalog import StaticCatalogRelease
-from src.integrations.static_catalog_release import (
+from src.domain.catalog.static_catalog import StaticCatalogRelease
+from src.integrations.static_catalog.static_catalog_release import (
     StaticCatalogReleaseError, StaticCatalogReleaseReader, static_catalog_commit_unit,
 )
 from src.services.battle_report.history.access import StaleBattleReportContextError
@@ -23,7 +23,7 @@ from src.domain.battle_report.history.transfer import (
     BattleReportExportOutcome, BattleReportImportOutcome, BattleReportTransferEntry, battle_equipment_sha256,
     canonical_battle_equipment_json, portable_battle_evidence,
 )
-from src.integrations.battle_report_bundle import (
+from src.integrations.capture.battle_report_bundle import (
     BATTLE_REPORT_BUNDLE_EXTENSION,
     read_battle_report_bundle,
     write_battle_report_bundle_atomic,

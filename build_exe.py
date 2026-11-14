@@ -350,7 +350,7 @@ def main() -> int:
     _append_add_data(static_database_path, "data")
     static_manifest_path = _required_build_file("发行版静态数据库清单", STATIC_MANIFEST_PATH)
     _append_add_data(static_manifest_path, "data")
-    from src.integrations.role_catalog_release import resolve_role_catalog, validate_role_assets
+    from src.integrations.static_catalog.role_catalog_release import resolve_role_catalog, validate_role_assets
     role_catalog = resolve_role_catalog(static_database_path)
     if role_catalog is None:
         raise FileNotFoundError("发行构建需要完整图鉴与统一界面图片，请先晋升 data/role_catalog")

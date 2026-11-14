@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.domain.battle_report.capture.summary import BattleAbyssHalfSummary, BattleAbyssSummary
 from src.features.battle_report.capture.overlay import BattleReportOverlay
-from src.integrations.nte_core_battle import parse_battle_summary
+from src.integrations.native_core.nte_core_battle import parse_battle_summary
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService
 

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.integrations.nte_core_battle import parse_battle_summary
+from src.integrations.native_core.nte_core_battle import parse_battle_summary
 from src.observability import OperationContext
 from src.services.battle_report.history.service import BattleReportHistoryService
 from src.services.battle_report.history.projection import (

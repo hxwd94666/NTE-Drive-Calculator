@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from src.integrations.nte_core_protocol import NteCoreTimeoutError
+from src.integrations.native_core.nte_core_protocol import NteCoreTimeoutError
 from src.observability import OperationContext
 from src.observability.operation import log_event
 

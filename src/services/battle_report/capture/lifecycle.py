@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from src.integrations.nte_core_protocol import (
+from src.integrations.native_core.nte_core_protocol import (
     NATIVE_CAPTURE_TRANSIENT_REASONS, NteCoreProcessError,
     is_native_capture_not_ready, native_capture_readiness_message,
 )

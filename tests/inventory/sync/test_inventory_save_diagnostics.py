@@ -12,7 +12,8 @@ from src.services.inventory.sync.service import InventorySyncService
 from src.storage.sqlite.inventory.inventory_save_error import InventorySnapshotSaveError
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.inventory.sync.test_service import FakeCoreClient
-from tests.test_user_data_dao import item, snapshot
+from tests.storage.test_user_data_dao import item
+from tests.storage.test_user_data_dao import snapshot
 
 
 class InventorySaveDiagnosticsTests(unittest.TestCase):

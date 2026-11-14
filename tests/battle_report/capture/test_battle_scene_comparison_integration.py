@@ -17,10 +17,14 @@ from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies, BattleReportPersistenceService,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_battle_axis_dao import _profile, _snapshot
-from tests.test_battle_capture_axis_service import _Core, _summary_payload
+from tests.battle_report.persistence.test_battle_axis_dao import _profile
+from tests.battle_report.persistence.test_battle_axis_dao import _snapshot
+from tests.battle_report.capture.test_battle_capture_axis_service import _Core
+from tests.battle_report.capture.test_battle_capture_axis_service import _summary_payload
 from tests.battle_report.capture.test_battle_native_capture_lifecycle import _NativeCore
-from tests.test_battle_report_controller import _Overlay, _Page, _controller_state
+from tests.battle_report.analysis.test_battle_report_controller import _Overlay
+from tests.battle_report.analysis.test_battle_report_controller import _Page
+from tests.battle_report.analysis.test_battle_report_controller import _controller_state
 
 
 class _DelayedPacketCore(_Core):

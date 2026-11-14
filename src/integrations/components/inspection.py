@@ -7,10 +7,24 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
-from src.integrations.native_plugin_bundle import (
+from src.domain.localization.catalog import TextCatalog, localized_text
+from src.integrations.components.native_plugin_bundle import (
     NATIVE_PLUGIN_LAYOUT, NativePluginBundleInspection, inspect_native_plugin_bundle,
 )
 from src.integrations.components.environment import EquipmentPluginDeploymentError, game_executable
+
+_LOCALE_PREFIX = "integration.inspection."
+
+
+def _text(
+    text_catalog: TextCatalog | None,
+    suffix: str,
+    fallback: str,
+    **values: object,
+) -> str:
+    """本文件用户可见核对问题统一挂在本模块前缀下；目录缺该 key 时逐字回退中文基线。"""
+
+    return localized_text(text_catalog, f"{_LOCALE_PREFIX}{suffix}", fallback, **values)
 
 
 @dataclass(frozen=True)
@@ -46,6 +60,7 @@ def inspect_deployed_native_plugin(
     *, application_root: str | Path, game_executable_path: str | Path,
     recorded_files: Mapping[str, str] | None = None,
     bundle_inspection: NativePluginBundleInspection | None = None,
+    text_catalog: TextCatalog | None = None,
 ) -> NativePluginDeploymentInspection:
     """只核对实际组件文件，不探测登记、管道或业务就绪。"""
     bundle = bundle_inspection if bundle_inspection is not None else inspect_native_plugin_bundle(application_root)
@@ -56,7 +71,8 @@ def inspect_deployed_native_plugin(
         game_directory = game_executable(game_executable_path).parent
     except EquipmentPluginDeploymentError:
         game_directory = None
-        issues.append("无法核对游戏主程序位置；尚未检查原生部署文件。")
+        issues.append(_text(
+            text_catalog, "issue.game_directory_unknown", "无法核对游戏主程序位置；尚未检查原生部署文件。"))
     for role, relative in bundle.deployment_paths.items():
         source = bundle.roles.get(role, "")
         expected = bundle.files.get(source, "")
@@ -71,13 +87,18 @@ def inspect_deployed_native_plugin(
                         actual = hashlib.file_digest(stream, "sha256").hexdigest()
                     size = target.stat().st_size
                 else:
-                    issues.append(f"游戏目录缺少原生组件：{relative}")
+                    issues.append(_text(
+                        text_catalog, "issue.missing_file", "游戏目录缺少原生组件：{relative}", relative=relative))
             except OSError:
-                issues.append(f"无法读取实际原生组件：{relative}")
+                issues.append(_text(
+                    text_catalog, "issue.unreadable_file", "无法读取实际原生组件：{relative}", relative=relative))
         # 整包、磁盘字节、登记与前驱分别是事实；文件匹配不授予业务能力。
         matches = bundle.ready and present and bool(actual) and actual == expected and size == expected_size
         if present and not matches:
-            issues.append(f"实际原生组件尚未与配套整包核对匹配：{relative}")
+            issues.append(_text(
+                text_catalog, "issue.mismatched_file",
+                "实际原生组件尚未与配套整包核对匹配：{relative}", relative=relative,
+            ))
         recorded = records.get(relative, "")
         files[relative] = NativePluginFileInspection(
             relative, present, actual, size, expected, expected_size, bool(matches),

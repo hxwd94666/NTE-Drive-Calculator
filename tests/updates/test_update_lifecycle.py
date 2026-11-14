@@ -12,7 +12,8 @@ import pytest
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QLineEdit, QMainWindow, QPushButton
 
-from auto_sync_ui_fixture import application, dispose
+from tests.support.auto_sync_ui_fixture import application
+from tests.support.auto_sync_ui_fixture import dispose
 from src.app.context import AccountContext, AppContext, CallbackAccountLifecycle
 from src.features.settings.updates.controller import CalcUpdateController
 from src.features.settings.updates import controller as ui

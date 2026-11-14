@@ -34,8 +34,8 @@
 | 环节 | 实际入口与本层负责的内容 |
 | --- | --- |
 | 读取 | [page_owner.py](../../src/features/configuration/page_owner.py)的 `refresh/controller` → [editing/form.py](../../src/features/configuration/editing/form.py)的 `switch_config_form` → [controller.py](../../src/features/configuration/controller.py)的 `request_form_data`；读取后台执行，缓存按来源身份失效 |
-| 冻结 | [dependencies.py](../../src/features/configuration/dependencies.py)一次取得账号、generation、用户库、配置及静态/共享路径，生成 Domain 的 [BasicWeightDependencies](../../src/domain/basic_weight.py)；不是读取时再找当前账号 |
-| 组装目录 | [basic_weight/service.py](../../src/services/characters/basic_weight/service.py)的 `load_form_data` 解析官方/自建角色、有效权重及属性选择；官方目录经[正式静态读取单元](../../src/integrations/static_catalog_release.py)校验清单、字节与 dataset；开页不种账号默认记录 |
+| 冻结 | [dependencies.py](../../src/features/configuration/dependencies.py)一次取得账号、generation、用户库、配置及静态/共享路径，生成 Domain 的 [BasicWeightDependencies](../../src/domain/characters/basic_weight.py)；不是读取时再找当前账号 |
+| 组装目录 | [basic_weight/service.py](../../src/services/characters/basic_weight/service.py)的 `load_form_data` 解析官方/自建角色、有效权重及属性选择；官方目录经[正式静态读取单元](../../src/integrations/static_catalog/static_catalog_release.py)校验清单、字节与 dataset；开页不种账号默认记录 |
 | 编辑 | `editing/form.py` 的 `save_role_weight_value` 等只改变本页草稿和 dirty ID 集合；key 为正式 `character_id`，同名角色不合并，同账号刷新不覆盖草稿 |
 | 保存 | [editing/commit.py](../../src/features/configuration/editing/commit.py)的 `save_config_form` 深拷贝草稿及脏字段集合；Controller 的提交通道接受一次工作，忙时不再排一个重复保存 |
 | 业务校验与持久化 | `BasicWeightService.save_changes` 校验全部角色、形状、底盘和套装后才开始业务写入；[character_weight_service.py](../../src/services/characters/character_weight_service.py)生成 Domain 的 `AccountWeightChange`；[UserDataDao](../../src/storage/sqlite/user_data_dao.py)在唯一连接的 `write_transaction` 中整批提交，内层保存点不提前提交 |
@@ -99,7 +99,7 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 - **最小例：** 在已审计的 `1072` 回退条目中把 `{"property_id":"CritBase","weight":1.0}`
   调为 `weight:1.1`；这是项目推荐权重回退，不把它描述成官方属性。经静态候选/晋升链处理，
   不直接写 `data/`。若改规范化语义，同时更新 importer 身份。
-- **关键检查：** [正式 ID 与缺项默认解析](../../tests/test_recommended_weights.py)、
+- **关键检查：** [正式 ID 与缺项默认解析](../../tests/characters/test_recommended_weights.py)、
   [默认更新/账号覆盖/重置](../../tests/characters/test_character_weight_service.py)、
   [主角基础权重契约](../../tests/characters/test_protagonist_base_weight_contract.py)，以及本页同名 ID/保存用例。
 
@@ -107,7 +107,7 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 
 - **入口：** 唯一公式入口 [ScoringEngine](../../src/optimizer/scoring.py)的
   `calculate_drive_score/calculate_cartridge_score`；
-  [冻结对比评分适配](../../src/services/allocation/comparison_scoring.py)负责正式装备字段转换，不另写公式。
+  [冻结对比评分适配](../../src/services/allocation/results/comparison_scoring.py)负责正式装备字段转换，不另写公式。
 - **输入/输出：** 冻结词条目录、装备形状/品质、基础权重和主词条权重 → 单件分数；
   零权重与虚拟占位语义保留，真实 UID/`slot_id` 不因评分改变。
 - **最小例：** 若需求明确调整紫品质系数，只在 `ScoringEngine.quality_map` 中把 `"Purple": 0.8`
@@ -123,8 +123,8 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
   Service 编排业务，Domain 放 DTO/纯规则，DAO 独占 SQL。组合根在 `src/ui/app.py` 明确创建并注入依赖。
 - **最小接线参照：** `BasicWeightPage(app_context, navigate, changed, parent)`；
   经 `register_page_configuration_lifecycle(app_context, owners_provider, after_stop=page.clear_projection)`
-  注册 owner，读 owner 状态不触发创建/建库。导航项在 [navigation.py](../../src/ui/navigation.py) 的 `NAV_ITEMS`
-  声明 key/`parent_key`，由 [main_window_navigation_mixin.py](../../src/ui/main_window_navigation_mixin.py) 的 `_build_ui`
+  注册 owner，读 owner 状态不触发创建/建库。导航项在 [navigation.py](../../src/ui/main_window/navigation.py) 的 `NAV_ITEMS`
+  声明 key/`parent_key`，由 [main_window_navigation_mixin.py](../../src/ui/main_window/main_window_navigation_mixin.py) 的 `_build_ui`
   接入组合根已创建的页面；既有基础权重 key 为 `config`、parent 为 `my_role`，不复用任意页号。
 - **输入/输出与边界：** 当前上下文一次冻结 → 普通 DTO/页面投影或持久化终态；
   页面草稿不是数据库事实，账号换代前停止旧 owner，迟到结果不写新账号。自建 Page 不读取其他 Feature 私有控件，
@@ -145,7 +145,7 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 - **输入/输出与边界：** UTF-8 文本包 → 已校验显示目录及本机 `locale` 偏好；缺 key 回退中文，
   参数/重复 key/路径/身份错误保留旧有效文件。正式角色 ID、协议字段、日志码和账号库不翻译，
   本机偏好不随账号导入导出。运行中的目录保持冻结，不触发 OCR 模型切换。
-- **关键检查：** [语言偏好公共用例](../../tests/preferences/test_language_settings_service.py)的部分目录回退、
+- **关键检查：** [语言偏好公共用例](../../tests/localization/test_language_settings_service.py)的部分目录回退、
   坏包/原子替换失败、参数及跨账号状态；真实长文案另用
   [伪语言样例](../examples/locales/qps-ploc.json)验收，不将伪语言称为外语发布。
 
@@ -162,8 +162,8 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
   本文不另抄一套；实际晋升与恢复旧数据库/清单是一对独立操作，不由示例测试代做。
 - **身份/快照边界：** dataset、schema/importer、来源哈希、图片关联都闭合；新增角色的全部可分享技能使用正式
   SkillID/图标路径，同步更新来源与 SHA 清单。新的静态身份令旧预览失效，历史方案/战报仍保持自己的来源。
-- **关键检查：** [静态规范化与关系](../../tests/test_static_game_database.py)、
-  [成对晋升、来源失配与回退](../../tests/test_static_release_promotion.py)；
+- **关键检查：** [静态规范化与关系](../../tests/game_data/test_static_game_database.py)、
+  [成对晋升、来源失配与回退](../../tests/game_data/test_static_release_promotion.py)；
   合成权重夹具只测试其消费关系，不证明新版完整数据、图片、原生同步或游戏验收完成。
 
 ## 5. 未来接入与本次证据的限制

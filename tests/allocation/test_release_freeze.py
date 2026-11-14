@@ -8,12 +8,12 @@ import os
 import pytest
 from src.features.weighted_allocation import runner
 from src.features.weighted_allocation.save_owner import WeightedOperation
-from src.services.allocation import plan_save, weighted_save
-from src.services.allocation.locks import build_allocation_lock_snapshot
-from src.services.equipment.saved_state_loadout_bridge import SavedStateLoadoutBridge
+from src.services.allocation.results import plan_save, weighted_save
+from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+from src.services.equipment.loadouts.saved_state_loadout_bridge import SavedStateLoadoutBridge
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.allocation.release_freeze_inputs import PublicReleaseInputs
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
 from tests.allocation.test_weighted_save_transactions import rows
 
 NTE_TEST_TIER = "core"

@@ -8,8 +8,8 @@ import difflib
 import unicodedata
 from typing import Dict, List
 import hashlib
-from src.domain.stat_catalog import StatCatalog
-from src.integrations.bundled_resources import bundled_config_dir
+from src.domain.equipment.properties.stat_catalog import StatCatalog
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.utils.logger import logger
 from src.utils.exceptions import ConfigMissingError
 from src.utils.name_resolver import resolve_name

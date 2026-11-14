@@ -7,7 +7,8 @@ import pytest
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService
 from tests.battle_report.capture.test_battle_native_capture_lifecycle import _NativeCore
-from tests.test_battle_capture_axis_service import _Writer, _wait_until
+from tests.battle_report.capture.test_battle_capture_axis_service import _Writer
+from tests.battle_report.capture.test_battle_capture_axis_service import _wait_until
 
 
 @pytest.mark.parametrize('stage', ['factory', 'start', 'add_event_handler', 'start_capture'])

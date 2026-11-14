@@ -14,8 +14,8 @@ from src.integrations.vision.recognition.image_resources import RecognitionImage
 from src.integrations.vision.recognition.shape_recognizer import ShapeRecognizer
 from src.models.equipment import Drive, Tape
 from src.services.identification import tasks
-from src.services.inventory import vision_snapshot
-from src.services.inventory.visual_scan_commit import commit_completed_vision_inventory
+from src.services.inventory.scanning import vision_snapshot
+from src.services.inventory.scanning.visual_scan_commit import commit_completed_vision_inventory
 from src.services.recognition.resources import RecognitionResourceError, check_recognition_resources
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.vision.test_recognition_resources import (

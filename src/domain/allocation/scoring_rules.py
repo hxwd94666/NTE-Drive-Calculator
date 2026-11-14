@@ -7,7 +7,7 @@ import json
 from math import isfinite
 from collections.abc import Mapping
 
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 
 
 _NUMERIC = ("gold_base_values", "tape_main_stat_values", "tape_stat_values", "benefit_one")

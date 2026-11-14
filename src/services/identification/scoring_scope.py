@@ -2,12 +2,17 @@
 from concurrent.futures import CancelledError
 from pathlib import Path
 from typing import Any
-from src.domain.equipment.matching import EquipmentMatchContext
+from src.domain.equipment.eligibility.matching import EquipmentMatchContext
+from src.domain.equipment.eligibility.management_settings import MatchingScope
 from src.services.identification.equipment_service import EquipmentIdentificationService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 
-def prepare_management_scoring(config, inventory, *, config_dir, database, static_database, scope, cancel_check=None):
+def prepare_management_scoring(config, inventory, *, config_dir, database, static_database, scope, cancel_check=None,
+                               frozen_inputs=None):
+    # 仓库只接受专用冻结请求；扫描继续保留自己的独立读取与匹配域，不提供旧仓库旁路。
+    if (scope == MatchingScope.WAREHOUSE) != (frozen_inputs is not None):
+        raise ValueError("冻结库存身份不一致")
     def checkpoint():
         if cancel_check is not None and cancel_check():
             raise CancelledError()
@@ -16,14 +21,14 @@ def prepare_management_scoring(config, inventory, *, config_dir, database, stati
     scoring, context = None, EquipmentMatchContext()
     if any(config[name]["enabled"] for name in ("discard", "lock")):
         try:
-            matcher = EquipmentIdentificationService.from_paths(
-                config_dir=config_dir,
-                user_database_path=database,
-                static_database_path=static_database,
-                cancel_check=cancel_check,
-                matching_scope=scope,
-            )
-            scoring, context = matcher.scoring, matcher.context
+            if frozen_inputs is not None:
+                from src.services.inventory.recommendation.warehouse_calculation_inputs import warehouse_scoring
+                scoring, context = warehouse_scoring(frozen_inputs, static_database, config_dir, cancel_check)
+            else:
+                matcher = EquipmentIdentificationService.from_paths(
+                    config_dir=config_dir, user_database_path=database, static_database_path=static_database,
+                    cancel_check=cancel_check, matching_scope=scope)
+                scoring, context = matcher.scoring, matcher.context
             scoring.evaluate_global_inventory(inventory)
         except (ValueError, RuntimeError, OSError):
             scoring = None

@@ -9,9 +9,10 @@ import pytest
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QWidget, QPushButton
 
-from auto_sync_ui_fixture import application, dispose
+from tests.support.auto_sync_ui_fixture import application
+from tests.support.auto_sync_ui_fixture import dispose
 
-from src.domain.work_mode import CheckState, NativeFeatureProbe, WorkModeProbe
+from src.domain.preferences.work_mode import CheckState, NativeFeatureProbe, WorkModeProbe
 from src.services.work_modes.observation import ObservationResult
 from src.services.work_modes.service import WorkModeService
 from src.ui.controllers import work_mode_controller as module
@@ -743,7 +744,7 @@ def test_guidance_respects_cancelled_page_navigation(controller, qt_app):
 
 def test_medium_probe_without_npcap_is_forwarded_without_starting_core(controller):
     from dataclasses import replace
-    from src.domain.work_mode import NativeFeatureProbe
+    from src.domain.preferences.work_mode import NativeFeatureProbe
     c, window, policy, events, popups, probe = controller
     policy.select_mode("medium", risk_confirmed=True)
     policy.set_cleanup_pending(False)

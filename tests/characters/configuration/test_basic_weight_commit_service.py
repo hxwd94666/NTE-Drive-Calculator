@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.features.configuration.controller import BasicWeightController
-from .fixture import build_basic_weight_static_fixture
-from src.domain.basic_weight import BasicWeightDependencies
+from tests.characters.configuration.fixture import build_basic_weight_static_fixture
+from src.domain.characters.basic_weight import BasicWeightDependencies
 from src.services.characters.custom_character_service import create_custom_character
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError, UserDataValidationError

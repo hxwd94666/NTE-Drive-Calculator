@@ -6,13 +6,14 @@ from threading import Event
 
 import pytest
 
-from src.integrations.nte_core_protocol import NteCoreRpcError
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
 from src.services.inventory.sync.service import InventorySyncService
 from src.services.native_session.session import NativeGameSession
 from src.services.official_role.page import load_official_role_detail
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_native_game_session import FakeNativeCore
-from tests.test_user_data_inventory_dao import item, snapshot
+from tests.native_session.test_native_game_session import FakeNativeCore
+from tests.storage.test_user_data_inventory_dao import item
+from tests.storage.test_user_data_inventory_dao import snapshot
 
 
 class ProjectionCore(FakeNativeCore):

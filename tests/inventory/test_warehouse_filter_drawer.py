@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def _projected_items(source: str) -> list[dict[str, object]]:
-    from src.features.inventory.warehouse.cards import warehouse_item_view
+    from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
     rows = [
         {
@@ -119,7 +119,7 @@ def test_snapshot_presenter_routes_packet_and_visual_rows_into_the_same_filter(
         WarehouseFilterSpec,
         filter_projected_warehouse_items,
     )
-    from src.features.inventory.warehouse import presenter as warehouse_presenter
+    from src.features.inventory.warehouse.display import presenter as warehouse_presenter
 
     class Service:
         source = "nte_core"
@@ -261,7 +261,7 @@ def test_snapshot_refresh_normalizes_the_applied_spec_not_a_cancelled_draft() ->
     from PySide6.QtWidgets import QApplication, QWidget
 
     from src.domain.inventory.warehouse_filter import WarehouseFilterSpec
-    from src.features.inventory.warehouse.filter_drawer import WarehouseFilterDrawer
+    from src.features.inventory.warehouse.display.filter_drawer import WarehouseFilterDrawer
 
     QApplication.instance() or QApplication([])
     host = QWidget()
@@ -340,7 +340,7 @@ def test_substat_match_counts_are_exact_multiselect_and_zero_is_active() -> None
 def test_drawer_count_chips_toggle_independently_and_apply_exact_query() -> None:
     from PySide6.QtWidgets import QApplication, QWidget, QPushButton
     from src.domain.inventory.warehouse_filter import WarehouseFilterSpec
-    from src.features.inventory.warehouse.filter_drawer import WarehouseFilterDrawer
+    from src.features.inventory.warehouse.display.filter_drawer import WarehouseFilterDrawer
 
     app = QApplication.instance() or QApplication([])
     host = QWidget()

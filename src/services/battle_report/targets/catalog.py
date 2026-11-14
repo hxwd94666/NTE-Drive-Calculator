@@ -7,8 +7,16 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 
 _MONSTER_KEY = re.compile(r"(?i)(boss|mon)_0*(\d+)")
+_LOCALE_PREFIX = "battle_report.targets."
+
+
+def _text(text_catalog, key: str, fallback: str, **values: object) -> str:
+    """本文件用户可见分类与目标名统一挂在本模块前缀下；目录缺该 key 时回退原中文基线。"""
+
+    return localized_text(text_catalog, f"{_LOCALE_PREFIX}{key}", fallback, **values)
 
 
 def _monster_key(value: object) -> str:
@@ -41,7 +49,7 @@ class BattleTargetCatalogService:
     """Build selection-ready dictionaries from static DAO rows."""
 
     @classmethod
-    def load(cls, static_dao) -> dict[str, Any]:
+    def load(cls, static_dao, *, text_catalog=None) -> dict[str, Any]:
         names = {
             _monster_key(row["monster_manual_id"]): row
             for row in static_dao.list_monster_display_names()
@@ -51,17 +59,17 @@ class BattleTargetCatalogService:
         open_world_groups = {
             "Normal": {
                 "category_id": "open_world:normal",
-                "name_zh": "普通敌人",
+                "name_zh": _text(text_catalog, "category.normal", "普通敌人"),
                 "targets": [],
             },
             "Elite": {
                 "category_id": "open_world:elite",
-                "name_zh": "精英敌人",
+                "name_zh": _text(text_catalog, "category.elite", "精英敌人"),
                 "targets": [],
             },
             "WeeklyBoss": {
                 "category_id": "open_world:world_boss",
-                "name_zh": "异象追猎",
+                "name_zh": _text(text_catalog, "category.world_boss", "异象追猎"),
                 "targets": [],
             },
         }
@@ -127,7 +135,8 @@ class BattleTargetCatalogService:
                     if targets:
                         halves.append({
                             "stage": stage,
-                            "name_zh": "上半" if "First" in stage else "下半",
+                            "name_zh": _text(text_catalog, "half.first", "上半") if "First" in stage
+                            else _text(text_catalog, "half.second", "下半"),
                             "targets": targets,
                         })
                 if halves:
@@ -143,6 +152,7 @@ class BattleTargetCatalogService:
                 "season_buff": config.get("season_buff"),
             })
         clone_categories = []
+        # 目录筛选按静态库正式中文名匹配，属于业务身份，不随界面语言改写。
         visible_clone_names = {
             "经验及甲硬币",
             "异能升级材料",
@@ -159,7 +169,7 @@ class BattleTargetCatalogService:
                         member["name_zh"] = str(
                             member.get("monster_name_zh")
                             or member.get("monster_template_name")
-                            or "未命名目标"
+                            or _text(text_catalog, "target.unnamed", "未命名目标")
                         )
             clone_categories.append(category)
         return {

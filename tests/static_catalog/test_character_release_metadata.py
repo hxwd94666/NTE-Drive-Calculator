@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.domain.static_catalog_terminology import LocalizedTermRecord
+from src.domain.catalog.static_catalog_terminology import LocalizedTermRecord
 from src.services.static_catalog.characters.release_metadata import (
     CharacterReleaseMetadataService,
 )

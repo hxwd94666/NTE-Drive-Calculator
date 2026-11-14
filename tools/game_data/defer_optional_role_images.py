@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.integrations.game_assets.deferred_images import validate_deferred_images
-from src.integrations.role_catalog_release import read_role_catalog
+from src.integrations.static_catalog.role_catalog_release import read_role_catalog
 from tools.game_data.build_reference_catalog_assets import reference_recipe
 
 

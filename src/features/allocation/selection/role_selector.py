@@ -1,0 +1,761 @@
+# 管理角色优先级选择和偏好存档。
+"""Role priority selector and per-role equipment preference dialog."""
+
+from __future__ import annotations
+
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
+from pathlib import Path
+from typing import Callable
+
+from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+    QLineEdit,
+)
+
+from src.integrations.runtime.bundled_resources import bundled_config_dir
+
+from src.ui.common.widgets import SearchableComboBox, match_pinyin
+from src.app.theme import current_theme_name, themed_style
+from src.domain.equipment.scoring.crit_threshold import persistable_stat_priority_config
+from src.features.allocation.selection.priority_groups import normalize_priority_links
+from src.features.allocation.selection.role_selector_visuals import priority_link_style, role_avatar
+from src.features.allocation.selection.priority_role_button import PriorityRoleButton
+from src.domain.names.role_name_order import role_name_sort_key
+from src.domain.teams.calculation import resolve_team_roles
+from src.solver.set_effects import FOUR_PIECE, normalize_set_effect_mode
+
+
+def normalize_weapons_db(weapons_db) -> dict:
+    if not isinstance(weapons_db, dict):
+        return {}
+    normalized = {}
+    for key, info in weapons_db.items():
+        if isinstance(info, dict):
+            name = str(info.get("name") or key or "").strip()
+            if name:
+                normalized[name] = info
+    return normalized
+
+
+from src.features.allocation.selection.role_selector_preferences import RoleSelectorPreferencesMixin, resolve_priority_choice
+
+class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
+    """Select role priority and manage per-role set/stat filters."""
+
+    orderChanged = Signal()
+
+    def __init__(
+        self,
+        parent=None,
+        priority_config_path_provider: Callable[[], Path] | None = None,
+        style_sheet: str = "",
+        help_callback: Callable | None = None,
+        preference_dialog_callback: Callable[[str], None] | None = None,
+        *, text_catalog=None,
+    ):
+        super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self._priority_config_path_provider = priority_config_path_provider
+        self._style_sheet = style_sheet
+        self._help_callback = help_callback
+        self._preference_dialog_callback = preference_dialog_callback
+        self.all_roles: dict = {}
+        self.all_sets: list[str] = []
+        self.weapons_db: dict = {}
+        self.tape_main_stats: list[str] = []
+        self.drive_sub_stats: list[str] = []
+        self.selected: list[str] = []
+        self.priority_links: list[str] = []
+        self.custom_sets: dict[str, str] = {}
+        self.custom_weapons: dict[str, str] = {}
+        self.crit_rate_caps: dict[str, float] = {}
+        self.crit_rate_cap_sources: dict[str, str] = {}
+        self.tape_main_filters: dict[str, list[str]] = {}
+        self.tape_main_filter_override_roles: set[str] = set()
+        self.stat_priority_configs: dict[str, dict] = {}
+        self.stat_priority_override_roles: set[str] = set()
+        self.set_effect_modes: dict[str, str] = {}
+        self.default_mag_character_ids: frozenset[int] = frozenset()
+        self._role_icon_paths: dict[str, Path] = {}
+        self._cards: dict = {}
+        self._reflow_pending = False
+        self._shown_card_columns = 0
+        self._shown_priority_columns = 0
+        self._shown_layout_width = 0
+        self._build()
+        self._priority_draft_path = self._priority_config_path().resolve()
+        self._priority_catalog_path = self._priority_draft_path
+        self._selection_revision = 0
+        self.orderChanged.connect(self._advance_selection_revision)
+
+    @property
+    def selection_revision(self):
+        return self._selection_revision
+
+    def _advance_selection_revision(self):
+        self._selection_revision += 1
+
+    def replace_priority_selection(self, character_ids, *, equal_priority=True):
+        """只替换选人与连接，不清空套装、词条、弧盘及暴击偏好，不写永久配置。"""
+        self._priority_load_path()
+        names = resolve_team_roles(character_ids, self.all_roles)
+        self.restore_priority_selection((names, ('=' if equal_priority else '>',) * (len(names) - 1)))
+
+    def priority_selection_snapshot(self):
+        return tuple(self.selected), tuple(self.priority_links)
+
+    def restore_priority_selection(self, snapshot):
+        """恢复会话选人；调用方冻结账号，取消草稿不会保存或改角色偏好。"""
+        self._priority_load_path()
+        names, links = snapshot
+        if any(name not in self.all_roles for name in names):
+            raise ValueError('priority_catalog_changed')
+        old = self.selected, self.priority_links
+        self.selected = list(names)
+        self.priority_links = normalize_priority_links(self.selected, links)
+        try:
+            self._render_grid(self.search.text())
+        except Exception:
+            self.selected, self.priority_links = old
+            self._render_grid(self.search.text())
+            raise
+        self.orderChanged.emit()
+
+    def _priority_config_path(self) -> Path:
+        if self._priority_config_path_provider:
+            return Path(self._priority_config_path_provider())
+        return bundled_config_dir() / "priority_config.json"
+
+    def prepare_priority_account(self):
+        """目录读取前撤销保存资格；仅跨账号丢弃旧展示草稿，不写临时存档。"""
+        path = self._priority_config_path().resolve()
+        if path != self._priority_draft_path:
+            for field in (
+                "selected", "priority_links", "custom_sets", "custom_weapons",
+                "crit_rate_caps", "crit_rate_cap_sources", "tape_main_filters",
+                "tape_main_filter_override_roles", "stat_priority_configs",
+                "stat_priority_override_roles", "set_effect_modes",
+            ):
+                getattr(self, field).clear()
+            self._render_grid(self.search.text())
+        self._priority_draft_path = None
+        self._priority_catalog_path = None
+        self.setEnabled(False)
+
+    def _priority_save_path(self) -> Path:
+        path = self._priority_config_path().resolve()
+        # 动态 provider 已换账号但窗口尚未收到事件时，也不把旧草稿写到新路径。
+        if path != self._priority_draft_path or path != self._priority_catalog_path:
+            raise RuntimeError("当前账号的优先级尚未读取完成，请等待资料加载后重试。")
+        return path
+
+    def _priority_load_path(self) -> Path:
+        path = self._priority_config_path().resolve()
+        if path != self._priority_catalog_path:
+            raise RuntimeError("当前账号的角色资料尚未就绪，请等待加载完成。")
+        return path
+
+    def _build(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('roles.page.page_my_role.search.placeholder'))
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._filter)
+        search_row.addWidget(self.search, 1)
+
+        primary_reset_btn = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.build.primary_reset_btn'))
+        primary_reset_btn.setObjectName("btnDanger")
+        primary_reset_btn.clicked.connect(self.reset_selection)
+        search_row.addWidget(primary_reset_btn)
+
+        primary_restore_btn = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.build.primary_restore_btn'))
+        primary_restore_btn.setObjectName("btnAction")
+        primary_restore_btn.clicked.connect(self.restore_temporary_priority_config)
+        search_row.addWidget(primary_restore_btn)
+
+        primary_save_btn = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('common.save'))
+        primary_save_btn.setObjectName("btnAction")
+        primary_save_btn.clicked.connect(lambda _checked=False: self.save_priority_config())
+        search_row.addWidget(primary_save_btn)
+
+        primary_load_btn = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.build.primary_load_btn'))
+        primary_load_btn.setObjectName("btnAction")
+        primary_load_btn.clicked.connect(self.load_priority_config)
+        search_row.addWidget(primary_load_btn)
+
+        help_btn = QPushButton("?")
+        help_btn.setObjectName("btnHelp")
+        help_btn.clicked.connect(lambda: self._show_help(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.build.self'), PRIORITY_SAVE_HELP))
+        search_row.addWidget(help_btn)
+        layout.addLayout(search_row)
+
+        self.roles_w = QWidget()
+        self.roles_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.roles_layout = QVBoxLayout(self.roles_w)
+        self.roles_layout.setContentsMargins(0, 0, 0, 0)
+        self.roles_layout.setSpacing(8)
+
+        self.priority_w = QWidget()
+        self.priority_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.priority_layout = QGridLayout(self.priority_w)
+        self.priority_layout.setContentsMargins(0, 0, 0, 0)
+        self.priority_layout.setHorizontalSpacing(8)
+        self.priority_layout.setVerticalSpacing(8)
+        self.priority_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.roles_layout.addWidget(self.priority_w)
+
+        self.grid_w = QWidget()
+        self.grid_w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.grid_layout = QGridLayout(self.grid_w)
+        self.grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.grid_layout.setSpacing(6)
+        self.grid_layout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.roles_layout.addWidget(self.grid_w)
+        layout.addWidget(self.roles_w)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._reflow_pending:
+            self._reflow_pending = True
+            QTimer.singleShot(0, self._reflow_for_width)
+
+    def _columns_for_width(self, item_width: int, spacing: int) -> int:
+        available = max(0, self.width() - 4)
+        return max(1, (available + spacing) // (item_width + spacing))
+
+    def _column_width(self, columns: int, spacing: int) -> int:
+        available = max(0, self.width() - 4)
+        return max(1, (available - (columns - 1) * spacing) // columns)
+
+    def _priority_columns(self) -> int:
+        width = self._priority_role_frame_width("") + 5 + 42
+        columns = self._columns_for_width(width, 8)
+        return min(columns, 4) if self.width() <= 1320 else columns
+
+    def _card_columns(self) -> int:
+        return self._columns_for_width(112, 6)
+
+    def _reflow_for_width(self) -> None:
+        self._reflow_pending = False
+        if (
+            self._card_columns() != self._shown_card_columns
+            or self._priority_columns() != self._shown_priority_columns
+            or self.width() != self._shown_layout_width
+        ):
+            self._render_grid(self.search.text())
+
+    _CARD_SEL = "QFrame{background:#1f6feb22;border:2px solid #58a6ff;border-radius:8px}QFrame:hover{border-color:#79c0ff}"
+    _CARD_OFF = "QFrame{background:#161b22;border:1px solid #21262d;border-radius:8px}QFrame:hover{border-color:#30363d}"
+
+    def load_roles(
+        self,
+        roles_db,
+        all_sets,
+        tape_main_stats=None,
+        drive_sub_stats=None,
+        weapons_db=None,
+        default_mag_character_ids=None,
+        character_icon_paths=None,
+    ):
+        self.all_roles = roles_db
+        self.all_sets = all_sets
+        self.weapons_db = normalize_weapons_db(weapons_db)
+        self._role_icon_paths = dict(character_icon_paths or {})
+        self.tape_main_stats = list(tape_main_stats or [])
+        self.drive_sub_stats = list(drive_sub_stats or [])
+        if default_mag_character_ids is not None:
+            self.default_mag_character_ids = frozenset(
+                int(character_id) for character_id in default_mag_character_ids
+            )
+        self._render_grid(self.search.text() if hasattr(self, "search") else "")
+
+    def _render_grid(self, filter_text=""):
+        self._render_priority_row()
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._cards.clear()
+
+        names = self._available_role_names(filter_text)
+        self.grid_w.setVisible(bool(names))
+        columns = self._card_columns()
+        self._shown_card_columns = columns
+        self._shown_layout_width = self.width()
+        col = row = 0
+        for name in names:
+            self.grid_layout.addWidget(self._make_card(name), row, col)
+            col += 1
+            if col >= columns:
+                col = 0
+                row += 1
+
+    def _available_role_names(self, filter_text=""):
+        query = str(filter_text or "").strip()
+        names = [name for name in self.all_roles if name not in self.selected]
+        if query:
+            names = [name for name in names if match_pinyin(name, query)]
+        return sorted(names, key=role_name_sort_key)
+
+    def _priority_role_frame_width(self, name):
+        return self._priority_role_name_width() + 58 + self._priority_manage_width()
+
+    def _priority_manage_width(self):
+        # 此按钮要求完整展示，不套用公共省略按钮额外预留的 30px；字体与局部样式保持一致。
+        font = QFont(self.font())
+        font.setPixelSize(12)
+        font.setBold(True)
+        text = resolve_text_catalog(self.text_catalog).render('warehouse.management.filter.title')
+        return max(48, QFontMetrics(font).horizontalAdvance(text) + 18)
+
+    def _priority_role_name_width(self):
+        return max(54, self.fontMetrics().horizontalAdvance("MMMM") + 18)
+
+    def _role_avatar(self, name, size):
+        role = self.all_roles.get(name) or {}
+        return role_avatar(
+            name,
+            self._role_icon_paths.get(name),
+            size,
+            is_custom=bool(role.get("is_custom")),
+            device_pixel_ratio=self.devicePixelRatioF(),
+            text_catalog=getattr(self, 'text_catalog', None),
+        )
+
+    def _render_priority_row(self):
+        if not hasattr(self, "priority_layout"):
+            return
+        while self.priority_layout.count():
+            item = self.priority_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.priority_links = normalize_priority_links(self.selected, self.priority_links)
+        columns = self._priority_columns()
+        self._shown_priority_columns = columns
+        # 搜索只过滤待选池；已选角色及优先级连接始终可操作，不因筛选丢失配置入口。
+        visible_indexes = list(range(len(self.selected)))
+        if not visible_indexes:
+            empty = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.render_priority_row.empty'))
+            empty.setStyleSheet(themed_style("color:#8b949e;border:none;font-size:12px"))
+            self.priority_layout.addWidget(empty, 0, 0)
+            return
+        for visible_pos, index in enumerate(visible_indexes):
+            name = self.selected[index]
+            unit = QWidget()
+            unit_layout = QHBoxLayout(unit)
+            unit_layout.setContentsMargins(0, 0, 0, 0)
+            unit_layout.setSpacing(5)
+
+            item = QFrame()
+            item.setFixedSize(self._priority_role_frame_width(name), 48)
+            item.setCursor(Qt.PointingHandCursor)
+            item.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.render_priority_row.item', name=f'{name}')))
+            item.setStyleSheet(
+                themed_style(
+                    "QFrame{background:#161b22;border:1px solid #30363d;border-radius:7px}"
+                    "QFrame:hover{border-color:#58a6ff;background:#1f6feb22}"
+                )
+            )
+            item_layout = QHBoxLayout(item)
+            item_layout.setContentsMargins(6, 6, 6, 6)
+            item_layout.setSpacing(5)
+
+            name_btn = PriorityRoleButton(self, name, index, avatar=self._role_avatar(name, 36))
+            name_btn.setObjectName("priorityRoleName")
+            name_btn.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.render_priority_row.name_btn', name=f'{name}')))
+            name_btn.setFixedSize(self._priority_role_name_width() + 41, 36)
+            name_btn.setStyleSheet(
+                themed_style(
+                    "QPushButton{background:transparent;color:#c9d1d9;border:none;"
+                    "padding:0;font-family:'Microsoft YaHei UI';"
+                    "font-size:13px;font-weight:700;text-align:left}"
+                    "QPushButton:hover{color:#c9d1d9}"
+                )
+            )
+            item_layout.addWidget(name_btn)
+
+            # 管理是短文字动作，使用原生完整文本按钮；不要套用会额外扣除宽度的省略按钮。
+            manage_btn = QPushButton(resolve_text_catalog(self.text_catalog).render('warehouse.management.filter.title'))
+            manage_btn.setAccessibleName(self.text_catalog.render('allocation.priority.manage_accessible', role=name))
+            manage_btn.setObjectName("btnSm")
+            manage_btn.setFixedSize(self._priority_manage_width(), 30)
+            manage_btn.setStyleSheet(
+                "QPushButton{background:#238636;color:#fff;border:1px solid #2ea043;"
+                "border-radius:5px;padding:3px 7px;font-size:12px;font-weight:700}"
+                "QPushButton:hover{background:#2ea043}"
+            )
+            manage_btn.clicked.connect(lambda _checked=False, role=name: self._open_role_preferences(role))
+            item_layout.addWidget(manage_btn)
+            unit_layout.addWidget(item)
+
+            if index < len(self.selected) - 1:
+                link_text = self.priority_links[index]
+                link_btn = QPushButton(link_text)
+                link_btn.setFixedWidth(42)
+                link_btn.setObjectName("btnAction")
+                link_btn.setStyleSheet(priority_link_style(link_text))
+                link_btn.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.render_priority_row.link_btn')))
+                link_btn.clicked.connect(lambda _checked=False, pos=index: self._cycle_priority_link(pos))
+                unit_layout.addWidget(link_btn)
+            unit.setFixedSize(unit.sizeHint())
+            self.priority_layout.addWidget(unit, visible_pos // columns, visible_pos % columns)
+
+    def _make_card(self, name):
+        selected = name in self.selected
+        card = QFrame()
+        card.setFixedSize(self._column_width(self._shown_card_columns, 6), 46)
+        card.setCursor(Qt.PointingHandCursor)
+        card.setStyleSheet(themed_style(self._CARD_SEL if selected else self._CARD_OFF))
+
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(6, 5, 6, 5)
+        layout.setSpacing(6)
+
+        layout.addWidget(self._role_avatar(name, 36))
+
+        name_label = plain_label(name)
+        name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        name_label.setStyleSheet(
+            themed_style(
+                "font-family:'Microsoft YaHei UI';font-size:13px;font-weight:700;"
+                "border:none;background:transparent;color:#c9d1d9"
+            )
+        )
+        layout.addWidget(name_label, 1)
+        name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        card.mousePressEvent = lambda event, role=name: self._toggle(role)
+        self._cards[name] = {"card": card}
+        return card
+
+    def _filter(self, text):
+        self._render_grid(text)
+
+    def _set_custom_set(self, name, text):
+        set_name = str(text or "").strip()
+        default_set = str((self.all_roles.get(name, {}) or {}).get("default_set", "") or "").strip()
+        if set_name and set_name != default_set:
+            self.custom_sets[name] = set_name
+        else:
+            self.custom_sets.pop(name, None)
+        self.orderChanged.emit()
+
+    def _default_weapon_for_role(self, name: str) -> str:
+        role_data = self.all_roles.get(name, {}) or {}
+        weapon = str(role_data.get("default_weapon") or "").strip()
+        return weapon if weapon in self.weapons_db else ""
+
+    def _default_tape_main_filter(self, name: str) -> list[str]:
+        del name
+        return []
+
+    def _default_substat_priority(self, name: str) -> list[str]:
+        del name
+        return []
+
+    def _effective_weapon_for_role(self, name: str) -> str:
+        return str(self.custom_weapons.get(name) or self._default_weapon_for_role(name))
+
+    def _set_custom_weapon(self, name, text):
+        weapon = str(text or "").strip()
+        if weapon:
+            self.custom_weapons[name] = weapon
+        else:
+            self.custom_weapons.pop(name, None)
+        self.orderChanged.emit()
+
+    def _set_automatic_crit_rate_cap(self, name, weapon_name):
+        cap = self._automatic_crit_rate_cap(name, weapon_name)
+        if cap is not None:
+            self.crit_rate_caps[name] = cap
+            self.crit_rate_cap_sources[name] = "automatic"
+        else:
+            self.crit_rate_caps.pop(name, None)
+            self.crit_rate_cap_sources.pop(name, None)
+        self.orderChanged.emit()
+
+    def _set_crit_rate_cap(self, name, value):
+        try:
+            cap = float(value)
+        except (TypeError, ValueError):
+            cap = 0.0
+        self.crit_rate_caps[name] = round(min(max(cap, 0.0), 100.0), 4)
+        self.crit_rate_cap_sources[name] = "manual"
+        self.orderChanged.emit()
+
+    def _weapon_crit_rate_cap(self, weapon_name):
+        crit_rate = self._weapon_crit_rate(weapon_name)
+        if crit_rate is None:
+            return None
+        return round(max(0.0, 100.0 - crit_rate), 4)
+
+    def _likeability_crit_rate(self, name: str) -> float:
+        role = self.all_roles.get(name) or {}
+        try:
+            return max(0.0, float(role.get("likeability_crit_rate_bonus") or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _automatic_crit_rate_cap(
+        self, name: str, weapon_name: str, *, set_name=None, set_effect_mode=None, explicit_weapon=False,
+    ) -> float | None:
+        """扣除套装/弧盘常驻与已启用好感暴击；资料未知返回 None。"""
+
+        fork_crit = self._weapon_crit_rate(weapon_name) if explicit_weapon else self._active_fork_crit_rate(name, weapon_name)
+        affinity_crit = self._likeability_crit_rate(name)
+        if fork_crit is None or (self.all_roles.get(name) or {}).get("suit_crit_source_known") is False:
+            return None
+        suit_crit = self._active_suit_crit_rate(name, set_name=set_name, set_effect_mode=set_effect_mode)
+        return round(max(0.0, 100.0 - fork_crit - suit_crit - affinity_crit * 100.0), 4)
+
+    def _active_suit_crit_rate(self, name: str, *, set_name=None, set_effect_mode=None) -> float:
+        role = self.all_roles.get(name) or {}
+        rates = role.get("suit_permanent_crit_rates_by_name") or {}
+        if set_name is None:
+            set_name = self.custom_sets.get(name) or role.get("default_set") or ""
+        values = rates.get(set_name) or {}
+        mode = normalize_set_effect_mode(self.set_effect_modes.get(name) if set_effect_mode is None else set_effect_mode)
+        if mode == "none":
+            return 0.0
+        try:
+            return max(0.0, float(values.get(4 if mode == FOUR_PIECE else 2, 0.0))) * 100.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _active_fork_crit_rate(self, name: str, weapon_name: str) -> float | None:
+        role = self.all_roles.get(name) or {}
+        if role.get("is_custom") and not weapon_name:
+            return 0.0
+        if name in self.custom_weapons:
+            return self._weapon_crit_rate(weapon_name)
+        if weapon_name == str(role.get("default_weapon") or ""):
+            value = role.get("active_fork_crit_rate_bonus")
+            if value is not None:
+                try:
+                    return max(0.0, float(value))
+                except (TypeError, ValueError):
+                    pass
+            if role.get("active_fork_crit_source_resolved"):
+                return None
+        return self._weapon_crit_rate(weapon_name)
+
+    def _weapon_crit_rate(self, weapon_name):
+        info = self.weapons_db.get(weapon_name)
+        if not isinstance(info, dict):
+            return None
+        if info.get("permanent_properties_known") is False:
+            return None
+        stats = info.get("sub_stats")
+        if not isinstance(stats, dict) or not stats:
+            level_stats = info.get("level_sub_stats")
+            if isinstance(level_stats, dict) and level_stats:
+                levels = [level for level in level_stats if str(level).isdigit()]
+                if levels:
+                    stats = level_stats[max(levels, key=lambda level: int(level))]
+        if not isinstance(stats, dict):
+            return None
+        if not stats and info.get("permanent_properties_known") is not True:
+            return None
+        for key, value in stats.items():
+            normalized = str(key or "").replace("%", "")
+            if "暴击率" in normalized or "鏆村嚮鐜" in normalized:
+                try:
+                    return max(0.0, float(value))
+                except (TypeError, ValueError):
+                    return None
+        return 0.0
+
+    def get_crit_rate_baselines(self, roles=None):
+        """为本次最小暴击率检查投影非装备加成。
+
+        求解器已有基础 5% 与所选装备；这里只计有效弧盘常驻（含养成）和好感一次，
+        未知弧盘项不造值，调用方在创建计算请求时冻结这些结果。
+        """
+
+        return {
+            name: round(crit_rate + self._likeability_crit_rate(name) * 100.0, 4)
+            for name in (self.selected if roles is None else roles)
+            if (
+                crit_rate := self._active_fork_crit_rate(
+                    name, self._effective_weapon_for_role(name)
+                )
+            ) is not None
+        }
+
+    def _set_tape_main_filter(self, name, values):
+        self.tape_main_filter_override_roles.add(name)
+        self.tape_main_filters[name] = [
+            value for value in values or [] if value in self.tape_main_stats
+        ]
+        self.orderChanged.emit()
+
+    def _set_stat_priority_config(
+        self,
+        name,
+        stats,
+        blacklist,
+        equal_priority=False,
+        ignore_grade_limit=False,
+        min_grade_limit="A",
+        crit_threshold=None,
+        blacklist_zero_weight=False,
+        soft_main_filter=False,
+    ):
+        payload = {
+            "stats": stats or [],
+            "blacklist": blacklist or [],
+            "blacklist_zero_weight": blacklist_zero_weight,
+            "soft_main_filter": soft_main_filter,
+            "equal_priority": equal_priority,
+            "ignore_grade_limit": ignore_grade_limit,
+            "min_grade_limit": min_grade_limit,
+        }
+        if crit_threshold not in (None, ""):
+            payload["crit_threshold"] = crit_threshold
+        cfg = persistable_stat_priority_config(
+            payload,
+            allowed_stats=set(self.drive_sub_stats),
+            dedupe_stats=True,
+        )
+        self.stat_priority_override_roles.add(name)
+        if cfg:
+            self.stat_priority_configs[name] = cfg
+        else:
+            self.stat_priority_configs.pop(name, None)
+        self.orderChanged.emit()
+
+    def _set_set_effect_mode(self, name, mode):
+        normalized = normalize_set_effect_mode(mode)
+        if normalized == FOUR_PIECE:
+            self.set_effect_modes.pop(name, None)
+        else:
+            self.set_effect_modes[name] = normalized
+        self.orderChanged.emit()
+
+    def _show_help(self, title, text):
+        if self._help_callback:
+            self._help_callback(self, title, text)
+        else:
+            QMessageBox.information(self, title, text)
+
+    def _fill_search_combo(self, combo: SearchableComboBox, values: list[str], current: str | None = None):
+        for value in values:
+            combo.addItem(value, value)
+        combo.refresh_search_items()
+        if current and current in values:
+            combo.setCurrentText(current)
+        else:
+            combo.setCurrentIndex(-1)
+            combo.setEditText("")
+
+    def _make_selected_summary_label(self):
+        label = plain_label()
+        # 换行摘要按全文需要的高度参与布局，不能被同组里的下一份名单挤回单行。
+        label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        label.setWordWrap(True)
+        label.setMinimumHeight(32)
+        label.setMinimumWidth(150)
+        if current_theme_name() == "light":
+            label.setStyleSheet(
+                "color:#24292f;font-size:13px;border:1px solid #d0d7de;border-radius:6px;"
+                "background:#f6f8fa;padding:4px 7px"
+            )
+        else:
+            label.setStyleSheet(
+                "color:#7ee787;font-size:13px;border:1px solid #238636;border-radius:6px;"
+                "background:#0f3d2e;padding:4px 7px"
+            )
+        return label
+
+    def _refresh_selected_summary_label(
+        self,
+        label: QLabel,
+        selected: list[str],
+        separator: str,
+        empty_text: str = "Default",
+    ):
+        text = empty_text if not selected else separator.join(selected)
+        label.setText(text)
+        label.setToolTip(text)
+
+    def _build_multi_select_row(
+        self,
+        title: str,
+        choices: list[str],
+        selected: list[str],
+        separator: str,
+        empty_text: str = "Default",
+    ):
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(3)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        title_label = plain_label(title)
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        row.addWidget(title_label)
+        combo = SearchableComboBox()
+        self._fill_search_combo(combo, choices)
+        row.addWidget(combo, 1)
+
+        add_btn = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.build_multi_select_row.add_btn'))
+        add_btn.setObjectName("btnAction")
+        add_btn.setFixedWidth(60)
+        clear_btn = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('selector.clear'))
+        clear_btn.setObjectName("btnDanger")
+        clear_btn.setFixedWidth(74)
+        row.addWidget(add_btn)
+        row.addWidget(clear_btn)
+
+        summary = self._make_selected_summary_label()
+        layout.addLayout(row)
+        layout.addWidget(summary)
+
+        def refresh_summary():
+            self._refresh_selected_summary_label(
+                summary,
+                selected,
+                separator,
+                empty_text,
+            )
+
+        def add_choice():
+            value = combo.currentText().strip()
+            resolved = resolve_priority_choice(choices, value, combo.currentData())
+            if resolved in choices and resolved not in selected:
+                selected.append(resolved)
+                refresh_summary()
+            combo.setCurrentIndex(-1)
+            combo.setEditText("")
+
+        add_btn.clicked.connect(add_choice)
+        clear_btn.clicked.connect(lambda: (selected.clear(), refresh_summary()))
+        refresh_summary()
+        return box
+
+    def _open_role_preferences(self, name: str) -> None:
+        if self._preference_dialog_callback is not None:
+            self._preference_dialog_callback(name)
+            return
+        self._manage_role_preferences(name)
+
+
+
+from src.features.allocation.selection.role_selector_help import PRIORITY_SAVE_HELP

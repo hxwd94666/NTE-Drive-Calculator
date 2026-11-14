@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt, Signal
@@ -13,8 +14,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
-    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -62,10 +61,12 @@ class BattleReportHistoryDialog(QDialog):
         *,
         game_ui_asset_root,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._asset_catalog = GameUiAssetCatalog(game_ui_asset_root)
-        self.setWindowTitle("历史战报")
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.battle_report.init.self_5'))
         self.resize(1120, 650)
         self.setMinimumSize(920, 480)
         self._build()
@@ -76,18 +77,17 @@ class BattleReportHistoryDialog(QDialog):
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
 
-        title = QLabel("历史战报")
+        title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.self_5'))
         title.setStyleSheet(themed_style("font-size:18px;font-weight:700;color:#f0f6fc"))
         layout.addWidget(title)
-        description = QLabel(
-            "当前账号最多保留 100 条，第 101 条淘汰最旧自动记录；"
-            "手动保存最多 50 条，第 51 条淘汰最旧手动记录。"
+        description = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.description')
         )
         description.setWordWrap(True)
         description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         layout.addWidget(description)
 
-        self.empty_label = QLabel("当前账号还没有已保存的战报。")
+        self.empty_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.empty_label'))
         self.empty_label.setAlignment(Qt.AlignCenter)
         self.empty_label.setStyleSheet(
             themed_style("color:#8b949e;font-size:13px;padding:28px")
@@ -96,7 +96,7 @@ class BattleReportHistoryDialog(QDialog):
 
         self.table = QTableWidget(0, 8, self)
         self.table.setHorizontalHeaderLabels(
-            ("ID", "类型", "角色", "保存时间", "场景", "伤害摘要", "状态", "操作")
+            ("ID", resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_table_3'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.roles_table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.report.column.time'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.report.column.scene'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.table'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.table_2'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.table_3'))
         )
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -129,7 +129,7 @@ class BattleReportHistoryDialog(QDialog):
         for row, entry in enumerate(entries):
             self.table.setItem(row, 0, self._text_item(str(entry.battle_record_id)))
             kind = self._text_item("完整" if entry.native_capture else "部分")
-            kind.setToolTip("战报类型不代表每项计算证据均已齐全；具体缺口以分析结果为准。")
+            kind.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_entries.kind')))
             self.table.setItem(row, 1, kind)
             self.table.setCellWidget(row, 2, self._characters_widget(entry))
             self.table.setItem(row, 3, self._text_item(_local_time(entry.saved_at_utc)))
@@ -140,7 +140,7 @@ class BattleReportHistoryDialog(QDialog):
                 f"{entry.duration_seconds:.1f}s  ·  {entry.total_hits:,} 命中"
             )
             self.table.setItem(row, 5, self._text_item(summary))
-            self.table.setCellWidget(row, 6, self._status_widget(entry))
+            self.table.setCellWidget(row, 6, self._status_widget(entry, text_catalog=getattr(self, 'text_catalog', None)))
             self.table.setCellWidget(row, 7, self._actions_widget(entry))
             self.table.setRowHeight(row, 54)
 
@@ -157,15 +157,15 @@ class BattleReportHistoryDialog(QDialog):
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(3)
         if not entry.character_ids:
-            empty = QLabel("无角色数据")
+            empty = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.characters_widget.empty'))
             empty.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
             layout.addWidget(empty)
         for character_id in entry.character_ids[:8]:
             icon_path = self._asset_catalog.character_icon(character_id)
-            icon = QLabel()
+            icon = plain_label()
             icon.setFixedSize(25, 25)
             icon.setAlignment(Qt.AlignCenter)
-            icon.setToolTip(f"角色 ID：{character_id}")
+            icon.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.characters_widget.icon', character_id=f'{character_id}')))
             if icon_path is not None:
                 icon.setPixmap(
                     QPixmap(str(icon_path)).scaled(
@@ -188,11 +188,11 @@ class BattleReportHistoryDialog(QDialog):
         return widget
 
     @staticmethod
-    def _status_widget(entry: BattleReportHistoryEntry) -> QWidget:
+    def _status_widget(entry: BattleReportHistoryEntry, *, text_catalog=None) -> QWidget:
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(5, 8, 5, 8)
-        badge = QLabel("手动" if entry.retention_kind == "manual" else "自动")
+        badge = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.status_widget.badge') if entry.retention_kind == "manual" else resolve_text_catalog(text_catalog).render('ui.battle_report.status_widget.badge_2'))
         badge.setAlignment(Qt.AlignCenter)
         badge.setStyleSheet(
             themed_style(
@@ -204,7 +204,6 @@ class BattleReportHistoryDialog(QDialog):
                 + "border-radius:6px;padding:3px 6px;font-size:11px"
             )
         )
-        badge.setToolTip(f"{entry.capability_level} · {entry.source_kind}")
         layout.addWidget(badge)
         return widget
 
@@ -215,15 +214,15 @@ class BattleReportHistoryDialog(QDialog):
         layout.setContentsMargins(4, 5, 4, 5)
         layout.setSpacing(5)
 
-        view = QPushButton("查看")
+        view = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.actions_widget.view'))
         view.setObjectName("btnPrimary")
         view.clicked.connect(
             lambda _checked=False, record_id=entry.battle_record_id: (
                 self.view_requested.emit(record_id)
             )
         )
-        toggle = QPushButton(
-            "取消保存" if entry.retention_kind == "manual" else "保存"
+        toggle = TextActionButton(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.actions_widget.toggle') if entry.retention_kind == "manual" else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('common.save')
         )
         toggle.clicked.connect(
             lambda _checked=False, record_id=entry.battle_record_id,
@@ -232,7 +231,7 @@ class BattleReportHistoryDialog(QDialog):
                 retention,
             )
         )
-        delete = QPushButton("删除")
+        delete = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('warehouse.management.rules.delete'))
         delete.setObjectName("btnDanger")
         delete.clicked.connect(
             lambda _checked=False, record_id=entry.battle_record_id: (
@@ -240,7 +239,11 @@ class BattleReportHistoryDialog(QDialog):
             )
         )
         for button, width in ((view, 48), (toggle, 68), (delete, 48)):
-            button.setFixedSize(width, 28)
             button.setStyleSheet("padding:2px 4px;font-size:11px")
+            button.ensurePolished()
+            # 行内按钮使用最终字号和完整文案定宽，给公共文本按钮的左右留白留足空间。
+            button.setFixedSize(max(width, button.fontMetrics().horizontalAdvance(button.accessibleName()) + 34), 28)
             layout.addWidget(button)
+        # 长语言补丁和“取消保存”同样完整；不足时扩操作列，不挤压成只有省略号的按钮。
+        self.table.setColumnWidth(7, max(self.table.columnWidth(7), layout.sizeHint().width()))
         return widget

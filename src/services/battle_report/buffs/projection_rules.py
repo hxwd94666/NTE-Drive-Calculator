@@ -1,6 +1,7 @@
 # 独立判断单个冻结命中与 Buff 区间的适用修正和证据理由。
 from __future__ import annotations
 from dataclasses import dataclass
+from src.domain.localization.catalog import TextCatalog, localized_text
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.services.battle_report.buffs.semantics import calculation_applies_to_damage, specialized_calculation_reason
@@ -165,6 +166,22 @@ _UNRESOLVED_REASON_MARKERS = (
 )
 
 
+def _projection_text(
+    text_catalog: TextCatalog | None,
+    key: str,
+    fallback: str,
+    **values: object,
+) -> str:
+    """按稳定 key 取词；未注入目录或未登记时逐字回退本文件的中文基线。"""
+
+    return localized_text(
+        text_catalog,
+        f"battle_report.projection.{key}",
+        fallback,
+        **values,
+    )
+
+
 def normalize_battle_buff_property_id(property_id: str) -> str:
     """Return the formula-facing property used by per-hit Buff projection."""
 
@@ -180,10 +197,16 @@ def _confirmed_source_tags_apply(
     interval: BattleInferredBuffInterval,
     modifier: object,
     hit: BattleAnalysisHit,
+    *,
+    text_catalog: TextCatalog | None = None,
 ) -> tuple[bool, str]:
     target_tags = tuple(getattr(modifier, "target_require_tags", ()) or ())
     if target_tags:
-        return False, "缺少正式目标标签状态，条件 Buff 不推算"
+        return False, _projection_text(
+            text_catalog,
+            "reason.target_tags_missing",
+            "缺少正式目标标签状态，条件 Buff 不推算",
+        )
     tags = tuple(getattr(modifier, "source_require_tags", ()) or ())
     if not tags:
         return True, ""
@@ -236,21 +259,35 @@ def _confirmed_source_tags_apply(
         tag for tag in tags if tag.casefold() not in supported and not tag.casefold().startswith("ability.")
     )
     if unsupported:
-        return False, "缺少正式标签状态，条件 Buff 不推算"
+        return False, _projection_text(
+            text_catalog,
+            "reason.tags_missing",
+            "缺少正式标签状态，条件 Buff 不推算",
+        )
     if (recognized and not all(recognized)) or (ability_requirements and not all(ability_requirements)):
-        return False, "该 Buff 修正只作用于指定技能伤害标签"
+        return False, _projection_text(
+            text_catalog,
+            "reason.skill_tag_only",
+            "该 Buff 修正只作用于指定技能伤害标签",
+        )
     return True, ""
 
 
 def _inferred_hit_target_applies(
     requirement: str,
     hit: BattleAnalysisHit,
+    *,
+    text_catalog: TextCatalog | None = None,
 ) -> tuple[bool, str]:
     if not requirement.startswith(_INFERRED_HIT_TARGET_PREFIX):
         return True, ""
     target_id = requirement.removeprefix(_INFERRED_HIT_TARGET_PREFIX)
     if hit.target_id != target_id:
-        return False, "推断的条件增伤只投影到出现倍率阶跃的同一目标"
+        return False, _projection_text(
+            text_catalog,
+            "reason.inferred_target_mismatch",
+            "推断的条件增伤只投影到出现倍率阶跃的同一目标",
+        )
     return True, ""
 
 
@@ -265,6 +302,8 @@ def evaluate_interval_projection(
     hit: BattleAnalysisHit,
     interval: BattleInferredBuffInterval,
     channel_id: str,
+    *,
+    text_catalog: TextCatalog | None = None,
 ) -> IntervalProjectionEvaluation:
     candidates: list[tuple[str, float, str]] = []
     accepted_properties: set[str] = set()
@@ -281,19 +320,32 @@ def evaluate_interval_projection(
         }
         and not source_character_scope
     ):
-        interval_reasons.append("作用对象尚未确定")
+        interval_reasons.append(
+            _projection_text(text_catalog, "reason.scope_unknown", "作用对象尚未确定")
+        )
     elif interval.target_scope == "team_others" and (hit.character_id is None or int(hit.character_id) <= 0):
-        interval_reasons.append("逐击角色未知，无法确认该击是否属于来源角色之外的队友")
+        interval_reasons.append(_projection_text(
+            text_catalog,
+            "reason.hit_character_unknown",
+            "逐击角色未知，无法确认该击是否属于来源角色之外的队友",
+        ))
     elif interval.target_scope == "target" and not interval.target_id:
-        interval_reasons.append("缺少目标实例，敌方 Buff/Debuff 不跨目标推算")
+        interval_reasons.append(_projection_text(
+            text_catalog,
+            "reason.target_missing",
+            "缺少目标实例，敌方 Buff/Debuff 不跨目标推算",
+        ))
     elif interval.target_scope == "target" and interval.target_id != hit.target_id:
-        interval_reasons.append("与本击目标实例不匹配")
+        interval_reasons.append(
+            _projection_text(text_catalog, "reason.target_mismatch", "与本击目标实例不匹配")
+        )
     else:
         for modifier in interval.modifiers:
             source_applies, source_reason = _confirmed_source_tags_apply(
                 interval,
                 modifier,
                 hit,
+                text_catalog=text_catalog,
             )
             if not source_applies:
                 interval_reasons.append(source_reason)
@@ -302,6 +354,7 @@ def evaluate_interval_projection(
             target_applies, target_reason = _inferred_hit_target_applies(
                 modifier.application_requirement_asset_path,
                 hit,
+                text_catalog=text_catalog,
             )
             if not target_applies:
                 interval_reasons.append(target_reason)
@@ -328,18 +381,31 @@ def evaluate_interval_projection(
                 interval_reasons.append(outer_reason)
                 continue
             if requirement == "battle-channel:continuous-damage" and channel_id not in _CONTINUOUS_DAMAGE_CHANNELS:
-                interval_reasons.append("该 Buff 只作用于噩梦、蚀心、鸩火和浊燃等持续伤害")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.continuous_damage_only",
+                    "该 Buff 只作用于噩梦、蚀心、鸩火和浊燃等持续伤害",
+                ))
                 continue
             applies_to_hit = calculation_applies_to_damage(
                 modifier.calculation_asset_path,
                 hit.gameplay_effect_id,
             )
             if applies_to_hit is False:
-                interval_reasons.append("该专用倍率只作用于其绑定的伤害项，本击不采用")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.bound_damage_only",
+                    "该专用倍率只作用于其绑定的伤害项，本击不采用",
+                ))
                 continue
             specialized_reason = specialized_calculation_reason(modifier.calculation_asset_path)
             if applies_to_hit is True and specialized_reason:
-                interval_reasons.append(f"{specialized_reason}，由逐击重放适配器单独计算")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.specialized_replay",
+                    "{reason}，由逐击重放适配器单独计算",
+                    reason=specialized_reason,
+                ))
                 continue
             property_id = normalize_battle_buff_property_id(modifier.property_id)
             if (
@@ -362,13 +428,27 @@ def evaluate_interval_projection(
                     )
                 ).casefold()
             ):
-                interval_reasons.append("三觉 Q 的 CoefModify 已由正式技能倍率证据消费，不再作为待确认属性重复投影")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.awakening_coef_consumed",
+                    "三觉 Q 的 CoefModify 已由正式技能倍率证据消费，不再作为待确认属性重复投影",
+                ))
                 continue
             if property_id in _TOPPLE_ONLY_PROPERTIES and channel_id not in _TOPPLE_CHANNELS:
-                interval_reasons.append(f"{property_id} 只进入倾陷伤害的逐角色格子")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.topple_only_property",
+                    "{property} 只进入倾陷伤害的逐角色格子",
+                    property=property_id,
+                ))
                 continue
             if channel_id in _TOPPLE_CHANNELS and property_id not in _TOPPLE_FORMULA_PROPERTIES:
-                interval_reasons.append(f"{property_id} 不进入倾陷的逐角色公式")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.topple_formula_excluded",
+                    "{property} 不进入倾陷的逐角色公式",
+                    property=property_id,
+                ))
                 continue
             if channel_id == "reaction_nova" and property_id not in {
                 "MagBase",
@@ -376,29 +456,56 @@ def evaluate_interval_projection(
                 "DamageResistPsychicallyBase",
                 "DamageResistPsychicallyAdd",
             }:
-                interval_reasons.append(f"{property_id} 不进入黯星的等级、环合强度与抗性公式")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.nova_formula_excluded",
+                    "{property} 不进入黯星的等级、环合强度与抗性公式",
+                    property=property_id,
+                ))
                 continue
             operation = modifier.modifier_operation.casefold()
             if property_id not in _SAFE_ADDITIVE_PROPERTIES:
-                interval_reasons.append(
-                    f"{property_id} 不属于本击伤害公式"
-                    if property_id in _NON_DAMAGE_PROPERTIES
-                    else f"{property_id} 尚未映射到安全伤害乘区"
-                )
+                non_damage = property_id in _NON_DAMAGE_PROPERTIES
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.not_damage_formula" if non_damage else "reason.unsafe_property",
+                    "{property} 不属于本击伤害公式" if non_damage else "{property} 尚未映射到安全伤害乘区",
+                    property=property_id,
+                ))
                 continue
             target_property = property_id in _TARGET_PROPERTIES
             if target_property != (interval.target_scope == "target"):
-                interval_reasons.append(f"{property_id} 与 Buff 作用对象不匹配")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.target_scope_mismatch",
+                    "{property} 与 Buff 作用对象不匹配",
+                    property=property_id,
+                ))
                 continue
             expected_attribute = _ELEMENT_PROPERTY_ATTRIBUTE.get(property_id)
             if expected_attribute is not None and hit.damage_attribute.casefold() != expected_attribute:
-                interval_reasons.append(f"{property_id} 与该击伤害属性不匹配")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.damage_attribute_mismatch",
+                    "{property} 与该击伤害属性不匹配",
+                    property=property_id,
+                ))
                 continue
             if not operation.endswith("additive"):
-                interval_reasons.append(f"{property_id} 不是已支持的加法修正")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.unsupported_operation",
+                    "{property} 不是已支持的加法修正",
+                    property=property_id,
+                ))
                 continue
             if modifier.magnitude_value is None or modifier.value_confidence not in {"中", "高"}:
-                interval_reasons.append(f"{property_id} 数值或 Calculation 尚未解析")
+                interval_reasons.append(_projection_text(
+                    text_catalog,
+                    "reason.value_unresolved",
+                    "{property} 数值或 Calculation 尚未解析",
+                    property=property_id,
+                ))
                 continue
             accepted = True
             accepted_properties.add(property_id)
@@ -407,7 +514,16 @@ def evaluate_interval_projection(
                 modifier.value_confidence,
             )
             candidates.append((property_id, float(modifier.magnitude_value), confidence))
-    reasons = tuple(dict.fromkeys(interval_reasons or (() if accepted else ("没有可计算的属性修正",))))
+    reasons = tuple(dict.fromkeys(interval_reasons or (
+        () if accepted
+        else (
+            _projection_text(
+                text_catalog,
+                "reason.no_computable_property",
+                "没有可计算的属性修正",
+            ),
+        )
+    )))
     return IntervalProjectionEvaluation(
         tuple(candidates),
         tuple(sorted(accepted_properties)),

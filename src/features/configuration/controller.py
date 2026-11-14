@@ -8,7 +8,7 @@ from typing import Any, TypeVar
 from PySide6.QtCore import QObject, Qt, Signal
 
 from src.app.page_tasks import PageCommitLane, PageRequest, PageTaskLane
-from src.domain.basic_weight import BasicWeightDependencies
+from src.domain.characters.basic_weight import BasicWeightDependencies
 from src.observability import OperationContext
 from src.services.characters.basic_weight.service import BasicWeightService
 

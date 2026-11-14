@@ -3,7 +3,7 @@
 
 import re
 
-__version__ = "2.4.0.202611062209T"
+__version__ = "2.4.0.202611082106T"
 # Python 包元数据遵守 PEP 440；应用与安装器仍显示用户约定的日期测试版。
 __package_version__ = re.sub(r"\.((?:\d{8}|\d{12}))T$", r".dev\1", __version__).replace(".T", ".dev")
 

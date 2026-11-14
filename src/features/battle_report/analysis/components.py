@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -55,6 +56,7 @@ def apply_inferred_scope_warning(
     label: QLabel,
     analysis: object,
     condition: object,
+    *, text_catalog=None,
 ) -> None:
     """保留残差选中的范围，仅为低置信或歧义来源追加冲突提示。"""
 
@@ -81,7 +83,7 @@ def apply_inferred_scope_warning(
         if not target_name or target_name in environment_name
         else f" · {target_name}"
     )
-    label.setText(f"候选冲突：{environment_name}{suffix}")
+    label.setText(resolve_text_catalog(text_catalog).render('ui.battle_report.apply_inferred_scope_warning.label', environment_name=f'{environment_name}', suffix=f'{suffix}'))
     label.setStyleSheet(themed_style("color:#f85149;font-weight:700"))
 
 
@@ -117,11 +119,11 @@ def analysis_section(title: str, description: str = "") -> tuple[QFrame, QVBoxLa
     layout = QVBoxLayout(card)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(10)
-    heading = QLabel(title)
+    heading = plain_label(title)
     heading.setObjectName("cardTitle")
     layout.addWidget(heading)
     if description:
-        label = QLabel(description)
+        label = plain_label(description)
         label.setWordWrap(True)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         layout.addWidget(label)

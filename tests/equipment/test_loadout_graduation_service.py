@@ -10,26 +10,26 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
-from src.features.inventory.equipment.graduation_controller import request_equipment_graduation_rate
-import src.services.official_role.graduation as graduation_service
+from src.features.inventory.equipment.optimization.graduation_controller import request_equipment_graduation_rate
+import src.services.official_role.equipment.graduation as graduation_service
 
 
 def test_graduation_rate_uses_role_page_damage_contract(monkeypatch) -> None:
     monkeypatch.setattr(
         graduation_service,
         "graduation_template_with_weight_substats",
-        lambda _detail: {"profile": {"character_level": 80}, "equipment": ()},
+        lambda _detail, *, calculator=None: {"profile": {"character_level": 80}, "equipment": ()},
     )
     received = []
 
-    def margins(detail, context_key):
+    def damage(detail, context_key, *, calculator=None):
         received.append((detail["profile"], detail["world_bonus"]))
-        return {"damage": {"graduation": 200.0, "saved": 150.0, "current": 100.0}[context_key]}
+        return {"graduation": 200.0, "saved": 150.0, "current": 100.0}[context_key]
 
     monkeypatch.setattr(
         graduation_service,
-        "calculate_official_role_margins",
-        margins,
+        "calculate_official_role_damage",
+        damage,
     )
 
     assert graduation_service.graduation_rate({

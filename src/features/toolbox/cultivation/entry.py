@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QLabel,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +19,7 @@ def build_cultivation_calculator_entry(
     parent: QWidget,
     *,
     open_calculator: Callable[[], None],
+    text_catalog=None,
 ) -> QWidget:
     """Build the small toolbox card without coupling the page to dialog details."""
 
@@ -35,18 +35,18 @@ def build_cultivation_calculator_entry(
     layout.setSpacing(15)
     copy = QVBoxLayout()
     copy.setSpacing(4)
-    title = QLabel("养成计算器", row)
+    title = plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.open.qmessagebox'), row)
     title.setStyleSheet(themed_style("font-size:16px;font-weight:800;color:#58a6ff"))
     copy.addWidget(title)
-    description = QLabel(
-        "进入整页计算角色、技能与弧盘养成材料；当前不扣除背包，也不估算体力。",
+    description = plain_label(
+        resolve_text_catalog(text_catalog).render('ui.toolbox.build_cultivation_calculator_entry.description'),
         row,
     )
     description.setWordWrap(True)
     description.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     copy.addWidget(description)
     layout.addLayout(copy, 1)
-    button = QPushButton("进入", row)
+    button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.toolbox.build_cultivation_calculator_entry.button'), row)
     button.setObjectName("toolboxCultivationCalculator")
     button.setCursor(Qt.PointingHandCursor)
     button.setMinimumSize(76, 38)

@@ -39,7 +39,8 @@
 - 每名成员记录 `character_id`、`slot_id`、`plan_id`、`snapshot_id`、`source_fingerprint`、`field_sources`、`skill_level_sources`。非游戏来源必须有实际槽位、方案与来源快照，不追随最新背包重解释旧方案。
 - 字段来源逐一覆盖实际 profile，基础技能来源逐一覆盖正式 SkillID。接受 `account` / `native_observed`；仅技能集合可标 `mixed`，仍须提供逐技能来源。模板及未知来源不被提升为实际进度。
 - 已知零觉醒可明确推导空选择及已确认状态，来源标为 `derived_zero_awakening`，只用于这两个字段；确认未装备弧盘可推导三个空成长字段，来源标为 `derived_unequipped_fork`。这两种推导分别以明确零觉醒或空弧盘为前提，不推导其他养成。
-- 家具当前只接纳已确认账号设置，`world_source=account`；目标家具独立冻结。
+- 家具当前只接纳已确认账号设置，`world_source=account`；目标家具独立冻结。当前输入可附加 `kaijia_defense_add`（0..30）；旧两字段输入继续可读，当前账号旧设置缺该新增字段时取产品默认满值。目标 DTO 保留原两字段及摘要，防御目标固定满值 30，不增加第三个可编辑目标字段。
+- 新冻结参照的 `anchor_world` 可含第三项防御，按实际存在键参与规范化和 IEEE-754 摘要；旧两字段参照和轴快照严格保持原字段集合及摘要，不在冻结正文中补满或补零。
 
 应用 owner 仍须在派发/保存前调用既有实际来源复核并检查账号代次。当前请求工厂只构造独立正文，不自行读取数据库、启动求解或保存结果；Controller/owner 闭环仍待实现。Rust 的证据结构校验与请求摘要绑定不等于已经证明调用方声明的来源真实。
 

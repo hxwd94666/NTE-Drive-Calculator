@@ -7,7 +7,7 @@ import threading
 from types import SimpleNamespace
 from pathlib import Path
 
-from .fixture import build_basic_weight_static_fixture
+from tests.characters.configuration.fixture import build_basic_weight_static_fixture
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -92,7 +92,7 @@ def test_real_read_edit_save_keeps_equal_names_separate_and_updates_only_selecte
     from src.services.characters.custom_character_service import create_custom_character
     from src.storage.sqlite.user_data_dao import UserDataDao
     from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-    from src.domain.recommended_weights import base_weight_character_id
+    from src.domain.characters.recommended_weights import base_weight_character_id
     page, context = use_real_sources(editor, monkeypatch)
     with StaticGameDataDao(context.paths.equipment_allocation_database_path) as static:
         official = static.get_character(1051)
@@ -120,7 +120,7 @@ def test_real_read_edit_save_keeps_equal_names_separate_and_updates_only_selecte
 
 
 def test_real_official_reset_preserves_default_refreshability(editor, monkeypatch):
-    from src.domain.recommended_weights import base_weight_character_id
+    from src.domain.characters.recommended_weights import base_weight_character_id
     from src.services.characters.character_weight_service import save_account_character_weights
     from src.storage.sqlite.user_data_dao import UserDataDao
     page, context = use_real_sources(editor, monkeypatch)

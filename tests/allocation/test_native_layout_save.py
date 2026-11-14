@@ -9,11 +9,11 @@ import pytest
 
 from tests.allocation.test_direct_postprocess import fixture
 from tests.allocation.test_direct_postprocess_save import setup_case
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.models.equipment import Drive
-from src.services.allocation.plan_save import save_allocation_plans
-from src.services.allocation.postprocess_facts import allocation_plan_wire, allocation_role_state_from_plan, restore_postprocess_results
-from src.services.equipment.saved_state_loadout_bridge import SavedStateLoadoutError
+from src.services.allocation.results.plan_save import save_allocation_plans
+from src.services.allocation.results.postprocess_facts import allocation_plan_wire, allocation_role_state_from_plan, restore_postprocess_results
+from src.services.equipment.loadouts.saved_state_loadout_bridge import SavedStateLoadoutError
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 NTE_TEST_TIER = "core"
@@ -28,9 +28,9 @@ def test_native_layout_is_saved_without_legacy_block_or_anchor_search(tmp_path):
     path, _, _, kwargs = setup_case(tmp_path)
     state = kwargs["rows"][0]["role_state"]
     state["native_layout"] = _proof(state)
-    with patch("src.services.equipment.saved_state_loadout_bridge.extract_drive_blocks_from_state",
+    with patch("src.services.equipment.loadouts.saved_state_loadout_bridge.extract_drive_blocks_from_state",
                side_effect=AssertionError("legacy block search called")), \
-            patch("src.services.equipment.saved_state_loadout_bridge._official_anchor",
+            patch("src.services.equipment.loadouts.saved_state_loadout_bridge._official_anchor",
                   side_effect=AssertionError("legacy anchor search called")):
         assert save_allocation_plans(**kwargs) == 1
     with UserDataDao(path) as dao:
@@ -51,7 +51,7 @@ def test_bad_native_layout_never_falls_back_to_legacy_search_or_creates_partial_
         bad["drives"][0][key] = value
         variants.append(bad)
     variants.extend([None, {**valid, "drives": []}, {**valid, "drives": valid["drives"] * 2}])
-    with patch("src.services.equipment.saved_state_loadout_bridge.extract_drive_blocks_from_state",
+    with patch("src.services.equipment.loadouts.saved_state_loadout_bridge.extract_drive_blocks_from_state",
                side_effect=AssertionError("invalid proof fell back to legacy search")):
         for bad in variants:
             state["native_layout"] = bad

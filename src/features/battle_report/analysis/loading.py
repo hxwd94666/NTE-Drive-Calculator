@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, replace
 from threading import Event
@@ -10,6 +11,7 @@ from threading import Event
 from src.app.workers import WorkerThread
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.observability.operation import log_event
+from src.observability.stage_timings import StageTimings
 from src.observability.redaction import safe_exception
 from src.domain.battle_report.analysis.page_results import BattleReportAnalysisLoadResult
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest, BattleReportAnalysisLoadService
@@ -41,20 +43,28 @@ class _BattleAnalysisLoadWorker(WorkerThread):
         request: BattleReportAnalysisLoadRequest,
         *,
         parent,
+        timings=None,
     ) -> None:
         self._history = history
         self._request = request
         self._cancelled = Event()
+        self.timings = timings
+        self.timing_outcome = 'returned'
         super().__init__(target=self._load, parent=parent)
 
     def _load(self) -> BattleReportAnalysisLoadResult:
-        if self._cancelled.is_set():
-            raise CancelledError
-        return BattleReportAnalysisLoadService.load(
-            self._history,
-            self._request,
-            progress_callback=self._report_progress,
-        )
+        try:
+            if self._cancelled.is_set():
+                raise CancelledError
+            return BattleReportAnalysisLoadService.load(
+                self._history,
+                self._request,
+                progress_callback=self._report_progress,
+                timings=self.timings,
+            )
+        except Exception as error:
+            self.timing_outcome = 'cancelled' if isinstance(error, CancelledError) else 'failed'
+            raise
 
     def cancel_analysis(self) -> None:
         self._cancelled.set()
@@ -224,6 +234,7 @@ class BattleReportAnalysisControllerMixin:
             history,
             presentation.load,
             parent=self,
+            timings=StageTimings(self._history_operation_context()),
         )
         self._analysis_load_worker = worker
         worker.result_ready.connect(
@@ -277,14 +288,14 @@ class BattleReportAnalysisControllerMixin:
         ):
             return
         if not isinstance(result, BattleReportAnalysisLoadResult):
-            self._analysis_load_failed(token, request, "后台分析返回了未知结果")
+            self._analysis_load_failed(token, request, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.analysis_load_ready.self'))
             return
         analysis = result.analysis
         record_id = request.load.battle_record_id
         if analysis is None or not analysis.timeline_hits:
             self._page.end_analysis_details()
             if request.load.detail_level in {"hit", "buff", "composition"}:
-                self._page.show_analysis_detail_error("当前详情没有可用的逐击分析结果。")
+                self._page.show_analysis_detail_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.analysis_load_ready.page'))
             elif request.load.detail_level != "marginal":
                 self._page.clear_analysis(
                     "当前记录只有聚合摘要，或所选时段没有正式逐击证据。"
@@ -356,9 +367,9 @@ class BattleReportAnalysisControllerMixin:
         if message == "任务已取消":
             return
         if request.load.detail_level == "composition":
-            self._page.show_analysis_detail_error(f"倾陷归属未完成：{message}")
+            self._page.show_analysis_detail_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.analysis_load_failed.page', message=f'{message}'))
         elif request.load.detail_level in {"hit", "buff"}:
-            self._page.show_analysis_detail_error(f"当前详情未完成：{message}")
+            self._page.show_analysis_detail_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.analysis_load_failed.page_2', message=f'{message}'))
         elif request.load.detail_level == "marginal":
             self._page.show_marginal_error(message)
         else:
@@ -377,6 +388,13 @@ class BattleReportAnalysisControllerMixin:
         # 逻辑取消不等于线程结束，旧 worker 的末态也不可清掉新 owner。
         if worker is not self._analysis_load_worker:
             return
+        # 只由仍有效的页面 owner 发布数值计时；失效账号/取消的晚到记录直接释放。
+        active = self._active_analysis_load
+        if worker.timings is not None:
+            if (active is not None and not self._active_analysis_load_invalidated
+                    and self._analysis_request_is_current(active[1])):
+                worker.timings.finish('worker_finished', outcome=worker.timing_outcome)
+            worker.timings.close()
         self._analysis_load_worker = None
         self._active_analysis_load = None
         self._active_analysis_load_invalidated = False
@@ -490,7 +508,7 @@ class BattleReportAnalysisControllerMixin:
         except StaleBattleReportContextError:
             return
         except Exception as error:
-            self._show_history_error("保存敌方条件失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.save_target_condition.self'), error)
             return
         self._load_changed_analysis(
             record_id,

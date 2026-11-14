@@ -14,7 +14,7 @@ from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.integrations.battle_analysis.page_wire import _decode_snapshot, decode, decode_derived_snapshot, decode_page
-from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_report.analysis.native_page import BattleNativePageService
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest
 from src.services.battle_report.persistence import BattleReportPersistenceDependencies

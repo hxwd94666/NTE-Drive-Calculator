@@ -11,13 +11,13 @@ import pytest
 
 from tests.allocation.test_axis_postprocess_component import axis_facade_case, ROOT
 from src.app.facade import NTEAppFacade
-from src.integrations.analysis_core_release import create_bundled_analysis_client as _bundled_client
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.integrations.static_catalog_release import static_catalog_read_unit
-from src.services.allocation.direct_postprocess import optimization_payload
-from src.services.allocation.locks import build_allocation_lock_snapshot
-from src.services.allocation.plan_save import save_allocation_plans
-from src.services.allocation.postprocess_facts import allocation_save_projection
+from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client as _bundled_client
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+from src.services.allocation.direct.direct_postprocess import optimization_payload
+from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+from src.services.allocation.results.plan_save import save_allocation_plans
+from src.services.allocation.results.postprocess_facts import allocation_save_projection
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.official_role.page import load_official_role_detail
 
@@ -85,7 +85,7 @@ def test_empty_default_groups_normalize_only_new_job_copy_and_preserve_b0_trace(
     options = dict(custom_sets={"灵可": case["suit_name"]}, set_effect_modes={"灵可": "none"},
         tape_main_filters={"灵可": ["攻击力%"]}, crit_rate_baselines=case["crit_baselines"])
     traces = []
-    from src.integrations.native_allocation_wire import freeze
+    from src.integrations.allocation.native_allocation_wire import freeze
     def trace(request, scorer):
         traces.append(deepcopy(freeze(request, scorer)["request"]))
     with patch("src.app.facade.create_bundled_analysis_client", return_value=client):
@@ -112,7 +112,7 @@ def test_unready_group_does_not_protect_its_unlocked_old_slot(tmp_path):
     facade = NTEAppFacade(config_dir=ROOT / "config", user_config_dir=ROOT / "config",
         user_database_path=case["dependencies"].user_database_path,
         allocation_static_database_path=case["dependencies"].static_database_path)
-    with patch("src.services.allocation.direct_group_postprocess.load_official_role_detail", side_effect=available):
+    with patch("src.services.allocation.direct.direct_group_postprocess.load_official_role_detail", side_effect=available):
         plans, _ = facade.execute_allocation_inventory(case["inventory"], case["selected_roles"], mode="direct_priority",
             custom_sets={role: case["suit_name"] for role in case["selected_roles"]},
             set_effect_modes={role: "none" for role in case["selected_roles"]},

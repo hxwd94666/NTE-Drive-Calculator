@@ -14,13 +14,13 @@ from typing import Any
 
 from src.integrations.vision.recognition.duplicate_filter import RecoverableParseError
 from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
-from src.domain.post_actions import (
+from src.domain.inventory.post_actions import (
     merge_post_action_config,
     post_actions_enabled,
     summarize_state_changes,
 )
 from src.integrations.vision.equipment_state_detection import equipment_screenshot_state
-from src.services.inventory.post_action_evaluation import PostActionEvaluator
+from src.services.inventory.scanning.post_action_evaluation import PostActionEvaluator
 from src.services.identification.matching_settings import MatchingSettingsService
 from concurrent.futures import CancelledError
 from src.utils.logger import logger
@@ -399,7 +399,7 @@ def run_streaming_scan_parse(
                     if result_is_current is not None and not result_is_current():
                         raise CancelledError("账号上下文已变化，扫描后管理已停止")
                     if evaluation.matching_identity:
-                        from src.domain.equipment.management_settings import MatchingScope
+                        from src.domain.equipment.eligibility.management_settings import MatchingScope
                         MatchingSettingsService(user_database_path, scope=MatchingScope.SCAN).require_identity(evaluation.matching_identity)
                 # 部分成功与 issue 原样保留；未知结果不在流水线自动重发。
                 post_action_summary = state_sync_factory(

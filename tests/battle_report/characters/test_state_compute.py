@@ -9,7 +9,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.characters.state_compute import compute_character_state
 from src.services.battle_report.characters.fadia import BattleFadiaHpStackService
 from src.services.battle_report.characters.shinku import BattleShinkuRageBuffService

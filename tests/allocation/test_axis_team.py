@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.integrations.nte_analysis_core import (
+from src.integrations.analysis_core.nte_analysis_core import (
     ENGINE_VERSION, NteAnalysisCoreClient, NativeAnalysisError, NativeAnalysisCancelled,
 )
 

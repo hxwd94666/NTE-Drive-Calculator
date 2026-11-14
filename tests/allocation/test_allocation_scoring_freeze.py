@@ -14,15 +14,17 @@ import pytest
 from src.domain.allocation.scoring_rules import AllocationScoringRules
 from src.features.weighted_allocation import runner
 from src.optimizer.scoring import ScoringEngine
-from src.services.allocation.context_builder import AllocationContextError, build_allocation_context, read_allocation_scoring_rules
+from src.services.allocation.inputs.context_builder import AllocationContextError, build_allocation_context, read_allocation_scoring_rules
 from src.domain.allocation.inputs import OfficialStat, PropertyLimit
-from src.services.allocation import legacy_adapter as adapter
-from src.services.allocation_solver import solve_allocation_context
+from src.services.allocation.execution import legacy_adapter as adapter
+from src.services.allocation.execution.allocation_solver import solve_allocation_context
 from src.services.characters.custom_character_service import create_custom_character
-from src.services.equipment.weighted_loadout_comparison_service import freeze_weighted_loadout_comparisons, refresh_weighted_loadout_comparisons
+from src.services.equipment.loadouts.weighted_loadout_comparison_service import freeze_weighted_loadout_comparisons, refresh_weighted_loadout_comparisons
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_allocation_solver import complete_role_candidates, fixture_context, fixture_role
+from tests.allocation.test_allocation_solver import complete_role_candidates
+from tests.allocation.test_allocation_solver import fixture_context
+from tests.allocation.test_allocation_solver import fixture_role
 from tests.allocation.test_context import item, snapshot
 
 NTE_TEST_TIER = "core"
@@ -232,7 +234,7 @@ def test_public_solve_cancels_at_real_stage_without_partial_success(stage):
 
 def test_inventory_cancel_bounds_formula_work_and_owner_exception_is_unmodified():
     context = full_context()
-    from src.integrations.equipment_score_backend import NativeEquipmentScorer
+    from src.integrations.scoring.equipment_score_backend import NativeEquipmentScorer
     calls = []
     original = NativeEquipmentScorer.batch
     def batch(self, items, *args, **kwargs):
@@ -321,7 +323,7 @@ def test_public_cancel_reaches_deferred_reservation_recovery():
 @pytest.mark.parametrize("quality", ["orange", "purple", "blue"])
 @pytest.mark.parametrize("zero_blacklist", [False, True])
 def test_alias_percent_blacklist_and_main_weights_match_the_direct_sole_engine(quality, zero_blacklist):
-    from src.domain.stat_catalog import StatCatalog
+    from src.domain.equipment.properties.stat_catalog import StatCatalog
     from src.models.equipment import Drive
     from src.domain.allocation.inputs import OfficialAttribute
     raw = payload()

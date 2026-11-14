@@ -9,11 +9,11 @@ import shutil
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from tests.static_release_fixture import distribution_manifest
-from src.services.allocation.context_builder import read_allocation_scoring_rules
+from tests.game_data.static_release_fixture import distribution_manifest
+from src.services.allocation.inputs.context_builder import read_allocation_scoring_rules
 from unittest.mock import patch
 
-from src.services.allocation.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION, AllocationContextError, build_allocation_context
+from src.services.allocation.inputs.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION, AllocationContextError, build_allocation_context
 from src.services.characters.character_shape_bonus_service import SHARED_DATABASE_ENV
 from src.services.characters.custom_character_service import create_custom_character
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao

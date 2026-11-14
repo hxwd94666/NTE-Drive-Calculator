@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.integrations.battle_analysis.editor_facts import load_editor_facts
-from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.services.battle_report.characters.inferred_facts import BattleInferredCharacterFactService
 from src.services.battle_report.history.projection import character_analysis_scopes
 from tests.battle_report.build.test_battle_build_editor_seed import BattleBuildEditorSeedTests

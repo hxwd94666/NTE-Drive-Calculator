@@ -12,15 +12,19 @@ import pytest
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
-from src.domain.equipment.loadout_management import LoadoutAccount
-from src.features.inventory.equipment import display_controller as display
-from src.features.inventory.equipment.persistence_controller import EquipmentPersistenceController, LoadoutOperation
+from src.domain.equipment.loadouts.loadout_management import LoadoutAccount
+from src.features.inventory.equipment.display import display_controller as display
+from src.features.inventory.equipment.management.persistence_controller import EquipmentPersistenceController, LoadoutOperation
 from src.optimizer.contracts import EQUIP_SHAPE_ID, EQUIP_SUB_STATS, EQUIP_UID, ROLE_EQUIPPED_DRIVES
-from src.services.equipment.game_loadout_projection_service import (
-    GameLoadoutImportRequest, GameLoadoutProjectionError, GameLoadoutProjectionService,
+from src.services.equipment.loadouts.game_loadout_projection_service import (
+    GameLoadoutImportRequest,
+    GameLoadoutProjectionError,
+    GameLoadoutProjectionService,
 )
-from src.services.equipment.loadout_management import (
-    GameLoadoutMutation, LoadoutManagementService, freeze_game_loadout_request,
+from src.services.equipment.loadouts.loadout_management import (
+    GameLoadoutMutation,
+    LoadoutManagementService,
+    freeze_game_loadout_request,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.equipment.test_loadout_management import app as app, spin

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.mechanics.dot_state import reconstruct_dot_stack_states
 from src.services.battle_report.characters.zankou import reconstruct_zankou_q_final_damage
 from tests.battle_report.mechanics.test_dot_state import _hit

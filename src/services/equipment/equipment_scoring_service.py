@@ -31,6 +31,18 @@ class _TapeScoreInput:
     area: int = 15
 
 
+def prepare_equipment_stat_scores(engine: ScoringEngine, items, profiles) -> None:
+    """展示批量预热仍消费与单件方法一致的词条顺序、实际主值和品质，不派生第二套评分。"""
+    inputs = []
+    for item in items:
+        stats = {str(name): 0.0 for name in item['sub_stats']}
+        if item['item_type'] == 'tape':
+            inputs.append(_TapeScoreInput(str(item['main_stats']), stats, str(item['quality']), item['main_value']))
+        else:
+            inputs.append(_DriveScoreInput(stats, int(item['area']), str(item['quality'])))
+    engine.prepare_scores(inputs, profiles=profiles)
+
+
 def score_drive_stats(
     engine: ScoringEngine,
     *,

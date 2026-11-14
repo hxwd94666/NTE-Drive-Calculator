@@ -11,14 +11,14 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from src.domain.equipment.loadout_share import LoadoutSharePanel, ShareEquipment, ShareStat
-from src.domain.equipment.loadout_share_highlight import ShareHighlightPolicy
+from src.domain.sharing.loadout_share import LoadoutSharePanel, ShareEquipment, ShareStat
+from src.domain.sharing.loadout_share_highlight import ShareHighlightPolicy
 from src.domain.official_role.models import OfficialAttributeSummaryValue
-from src.integrations.loadout_share_image import (
+from src.integrations.sharing.loadout_share_image import (
     BODY_TOP, HEADER_CONTACT_LINES, SKILLS_PER_ROW, _equipment_sections, _layout,
     _title, render_loadout_share_png, save_share_png,
 )
-from src.services.equipment import loadout_share_service as service
+from src.services.equipment.sharing import loadout_share_service as service
 
 
 def sample_panel(count: int = 3) -> LoadoutSharePanel:
@@ -55,7 +55,7 @@ class LoadoutSharePanelTests(unittest.TestCase):
 
     def test_header_contact_text_is_complete_and_four_skills_need_no_extra_row(self):
         texts = []
-        with patch("src.integrations.loadout_share_image._text", side_effect=lambda draw, xy, text, *a, **kw: texts.append(text)):
+        with patch("src.integrations.sharing.loadout_share_image._text", side_effect=lambda draw, xy, text, *a, **kw: texts.append(text)):
             _title(Image.new("RGBA", (1100, 1300)), sample_panel())
         self.assertEqual(tuple(texts[-2:]), HEADER_CONTACT_LINES)
         self.assertEqual(texts[-2:], ['使用教程：B站飞行库冯', 'Github：NTE-Drive-Calculator'])
@@ -67,10 +67,10 @@ class LoadoutSharePanelTests(unittest.TestCase):
         self.assertGreater(_layout(five)[1], _layout(four)[1])
 
     def test_role_image_does_not_require_project_qr_asset(self):
-        from src.integrations.loadout_share_assets import share_asset
+        from src.integrations.sharing.loadout_share_assets import share_asset
         def without_qr(group, key):
             return None if group == 'branding' else share_asset(group, key)
-        with patch('src.integrations.loadout_share_image.share_asset', side_effect=without_qr):
+        with patch('src.integrations.sharing.loadout_share_image.share_asset', side_effect=without_qr):
             data = render_loadout_share_png(sample_panel())
         with Image.open(BytesIO(data)) as image:
             image.verify()

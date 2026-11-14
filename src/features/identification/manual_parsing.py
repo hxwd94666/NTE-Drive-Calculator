@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.utils.name_resolver import resolve_name
 
 

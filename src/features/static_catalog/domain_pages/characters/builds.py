@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 import re
 
 from PySide6.QtCore import Qt
@@ -31,7 +32,7 @@ from src.services.static_catalog.characters.models import (
 from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
-from src.ui.puzzle_board import PuzzleBoardWidget
+from src.ui.equipment.puzzle_board import PuzzleBoardWidget
 
 
 def _number(value: float) -> str:
@@ -50,8 +51,10 @@ class CharacterBuildView(QWidget):
         *,
         terminology: StaticCatalogTerminologyService | None = None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._terminology = terminology
         self._cards: list[QFrame] = []
         self._columns = 0
@@ -152,14 +155,14 @@ class CharacterBuildView(QWidget):
                 stable_id=fork_id,
                 identity_label="弧盘",
             )
-            title = QLabel(
+            title = plain_label(
                 formal_name
                 if formal_name and formal_name != fork_id
                 else fork_term.display_name,
                 card,
             )
             title.setStyleSheet(themed_style("color:#f0f6fc;font-weight:800"))
-            note = QLabel(description or "正式推荐弧盘", card)
+            note = plain_label(description or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.cultivation_card.note'), card)
             note.setWordWrap(True)
             note.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
             card.layout().addWidget(title)
@@ -182,7 +185,7 @@ class CharacterBuildView(QWidget):
 
     def _graduation_card(self, detail: CharacterDetail) -> QFrame:
         card = self._panel("毕业装备模板")
-        card.layout().addWidget(self._derived_badge())
+        card.layout().addWidget(self._derived_badge(text_catalog=getattr(self, 'text_catalog', None)))
         graduation = detail.graduation
         if graduation is None:
             card.layout().addWidget(self._muted("当前项目未提供派生毕业模板"))
@@ -213,7 +216,7 @@ class CharacterBuildView(QWidget):
 
     def _weights_card(self, detail: CharacterDetail) -> QFrame:
         card = self._panel("推荐权重")
-        card.layout().addWidget(self._derived_badge())
+        card.layout().addWidget(self._derived_badge(text_catalog=getattr(self, 'text_catalog', None)))
         weights = detail.recommended_weights
         if weights is None or not weights.properties:
             card.layout().addWidget(self._muted("当前项目未提供派生推荐权重"))
@@ -280,7 +283,7 @@ class CharacterBuildView(QWidget):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(7)
-        heading = QLabel(title, card)
+        heading = plain_label(title, card)
         heading.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:14px;font-weight:900"
         ))
@@ -288,8 +291,8 @@ class CharacterBuildView(QWidget):
         return card
 
     @staticmethod
-    def _derived_badge() -> QLabel:
-        badge = QLabel("项目推荐 · 派生")
+    def _derived_badge(*, text_catalog=None) -> QLabel:
+        badge = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.derived_badge.badge'))
         badge.setObjectName("characterDerivedBadge")
         badge.setStyleSheet(themed_style(
             "color:#d29922;background:#0d1117;border:1px solid #d29922;"
@@ -299,7 +302,7 @@ class CharacterBuildView(QWidget):
 
     @staticmethod
     def _chip(text: str) -> QLabel:
-        chip = QLabel(text)
+        chip = plain_label(text)
         chip.setWordWrap(True)
         chip.setStyleSheet(themed_style(
             "color:#f0f6fc;background:#1f6feb33;border:1px solid #1f6feb;"
@@ -314,9 +317,9 @@ class CharacterBuildView(QWidget):
         layout = QVBoxLayout(row)
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(1)
-        caption = QLabel(title, row)
+        caption = plain_label(title, row)
         caption.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
-        content = QLabel(value, row)
+        content = plain_label(value, row)
         content.setWordWrap(True)
         content.setStyleSheet(themed_style("color:#c9d1d9;font-size:11px"))
         layout.addWidget(caption)
@@ -325,7 +328,7 @@ class CharacterBuildView(QWidget):
 
     @staticmethod
     def _muted(text: str) -> QLabel:
-        label = QLabel(text)
+        label = plain_label(text)
         label.setWordWrap(True)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         return label
@@ -375,8 +378,10 @@ class CharacterAwakeningView(QWidget):
         *,
         terminology: StaticCatalogTerminologyService | None = None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._terminology = terminology
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -399,7 +404,7 @@ class CharacterAwakeningView(QWidget):
         CharacterBuildView._clear(self.layout_host)
         if not detail.awakenings:
             self.layout_host.addWidget(CharacterBuildView._muted(
-                "当前正式数据未提供觉醒资料",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_data.characterbuildview'),
             ))
         skill_names = {skill.skill_id: skill.name_zh for skill in detail.skills}
         for awakening in detail.awakenings:
@@ -412,16 +417,16 @@ class CharacterAwakeningView(QWidget):
         skill_names: dict[str, str | None],
     ) -> QFrame:
         card = CharacterBuildView._panel(
-            awakening.title_zh or "名称暂未提供",
+            awakening.title_zh or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.card.card'),
         )
-        stage = QLabel(_awakening_stage(awakening), card)
+        stage = plain_label(_awakening_stage(awakening), card)
         stage.setObjectName("characterAwakeningStage")
         stage.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:12px;font-weight:900"
         ))
         card.layout().insertWidget(0, stage)
-        description = QLabel(
-            _plain(awakening.description_zh) or "当前正式数据未提供说明",
+        description = plain_label(
+            _plain(awakening.description_zh) or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.card.description'),
             card,
         )
         description.setWordWrap(True)
@@ -437,7 +442,7 @@ class CharacterAwakeningView(QWidget):
                     identity_label="技能",
                 ).display_name
             card.layout().addWidget(CharacterBuildView._chip(
-                f"技能等级加成 · {name} {bonus.level_delta:+d}",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.card.characterbuildview', name=f'{name}', level_delta=f'{bonus.level_delta:+d}'),
             ))
         return card
 

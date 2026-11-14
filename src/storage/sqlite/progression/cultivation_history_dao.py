@@ -12,7 +12,7 @@ from src.domain.progression.history import (
     HistorySelection, HistorySummary, integer, text_value,
     MAX_PAYLOAD_BYTES, MAX_COLLECTION_SIZE, configuration_character_labels, configuration_search_names,
 )
-from src.domain.name_search import match_pinyin
+from src.domain.names.name_search import match_pinyin
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.user_data_support import UserDataError, UserDataValidationError, _utc_now
 

@@ -3,13 +3,14 @@ from concurrent.futures import CancelledError
 from dataclasses import asdict
 import json
 
-from src.domain.teams.axis_graduation_validity import AxisResultValidity
-from src.integrations.nte_analysis_core import NativeAnalysisError
-from src.services.allocation.context_builder import read_allocation_scoring_rules
+from src.domain.localization.catalog import localized_text
+from src.domain.teams.graduation.axis_graduation_validity import AxisResultValidity
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
+from src.services.allocation.inputs.context_builder import read_allocation_scoring_rules
 
 
 def check_result_validity(inputs, team, *, axis, target, rules, client_factory, scoring_rules_path,
-                          preview=None, record=None, cancelled=lambda: False):
+                          preview=None, record=None, cancelled=lambda: False, text_catalog=None):
     inputs.checkpoint(cancelled)
     if (preview is None) == (record is None):
         raise ValueError("有效性核对需要一份预览或已保存结果")
@@ -31,29 +32,35 @@ def check_result_validity(inputs, team, *, axis, target, rules, client_factory, 
             or scope != expected_scope or body["target"] != target.to_payload()
             or json.dumps(body["rules"], sort_keys=True) != json.dumps(asdict(rules), sort_keys=True)):
         benchmark = "stale"
-        reasons.append("队伍、参考轴、目标或词条规则与该冻结结果不同；显式重建基准")
+        reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.benchmark_changed",
+                                         "队伍、参考轴、目标或词条规则与该冻结结果不同；显式重建基准"))
     # 规则文件仅走已有公共读取口径；模型/静态变化不解释成当前装备变化。
     try:
         scoring = read_allocation_scoring_rules(scoring_rules_path)
         if (scoring.source_sha256, scoring.rule_sha256) != (rules.scoring_source_sha256, rules.scoring_rule_sha256):
             benchmark = "stale"
-            reasons.append("当前评分规则身份已变化；旧分母保留为历史")
+            reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.scoring_changed",
+                                         "当前评分规则身份已变化；旧分母保留为历史"))
     except (OSError, ValueError, RuntimeError) as error:
         if benchmark != "stale":
             benchmark = "unverified"
-        reasons.append("评分规则尚未核实：" + str(error))
+        reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.scoring_unverified",
+                                         "评分规则尚未核实：{error}", error=str(error)))
     inputs.checkpoint(cancelled)
     try:
         actual = inputs.freeze_current(team, cancelled=cancelled)
         if (actual.dataset_id, actual.static_schema, actual.static_sha256) != (
                 rules.dataset_id, rules.static_schema, rules.static_sha256):
             benchmark = "stale"
-            reasons.append("完整主静态身份已变化；须使用新目标和新基准")
+            reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.static_changed",
+                                         "完整主静态身份已变化；须使用新目标和新基准"))
         current = "matching" if actual.sha256 == body["current"]["source_sha256"] else "stale"
         if current == "stale":
-            reasons.append("当前养成、家具、所选配装或来源已变化；旧评价不代表当前，可显式更新分子")
+            reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.current_changed",
+                                         "当前养成、家具、所选配装或来源已变化；旧评价不代表当前，可显式更新分子"))
     except (OSError, ValueError, RuntimeError) as error:
-        reasons.append("当前来源尚未核实：" + str(error))
+        reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.source_unverified",
+                                         "当前来源尚未核实：{error}", error=str(error)))
     inputs.checkpoint(cancelled)
     def component_cancelled():
         try:
@@ -68,13 +75,16 @@ def check_result_validity(inputs, team, *, axis, target, rules, client_factory, 
               or client.component_provenance != body["component_provenance"]
               or client.dataset_version != body["current"]["dataset_id"]):
             component, benchmark = "changed", "stale"
-            reasons.append("分析组件身份已变化；旧基准不重新签名，须显式重建")
+            reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.component_changed",
+                                         "分析组件身份已变化；旧基准不重新签名，须显式重建"))
         elif client is None or not getattr(client, "supports_team_axis_graduation_current", False):
             component = "pending"
-            reasons.append("当前组件缺少毕业评价能力；历史仍可读取")
+            reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.component_pending",
+                                         "当前组件缺少毕业评价能力；历史仍可读取"))
     except NativeAnalysisError as error:
         inputs.checkpoint(cancelled)
         component = "pending"
-        reasons.append("组件尚未核实：" + str(error))
+        reasons.append(localized_text(text_catalog, "teams.axis_graduation.validity.reason.component_unverified",
+                                         "组件尚未核实：{error}", error=str(error)))
     inputs.checkpoint(cancelled)
     return AxisResultValidity(benchmark, current, component, tuple(reasons))

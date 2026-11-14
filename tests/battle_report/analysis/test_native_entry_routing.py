@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.analysis.load import (
     BattleReportAnalysisLoadRequest, BattleReportAnalysisLoadService,
 )

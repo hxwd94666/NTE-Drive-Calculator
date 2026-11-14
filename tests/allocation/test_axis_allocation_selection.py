@@ -11,11 +11,13 @@ from PySide6.QtWidgets import QDialogButtonBox
 import pytest
 
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import create_axis_catalog_case
-from src.features.allocation.team_axis_dialog import TeamAxisDialog
+from src.features.allocation.team_axis.team_axis_dialog import TeamAxisDialog
 from src.domain.teams.models import TeamDraft
-from src.services.allocation.axis_selection import AxisAllocationSelectionService
+from src.services.allocation.axis.axis_selection import AxisAllocationSelectionService
 from src.storage.sqlite.user_data_dao import UserDataDao
-from team_report_fixture import MatchingFixture, drain_dialog, wait_for
+from tests.teams.matching.team_report_fixture import MatchingFixture
+from tests.teams.matching.team_report_fixture import drain_dialog
+from tests.teams.matching.team_report_fixture import wait_for
 
 
 NTE_TEST_TIER = "core"
@@ -80,7 +82,8 @@ def make_team_dialog(selection_service, **kwargs):
 
 
 def test_team_dialog_requires_report_and_preserves_explicit_range(selection_service):
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     application()
     case, service, choices, _ = selection_service
     selected = service.select(choices, battle_record_id=case["battle_record_id"], selected_role="灵可", detail_scope="range",
@@ -104,7 +107,8 @@ def test_team_dialog_requires_report_and_preserves_explicit_range(selection_serv
 
 
 def test_team_dialog_range_keyboard_cancel_has_no_selection_write(selection_service):
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     app = application()
     case, service, _, _ = selection_service
     dialog = make_team_dialog(selection_service)

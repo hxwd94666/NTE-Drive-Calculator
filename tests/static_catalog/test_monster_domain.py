@@ -6,9 +6,9 @@ import unittest
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from tests.static_release_fixture import distribution_manifest
+from tests.game_data.static_release_fixture import distribution_manifest
 
-from src.domain.static_catalog_terminology import LocalizedTermRecord
+from src.domain.catalog.static_catalog_terminology import LocalizedTermRecord
 from src.services.static_catalog.monsters.service import (
     CatalogFilter,
     FORMULA,

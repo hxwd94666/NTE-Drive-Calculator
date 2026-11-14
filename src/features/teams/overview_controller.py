@@ -4,12 +4,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from src.domain.equipment.plan_changes import SavedPlansChanged
+from src.domain.equipment.loadouts.plan_changes import SavedPlansChanged
 from src.domain.teams.overview import SourceMode
 
-from src.features.teams.loadout_dialog import TeamLoadoutDialog
+from src.features.teams.loadouts.loadout_dialog import TeamLoadoutDialog
 from src.features.teams.enhancement_history_dialog import TeamEnhancementHistoryDialog
-from src.features.teams.report_match_controller import ReportMatchController
+from src.features.teams.report_matching.report_match_controller import ReportMatchController
 
 
 class TeamOverviewController(QObject):
@@ -22,6 +22,7 @@ class TeamOverviewController(QObject):
         self._results = {}
         self._histories = {}
         self._requested = ()
+        self._lifecycle_sequence = 0
         self._reader = ReportMatchController(self)
         self._reader.progress.connect(self._apply)
         self._reader.error.connect(self._failed)
@@ -84,7 +85,7 @@ class TeamOverviewController(QObject):
             return
         for key in ids:
             self._results.pop(key, None)
-            self.page.show_overview_error(key, "配装已保存，简报待刷新")
+            self.page.show_overview_error(key, self.page.text("teams.card.plans_changed"))
         if self.page.isVisible():
             self.refresh_affected(ids)
         else:
@@ -98,7 +99,7 @@ class TeamOverviewController(QObject):
 
     def _failed(self, message):
         for team in self._requested:
-            self.page.show_overview_error(team.team_id, message or "简报输入已变化，请刷新")
+            self.page.show_overview_error(team.team_id, message or self.page.text("teams.card.inputs_changed"))
 
     def configure_loadouts(self, team_id):
         if self._dialog is not None:
@@ -110,6 +111,7 @@ class TeamOverviewController(QObject):
         if self._service is None:
             self._service = self._provider()
         service = self._service
+        sequence = self._lifecycle_sequence
         dialog = TeamLoadoutDialog(service=service, team=team, roles=self.page.role_presentations(),
             catalog=self.page.text_catalog, parent=self.page)
         self._dialog = dialog
@@ -118,18 +120,25 @@ class TeamOverviewController(QObject):
                 self._dialog = None
             changed = dialog.selection is not None
             dialog.deleteLater()
-            if changed and self._service is service and team in self._teams:
+            if (self._service is service and team in self._teams
+                    and sequence == self._lifecycle_sequence):
                 try:
                     service.checkpoint()
                 except CancelledError:
                     return
-                # 来源只影响这一队；其他队伍保留已物化值。
-                self.source_changed.emit(team.team_id)
-                self.refresh_affected((team.team_id,))
+                # 关闭详情也可重试失败读取；取消不改来源，更不使毕业率上下文凭空失效。
+                if changed:
+                    self.source_changed.emit(team.team_id)
+                if self.page.isVisible():
+                    self.refresh_affected((team.team_id,))
+                else:
+                    self._results.pop(team.team_id, None)
         dialog.finished.connect(finished)
         dialog.open()
 
     def deactivate(self):
+        # 离页先撤销详情回调的刷新权，再关子窗；否则取消也会重新启动后台读取。
+        self._lifecycle_sequence += 1
         self._reader.cancel()
         for dialog in tuple(self._histories.values()):
             dialog.reject()
@@ -157,7 +166,7 @@ class TeamOverviewController(QObject):
         if self._service is None:
             self._service = self._provider()
         dialog = TeamEnhancementHistoryDialog(service=self._service, team=team,
-            names={key: role.name for key, role in self.page._roles.items()}, parent=self.page)
+            names={key: role.name for key, role in self.page._roles.items()}, parent=self.page, catalog=self.page.text_catalog)
         self._histories[team_id] = dialog
         def finished(_):
             self._histories.pop(team_id, None)

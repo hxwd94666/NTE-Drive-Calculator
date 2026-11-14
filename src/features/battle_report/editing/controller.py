@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Callable
 
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
@@ -25,7 +26,9 @@ class BattleBuildSnapshotController:
         is_running: Callable[[], bool],
         reload_analysis: Callable[..., None],
         show_error: Callable[[str, Exception], None],
+        text_catalog=None,
     ) -> None:
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._page = page
         self._dialog_parent = dialog_parent
         self._service_provider = service_provider
@@ -60,11 +63,12 @@ class BattleBuildSnapshotController:
             service = self._service_provider()
             editor_data = service.load_build_editor_data(record_id)
         except Exception as error:
-            self._show_error("无法编辑本场角色配置", error)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.edit.self'), error)
             return
         dialog = BattleBuildSnapshotEditorDialog(
             editor_data,
             self._dialog_parent,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if dialog.exec() != QDialog.Accepted:
             return
@@ -84,13 +88,11 @@ class BattleBuildSnapshotController:
                 self._reload_report(record_id)
                 QMessageBox.information(
                     self._dialog_parent,
-                    "同步完成",
+                    resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.edit.qmessagebox'),
                     (
-                        "当前角色页养成及当前空幕/驱动已保存为本场修改副本并启用；"
-                        "角色页数据没有被改写。"
+                        plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.edit.qmessagebox_2')
                         if include_equipment
-                        else "当前角色页养成已保存为本场修改副本并启用；"
-                        "副本内已选空幕和驱动已保留。"
+                        else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.edit.qmessagebox_3'))
                     ),
                 )
                 return
@@ -99,7 +101,7 @@ class BattleBuildSnapshotController:
             if action == dialog.ACTION_SAVE_AND_SYNC_CULTIVATION:
                 service.sync_build_edit_to_role_page(record_id)
         except Exception as error:
-            self._show_error("保存本场角色配置失败", error)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.edit.self_2'), error)
             return
         self._reload_report(record_id)
 
@@ -110,7 +112,7 @@ class BattleBuildSnapshotController:
         try:
             self._service_provider().set_build_edit_active(record_id, active)
         except Exception as error:
-            self._show_error("切换本场角色配置失败", error)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_active.self'), error)
             return
         self._reload_report(record_id)
         if not active:

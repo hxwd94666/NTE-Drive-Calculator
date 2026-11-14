@@ -374,6 +374,8 @@ def build_upgrade_candidate(
                 material_rows,
                 material_source_ids,
             )
+            from tools.game_data.static_database_suit_permanent import populate_suit_permanent
+            populate_suit_permanent(connection)
             connection.commit()
             graduation_count = populate_graduation_templates(
                 connection,

@@ -23,7 +23,7 @@ from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.ui.equipment_presentation import EquipmentPresentation
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
 
 
 NTE_TEST_TIER = "core"

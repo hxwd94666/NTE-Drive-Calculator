@@ -1,8 +1,10 @@
 # 展示简洁的旧版组件升级步骤，技术证据按需展开。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout
 
 from src.app.theme import theme_color
 from src.app.window_geometry import fit_dialog_to_available_screen
@@ -20,36 +22,37 @@ _STAGES = {
 
 class ComponentUpgradeDialog(QDialog):
     def __init__(self, parent, *, stage: str, detail: str, method: str,
-                 on_action):
+                 on_action, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("componentUpgradeDialog")
-        self.setWindowTitle("旧版插件升级引导")
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.settings.init.self'))
         self.setWindowModality(Qt.WindowModal)
         self._on_action = on_action
         self._stage = stage
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 18)
         layout.setSpacing(12)
-        self.steps = QLabel(self)
+        self.steps = plain_label(self)
         self.steps.setObjectName("componentUpgradeSteps")
         self.steps.setWordWrap(True)
         layout.addWidget(self.steps)
-        self.title = QLabel(self)
+        self.title = plain_label(self)
         self.title.setObjectName("componentUpgradeTitle")
         self.title.setStyleSheet(f"color:{theme_color('#f0f6fc')};font-size:17px;font-weight:700")
         layout.addWidget(self.title)
-        self.reason = QLabel(self)
+        self.reason = plain_label(self)
         self.reason.setWordWrap(True)
         layout.addWidget(self.reason)
-        self.next_step = QLabel(self)
+        self.next_step = plain_label(self)
         self.next_step.setWordWrap(True)
         layout.addWidget(self.next_step)
-        self.technical_toggle = QPushButton("查看核对依据 ▾", self)
+        self.technical_toggle = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.technical_toggle'), self)
         self.technical_toggle.setObjectName("componentUpgradeTechnicalToggle")
         self.technical_toggle.setFlat(True)
         self.technical_toggle.setFocusPolicy(Qt.StrongFocus)
         layout.addWidget(self.technical_toggle)
-        self.technical = QLabel(detail or "本次没有额外诊断信息。", self)
+        self.technical = plain_label(detail or resolve_text_catalog(text_catalog).render('ui.settings.init.technical'), self)
         self.technical.setObjectName("componentUpgradeTechnical")
         self.technical.setTextFormat(Qt.PlainText)
         self.technical.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
@@ -59,7 +62,7 @@ class ComponentUpgradeDialog(QDialog):
         self.technical_toggle.clicked.connect(self._toggle_technical)
         actions = QHBoxLayout()
         actions.addStretch()
-        self.cancel = QPushButton("稍后处理", self)
+        self.cancel = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.cancel'), self)
         self.cancel.setDefault(True)
         self.cancel.clicked.connect(self.reject)
         actions.addWidget(self.cancel)
@@ -74,7 +77,7 @@ class ComponentUpgradeDialog(QDialog):
     def _toggle_technical(self):
         visible = not self.technical.isVisible()
         self.technical.setVisible(visible)
-        self.technical_toggle.setText("收起核对依据 ▴" if visible else "查看核对依据 ▾")
+        self.technical_toggle.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.toggle_technical.technical_toggle') if visible else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.init.technical_toggle'))
         fit_dialog_to_available_screen(self, QSize(600, 400 if visible else 310))
 
     def show_stage(self, stage: str, *, method: str) -> None:
@@ -82,13 +85,13 @@ class ComponentUpgradeDialog(QDialog):
         index, title, reason, next_step, action = _STAGES[stage]
         self.steps.setText("  ›  ".join(
             (f"● {label}" if position == index else f"○ {label}")
-            for position, label in enumerate(_STEP_LABELS)
+            for position, label in enumerate(ui_enum_text(getattr(self, 'text_catalog', None), _STEP_LABELS))
         ))
         self.title.setText(title)
-        self.reason.setText("原因：" + reason)
+        self.reason.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.show_stage.reason') + reason)
         if stage == "deploy":
             next_step = next_step.replace("D3D 或 Loader", "Loader" if method == "loader" else "D3D")
-        self.next_step.setText("下一步：" + next_step)
+        self.next_step.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.show_stage.next_step') + next_step)
         self.action.setText(action)
 
     def _act(self) -> None:

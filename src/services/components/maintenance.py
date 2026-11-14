@@ -1,5 +1,5 @@
 # 协调原生功能暂停、连接排空与插件更新，未知结果保留维护门禁。
-from src.integrations.native_host_control import NativeHostOutcomeUnknown
+from src.integrations.native_core.native_host_control import NativeHostOutcomeUnknown
 from src.integrations.components.native_files import update_native_plugins
 from src.observability import OperationContext, log_event
 

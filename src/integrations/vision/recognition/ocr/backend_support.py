@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
-from src.integrations import bundled_resources
+from src.integrations.runtime import bundled_resources
 
 # profile 是发行/开发输入，不是用户界面的设备选择；ORT 两分发共享导入目录。
 _PROFILES = MappingProxyType({

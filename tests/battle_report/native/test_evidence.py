@@ -10,7 +10,7 @@ from src.domain.battle_report.replay.models import BattleHitReplayResult
 from src.integrations.battle_analysis.page_wire import decode
 from src.services.battle_report.native.evidence_rendering import render_native_evidence
 from tests.battle_report.buffs.test_hit_explanation import _hit
-from tests.native_execution_fixture import execution_evidence
+from tests.components.native_execution_fixture import execution_evidence
 
 
 def native_hit(attacker=None, victim=None):
@@ -88,7 +88,7 @@ class NativeHitEvidenceTests(unittest.TestCase):
             view.close()
 
     def test_field_evidence_wire_keeps_unknown_and_not_applicable_distinct(self):
-        from src.integrations.nte_analysis_core import NativeAnalysisError
+        from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
         raw = asdict(_hit())
         raw["field_evidence"] = {
             "critical_state": "not_applicable", "critical_source": "static_rule",

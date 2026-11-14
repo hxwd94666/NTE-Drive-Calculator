@@ -7,9 +7,10 @@ from functools import lru_cache
 
 from src.domain.localization.catalog import BASE_LOCALE, CatalogError, TextCatalog, make_catalog, valid_locale
 from src.integrations.preferences.json_store import PreferencesError, atomic_bytes, decode_json
-from src.integrations.bundled_resources import bundled_root
+from src.integrations.runtime.bundled_resources import bundled_root
 
-MAX_CATALOG_BYTES = 256 * 1024
+# 完整前端目录保留有限增长空间；输入仍有字节、条目和单条文本三重上限。
+MAX_CATALOG_BYTES = 1024 * 1024
 MAX_LOCAL_CATALOGS = 64
 
 
@@ -17,6 +18,40 @@ MAX_LOCAL_CATALOGS = 64
 def bundled_text_catalog() -> TextCatalog:
     """独立窗口与测试消费同一发行中文基线，正常运行由组合根注入已冻结的活动目录。"""
     return make_catalog(read_catalog_file(bundled_root() / "assets" / "locales" / "zh-CN.json"))
+
+
+@lru_cache(maxsize=1)
+def literal_keys() -> dict[str, str]:
+    """发行中文基线的「原文 → 稳定 key」索引；只收录无参数条目。"""
+
+    base = bundled_text_catalog()
+    keys: dict[str, str] = {}
+    for key, text in sorted(
+        base.messages.items(),
+        key=lambda row: (not row[0].startswith("common."), len(row[0]), row[0]),
+    ):
+        if text.strip() and not base.parameters[key]:
+            keys.setdefault(base.render(key), key)
+    return keys
+
+
+def enum_text(catalog: TextCatalog | None, value):
+    """把代码内说明表/表头的原文投影为当前目录译文；未登记时原样返回。
+
+    服务层与展示层共用同一条投影规则，不依赖 Qt 或窗口对象。
+    """
+
+    active = catalog if catalog is not None else bundled_text_catalog()
+    if isinstance(value, str):
+        key = literal_keys().get(value)
+        return active.render(key) if key is not None else value
+    if isinstance(value, dict):
+        return {key: enum_text(active, text) for key, text in value.items()}
+    if isinstance(value, tuple):
+        return tuple(enum_text(active, text) for text in value)
+    if isinstance(value, list):
+        return [enum_text(active, text) for text in value]
+    return value
 
 
 def read_catalog_file(path: Path) -> object:

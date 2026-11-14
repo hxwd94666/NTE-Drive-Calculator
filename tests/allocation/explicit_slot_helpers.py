@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication
 from src.app.context import AccountContext, AppContext, ApplicationPaths, CallbackAccountLifecycle
 from src.features.weighted_allocation import runner
 from src.features.weighted_allocation.save_owner import WeightedOwnerIdentity, WeightedSaveOwner
-from src.services.allocation.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION
+from src.services.allocation.inputs.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -236,7 +236,7 @@ def replacement(owner, preview, serial):
 
 def save_confirm(owner, preview, *, slot_ids_by_character=None):
     """夹具直接调用真实提交、回执与current复核，不模拟已删除的UI状态机。"""
-    from src.services.allocation.weighted_cursor import assert_weighted_save_receipt_current
+    from src.services.allocation.results.weighted_cursor import assert_weighted_save_receipt_current
     operation = owner.begin_save(preview)
     ids = runner.save_weighted_allocation_preview(preview, ownership=operation,
         slot_ids_by_character=slot_ids_by_character)

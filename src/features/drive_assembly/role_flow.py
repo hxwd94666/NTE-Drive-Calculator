@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from src.domain.drive_layout import (
+from src.domain.equipment.geometry.drive_layout import (
     extract_drive_blocks_from_state,
     extract_tape_filters_from_state,
 )

@@ -7,7 +7,7 @@ import unittest
 
 from tests.battle_report.replay.test_prepared_weave import fixture
 from src.integrations.battle_analysis.hit_details_wire import decode_hit_details
-from src.integrations.nte_analysis_core import ENGINE_VERSION, NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import ENGINE_VERSION, NativeAnalysisError
 from src.services.battle_report.buffs.hit_explanation import BattleHitBuffExplanationService
 from src.services.battle_report.replay.explanation import BattleHitReplayExplanationService
 from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService
@@ -33,7 +33,7 @@ class NativeHitDetailTests(unittest.TestCase):
         import json
         from pathlib import Path
         import tempfile
-        from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+        from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
         value,_,hit,_=tables()
         value.update(schema_version="nte-analysis-response-v1",engine_version=ENGINE_VERSION,
                      dataset_version="fixture",batch_kind="buff_projection_v1",compute_elapsed_ns=1)
@@ -55,7 +55,7 @@ class NativeHitDetailTests(unittest.TestCase):
                                  result[0]["decisions"][0].get("observed_stacks"))
 
     def test_v2_keeps_observed_stacks_separate_from_formula_and_validates_types(self):
-        from src.integrations.native_buff_projection_wire import expand_projection_tables
+        from src.integrations.battle_analysis.native_buff_projection_wire import expand_projection_tables
         from src.services.battle_report.native.buff_projection import projection_from_wire
         value,analysis,hit,_=tables()
         value["result_encoding"]="interned_v2"
@@ -71,7 +71,7 @@ class NativeHitDetailTests(unittest.TestCase):
         self.assertIn(f"公式采用区间层数 ×{intervals[0].stacks}",text)
         expanded=expand_projection_tables(value)
         raw=expanded[1]["projection"]
-        from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+        from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
         NteAnalysisCoreClient._validate_projection(raw)
         self.assertEqual(decision,projection_from_wire(raw).decisions[0])
         for invalid in (True,-1,"3"):

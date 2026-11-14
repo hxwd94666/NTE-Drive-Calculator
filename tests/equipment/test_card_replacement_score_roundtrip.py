@@ -6,17 +6,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.domain.equipment.loadout_plan_scores import assignment_score_key
-from src.features.inventory.equipment.plan_display_state import _sqlite_plan_display_state
+from src.domain.equipment.loadouts.loadout_plan_scores import assignment_score_key
+from src.features.inventory.equipment.display.plan_display_state import _sqlite_plan_display_state
 from src.models.equipment import Tape
 from src.optimizer.scoring import ScoringEngine
-from src.services.official_role import marginal_scoring
-from src.services.official_role.base_equipment_scoring import score_official_role_equipment
+from src.services.official_role.equipment import marginal_scoring
+from src.services.official_role.equipment.base_equipment_scoring import score_official_role_equipment
 from src.services.official_role.page import load_official_role_detail
-from src.services.official_role.replacement import save_official_role_replacement
+from src.services.official_role.equipment.replacement import save_official_role_replacement
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.official_role.test_replacement_static_source import sources as sources
+from tests.characters.official.test_replacement_static_source import sources as sources
 
 
 @pytest.fixture(scope="module")

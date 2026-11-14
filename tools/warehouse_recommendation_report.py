@@ -5,7 +5,7 @@ from collections import Counter
 import json
 from pathlib import Path
 
-from src.domain.grade_limits import GRADE_MIN_RATIOS
+from src.domain.equipment.scoring.grade_limits import GRADE_MIN_RATIOS
 
 
 def audit_trial(result: dict) -> dict:

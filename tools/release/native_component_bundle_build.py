@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path, PurePosixPath
 
-from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.integrations.native_plugin_bundle import (
+from src.integrations.components.game_component_bundle import inspect_game_component_bundle
+from src.integrations.components.native_plugin_bundle import (
     native_upgrade_predecessors, native_deployment_paths, NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, TRAINING_DEPLOYMENT_PATHS,
 )
 

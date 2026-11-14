@@ -421,24 +421,34 @@ def apply_title_bar_theme(widget, theme: str | None = None) -> None:
         return
 
 
-def localize_standard_buttons(widget) -> None:
+def localize_standard_buttons(widget, catalog=None) -> None:
+    from src.ui.common.enum_text import ui_enum_text
+    catalog = getattr(widget, "text_catalog", None) or catalog
     for box in widget.findChildren(QDialogButtonBox):
         for button in box.buttons():
+            if button.property('_nte_explicit_text'):
+                continue
             text = STANDARD_BUTTON_TEXT.get(_standard_button_value(box.standardButton(button)))
             if text:
-                button.setText(text)
+                button.setText(ui_enum_text(catalog, text))
     if isinstance(widget, QMessageBox):
         for button in widget.buttons():
+            if button.property('_nte_explicit_text'):
+                continue
             try:
                 standard = widget.standardButton(button)
             except Exception:
                 continue
             text = STANDARD_BUTTON_TEXT.get(_standard_button_value(standard))
             if text:
-                button.setText(text)
+                button.setText(ui_enum_text(catalog, text))
 
 
 class _DialogPolishFilter(QObject):
+    def __init__(self, parent, catalog=None):
+        super().__init__(parent)
+        self.catalog = catalog
+
     def eventFilter(self, obj, event):
         # 标签页内的 QDialog 使用父布局坐标；按屏幕居中或创建原生标题栏会把内容移出视口。
         if event.type() == QEvent.Show and isinstance(obj, QDialog) and obj.isWindow():
@@ -446,16 +456,18 @@ class _DialogPolishFilter(QObject):
             if obj.property("_nte_dialog_theme") != theme:
                 obj.setProperty("_nte_dialog_theme", theme)
                 obj.setStyleSheet(current_style_sheet() + "\n" + obj.styleSheet())
-            localize_standard_buttons(obj)
+            localize_standard_buttons(obj, self.catalog)
             apply_title_bar_theme(obj, theme)
             fit_dialog_to_available_screen(obj)
         return False
 
 
-def install_dialog_defaults(app: QApplication) -> None:
+def install_dialog_defaults(app: QApplication, *, catalog=None) -> None:
     """每个 QApplication 只安装一次默认中文按钮、主题和屏幕限位。"""
     if getattr(app, "_nte_dialog_defaults_installed", False):
+        if catalog is not None:
+            app._nte_dialog_polish_filter.catalog = catalog
         return
     app._nte_dialog_defaults_installed = True
-    app._nte_dialog_polish_filter = _DialogPolishFilter(app)
+    app._nte_dialog_polish_filter = _DialogPolishFilter(app, catalog)
     app.installEventFilter(app._nte_dialog_polish_filter)

@@ -8,10 +8,10 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
-from src.services.equipment.loadout_slot_selection_service import LoadoutSlotSelectionService
+from src.services.equipment.loadouts.loadout_slot_selection_service import LoadoutSlotSelectionService
 from src.storage.sqlite.equipment.loadout_slot_dao import PRIMARY_LOADOUT_SLOT_KEY
 from src.storage.sqlite.user_data_dao import SCHEMA_VERSION, UserDataDao, UserDataValidationError
-from tests.user_data_migration_helpers import create_user_database_at_version
+from tests.storage.user_data_migration_helpers import create_user_database_at_version
 
 
 # 冻结分数、槽位身份或来源桥接属于长期核心行为，不因归包漏出 core。

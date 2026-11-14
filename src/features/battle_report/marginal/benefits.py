@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtWidgets import QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 from src.app.theme import themed_style
@@ -21,25 +22,26 @@ from src.features.battle_report.analysis.quantification import (
 
 def build_marginal_benefit_sections(
     root: QVBoxLayout,
+    *, text_catalog=None,
 ) -> tuple[QTableWidget, QLabel, QWidget, QTableWidget, QLabel]:
-    core_card, core_layout = analysis_section("空幕主属性边际（金色候选）")
-    core_note = QLabel("候选按金色满级主属性比较；实际换装请看“替换当前”。")
+    core_card, core_layout = analysis_section(resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_card_core_layout'))
+    core_note = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_note'))
     _style_note(core_note)
     core_layout.addWidget(core_note)
-    core_notice = QLabel("等待后台计算…")
+    core_notice = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_notice'))
     _style_note(core_notice)
     core_layout.addWidget(core_notice)
     core_table = analysis_table(
         (
-            "金色主属性",
-            "主属性值",
-            "相对无主属性·角色",
-            "相对无主属性·全队",
-            "替换当前·角色",
-            "替换当前·全队",
-            "候选角色伤害",
-            "候选全队伤害",
-            "量化状态",
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_2'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_3'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_4'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_5'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_6'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_7'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_8'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_9'),
         ),
         250,
         default_widths=(190, 110, 165, 165, 155, 155, 145, 145, 190),
@@ -51,27 +53,27 @@ def build_marginal_benefit_sections(
     fork_panel.setObjectName("battleForkBenefitPanel")
     fork_layout = QVBoxLayout(fork_panel)
     fork_layout.setContentsMargins(0, 8, 0, 0)
-    fork_title = QLabel("固定轴综合收益")
+    fork_title = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_title'))
     fork_title.setObjectName("battleForkBenefitTitle")
     fork_title.setStyleSheet(themed_style("font-weight:bold;color:#58a6ff"))
     fork_layout.addWidget(fork_title)
-    fork_note = QLabel("拆分弧盘常驻属性与技能机制收益；不要与团队 Buff 表重复相加。")
+    fork_note = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_note'))
     _style_note(fork_note)
     fork_layout.addWidget(fork_note)
-    fork_notice = QLabel("等待后台计算…")
+    fork_notice = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_notice'))
     _style_note(fork_notice)
     fork_layout.addWidget(fork_notice)
     fork_table = analysis_table(
         (
-            "无弧盘角色伤害",
-            "无弧盘全队伤害",
-            "常驻·角色",
-            "常驻·全队",
-            "技能/机制·角色",
-            "技能/机制·全队",
-            "综合·角色",
-            "综合·全队",
-            "量化状态",
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table_2'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table_3'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table_4'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table_5'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table_6'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table_7'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.fork_table_8'),
+            resolve_text_catalog(text_catalog).render('ui.battle_report.build_marginal_benefit_sections.core_table_9'),
         ),
         135,
         default_widths=(150, 150, 145, 145, 165, 165, 145, 145, 205),
@@ -89,18 +91,19 @@ def render_marginal_benefits(
     benefits: BattleMarginalBenefits | None,
     *,
     character_id: int | None,
+    text_catalog=None,
 ) -> None:
     # 所选角色没有结果时清空旧表，不把另一角色的已算结果当作本次结果。
     if benefits is None or benefits.character_id != character_id:
         core_table.setRowCount(0)
         fork_table.setRowCount(0)
-        core_notice.setText("等待所选角色的后台固定轴计算…")
-        fork_notice.setText("等待所选角色的后台固定轴计算…")
+        core_notice.setText(resolve_text_catalog(text_catalog).render('ui.battle_report.render_marginal_benefits.core_notice'))
+        fork_notice.setText(resolve_text_catalog(text_catalog).render('ui.battle_report.render_marginal_benefits.core_notice'))
         core_notice.show()
         fork_notice.show()
         return
     _render_core(core_table, core_notice, benefits)
-    _render_fork(fork_table, fork_notice, benefits.fork)
+    _render_fork(fork_table, fork_notice, benefits.fork, text_catalog=text_catalog)
 
 
 def _render_core(
@@ -143,10 +146,11 @@ def _render_fork(
     table: QTableWidget,
     notice: QLabel,
     fork: BattleForkMarginal | None,
+    *, text_catalog=None,
 ) -> None:
     if fork is None:
         table.setRowCount(0)
-        notice.setText("当前角色缺少弧盘分析结果。")
+        notice.setText(resolve_text_catalog(text_catalog).render('ui.battle_report.render_fork.notice'))
         notice.show()
         return
     if fork.unavailable_reason:

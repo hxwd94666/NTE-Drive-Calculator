@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -11,7 +12,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -27,7 +27,7 @@ from src.services.static_catalog.monsters.models import (
     CatalogEntry,
     FeastSetup,
 )
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 
 
 class FeastDetailLoader(Protocol):
@@ -40,8 +40,9 @@ BlessingDetailLoader = Callable[[str], CatalogDetail | None]
 class FeastEncounterView(QWidget):
     """Own only the user's current Feast difficulty and condition choices."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._setup: FeastSetup | None = None
         self._icon: Path | None = None
         self._loader: FeastDetailLoader | None = None
@@ -54,12 +55,12 @@ class FeastEncounterView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(4, 2, 4, 0)
         root.setSpacing(8)
-        self.heading = QLabel("争锋赏宴", self)
+        self.heading = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_combo_4'), self)
         self.heading.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:20px;font-weight:900"
         ))
         root.addWidget(self.heading)
-        self.subtitle = QLabel(self)
+        self.subtitle = plain_label(self)
         self.subtitle.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
         root.addWidget(self.subtitle)
 
@@ -77,7 +78,7 @@ class FeastEncounterView(QWidget):
         summary_row = QHBoxLayout()
         summary_row.setContentsMargins(0, 0, 0, 0)
         summary_row.setSpacing(8)
-        difficulty_label = QLabel("难度", self.controls)
+        difficulty_label = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.build_feast_page.caption_2'), self.controls)
         difficulty_label.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:10px;font-weight:800"
         ))
@@ -87,17 +88,17 @@ class FeastEncounterView(QWidget):
         self.difficulty_combo.currentIndexChanged.connect(self._refresh_detail)
         summary_row.addWidget(self.difficulty_combo, 1)
         self.target_combo = NoWheelComboBox(self.controls)
-        self.target_combo.setAccessibleName("赏宴画像目标")
+        self.target_combo.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.target_combo'))
         self.target_combo.currentIndexChanged.connect(self._target_changed)
         self.controls_layout.addWidget(self.target_combo)
-        self.condition_summary = QLabel("未启用挑战条件", self.controls)
+        self.condition_summary = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.condition_summary'), self.controls)
         self.condition_summary.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px"
         ))
         summary_row.addWidget(self.condition_summary)
         self.conditions_toggle = QToolButton(self.controls)
         self.conditions_toggle.setCheckable(True)
-        self.conditions_toggle.setText("挑战条件")
+        self.conditions_toggle.setText(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.conditions_toggle'))
         self.conditions_toggle.setStyleSheet(themed_style(
             "QToolButton{color:#58a6ff;background:#0d1117;border:0;"
             "border-radius:7px;padding:5px 10px;font-weight:800;}"
@@ -107,7 +108,7 @@ class FeastEncounterView(QWidget):
         summary_row.addWidget(self.conditions_toggle)
         self.blessing_toggle = QToolButton(self.controls)
         self.blessing_toggle.setCheckable(True)
-        self.blessing_toggle.setText("魔女赐福")
+        self.blessing_toggle.setText(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_2'))
         self.blessing_toggle.setStyleSheet(self.conditions_toggle.styleSheet())
         self.blessing_toggle.toggled.connect(self._toggle_blessing)
         summary_row.addWidget(self.blessing_toggle)
@@ -131,7 +132,7 @@ class FeastEncounterView(QWidget):
         blessing_layout.setContentsMargins(9, 7, 9, 7)
         blessing_layout.setSpacing(5)
         blessing_row = QHBoxLayout()
-        blessing_label = QLabel("战前赐福", self.blessing_host)
+        blessing_label = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.blessing_label'), self.blessing_host)
         blessing_label.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:10px;font-weight:800"
         ))
@@ -140,7 +141,7 @@ class FeastEncounterView(QWidget):
         blessing_row.addWidget(blessing_label)
         blessing_row.addWidget(self.blessing_combo, 1)
         blessing_layout.addLayout(blessing_row)
-        self.blessing_summary = QLabel("未选择魔女赐福", self.blessing_host)
+        self.blessing_summary = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.blessing_summary'), self.blessing_host)
         self.blessing_summary.setWordWrap(True)
         self.blessing_summary.setStyleSheet(themed_style(
             "color:#8b949e;font-size:10px"
@@ -149,7 +150,7 @@ class FeastEncounterView(QWidget):
         self.blessing_host.hide()
         self.controls_layout.addWidget(self.blessing_host)
 
-        self.detail = MonsterDetailView(self)
+        self.detail = MonsterDetailView(self, text_catalog=text_catalog)
         root.addWidget(self.detail, 1)
 
     def set_stage(
@@ -167,16 +168,16 @@ class FeastEncounterView(QWidget):
         self._loader = loader
         self._blessing_loader = blessing_loader
         self.heading.setText(
-            f"争锋赏宴 · {setup.period_label} · 挑战 {setup.challenge_ordinal}"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_stage.heading', period_label=f'{setup.period_label}', challenge_ordinal=f'{setup.challenge_ordinal}')
         )
         self.subtitle.setText(
             f"{setup.title} · {setup.boss_name} · {setup.schedule_label}"
         )
         self.target_combo.clear()
         if len(setup.targets) > 1:
-            self.target_combo.addItem("请选择画像目标", None)
+            self.target_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_stage.target_combo'), None)
         for ordinal, target in enumerate(setup.targets, 1):
-            self.target_combo.addItem(f"目标 {ordinal} · {target.display_name}", target)
+            self.target_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_stage.target_combo_2', ordinal=f'{ordinal}', display_name=f'{target.display_name}'), target)
         self.target_combo.setVisible(len(setup.targets) > 1)
         self.difficulty_combo.clear()
         for difficulty in setup.difficulties:
@@ -193,7 +194,7 @@ class FeastEncounterView(QWidget):
         self._option_combos = []
         for group in setup.option_groups:
             combo = NoWheelComboBox(self.options_host)
-            combo.addItem("不启用", "")
+            combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_stage.combo'), "")
             for option in group.options:
                 combo.addItem(option.display_name, option.option_id)
                 combo.setItemData(combo.count() - 1, option.display_name, Qt.ItemDataRole.ToolTipRole)
@@ -209,7 +210,7 @@ class FeastEncounterView(QWidget):
         self.conditions_toggle.setChecked(False)
         self._toggle_options(False)
         self.blessing_combo.clear()
-        self.blessing_combo.addItem("不选择", "")
+        self.blessing_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.feast_stage_changed.combo'), "")
         for blessing in blessings:
             self.blessing_combo.addItem(blessing.title, blessing.key)
         self.blessing_combo.setCurrentIndex(0)
@@ -226,7 +227,7 @@ class FeastEncounterView(QWidget):
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
-        caption = QLabel(label, host)
+        caption = plain_label(label, host)
         caption.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:10px;font-weight:800"
         ))
@@ -237,23 +238,23 @@ class FeastEncounterView(QWidget):
 
     def _toggle_options(self, expanded: bool) -> None:
         self.options_host.setVisible(expanded)
-        self.conditions_toggle.setText("收起条件" if expanded else "挑战条件")
+        self.conditions_toggle.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.toggle_options.conditions_toggle') if expanded else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.init.conditions_toggle'))
 
     def _toggle_blessing(self, expanded: bool) -> None:
         self.blessing_host.setVisible(expanded)
-        self.blessing_toggle.setText("收起赐福" if expanded else "魔女赐福")
+        self.blessing_toggle.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.toggle_blessing.blessing_toggle') if expanded else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.init.caption_2'))
 
     def _refresh_blessing(self) -> None:
         if self._loading:
             return
         key = str(self.blessing_combo.currentData() or "")
         if not key or self._blessing_loader is None:
-            self.blessing_summary.setText("未选择魔女赐福")
+            self.blessing_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.init.blessing_summary'))
             return
         detail = self._blessing_loader(key)
         values = detail.sections[0].values if detail and detail.sections else ()
         if not values:
-            self.blessing_summary.setText("赐福效果暂未提供")
+            self.blessing_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_blessing.blessing_summary'))
             return
         value = values[0]
         label = value.display_label or "赐福效果"
@@ -271,7 +272,7 @@ class FeastEncounterView(QWidget):
             return
         target = self.target_combo.currentData()
         if len(self._setup.targets) > 1 and target is None:
-            self.condition_summary.setText("请选择当前画像目标；不同目标使用各自的等级和属性包。")
+            self.condition_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_detail.condition_summary_2'))
             self.detail.hide()
             return
         self.detail.show()
@@ -281,8 +282,8 @@ class FeastEncounterView(QWidget):
             if combo.currentData()
         )
         self.condition_summary.setText(
-            f"已启用 {len(selected)} 项"
-            if selected else (self._setup.condition_note or "未启用挑战条件")
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_detail.condition_summary', value=f'{len(selected)}')
+            if selected else (self._setup.condition_note or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.init.condition_summary'))
         )
         if selected and self._setup.condition_note:
             self.condition_summary.setText(self.condition_summary.text() + "；" + self._setup.condition_note)

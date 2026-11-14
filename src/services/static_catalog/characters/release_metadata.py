@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from src.domain.static_catalog_terminology import LocalizedTerm
+from src.domain.catalog.static_catalog_terminology import LocalizedTerm
 from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )

@@ -1,4 +1,5 @@
 # 队伍页的响应式分组与可折叠设置，只调整展示，不发起业务操作。
+from src.ui.common.text_catalog import resolve_text_catalog
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
@@ -41,8 +42,9 @@ class ResponsiveGrid(QWidget):
 class Disclosure(QWidget):
     """默认收起次要设置；键盘可展开，展开本身不读取、不保存也不计算。"""
 
-    def __init__(self, title, content, *, parent=None):
+    def __init__(self, title, content, *, parent=None, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -66,5 +68,5 @@ class Disclosure(QWidget):
     def _expanded(self, expanded):
         self.toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
         self.content.setVisible(expanded)
-        self.toggle.setAccessibleDescription("已展开" if expanded else "已收起")
+        self.toggle.setAccessibleDescription(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.ui.expanded') if expanded else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.ui.collapsed'))
         self.updateGeometry()

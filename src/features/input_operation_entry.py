@@ -1,10 +1,11 @@
 # 调用组合根显式注入的用户入口说明与环境问题回调。
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from typing import Any
 import winsound
 
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QShowEvent
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 from src.app.window_geometry import fit_dialog_to_available_screen
 
@@ -14,12 +15,14 @@ class OperationRecommendationDialog(QDialog):
 
     def __init__(
         self, parent: QWidget | None, *, title: str, message: str, action_text: str,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._warning_sound_played = False
         self.setWindowTitle(title)
         layout = QVBoxLayout(self)
-        self.message = QLabel(message, self)
+        self.message = plain_label(message, self)
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
         self.buttons = QHBoxLayout()
@@ -27,7 +30,7 @@ class OperationRecommendationDialog(QDialog):
         self.continue_button = QPushButton(action_text, self)
         self.continue_button.setAutoDefault(False)
         self.continue_button.clicked.connect(self.accept)
-        self.cancel_button = QPushButton("取消", self)
+        self.cancel_button = TextActionButton(resolve_text_catalog(text_catalog).render('common.cancel'), self)
         self.cancel_button.clicked.connect(self.reject)
         self.cancel_button.setDefault(True)
         self.cancel_button.setFocus()
@@ -48,9 +51,11 @@ class OperationRecommendationDialog(QDialog):
 
 def confirm_operation_recommendation(
     parent: QWidget | None, *, title: str, message: str, action_text: str,
+    text_catalog=None,
 ) -> bool:
     return OperationRecommendationDialog(
         parent, title=title, message=message, action_text=action_text,
+        text_catalog=text_catalog,
     ).exec() == QDialog.Accepted
 
 

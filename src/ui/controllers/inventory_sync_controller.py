@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from dataclasses import dataclass
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
@@ -12,11 +15,11 @@ from src.features.home.page import inventory_sync_error_guidance
 from src.observability import OperationContext
 from src.services.inventory.sync.service import InventorySyncService
 from src.services.inventory.sync.state import InventorySyncState
-from src.integrations.nte_core import NteCoreClient
-from src.integrations.nte_core_protocol import NteCoreError
+from src.integrations.native_core.nte_core import NteCoreClient
+from src.integrations.native_core.nte_core_protocol import NteCoreError
 from src.utils.logger import logger
-from src.integrations.operation_guard import require_operation
-from src.domain.work_mode import WorkMode
+from src.integrations.runtime.operation_guard import require_operation
+from src.domain.preferences.work_mode import WorkMode
 from src.services.progression.owned_material_import import CultivationOwnedMaterialImportService
 
 
@@ -66,7 +69,7 @@ def _start_inventory_sync(self, *, automatic: bool = False):
         if isinstance(error, (NteCoreError, OSError)):
             self.operation_unavailable("背包同步", str(error), target="detection")
         else:
-            QMessageBox.warning(self, "背包同步", str(error))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.render.title'), str(error))
 
 
 def _start_inventory_sync_authorized(self, *, automatic: bool, source: str):
@@ -89,8 +92,11 @@ def _start_inventory_sync_authorized(self, *, automatic: bool, source: str):
         data_dir=raw_capture_directory, cwd=self.app_context.paths.app_dir, required_source="packet",
     )
     native_profiles_apply = None
+    native_furniture_apply = None
     if source == "native":
-        from src.services.official_role.profiles import OfficialRoleProfileService
+        from src.services.official_role.panel.world_bonus import WorldBonusSettingsService
+        native_furniture_apply = WorldBonusSettingsService(account.user_database_path).apply_native
+        from src.services.official_role.profile_data.profiles import OfficialRoleProfileService
         native_profiles_apply = OfficialRoleProfileService(
             account.user_database_path, static_database_path=self.app_context.paths.static_database_path,
         ).patch_native_profiles
@@ -106,6 +112,7 @@ def _start_inventory_sync_authorized(self, *, automatic: bool, source: str):
         and self.work_mode_service.allowed("diagnostics"),
         client_factory=client_factory,
         native_profiles_apply=native_profiles_apply,
+        native_furniture_apply=native_furniture_apply,
         raw_capture_directory=raw_capture_directory,
         operation_context=OperationContext.create(
             "inventory_sync",
@@ -155,7 +162,7 @@ def _open_raw_capture_directory(self):
     try:
         require_operation(getattr(self, "operation_guard", None), "diagnostics")
     except PermissionError as error:
-        QMessageBox.warning(self, "诊断抓包", str(error))
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.open_raw_capture_directory.qmessagebox'), str(error))
         return
     directory = (
         self.app_context.account.log_dir / "nte_core" / "raw_capture"
@@ -164,10 +171,10 @@ def _open_raw_capture_directory(self):
         directory.mkdir(parents=True, exist_ok=True)
         opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
     except OSError as exc:
-        QMessageBox.warning(self, "诊断抓包", f"无法打开抓包目录：{exc}")
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.open_raw_capture_directory.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.open_raw_capture_directory.qmessagebox_3', exc=f'{exc}')))
         return
     if not opened:
-        QMessageBox.information(self, "诊断抓包", f"抓包目录：\n{directory}")
+        QMessageBox.information(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.open_raw_capture_directory.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.open_raw_capture_directory.qmessagebox_2', directory=f'{directory}')))
 
 def _save_capture_diagnostics(self):
     try:
@@ -184,7 +191,7 @@ def _save_capture_diagnostics(self):
         settings=self._account_settings.save("sync",values)
         return settings
     except Exception as exc:
-        QMessageBox.warning(self,"采集排错",f"保存失败：{exc}")
+        QMessageBox.warning(self,resolve_text_catalog(getattr(self, 'text_catalog', None)).render('settings.page.build_capture_diagnostics_card.card'),plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.save_capture_diagnostics.qmessagebox', exc=f'{exc}')))
         return None
 
 def _maybe_auto_start_inventory_sync(self):
@@ -199,9 +206,9 @@ def _stop_inventory_sync(self):
         service.stop()
     self._inventory_sync_service=None
     if hasattr(self,"home_sync_badge"):
-        from src.ui.dashboard_widgets import set_status_badge
-        set_status_badge(self.home_sync_badge,"已停止","neutral")
-        self.home_sync_detail.setText("后台背包同步已停止，数据库中的稳定快照仍可用于计算。")
+        from src.ui.common.dashboard_widgets import set_status_badge
+        set_status_badge(self.home_sync_badge,resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.stop_inventory_sync.caption'),"neutral")
+        self.home_sync_detail.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.stop_inventory_sync.home_sync_detail'))
         self.auto_sync_controller.render()
 
 def _on_inventory_sync_state(self, notification):
@@ -219,7 +226,14 @@ def _on_inventory_sync_state(self, notification):
     role_changed = bool(state.character_sync_revision and role_revision != getattr(self, "_native_role_sync_revision", None))
     if role_changed:
         self._native_role_sync_revision = role_revision
-        if not getattr(self, "_my_role_dirty", False) and hasattr(self, "_official_role_editors"):
+        invalidate = getattr(self, "invalidate_saved_equipment_cache", None)
+        content = getattr(self, "equip_content", None)
+        refresh = getattr(self, "refresh_saved_equipment_after_mutation", None)
+        if content is not None and content.isVisible() and callable(refresh):
+            refresh()
+        elif callable(invalidate):
+            invalidate()
+        if hasattr(self, "_official_role_editors"):
             from src.features.official_role.page import refresh_official_role_page
             refresh_official_role_page(self)
     if state.capturing:
@@ -242,6 +256,7 @@ def _on_inventory_sync_state(self, notification):
             native_component_gap = state.error_code in {"NATIVE_MAPPING_UNSUPPORTED", "NATIVE_CAPABILITY_MISSING"}
             detail = state.error if native_component_gap else inventory_sync_error_guidance(
                 state.error_code, state.error, capture_source=state.capture_source,
+                text_catalog=getattr(self, 'text_catalog', None),
             )
             callback("背包同步", detail, target="deployment" if native_component_gap else "detection")
     # 引导弹窗可能处理账号切换事件；返回后再次复核，才投递到当前页面。
@@ -256,28 +271,35 @@ def _on_inventory_sync_state(self, notification):
     if not hasattr(self,"home_sync_badge"):
         self.auto_sync_controller.inventory_state_changed(state)
         return
-    from src.ui.dashboard_widgets import set_status_badge
+    from src.ui.common.dashboard_widgets import set_status_badge
     tone={
         "starting":"active","waiting":"warning","collecting":"active",
         "saving":"active","listening":"success","error":"error","stopped":"neutral",
     }.get(state.phase,"neutral")
+    catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
     label={
-        "starting":"启动中","waiting":"等待同步数据" if state.capture_source == "native" else "等待进入游戏","collecting":"接收中",
-        "saving":"保存中","listening":"后台监听","error":"同步异常","stopped":"已停止",
+        "starting":ui_enum_text(catalog,"启动中"),
+        "waiting":ui_enum_text(catalog,"等待同步数据") if state.capture_source == "native" else ui_enum_text(catalog,"等待进入游戏"),
+        "collecting":ui_enum_text(catalog,"接收中"),
+        "saving":ui_enum_text(catalog,"保存中"),"listening":ui_enum_text(catalog,"后台监听"),
+        "error":ui_enum_text(catalog,"同步异常"),"stopped":ui_enum_text(catalog,"已停止"),
     }.get(state.phase,state.phase)
     set_status_badge(self.home_sync_badge,label,tone)
-    source_label = "DLL 同步" if state.capture_source == "native" else "抓包同步"
-    detail = source_label + " · " + ("同步未完成" if state.error else state.message)
+    source_label = (ui_enum_text(catalog, "DLL 同步") if state.capture_source == "native"
+                    else ui_enum_text(catalog, "抓包同步"))
+    detail = source_label + " · " + (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.controllers.inventory_sync_controller.on_inventory_sync_state.text') if state.error else state.message)
     if state.character_sync_error and not hasattr(self, "home_character_sync_detail"):
         detail += "\n" + state.character_sync_error
     if state.pending_item_count is not None and not state.error:
-        detail+=f" · 当前 {state.pending_item_count} 件"
+        detail += localized_text(catalog, "inventory.sync.pending_count", " · 当前 {count} 件",
+                               count=state.pending_item_count)
     if state.error:
         detail += "\n" + inventory_sync_error_guidance(
             state.error_code, state.error, capture_source=state.capture_source,
+            text_catalog=getattr(self, 'text_catalog', None),
         ).replace("处理：", "下一步：")
         self.home_sync_detail.setToolTip(
-            f"错误码：{state.error_code or '未分类'}；详细排查请打开“检测详情”或查看账号日志。"
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.on_inventory_sync_state.home_sync_detail', value=f"{state.error_code or ui_enum_text(catalog, '未分类')}"))
         )
     else:
         self.home_sync_detail.setToolTip("")

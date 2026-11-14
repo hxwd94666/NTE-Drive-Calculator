@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from PySide6.QtCore import QEvent, Qt, QSize
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
@@ -22,12 +22,12 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import theme_color, themed_style
-from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
-from src.ui.role_portrait import custom_role_portrait, temporary_role_portrait
-from src.ui.widgets import match_pinyin
-from src.domain.role_name_order import role_name_sort_key
+from src.features.inventory.warehouse.display.cards import warehouse_shape_pixmap
+from src.ui.roles.role_portrait import custom_role_portrait, temporary_role_portrait
+from src.ui.common.widgets import match_pinyin
+from src.domain.names.role_name_order import role_name_sort_key
 from src.features.toolbox.rewind.role_card import RewindRoleCard
-from src.domain.rewind_loadout import default_slot
+from src.domain.rewind.rewind_loadout import default_slot
 from src.services.rewind.recommendation import RewindTargetRole
 
 
@@ -66,9 +66,11 @@ class TypeRangeDialog(QDialog):
         selected_set_names: list[str],
         *,
         type_scope: str = "all",
+        text_catalog=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("选择类型范围")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.self_4'))
         self.setMinimumSize(760, 560)
         self.shape_options = shape_options
         self.set_options = set_options
@@ -78,7 +80,7 @@ class TypeRangeDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.setSpacing(12)
-        self.range_summary = QLabel()
+        self.range_summary = plain_label()
         self.range_summary.setWordWrap(False)
         root.addWidget(self.range_summary)
         root.addWidget(self._build_shape_section(set(selected_shape_ids)))
@@ -112,8 +114,8 @@ class TypeRangeDialog(QDialog):
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout()
-        header.addWidget(QLabel("驱动形状"))
-        select_all = QPushButton("全选")
+        header.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.label_3')))
+        select_all = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('selector.select_all'))
         select_all.clicked.connect(lambda: self._set_all_shapes(True))
         header.addStretch()
         header.addWidget(select_all)
@@ -129,7 +131,7 @@ class TypeRangeDialog(QDialog):
                 continue
             row = QHBoxLayout()
             row.setSpacing(8)
-            title = QLabel(f"{area}型")
+            title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_shape_section.title', area=f'{area}'))
             title.setFixedWidth(36)
             row.addWidget(title)
             for shape_id in shape_ids:
@@ -138,7 +140,7 @@ class TypeRangeDialog(QDialog):
                 button.setChecked(shape_id in selected)
                 button.setToolTip(shape_id)
                 button.setMinimumSize(84, 54)
-                pixmap = warehouse_shape_pixmap(shape_id, "Gold")
+                pixmap = warehouse_shape_pixmap(shape_id, "Gold", text_catalog=getattr(self, 'text_catalog', None))
                 if not pixmap.isNull():
                     button.setIcon(QIcon(pixmap))
                     button.setIconSize(QSize(32, 32))
@@ -155,8 +157,8 @@ class TypeRangeDialog(QDialog):
         outer = QVBoxLayout(section)
         outer.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout()
-        header.addWidget(QLabel("卡带套装"))
-        select_all = QPushButton("全选")
+        header.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.label_4')))
+        select_all = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('selector.select_all'))
         select_all.clicked.connect(lambda: self._set_all_sets(True))
         header.addStretch()
         header.addWidget(select_all)
@@ -201,9 +203,11 @@ class RoleScopeDialog(QDialog):
         selected_character_ids: list[int],
         *,
         scored_roles=(),
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("选择弃置/锁定评估角色")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.self_5'))
         self.setMinimumSize(620, 500)
         self.resize(700, 620)
         self._role_options = sorted(
@@ -215,25 +219,25 @@ class RoleScopeDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.setSpacing(10)
-        description = QLabel("这些角色只用于本次弃置/锁定评分，不会改变计算页面的角色选择或优先级。")
+        description = plain_label(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.description'))
         description.setWordWrap(True)
         description.setStyleSheet(themed_style("color:#8b949e"))
         root.addWidget(description)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜索角色（支持拼音）")
+        self.search_edit.setPlaceholderText(resolve_text_catalog(text_catalog).render('matching.search'))
         self.search_edit.textChanged.connect(self._apply_filter)
         root.addWidget(self.search_edit)
 
         toolbar = QHBoxLayout()
-        select_all = QPushButton("全选")
-        clear_all = QPushButton("清空")
+        select_all = TextActionButton(resolve_text_catalog(text_catalog).render('selector.select_all'))
+        clear_all = TextActionButton(resolve_text_catalog(text_catalog).render('selector.clear'))
         select_all.clicked.connect(lambda: self._set_visible_items_checked(True))
         clear_all.clicked.connect(lambda: self._set_visible_items_checked(False))
         toolbar.addWidget(select_all)
         toolbar.addWidget(clear_all)
         toolbar.addStretch()
-        self.count_label = QLabel()
+        self.count_label = plain_label()
         self.count_label.setStyleSheet(themed_style("color:#58a6ff;font-weight:700"))
         toolbar.addWidget(self.count_label)
         root.addLayout(toolbar)
@@ -345,7 +349,7 @@ class RoleScopeDialog(QDialog):
         self._update_count()
 
     def _update_count(self, _checked: bool | None = None) -> None:
-        self.count_label.setText(f"已选{len(self.selected_character_ids())}名")
+        self.count_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.update_count.count_label', value=f'{len(self.selected_character_ids())}'))
 
     def selected_character_ids(self) -> list[int]:
         return [character_id for card, character_id, _role_name in self.role_cards if card.isChecked()]

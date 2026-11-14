@@ -1,6 +1,7 @@
 # 以无音效的普通弹窗展示工作台功能入口与简短操作说明。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from dataclasses import dataclass
 from collections.abc import Callable
 
@@ -105,20 +106,21 @@ FEATURE_GUIDES = (
 class FeatureGuideDialog(QDialog):
     """普通帮助使用无系统提示音的 QDialog，导航仅消费显式点击。"""
 
-    def __init__(self, parent: QWidget, guide: FeatureGuide, navigate: Callable[[str], None]):
+    def __init__(self, parent: QWidget, guide: FeatureGuide, navigate: Callable[[str], None], *, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("featureGuideDialog")
-        self.setWindowTitle(guide.title + " · 功能说明")
+        self.setWindowTitle(guide.title + resolve_text_catalog(text_catalog).render('ui.home.init.self_3'))
         self.setWindowModality(Qt.WindowModal)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 16)
         layout.setSpacing(14)
 
-        heading = QLabel(guide.title, self)
+        heading = plain_label(guide.title, self)
         heading.setObjectName("featureGuideDialogTitle")
         heading.setStyleSheet(themed_style("font-size:18px;font-weight:700;color:#f0f6fc"))
         layout.addWidget(heading)
-        entry = QLabel("入口：" + guide.entry, self)
+        entry = plain_label(resolve_text_catalog(text_catalog).render('ui.home.init.entry') + guide.entry, self)
         entry.setObjectName("featureGuideEntry")
         entry.setWordWrap(True)
         layout.addWidget(entry)
@@ -132,11 +134,11 @@ class FeatureGuideDialog(QDialog):
         content_layout.setSpacing(10)
         for section in guide.sections:
             if section.title:
-                title = QLabel(section.title + "：", content)
+                title = plain_label(section.title + "：", content)
                 title.setStyleSheet(themed_style("font-weight:700;color:#58a6ff"))
                 content_layout.addWidget(title)
             for index, line in enumerate(section.lines, 1):
-                label = QLabel(f"{index}. {line}" if section.numbered else line, content)
+                label = plain_label(f"{index}. {line}" if section.numbered else line, content)
                 label.setWordWrap(True)
                 label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
                 content_layout.addWidget(label)
@@ -150,7 +152,7 @@ class FeatureGuideDialog(QDialog):
             button = QPushButton(text, self)
             button.clicked.connect(lambda _checked=False, target=key: self._navigate(navigate, target))
             actions.addWidget(button)
-        close = QPushButton("关闭", self)
+        close = TextActionButton(resolve_text_catalog(text_catalog).render('common.close'), self)
         close.setDefault(True)
         close.clicked.connect(self.reject)
         actions.addWidget(close)
@@ -191,17 +193,17 @@ class FeatureGuideDialog(QDialog):
         navigate(key)
 
 
-def add_feature_guides(layout: QVBoxLayout, parent: QWidget, navigate: Callable[[str], None]) -> None:
+def add_feature_guides(layout: QVBoxLayout, parent: QWidget, navigate: Callable[[str], None], *, text_catalog=None) -> None:
     """只打开功能说明；不通过帮助按钮启动同步、装配或其他业务。"""
     row = QHBoxLayout()
     row.setSpacing(10)
     for guide in FEATURE_GUIDES:
         button = QPushButton(guide.title, parent)
         button.setObjectName("featureGuideButton")
-        button.setAccessibleName(guide.title + "说明")
+        button.setAccessibleName(guide.title + resolve_text_catalog(text_catalog).render('ui.home.add_feature_guides.button'))
         button.setFixedWidth(88)
         button.clicked.connect(
-            lambda _checked=False, item=guide: FeatureGuideDialog(parent, item, navigate).exec()
+            lambda _checked=False, item=guide: FeatureGuideDialog(parent, item, navigate, text_catalog=text_catalog).exec()
         )
         row.addWidget(button)
     row.addStretch()

@@ -93,7 +93,7 @@ def _formula_entries(
     snapshot: StaticFormulaEvidenceSnapshot,
 ) -> tuple[FormulaEntry, ...]:
     contract = "docs/reference/damage-calculation.md"
-    calculation = "src/services/damage_calculation_service.py"
+    calculation = "src/services/damage/damage_calculation_service.py"
     replay = "src/services/battle_report/replay/service.py"
     static_note = (
         f"dataset={snapshot.dataset_id}; normalized skill_damage rows="
@@ -126,7 +126,7 @@ def _formula_entries(
                 ),
                 _ref(
                     "public_behavior_test",
-                    "tests/test_damage_calculation_service.py",
+                    "tests/allocation/test_damage_calculation_service.py",
                     "test_direct_damage_returns_every_confirmed_multiplier",
                     "验证攻击、生命、防御三个面板值",
                 ),
@@ -374,7 +374,7 @@ def _formula_entries(
                 _ref("implementation", calculation, "DamageCalculationService.calculate_topple", "五乘区纯函数"),
                 _ref(
                     "public_behavior_test",
-                    "tests/test_damage_calculation_service.py",
+                    "tests/allocation/test_damage_calculation_service.py",
                     "test_topple_damage_uses_only_its_five_confirmed_multipliers",
                     "锁定五乘区范围",
                 ),
@@ -601,7 +601,7 @@ def _support_entries(
             status="complete",
             modeling_scheme="逐角色重放等级、倾陷强度、目标上限、防御和抗性并汇总。",
             evidence=(
-                _ref("implementation", "src/services/damage_calculation_service.py", "DamageCalculationService.calculate_topple", "五乘区公式"),
+                _ref("implementation", "src/services/damage/damage_calculation_service.py", "DamageCalculationService.calculate_topple", "五乘区公式"),
                 _ref("implementation", "src/services/battle_report/replay/topple.py", "BattleToppleHitReplayService.replay", "战报逐角色消费者"),
                 _ref("public_behavior_test", "tests/battle_report/replay/test_topple.py", "test_split_topple_uses_only_the_complete_same_half_roster", "阵容完整性边界"),
             ),

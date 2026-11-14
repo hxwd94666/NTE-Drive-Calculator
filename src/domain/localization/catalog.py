@@ -1,6 +1,7 @@
 # 校验纯文本语言目录及命名参数，不读取文件或依赖 Qt。
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 import math
@@ -11,6 +12,8 @@ from types import MappingProxyType
 BASE_LOCALE = "zh-CN"
 CATALOG_ID = "nte-ui"
 FORMAT_VERSION = 1
+# 界面文案全量接入目录后的条目上限；单条仍受长度限制，文件体积另有字节上限。
+MAX_CATALOG_MESSAGES = 6144
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*")
 _KEY = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+")
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -78,6 +81,26 @@ class TextCatalog:
         return self.messages[key].format_map(values)
 
 
+def localized_text(catalog: TextCatalog | None, key: str, fallback: str, **values: object) -> str:
+    """目录可用且登记了 key 时输出译文，否则回退调用方的中文基线。
+
+    展示层用它在拼接位置消费稳定 key；未注入目录的测试与独立窗口保持原行为，
+    不因此改写业务动作或重新计算数值。
+    """
+
+    if catalog is not None:
+        try:
+            return catalog.render(key, **values)
+        except CatalogError:
+            pass
+    if not values:
+        return fallback
+    try:
+        return fallback.format_map(defaultdict(str, values))
+    except (KeyError, IndexError, ValueError):
+        return fallback
+
+
 def make_catalog(payload: object, *, base: TextCatalog | None = None) -> TextCatalog:
     """完整校验才生成不可变目录；补丁缺项整体使用唯一中文基础目录。"""
     fields = {"format_version", "catalog_id", "locale", "display_name", "messages"}
@@ -92,7 +115,7 @@ def make_catalog(payload: object, *, base: TextCatalog | None = None) -> TextCat
     if not valid_locale(locale) or not isinstance(name, str) or not name.strip() or len(name) > 80 or "\n" in name or "\r" in name:
         raise CatalogError("invalid_locale")
     source = payload["messages"]
-    if not isinstance(source, dict) or len(source) > 2000:
+    if not isinstance(source, dict) or len(source) > MAX_CATALOG_MESSAGES:
         raise CatalogError("invalid_messages")
     messages = dict(base.messages) if base else {}
     parameters = dict(base.parameters) if base else {}

@@ -1,7 +1,7 @@
 # 在同一事务内复核配装管理的冻结身份及锁，再原子修改槽位或方案指针。
 from __future__ import annotations
 
-from src.domain.equipment.loadout_management import ManagedSlot, LoadoutMutationResult
+from src.domain.equipment.loadouts.loadout_management import ManagedSlot, LoadoutMutationResult
 from ..protocols import UserDataDaoMixinHost
 from ..user_data_support import UserDataValidationError, _utc_now
 from .loadout_slot_dao import MAX_VISIBLE_LOADOUT_SLOTS, PRIMARY_LOADOUT_SLOT_KEY

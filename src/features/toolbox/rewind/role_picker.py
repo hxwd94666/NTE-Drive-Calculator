@@ -9,17 +9,17 @@ from PySide6.QtWidgets import (
 )
 from src.app.theme import current_style_sheet, themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.domain.rewind_loadout import default_slot
-from src.integrations.bundled_resources import bundled_game_ui_asset_root
+from src.domain.rewind.rewind_loadout import default_slot
+from src.integrations.runtime.bundled_resources import bundled_game_ui_asset_root
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.services.rewind.recommendation import RewindTargetRole
-from src.ui.role_portrait import custom_role_portrait, temporary_role_portrait
-from src.ui.role_selection_sort import RoleSelectionSort
+from src.ui.roles.role_portrait import custom_role_portrait, temporary_role_portrait
+from src.ui.roles.role_selection_sort import RoleSelectionSort
 from src.features.toolbox.rewind.role_card import RewindRoleCard
 from src.features.toolbox.rewind.role_selection import rewind_role_sort_key
 from src.features.toolbox.rewind.slot_picker import RewindSlotPicker
-from src.ui.widgets import match_pinyin
-from src.ui.text_catalog import ElidedTextLabel, TextActionButton, plain_label, resolve_text_catalog
+from src.ui.common.widgets import match_pinyin
+from src.ui.common.text_catalog import ElidedTextLabel, TextActionButton, plain_label, resolve_text_catalog
 
 
 class _RoleSelectionDialog(QDialog):
@@ -165,7 +165,7 @@ class _RoleSelectionDialog(QDialog):
 
     def _choose_slot(self, identifier):
         role = self._roles[identifier]
-        dialog = RewindSlotPicker(self, role, self._slots.get(identifier))
+        dialog = RewindSlotPicker(self, role, self._slots.get(identifier), text_catalog=getattr(self, 'text_catalog', None))
         if dialog.exec() != QDialog.Accepted:
             return False
         self._slots[identifier] = dialog.selected_reference()

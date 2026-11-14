@@ -10,7 +10,7 @@ from threading import Event, Thread
 
 import pytest
 
-from src.integrations import work_mode_settings as store_module
+from src.integrations.preferences import work_mode_settings as store_module
 from src.services.work_modes.service import WorkModeService
 
 

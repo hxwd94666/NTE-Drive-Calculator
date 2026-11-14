@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.domain.basic_weight import BasicWeightDependencies
-from src.domain.stat_catalog import StatCatalog
+from src.domain.characters.basic_weight import BasicWeightDependencies
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.services.characters.character_shape_bonus_service import DEFAULT_EXTRA_SHAPE_LABEL
 from src.services.characters.character_weight_service import ensure_account_character_weights
 from src.services.official_role.page import load_official_role_index

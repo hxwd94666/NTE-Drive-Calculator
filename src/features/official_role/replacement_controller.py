@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from typing import Any
@@ -10,15 +11,15 @@ from typing import Any
 from PySide6.QtWidgets import QMessageBox, QWidget
 from shiboken6 import isValid
 
-from src.domain.allocation_rating import allocation_grade
-from src.domain.equipment.loadout_plan_scores import assignment_score_key
-from src.features.inventory.warehouse.cards import warehouse_item_view
+from src.domain.equipment.scoring.allocation_rating import allocation_grade
+from src.domain.equipment.loadouts.loadout_plan_scores import assignment_score_key
+from src.features.inventory.warehouse.display.cards import warehouse_item_view
 from src.features.official_role.controller import OfficialRoleController
-from src.services.official_role.base_equipment_scoring import score_official_role_equipment
-from src.services.official_role.replacement import prepare_official_role_replacement
+from src.services.official_role.equipment.base_equipment_scoring import score_official_role_equipment
+from src.services.official_role.equipment.replacement import prepare_official_role_replacement
 from src.features.official_role.replacement_tasks import ReplacementTaskOwner
 from src.services.official_role.static_source import frozen_static_source
-from src.ui.equipment_replacement_dialog import (
+from src.ui.equipment.equipment_replacement_dialog import (
     EquipmentReplacementCard,
     show_equipment_replacement_dialog,
 )
@@ -54,7 +55,7 @@ def show_official_role_replacement(
     def current_view():
         return (not role_page_active or (isValid(page) and page.isVisible()
                 and getattr(window, "_current_official_role_id", None) == role))
-    owner = ReplacementTaskOwner(window, app_context=window.app_context, is_current=current_view)
+    owner = ReplacementTaskOwner(window, app_context=window.app_context, is_current=current_view, text_catalog=getattr(window, 'text_catalog', None))
     dependencies = owner.dependencies
     try:
         if prepared_candidates is None:
@@ -79,15 +80,15 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
     if not candidates:
         QMessageBox.information(
             window,
-            "替换优化",
-            "没有同套装、同形状且未被当前方案使用的可替换装备。",
+            resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.inventory.open_official_saved_plan_optimizer.qmessagebox'),
+            plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_prepared_replacement.qmessagebox')),
         )
         return False
 
     scoring_engine = getattr(window, "scoring_engine", None)
     if scoring_engine is None:
         # 冷启动目录尚未就绪时不能让旧展示层的0分回退进入持久化方案。
-        QMessageBox.information(window, "替换优化", "评分资料尚未就绪，请等待资料加载完成后重试。")
+        QMessageBox.information(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.inventory.open_official_saved_plan_optimizer.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_prepared_replacement.qmessagebox_2')))
         return False
     shape_areas = dict(getattr(window, "_shape_areas", {}))
 
@@ -111,7 +112,7 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
     ) -> EquipmentReplacementCard:
         display_item = {**item, "item_icon_path": (detail.get("item_icon_paths") or {}).get(
             str(item.get("item_id") or ""))}
-        view = warehouse_item_view(display_item, frozen_projection=True)
+        view = warehouse_item_view(display_item, frozen_projection=True, text_catalog=getattr(window, 'text_catalog', None))
         score = float(hidden_score)
         area = 15 if str(item.get("kind") or "") == "core" else int(
             item.get("grid_count") or 0
@@ -172,12 +173,13 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
 
     accepted = show_equipment_replacement_dialog(
         window,
-        title="替换优化",
+        title=resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.inventory.open_official_saved_plan_optimizer.qmessagebox'),
         role_name=str((detail.get("character") or {}).get("name_zh") or ""),
         summary=OFFICIAL_ROLE_REPLACEMENT_SUMMARY,
         current=current,
         candidates=candidates, candidate_adapter=candidate_card,
         submit_confirm=submit_choice, is_current=owner.current, cancel_pending=owner.cancel,
+        text_catalog=getattr(window, 'text_catalog', None),
     )
     role_controller.close()
     if not accepted:
@@ -188,13 +190,13 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
         if on_saved is not None:
             on_saved()
         if owner.current():
-            QMessageBox.information(window, "替换优化", "已保存为新的配装方案。")
+            QMessageBox.information(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.inventory.open_official_saved_plan_optimizer.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.inventory.apply_replacement.qmessagebox')))
     except Exception as exc:
         # 刷新/提示属于已提交之后的UI应用，不传播为读取/保存失败或重复提交。
         if owner.current():
             try:
-                QMessageBox.information(window, "方案已保存",
-                    f"配装方案 {committed_receipt.get('plan_id')} 已保存；页面刷新未完成，请稍后刷新核对。\n{exc}")
+                QMessageBox.information(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('rewind.execution.save_plan.save_plan_button'),
+                    plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.show_prepared_replacement.qmessagebox_3', value=f"{committed_receipt.get('plan_id')}", exc=f'{exc}')))
             except Exception:
                 pass  # 展示层也失效时仍保留真commit回执，不伪造失败或再次提交。
     return True

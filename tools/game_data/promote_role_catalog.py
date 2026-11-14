@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from src.integrations.role_catalog_release import read_role_catalog, validate_role_assets
+from src.integrations.static_catalog.role_catalog_release import read_role_catalog, validate_role_assets
 
 
 def promote_role_skill_assets(candidate: Path, target: Path) -> dict:
@@ -56,7 +56,10 @@ def promote_role_catalog(finalized: dict, target: Path) -> dict:
         previous_assets = validate_role_assets(previous.asset_root, previous.dataset_id, previous.sha256)
         allowed = {"game_static.sqlite3", "manifest.json", "game_ui/manifest.json"}
         allowed.update("game_ui/" + path for path in previous_assets["files"])
-        if any(path.relative_to(target).as_posix() not in allowed for path in target.rglob("*") if path.is_file()):
+        # Windows 依据大小写不敏感的路径身份核对成员，避免已登记技能图因磁盘大小写而误报。
+        allowed_keys = {os.path.normcase(name) for name in allowed}
+        if any(os.path.normcase(path.relative_to(target).as_posix()) not in allowed_keys
+               for path in target.rglob("*") if path.is_file()):
             raise ValueError("旧角色目录包含非托管文件，保留原目录")
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".role-catalog-", dir=target.parent) as temporary:

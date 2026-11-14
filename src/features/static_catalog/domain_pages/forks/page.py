@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from collections.abc import Callable
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.static_catalog_terminology import LocalizedForkCampaign
+from src.domain.catalog.static_catalog_terminology import LocalizedForkCampaign
 from src.features.static_catalog.domain_pages.forks.profile import ForkProfileView
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.services.static_catalog.characters.models import CharacterSummary
@@ -83,8 +84,10 @@ class ForkGalleryCard(QFrame):
         quality_name: str,
         campaign: LocalizedForkCampaign | None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.summary = summary
         color = _QUALITY_COLORS.get(summary.quality, "#8b949e")
         self.setObjectName(f"forkGalleryCard_{summary.fork_id}")
@@ -116,12 +119,12 @@ class ForkGalleryCard(QFrame):
         root.setContentsMargins(11, 9, 11, 10)
         root.setSpacing(5)
         badges = QHBoxLayout()
-        quality = QLabel(quality_name, self)
+        quality = plain_label(quality_name, self)
         quality.setStyleSheet(themed_style(
             f"color:{color};background:#0d1117;border:1px solid {color};"
             "border-radius:9px;padding:2px 8px;font-size:10px;font-weight:900"
         ))
-        fork_type = QLabel(self.summary.fork_type_name_zh or "未分类", self)
+        fork_type = plain_label(self.summary.fork_type_name_zh or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build.fork_type'), self)
         fork_type.setStyleSheet(themed_style(
             "color:#c9d1d9;background:#21262d;border:1px solid #30363d;"
             "border-radius:9px;padding:2px 8px;font-size:10px;font-weight:800"
@@ -130,8 +133,8 @@ class ForkGalleryCard(QFrame):
         badges.addWidget(fork_type)
         badges.addStretch(1)
         campaign_title = campaign.title.display_name if campaign else "首发"
-        limited = QLabel(
-            campaign_title or "名称暂未提供",
+        limited = plain_label(
+            campaign_title or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.card.card'),
             self,
         )
         limited.setStyleSheet(themed_style(
@@ -141,12 +144,12 @@ class ForkGalleryCard(QFrame):
         badges.addWidget(limited)
         root.addLayout(badges)
 
-        art = QLabel(self)
+        art = plain_label(self)
         art.setFixedHeight(132)
         art.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pixmap = QPixmap(str(art_path)) if art_path is not None else QPixmap()
         if pixmap.isNull():
-            art.setText("弧盘图标\n当前正式资源未提供")
+            art.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build.art_2'))
             art.setStyleSheet(themed_style(
                 "color:#6e7681;background:#0d1117;border:1px dashed #30363d;"
                 "border-radius:12px;font-size:11px"
@@ -159,7 +162,7 @@ class ForkGalleryCard(QFrame):
                 Qt.TransformationMode.SmoothTransformation,
             ))
         root.addWidget(art)
-        name = QLabel(self.summary.name_zh, self)
+        name = plain_label(self.summary.name_zh, self)
         name.setWordWrap(True)
         name.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:16px;font-weight:900"
@@ -201,8 +204,10 @@ class ForkCatalogPage(QWidget):
         campaigns: tuple[LocalizedForkCampaign, ...],
         close_callbacks: tuple[Callable[[], object], ...] = (),
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("forkCatalogPage")
         self._fork_service = fork_service
         self._character_service = character_service
@@ -257,6 +262,7 @@ class ForkCatalogPage(QWidget):
             item_name_service=self._item_name_service,
             display_campaigns=self._display_campaign_by_fork,
             parent=self._stack,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self._stack.addWidget(self.profile_view)
         root.addWidget(self._stack)
@@ -276,16 +282,16 @@ class ForkCatalogPage(QWidget):
         ))
         hero_layout = QVBoxLayout(hero)
         hero_layout.setContentsMargins(20, 12, 20, 12)
-        eyebrow = QLabel("NTE · FORK ARCHIVE", hero)
+        eyebrow = plain_label("NTE · FORK ARCHIVE", hero)
         eyebrow.setStyleSheet(themed_style(
             "color:#a371f7;font-size:10px;font-weight:900;letter-spacing:2px"
         ))
-        title = QLabel("弧盘图鉴", hero)
+        title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_static_catalog_domain_pages.caption_2'), hero)
         title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:25px;font-weight:900"
         ))
-        subtitle = QLabel(
-            "限定特刊优先，点击卡片查看等级面板、混频技能、特效关系和完整养成路线。",
+        subtitle = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.subtitle'),
             hero,
         )
         subtitle.setWordWrap(True)
@@ -299,15 +305,15 @@ class ForkCatalogPage(QWidget):
         self.search_edit = QLineEdit(host)
         self.search_edit.setObjectName("forkCatalogSearch")
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setPlaceholderText("搜索弧盘名称或 ID")
+        self.search_edit.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.search_edit'))
         self.search_edit.textChanged.connect(self.set_search_query)
         toolbar.addWidget(self.search_edit, 1)
-        self.filter_toggle = QPushButton("筛选  ▾", host)
+        self.filter_toggle = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.filter_toggle_2'), host)
         self.filter_toggle.setCheckable(True)
         self.filter_toggle.setObjectName("forkFilterToggle")
         self.filter_toggle.clicked.connect(self._toggle_filters)
         toolbar.addWidget(self.filter_toggle)
-        self._count_label = QLabel("", host)
+        self._count_label = plain_label("", host)
         self._count_label.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         self._count_label.setMinimumWidth(72)
         self._count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -341,8 +347,8 @@ class ForkCatalogPage(QWidget):
         grid.setContentsMargins(12, 9, 12, 9)
         grid.setHorizontalSpacing(7)
         grid.setVerticalSpacing(7)
-        quality_label = QLabel("品质", panel)
-        type_label = QLabel("类型", panel)
+        quality_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.label_2'), panel)
+        type_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.log_table_3'), panel)
         for label in (quality_label, type_label):
             label.setStyleSheet(themed_style(
                 "color:#8b949e;font-size:11px;font-weight:900"
@@ -419,8 +425,7 @@ class ForkCatalogPage(QWidget):
             self._quality_filter is not None
         )
         self.filter_toggle.setText(
-            f"筛选{' · ' + str(active_count) if active_count else ''}  "
-            f"{'▴' if self.filter_toggle.isChecked() else '▾'}"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_gallery.filter_toggle', value=f"{(' · ' + str(active_count) if active_count else '')}", value_2=f"{('▴' if self.filter_toggle.isChecked() else '▾')}")
         )
         limited = tuple(
             item for item in self._visible
@@ -431,11 +436,11 @@ class ForkCatalogPage(QWidget):
             if item.fork_id not in self._campaigns_by_featured_fork
         )
         if limited:
-            self._create_section("限定特刊 · 新到旧", limited)
+            self._create_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_gallery.self'), limited)
         if regular:
-            self._create_section("首发弧盘 · 品质 / 类型 / 名称", regular)
+            self._create_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_gallery.self_2'), regular)
         if not self._visible:
-            empty = QLabel("没有找到符合条件的弧盘", self._gallery_host)
+            empty = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_gallery.empty'), self._gallery_host)
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setStyleSheet(themed_style(
                 "color:#8b949e;background:#161b22;border:1px dashed #30363d;"
@@ -449,7 +454,7 @@ class ForkCatalogPage(QWidget):
         title: str,
         summaries: tuple[ForkCatalogSummary, ...],
     ) -> None:
-        heading = QLabel(title, self._gallery_host)
+        heading = plain_label(title, self._gallery_host)
         heading.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:14px;font-weight:900;margin-top:6px"
         ))
@@ -461,6 +466,7 @@ class ForkCatalogPage(QWidget):
                 quality_name=self._item_name_service.quality_name(summary.quality),
                 campaign=self._display_campaign_by_fork.get(summary.fork_id),
                 parent=self._gallery_host,
+                text_catalog=getattr(self, 'text_catalog', None),
             )
             card.activated.connect(self.open_fork)
             self._cards.append(card)
@@ -587,6 +593,7 @@ def build_fork_catalog_page(
     game_ui_asset_root: str | Path,
     terminology_service: StaticCatalogTerminologyService,
     parent: QWidget | None = None,
+    text_catalog=None,
 ) -> ForkCatalogPage:
     """Build the standalone page while keeping all SQL inside existing DAOs."""
 
@@ -605,6 +612,7 @@ def build_fork_catalog_page(
             campaigns=campaigns,
             close_callbacks=(fork_service.close, character_queries.close),
             parent=parent,
+            text_catalog=text_catalog,
         )
     except Exception:
         if character_queries is not None:

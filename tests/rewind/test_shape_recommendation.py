@@ -5,7 +5,7 @@ from collections import Counter
 
 import pytest
 
-from src.domain.rewind_shape_recommendation import (
+from src.domain.rewind.rewind_shape_recommendation import (
     RewindPricingRule,
     RewindShape,
     recommend_rewind_shape_quantities,
@@ -45,14 +45,17 @@ def test_rewind_execution_preferences_persist_only_in_the_current_account(tmp_pa
         }
     )
 
-    assert first_service.load_preferences() == {
+    expected = {
         "target_character_ids": [1004],
         "target_threshold_mode": "custom",
         "target_custom_percent": 90.0,
         "rewind_qualities": ["purple", "gold"],
         "rewind_drive_customization": "enabled",
     }
-    assert second_service.load_preferences() == {}
+    saved = first_service.load_preferences()
+    assert {key: saved[key] for key in expected} == expected
+    # 策略独立草稿会补默认字段和版本；其他账号仍保持自己的默认值。
+    assert not second_service.load_preferences().get("target_character_ids")
 
 
 def test_recommendation_prioritizes_common_missing_shapes() -> None:

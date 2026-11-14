@@ -10,6 +10,8 @@ from src.domain.battle_report.buffs.models import BattleHitBuffProjection
 from src.domain.battle_report.replay.models import (
     BattleHitReplayFactor, BattleHitReplayResult, BattleHitReplayTerm, BattleSkillDamageEvidence,
 )
+from src.domain.localization.catalog import localized_text
+from src.integrations.preferences.locale_files import enum_text
 from src.services.battle_report.replay.support import (
     dot_final_replay_factors,
     literal_replay_term,
@@ -32,6 +34,25 @@ _ELEMENT_PENETRATION_PROPERTIES = {
 
 _ORDINARY_SCORCH_DAMAGE_ID = "buff_reaction_5_new"
 _ZANKOU_SCORCH_DAMAGE_ID = "buff_reaction_5_new_1036"
+
+_LOCALE_PREFIX = "battle_report.special."
+_SOURCE_LABELS = {
+    "character": "人物",
+    "target": "敌方",
+    "resolved": "攻击者",
+}
+
+
+def _text(text_catalog, key: str, fallback: str, **values: object) -> str:
+    """本文件用户可见说明统一挂在本模块前缀下；目录缺该 key 时回退原中文基线。"""
+
+    return localized_text(text_catalog, f"{_LOCALE_PREFIX}{key}", fallback, **values)
+
+
+def _source_labels(text_catalog):
+    """整表投影重放来源分组标签；未注入目录时保留中文基线。"""
+
+    return enum_text(text_catalog, _SOURCE_LABELS)
 
 
 def _factor(
@@ -68,6 +89,7 @@ class BattleSpecialHitReplayService:
         projection: BattleHitBuffProjection,
         values: Mapping[str, float],
         analysis: BattleAnalysisSnapshot,
+        text_catalog=None,
     ) -> BattleHitReplayResult | None:
         if channel_id == "reaction_hexed":
             return cls._replay_weave(
@@ -76,6 +98,7 @@ class BattleSpecialHitReplayService:
                 values=values,
                 analysis=analysis,
                 formula_label=formula_label,
+                text_catalog=text_catalog,
             )
         if evidence is None:
             return None
@@ -87,6 +110,7 @@ class BattleSpecialHitReplayService:
                 values=values,
                 analysis=analysis,
                 formula_label=formula_label,
+                text_catalog=text_catalog,
             )
         if channel_id in {"reaction_creation", "reaction_scorch"}:
             return cls._replay_standard_reaction(
@@ -97,6 +121,7 @@ class BattleSpecialHitReplayService:
                 values=values,
                 analysis=analysis,
                 formula_label=formula_label,
+                text_catalog=text_catalog,
             )
         return None
 
@@ -108,6 +133,7 @@ class BattleSpecialHitReplayService:
         values: Mapping[str, float],
         analysis: BattleAnalysisSnapshot,
         formula_label: str,
+        text_catalog=None,
     ) -> BattleHitReplayResult:
         triggering_hit = find_paired_weave_source_hit(hit, analysis.hits)
         if triggering_hit is None:
@@ -121,7 +147,9 @@ class BattleSpecialHitReplayService:
                 critical_state="unreplayable",
                 confidence="未解析",
                 factors=(),
-                missing_evidence=("缺少与覆纹同一正式事件的被记录原伤害",),
+                missing_evidence=(_text(
+                    text_catalog, "missing.weave_source_hit",
+                    "缺少与覆纹同一正式事件的被记录原伤害"),),
                 formula_type=formula_label,
             )
         baseline = next(
@@ -160,34 +188,44 @@ class BattleSpecialHitReplayService:
         missing = (
             ()
             if unresolved == 0
-            else (f"{unresolved} 个覆纹相关 Buff 仍待结构化",)
+            else (_text(
+                text_catalog, "missing.weave_buffs",
+                "{count} 个覆纹相关 Buff 仍待结构化", count=unresolved),)
         )
         factors = (
             _factor(
                 "recorded_direct_damage",
-                "原伤害实际值",
+                _text(text_catalog, "term.recorded_direct_damage.label", "原伤害实际值"),
                 triggering_hit.damage,
-                f"正式逐击 {triggering_hit.event_id}",
-                "直接使用同一事件记录的有效原伤害",
+                _text(text_catalog, "term.recorded_direct_damage.basis",
+                      "正式逐击 {event_id}", event_id=triggering_hit.event_id),
+                _text(text_catalog, "term.recorded_direct_damage.formula",
+                      "直接使用同一事件记录的有效原伤害"),
             ),
             _factor(
                 "weave_strength",
-                "覆纹环合强度区",
+                _text(text_catalog, "term.weave_strength.label", "覆纹环合强度区"),
                 strength_multiplier,
-                f"原伤害来源角色环合强度 {ring_strength:g}",
-                "1 + 20% × 环合强度 / (环合强度 + 180)",
+                _text(text_catalog, "term.weave_strength.basis",
+                      "原伤害来源角色环合强度 {strength}", strength=f"{ring_strength:g}"),
+                _text(text_catalog, "term.weave_strength.formula",
+                      "1 + 20% × 环合强度 / (环合强度 + 180)"),
             ),
             _factor(
                 "weave_followup",
-                "覆纹追加倍率",
+                _text(text_catalog, "term.weave_followup.label", "覆纹追加倍率"),
                 followup_multiplier,
                 (
-                    "灵可突破被动「弱点感应」已解锁"
+                    _text(text_catalog, "term.weave_followup.basis.passive",
+                          "灵可突破被动「弱点感应」已解锁")
                     if lingke_passive
-                    else "基础覆纹规则"
+                    else _text(text_catalog, "term.weave_followup.basis.base", "基础覆纹规则")
                 ),
-                f"({copy_ratio:.0%} × 覆纹环合强度区 + clamp(覆纹环合强度区 - 1, 0, 100))"
-                f" × {numbers['final_multiplier']:g}；逐区与最终系数按单精度结算",
+                _text(
+                    text_catalog, "term.weave_followup.formula",
+                    "({copy} × 覆纹环合强度区 + clamp(覆纹环合强度区 - 1, 0, 100))"
+                    " × {multiplier}；逐区与最终系数按单精度结算",
+                    copy=f"{copy_ratio:.0%}", multiplier=f"{numbers['final_multiplier']:g}"),
             ),
         )
         return BattleHitReplayResult(
@@ -242,6 +280,7 @@ class BattleSpecialHitReplayService:
         values: Mapping[str, float],
         analysis: BattleAnalysisSnapshot,
         evidence_attribute: str = "",
+        text_catalog=None,
     ) -> tuple[str, dict, str, tuple[BattleHitReplayTerm, ...]]:
         condition = analysis.target_condition
         assert condition is not None
@@ -250,10 +289,12 @@ class BattleSpecialHitReplayService:
             analysis,
             evidence_attribute,
         )
+        sources = _source_labels(text_catalog)
         defense_penetration = max(0.0, float(values.get("DefIgnore", 0.0)))
         defense_basis = (
-            "用户场景与显示等级近似" if condition.enemy_defense_base is None
-            else "目标属性包 DefBase/6"
+            _text(text_catalog, "basis.defense.user_scene", "用户场景与显示等级近似")
+            if condition.enemy_defense_base is None
+            else _text(text_catalog, "basis.defense.target_profile", "目标属性包 DefBase/6")
         )
         baseline = next(
             (
@@ -269,33 +310,40 @@ class BattleSpecialHitReplayService:
             if condition.enemy_defense_base is None
             else (
                 literal_replay_term(
-                    "character:level", "CharacterLevel", "角色等级",
-                    character_level, "character", "人物",
-                    is_percent=False, basis="冻结角色等级",
+                    "character:level", "CharacterLevel",
+                    _text(text_catalog, "term.character_level.label", "角色等级"),
+                    character_level, "character", sources["character"],
+                    is_percent=False,
+                    basis=_text(text_catalog, "basis.character_level_frozen", "冻结角色等级"),
                 ),
                 literal_replay_term(
                     "target:DefBase", "DefBase", "DefBase",
-                    condition.enemy_defense_base, "target", "敌方",
+                    condition.enemy_defense_base, "target", sources["target"],
                     is_percent=False, basis=defense_basis,
                 ),
                 literal_replay_term(
-                    "target:DefUp", "DefUp", "防御提升",
-                    condition.enemy_defense_up, "target", "敌方",
+                    "target:DefUp", "DefUp",
+                    _text(text_catalog, "term.def_up.label", "防御提升"),
+                    condition.enemy_defense_up, "target", sources["target"],
                     is_percent=True, basis=defense_basis,
                 ),
                 literal_replay_term(
-                    "target:DefAdd", "DefAdd", "额外防御",
-                    condition.enemy_defense_add, "target", "敌方",
+                    "target:DefAdd", "DefAdd",
+                    _text(text_catalog, "term.def_add.label", "额外防御"),
+                    condition.enemy_defense_add, "target", sources["target"],
                     is_percent=False, basis=defense_basis,
                 ),
                 literal_replay_term(
-                    "attacker:DefIgnore", "DefIgnore", "防御穿透",
-                    defense_penetration, "resolved", "攻击者",
-                    is_percent=True, basis="命中时角色属性",
+                    "attacker:DefIgnore", "DefIgnore",
+                    _text(text_catalog, "term.def_ignore.label", "防御穿透"),
+                    defense_penetration, "resolved", sources["resolved"],
+                    is_percent=True,
+                    basis=_text(text_catalog, "basis.hit_character_attribute", "命中时角色属性"),
                 ),
                 literal_replay_term(
-                    "target:DefReduction", "DefReduction", "防御降低",
-                    condition.defense_reduction, "target", "敌方",
+                    "target:DefReduction", "DefReduction",
+                    _text(text_catalog, "term.def_reduction.label", "防御降低"),
+                    condition.defense_reduction, "target", sources["target"],
                     is_percent=True, basis=defense_basis,
                 ),
             )
@@ -318,6 +366,7 @@ class BattleSpecialHitReplayService:
         values: Mapping[str, float],
         analysis: BattleAnalysisSnapshot,
         formula_label: str,
+        text_catalog=None,
     ) -> BattleHitReplayResult:
         ordinary_scorch = (
             channel_id == "reaction_scorch"
@@ -338,10 +387,10 @@ class BattleSpecialHitReplayService:
                 critical_state="unreplayable",
                 confidence="未解析",
                 factors=(),
-                missing_evidence=(
+                missing_evidence=(_text(
+                    text_catalog, "missing.zankou_stack_event",
                     "缺少残虹被动逐层持续伤害施加事件及触发时点的浊燃伤害、"
-                    "元素与持续时间快照；周期结算 hit 不能替代施加事件",
-                ),
+                    "元素与持续时间快照；周期结算 hit 不能替代施加事件"),),
                 formula_type=formula_label,
                 formula_damage_attribute=hit.damage_attribute,
             )
@@ -358,10 +407,10 @@ class BattleSpecialHitReplayService:
                 critical_state="unreplayable",
                 confidence="未解析",
                 factors=(),
-                missing_evidence=(
+                missing_evidence=(_text(
+                    text_catalog, "missing.scorch_attribute",
                     "普通浊燃正式伤害项未固定元素属性，本击也未提供可确认的伤害属性；"
-                    "不能猜测目标抗性与角色穿透",
-                ),
+                    "不能猜测目标抗性与角色穿透"),),
                 formula_type=formula_label,
                 formula_damage_attribute="",
             )
@@ -377,12 +426,14 @@ class BattleSpecialHitReplayService:
                 critical_state="unreplayable",
                 confidence="未解析",
                 factors=(),
-                missing_evidence=(f"缺少{formula_label}的官方 16 档等级基础值",),
+                missing_evidence=(_text(
+                    text_catalog, "missing.reaction_level_curve",
+                    "缺少{label}的官方 16 档等级基础值", label=formula_label),),
                 formula_type=formula_label,
             )
         attribute, mitigation, defense_basis, defense_terms = cls._mitigation_context(
             hit=hit, projection=projection, values=values, analysis=analysis,
-            evidence_attribute=evidence.damage_attribute,
+            evidence_attribute=evidence.damage_attribute, text_catalog=text_catalog,
         )
         numbers = yield ("special_reaction_v1", {
             "observed": hit.damage, "level_multiplier": level_multiplier,
@@ -409,12 +460,14 @@ class BattleSpecialHitReplayService:
         unresolved = sum(row.status == "unresolved" for row in projection.decisions)
         missing = []
         if unresolved:
-            missing.append(f"{unresolved} 个{formula_label}相关 Buff 仍待结构化")
+            missing.append(_text(
+                text_catalog, "missing.reaction_buffs",
+                "{count} 个{label}相关 Buff 仍待结构化", count=unresolved, label=formula_label))
         if zankou_scorch and evidence.state_multiplier_label:
-            missing.append(
-                f"浊燃层数由逐击正向重放（置信度{evidence.state_confidence}），"
-                "待运行时目标 Buff 层数覆盖"
-            )
+            missing.append(_text(
+                text_catalog, "missing.scorch_state_layers",
+                "浊燃层数由逐击正向重放（置信度{confidence}），"
+                "待运行时目标 Buff 层数覆盖", confidence=evidence.state_confidence))
         condition = analysis.target_condition
         assert condition is not None
         stack_factors = (
@@ -426,48 +479,57 @@ class BattleSpecialHitReplayService:
                 stack_multiplier,
                 evidence.state_multiplier_basis,
                 (
-                    "min(结算前残虹浊燃层数, 3) × 单层伤害"
-                    if zankou_scorch else "普通浊燃固定 1 层 × 单层伤害"
+                    _text(text_catalog, "term.state_coefficient.formula.zankou",
+                          "min(结算前残虹浊燃层数, 3) × 单层伤害")
+                    if zankou_scorch else _text(
+                        text_catalog, "term.state_coefficient.formula.ordinary",
+                        "普通浊燃固定 1 层 × 单层伤害")
                 ),
             ),)
         )
         factors = (
             _factor(
                 "skill",
-                "等级基础值",
+                _text(text_catalog, "term.level_base.label", "等级基础值"),
                 level_multiplier,
                 evidence.evidence_basis,
-                "官方环合伤害曲线按角色等级取档",
+                _text(text_catalog, "term.level_base.formula",
+                      "官方环合伤害曲线按角色等级取档"),
             ),
             *stack_factors,
             _factor(
                 "scaling",
-                "环合强度区",
+                _text(text_catalog, "term.ring_strength.label", "环合强度区"),
                 ring_multiplier,
-                f"命中归属角色环合强度 {ring_strength:g}",
-                "1 + 环合强度 / 600",
+                _text(text_catalog, "term.ring_strength.basis",
+                      "命中归属角色环合强度 {strength}", strength=f"{ring_strength:g}"),
+                _text(text_catalog, "term.ring_strength.formula", "1 + 环合强度 / 600"),
             ),
             _factor(
                 "defense",
-                "防御区",
+                _text(text_catalog, "term.defense.label", "防御区"),
                 defense,
                 defense_basis,
-                "角色等级与敌方防御",
+                _text(text_catalog, "term.defense.basis.matching_target",
+                      "角色等级与敌方防御"),
                 terms=defense_terms,
             ),
             _factor(
                 "resistance",
-                "抗性区",
+                _text(text_catalog, "term.resistance.label", "抗性区"),
                 resistance,
-                f"{attribute} 属性抗性与穿透",
-                "抗性分段函数(目标抗性 - 属性穿透)",
+                _text(text_catalog, "term.resistance.basis.attribute",
+                      "{attribute} 属性抗性与穿透", attribute=attribute),
+                _text(text_catalog, "term.resistance.formula.attribute",
+                      "抗性分段函数(目标抗性 - 属性穿透)"),
             ),
             _factor(
                 "vulnerability",
-                "易伤区",
+                _text(text_catalog, "term.vulnerability.label", "易伤区"),
                 vulnerability,
-                "敌方受到伤害提升",
-                "1 + 易伤",
+                _text(text_catalog, "term.vulnerability.basis.target_damage",
+                      "敌方受到伤害提升"),
+                _text(text_catalog, "term.vulnerability.formula", "1 + 易伤"),
             ),
             *(
                 dot_final_replay_factors(evidence)
@@ -475,10 +537,14 @@ class BattleSpecialHitReplayService:
             ),
             _factor(
                 "critical",
-                "暴击伤害倍率",
+                _text(text_catalog, "term.critical.label", "暴击伤害倍率"),
                 1.0 + crit_damage if channel_id == "reaction_scorch" else 1.0,
-                "浊燃固定 50% 暴击率" if channel_id == "reaction_scorch" else "创生不暴击",
-                "1 + 暴击伤害" if channel_id == "reaction_scorch" else "固定为 1",
+                _text(text_catalog, "term.critical.basis.scorch", "浊燃固定 50% 暴击率")
+                if channel_id == "reaction_scorch"
+                else _text(text_catalog, "term.critical.basis.creation", "创生不暴击"),
+                _text(text_catalog, "term.critical.formula.scorch", "1 + 暴击伤害")
+                if channel_id == "reaction_scorch"
+                else _text(text_catalog, "term.critical.formula.fixed", "固定为 1"),
             ),
         )
         return BattleHitReplayResult(
@@ -514,6 +580,7 @@ class BattleSpecialHitReplayService:
         values: Mapping[str, float],
         analysis: BattleAnalysisSnapshot,
         formula_label: str,
+        text_catalog=None,
     ) -> BattleHitReplayResult:
         condition = analysis.target_condition
         assert condition is not None
@@ -529,7 +596,9 @@ class BattleSpecialHitReplayService:
                 critical_state="unreplayable",
                 confidence="未解析",
                 factors=(),
-                missing_evidence=("缺少黯星的官方 16 档等级基础值",),
+                missing_evidence=(_text(
+                    text_catalog, "missing.dark_star_level_curve",
+                    "缺少黯星的官方 16 档等级基础值"),),
                 formula_type=formula_label,
             )
         numbers = yield ("special_nova_v1", {
@@ -553,40 +622,66 @@ class BattleSpecialHitReplayService:
         missing = (
             ()
             if unresolved == 0
-            else (f"{unresolved} 个黯星相关 Buff 仍待结构化",)
+            else (_text(
+                text_catalog, "missing.dark_star_buffs",
+                "{count} 个黯星相关 Buff 仍待结构化", count=unresolved),)
         )
         factors = (
             _factor(
                 "skill",
-                "等级基础值",
+                _text(text_catalog, "term.level_base.label", "等级基础值"),
                 level_multiplier,
                 evidence.evidence_basis,
-                "官方环合伤害曲线按角色等级取档",
+                _text(text_catalog, "term.level_base.formula",
+                      "官方环合伤害曲线按角色等级取档"),
             ),
             _factor(
                 "scaling",
-                "环合强度区",
+                _text(text_catalog, "term.ring_strength.label", "环合强度区"),
                 ring_multiplier,
-                f"命中归属角色环合强度 {ring_strength:g}",
-                "1 + 环合强度 / 600",
+                _text(text_catalog, "term.ring_strength.basis",
+                      "命中归属角色环合强度 {strength}", strength=f"{ring_strength:g}"),
+                _text(text_catalog, "term.ring_strength.formula", "1 + 环合强度 / 600"),
             ),
-            _factor("damage_up", "增伤区", 1.0, "黯星不读取角色通伤", "固定为 1"),
-            _factor("defense", "防御区", 1.0, "黯星为心灵伤害", "固定为 1"),
+            _factor(
+                "damage_up",
+                _text(text_catalog, "term.damage_up.label", "增伤区"),
+                1.0,
+                _text(text_catalog, "term.damage_up.basis", "黯星不读取角色通伤"),
+                _text(text_catalog, "term.damage_up.formula", "固定为 1"),
+            ),
+            _factor(
+                "defense",
+                _text(text_catalog, "term.defense.label", "防御区"),
+                1.0,
+                _text(text_catalog, "term.defense.basis.dark_star", "黯星为心灵伤害"),
+                _text(text_catalog, "term.defense.formula", "固定为 1"),
+            ),
             _factor(
                 "resistance",
-                "抗性区",
+                _text(text_catalog, "term.resistance.label", "抗性区"),
                 resistance,
-                "用户确认心灵抗性与命中时减抗/穿透",
-                "抗性分段函数(心灵抗性 - 心灵穿透)",
+                _text(text_catalog, "term.resistance.basis.dark_star",
+                      "用户确认心灵抗性与命中时减抗/穿透"),
+                _text(text_catalog, "term.resistance.formula.dark_star",
+                      "抗性分段函数(心灵抗性 - 心灵穿透)"),
             ),
             _factor(
                 "vulnerability",
-                "易伤区",
+                _text(text_catalog, "term.vulnerability.label", "易伤区"),
                 vulnerability,
-                "用户确认目标条件与敌方 Buff",
-                "1 + 敌方受到伤害提升",
+                _text(text_catalog, "term.vulnerability.basis.dark_star",
+                      "用户确认目标条件与敌方 Buff"),
+                _text(text_catalog, "term.vulnerability.formula.dark_star",
+                      "1 + 敌方受到伤害提升"),
             ),
-            _factor("independent", "独立最终乘区", 1.0, "当前无黯星独立修正", "固定为 1"),
+            _factor(
+                "independent",
+                _text(text_catalog, "term.independent.label", "独立最终乘区"),
+                1.0,
+                _text(text_catalog, "term.independent.basis", "当前无黯星独立修正"),
+                _text(text_catalog, "term.independent.formula", "固定为 1"),
+            ),
         )
         return BattleHitReplayResult(
             event_id=hit.event_id,

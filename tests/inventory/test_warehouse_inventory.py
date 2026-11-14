@@ -15,7 +15,7 @@ ASSET_ROOT = PROJECT_ROOT / "data" / "role_catalog" / "game_ui"
 class WarehouseInventoryTests(unittest.TestCase):
 
     def test_load_log_contains_fixed_snapshot_diagnostic_counts(self):
-        from src.services.inventory.warehouse_inventory_service import WarehouseInventoryService
+        from src.services.inventory.browsing.warehouse_inventory_service import WarehouseInventoryService
 
         class Dao:
             def __enter__(self):
@@ -206,7 +206,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual("没有符合当前筛选条件的装备。", window.warehouse_hint.value)
 
     def test_core_and_module_use_distinct_packaged_item_images(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_view
+        from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
         core = warehouse_item_view(
             {"kind": "core", "item_id": "Lakshana_orange"},
@@ -227,7 +227,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         )
 
     def test_visual_core_uses_matching_suit_artwork_not_a_drive_fallback(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_view
+        from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
         core = warehouse_item_view(
             {
@@ -246,7 +246,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         )
 
     def test_pre_fix_visual_core_displays_the_max_level_main_value(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_view
+        from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
         core = warehouse_item_view(
             {
@@ -288,7 +288,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         app.processEvents()
 
     def test_projection_keeps_official_state_and_stat_labels(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_view
+        from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
         item = warehouse_item_view(
             {
@@ -323,7 +323,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual("nte-module-3-4", item["uid"])
 
     def test_core_uses_one_suit_name_as_its_card_heading(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_view
+        from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
         item = warehouse_item_view(
             {
@@ -336,7 +336,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual("nte-core-1-2", item["uid"])
 
     def test_official_orange_quality_maps_to_gold_independent_of_level(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_view
+        from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
         item = warehouse_item_view(
             {"kind": "module", "quality": "orange", "uid_slot": 1, "uid_serial": 2, "level": 0, "max_level": 20}
@@ -346,7 +346,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual("金色", item["quality_label"])
 
     def test_visual_scan_projection_marks_level_and_game_state_as_unknown(self):
-        from src.features.inventory.warehouse.cards import (
+        from src.features.inventory.warehouse.display.cards import (
             filter_warehouse_items,
             warehouse_item_view,
         )
@@ -363,7 +363,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual([item["uid"]], [row["uid"] for row in filter_warehouse_items([item])])
 
     def test_card_projection_preserves_explicit_unknown_level_from_saved_visual_plan(self):
-        from src.features.inventory.warehouse.cards import warehouse_item_view
+        from src.features.inventory.warehouse.display.cards import warehouse_item_view
 
         item = warehouse_item_view(
             {
@@ -380,7 +380,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertFalse(item["level_known"])
 
     def test_role_name_is_searchable_and_role_filter_uses_character_id(self):
-        from src.features.inventory.warehouse.cards import (
+        from src.features.inventory.warehouse.display.cards import (
             filter_warehouse_items,
             warehouse_item_view,
         )
@@ -397,7 +397,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual([equipped["uid"]], [item["uid"] for item in filter_warehouse_items([equipped, other], character_id=1051)])
 
     def test_role_avatar_name_normalizes_display_and_template_suffixes(self):
-        from src.features.inventory.warehouse.cards import (
+        from src.features.inventory.warehouse.display.cards import (
             ROLE_AVATAR_ALIASES,
             normalize_role_avatar_name,
         )
@@ -406,7 +406,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual("主角", ROLE_AVATAR_ALIASES["零"])
 
     def test_linked_type_options_follow_selected_category(self):
-        from src.features.inventory.warehouse.cards import (
+        from src.features.inventory.warehouse.display.cards import (
             filter_warehouse_items,
             warehouse_item_type_key,
             warehouse_item_view,
@@ -428,7 +428,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         ])
 
     def test_comparison_only_requires_matching_module_or_card_category(self):
-        from src.features.inventory.warehouse.cards import (
+        from src.features.inventory.warehouse.display.cards import (
             warehouse_item_compare_category,
             warehouse_item_view,
         )
@@ -442,7 +442,7 @@ class WarehouseInventoryTests(unittest.TestCase):
 
     def test_card_model_does_not_publish_a_hover_tooltip(self):
         from PySide6.QtCore import Qt
-        from src.features.inventory.warehouse.cards import WarehouseInventoryModel
+        from src.features.inventory.warehouse.display.cards import WarehouseInventoryModel
 
         model = WarehouseInventoryModel()
         model.set_items([{"title": "II型驱动", "item_name": "驱动", "suit_name": "套装"}])
@@ -450,7 +450,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertIsNone(model.data(model.index(0, 0), Qt.ToolTipRole))
 
     def test_filter_handles_two_thousand_cards_without_widget_creation(self):
-        from src.features.inventory.warehouse.cards import filter_warehouse_items
+        from src.features.inventory.warehouse.display.cards import filter_warehouse_items
 
         items = [
             {
@@ -471,7 +471,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual(182, len(filter_warehouse_items(items, status="discarded")))
 
     def test_warehouse_rows_group_cards_by_suit_and_drives_by_official_shape_order(self):
-        from src.features.inventory.warehouse.cards import filter_warehouse_items
+        from src.features.inventory.warehouse.display.cards import filter_warehouse_items
 
         rows = [
             {"uid": "card-b-1", "kind": "core", "item_type_label": "套装乙"},
@@ -503,7 +503,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         )
 
     def test_local_state_edit_updates_badges_without_writing_snapshot(self):
-        from src.features.inventory.warehouse.item_state import warehouse_item_with_state
+        from src.features.inventory.warehouse.display.item_state import warehouse_item_with_state
 
         item = {
             "uid": "nte-module-1-2", "equipped": True, "locked": False,

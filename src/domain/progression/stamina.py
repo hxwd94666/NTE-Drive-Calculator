@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from src.domain.progression.materials import allocate_owned, material_tier
+from src.domain.progression.stamina_models import StaminaModelPreparation
 
 
 class StaminaPlanStatus(StrEnum):
@@ -137,6 +138,7 @@ def calculate_progression_stamina(
     *,
     policy: HunterLevelPolicy = HunterLevelPolicy(),
     maximum_search_states: int = 300_000,
+    model_preparation: StaminaModelPreparation | None = None,
 ) -> ProgressionStaminaResult:
     """只规划已证实且已开放的确定产出；无产出或超出搜索预算保留未知总体力。"""
 
@@ -152,7 +154,7 @@ def calculate_progression_stamina(
     if request.conversions:
         return calculate_conversion_stamina(
             request, identification, requirements, stages,
-            maximum_search_states=maximum_search_states,
+            maximum_search_states=maximum_search_states, model_preparation=model_preparation,
         )
     deficits = tuple(
         MaterialDeficit(
@@ -211,7 +213,7 @@ def calculate_progression_stamina(
     planned = _minimum_stamina_runs(
         solvable,
         accessible,
-        maximum_search_states=maximum_search_states,
+        maximum_search_states=maximum_search_states, model_preparation=model_preparation,
     )
     if planned is None:
         return ProgressionStaminaResult(
@@ -253,8 +255,9 @@ def _minimum_stamina_runs(
     stages: tuple[FarmingStage, ...],
     *,
     maximum_search_states: int,
+    model_preparation: StaminaModelPreparation | None = None,
 ) -> tuple[tuple[FarmingRun, ...], int] | None:
-    optimized = _minimum_stamina_runs_milp(deficits, stages)
+    optimized = _minimum_stamina_runs_milp(deficits, stages, model_preparation=model_preparation)
     if optimized is not _SCIPY_UNAVAILABLE:
         return optimized
     return _minimum_stamina_runs_search(
@@ -270,6 +273,7 @@ _SCIPY_UNAVAILABLE = object()
 def _minimum_stamina_runs_milp(
     deficits: tuple[MaterialDeficit, ...],
     stages: tuple[FarmingStage, ...],
+    *, model_preparation: StaminaModelPreparation | None = None,
 ) -> tuple[tuple[FarmingRun, ...], int] | None | object:
     """整数规划先最小体力再最少次数；仅 SciPy 缺失才走有界搜索，失败不伪装完整。"""
 
@@ -286,18 +290,12 @@ def _minimum_stamina_runs_milp(
     )
     if not useful:
         return None
-    yields = np.asarray(
-        [
-            [_stage_yield(stage, item_id) for stage in useful]
-            for item_id in item_ids
-        ],
-        dtype=float,
-    )
+    owner = model_preparation if model_preparation is not None else StaminaModelPreparation(maximum_entries=0)
+    yields, stamina, secondary, _size = owner.prepare(item_ids, useful)
     required = np.asarray(
         [deficit.deficit_quantity for deficit in deficits],
         dtype=float,
     )
-    stamina = np.asarray([stage.stamina_cost for stage in useful], dtype=float)
     integrality = np.ones(len(useful), dtype=int)
     bounds = Bounds(np.zeros(len(useful)), np.full(len(useful), np.inf))
     production = LinearConstraint(yields, required, np.full(len(required), np.inf))
@@ -313,7 +311,7 @@ def _minimum_stamina_runs_milp(
     minimum_stamina = int(round(float(first.fun)))
     stamina_lock = LinearConstraint(stamina, minimum_stamina, minimum_stamina)
     second = milp(
-        np.ones(len(useful), dtype=float),
+        secondary,
         integrality=integrality,
         bounds=bounds,
         constraints=(production, stamina_lock),
@@ -473,6 +471,7 @@ def calculate_conversion_stamina(
     stages: tuple[FarmingStage, ...],
     *,
     maximum_search_states: int,
+    model_preparation: StaminaModelPreparation | None = None,
 ) -> ProgressionStaminaResult:
     edges = _validate_edges(request.conversions)
     required = {item.item_id: item.required_quantity for item in requirements if item.required_quantity}
@@ -517,7 +516,7 @@ def calculate_conversion_stamina(
             StaminaPlanStatus.UNAVAILABLE, identification, deficits, (), 0, None,
             unresolved, ("material_yield_unavailable",),
         )
-    solution = _solve_milp(ids, solvable, owned, relevant, edges)
+    solution = _solve_milp(ids, solvable, owned, relevant, edges, model_preparation=model_preparation)
     if solution is _SCIPY_UNAVAILABLE:
         solution = _solve_search(
             ids, solvable, owned, relevant,
@@ -572,6 +571,7 @@ def _validate_edges(edges: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str]
 def _solve_milp(
     ids: tuple[str, ...], required: dict[str, int], owned: dict[str, int],
     stages: tuple[FarmingStage, ...], edges: tuple[tuple[str, str], ...],
+    *, model_preparation: StaminaModelPreparation | None = None,
 ) -> tuple[tuple[int, ...], int] | None | object:
     try:
         import numpy as np
@@ -581,21 +581,10 @@ def _solve_milp(
     count = len(stages) + len(edges)
     if count == 0:
         return None
-    matrix = np.zeros((len(ids), count), dtype=float)
-    index = {item_id: row for row, item_id in enumerate(ids)}
-    for column, stage in enumerate(stages):
-        for item in stage.yields:
-            if item.item_id in index:
-                matrix[index[item.item_id], column] += item.quantity
-    for offset, (lower, higher) in enumerate(edges, start=len(stages)):
-        matrix[index[lower], offset] -= 3
-        matrix[index[higher], offset] += 1
+    owner = model_preparation if model_preparation is not None else StaminaModelPreparation(maximum_entries=0)
+    matrix, cost, secondary, _size = owner.prepare(ids, stages, edges)
     target = np.asarray(
         [required.get(item_id, 0) - owned.get(item_id, 0) for item_id in ids],
-        dtype=float,
-    )
-    cost = np.asarray(
-        [stage.stamina_cost for stage in stages] + [0] * len(edges),
         dtype=float,
     )
     bounds = Bounds(np.zeros(count), np.full(count, np.inf))
@@ -607,7 +596,6 @@ def _solve_milp(
     if not first.success or first.x is None:
         return None
     minimum = int(round(float(first.fun)))
-    secondary = np.asarray([1] * len(stages) + [0] * len(edges), dtype=float)
     second = milp(
         secondary, integrality=np.ones(count), bounds=bounds,
         constraints=(production, LinearConstraint(cost, minimum, minimum)),

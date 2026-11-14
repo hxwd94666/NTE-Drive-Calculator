@@ -1,7 +1,7 @@
 # 分配算法的调度入口。
 """Dispatch facade that selects the requested allocation strategy."""
 
-from src.optimizer.role_priority_strategy import RolePriorityStrategy
+from src.optimizer.strategies.role_priority_strategy import RolePriorityStrategy
 from src.optimizer.contracts import (
     AllocationResult,
     CandidatePool,
@@ -10,7 +10,7 @@ from src.optimizer.contracts import (
     STRATEGY_MODES,
     StrategyMode,
 )
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 
 
 class DispatcherEngine:

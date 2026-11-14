@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | `build_exe.py` | 默认目录式构建，包含运行库、静态资料、独立组件及清单 | 复用同一产物生成干净 ZIP，沿用组件、OCR 和许可校验 |
 | `build_installer.py` | 安装器额外复制配置、处理旧文件和保留旧静态基线 | 审查哪些步骤仍被运行链依赖，必要步骤抽为共享入口，不把安装器流程直接照搬到启动 |
-| `src/integrations/application_runtime_paths.py` | 区分发行资源和运行数据；目前优先程序目录，失败后尝试 LocalAppData | 增加明确发行模式与稳定数据根，避免权限变化导致数据位置悄然变化 |
+| `src/integrations/runtime/application_runtime_paths.py` | 区分发行资源和运行数据；目前优先程序目录，失败后尝试 LocalAppData | 增加明确发行模式与稳定数据根，避免权限变化导致数据位置悄然变化 |
 | `src/app/context.py` | 路径由组合根注入 | 复用，不让业务自行拼接便携路径 |
 | `src/storage/sqlite/user_data_base.py` | 顺序事务迁移，拒绝更高版本用户库，部分迁移有专项备份 | 补齐升级前一致性恢复点，保留已有版本检查和事务边界 |
 | `src/app/shared_data_seed.py` | 当前会复制随包共享库到运行数据域 | 核清默认资源和可变兼容数据的所有权，再确定首次初始化、版本更新策略，避免覆盖需保留的状态 |

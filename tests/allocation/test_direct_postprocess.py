@@ -9,17 +9,18 @@ from unittest.mock import patch
 
 import pytest
 
-from src.integrations.allocation_postprocess import postprocess_allocation
-from src.integrations.nte_analysis_core import (
+from src.integrations.allocation.allocation_postprocess import postprocess_allocation
+from src.integrations.analysis_core.nte_analysis_core import (
     ENGINE_VERSION, NativeAnalysisCancelled, NativeAnalysisError, NteAnalysisCoreClient,
 )
 from src.models.equipment import Drive, Tape
 from src.optimizer.allocation_kernel import AllocationKernel, AllocationKernelRequest
 from src.optimizer.scoring import ScoringEngine
-from src.services.allocation.direct_postprocess import (
-    direct_strategy_selection_error, optimization_payload,
+from src.services.allocation.direct.direct_postprocess import (
+    direct_strategy_selection_error,
+    optimization_payload,
 )
-from src.features.allocation.preference_modes import allocation_strategy_for_button, role_preference_mode_error
+from src.features.allocation.selection.preference_modes import allocation_strategy_for_button, role_preference_mode_error
 
 
 ROOT = Path(__file__).resolve().parents[2]

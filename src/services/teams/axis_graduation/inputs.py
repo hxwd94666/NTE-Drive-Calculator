@@ -7,14 +7,17 @@ from pathlib import Path
 
 from src.domain.official_role.likeability import likeability_unavailable
 from src.domain.official_role.models import WORLD_BONUS_SETTING_KEY, WorldBonusSettings
-from src.domain.teams.axis_graduation_inputs import (
-    PROFILE_FIELDS, WORLD_BONUS_FIELDS, CurrentBuild, CurrentMemberBuild,
+from src.domain.teams.graduation.axis_graduation_inputs import (
+    PROFILE_FIELDS,
+    WORLD_BONUS_FIELDS,
+    CurrentBuild,
+    CurrentMemberBuild,
 )
-from src.integrations.battle_axis_evaluation import validate_axis_equipment
-from src.integrations.nte_analysis_core import NativeAnalysisError
-from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.integrations.battle_analysis.battle_axis_evaluation import validate_axis_equipment
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
 from src.services.battle_report.analysis.axis_evaluation import freeze_actual_axis_equipment
-from src.services.official_role.native_profiles import project_native_role_profile
+from src.services.official_role.profile_data.native_profiles import project_native_role_profile
 from src.services.teams.source_inputs import freeze_team_sources
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -94,6 +97,9 @@ def _world_inputs(dao):
     if not isinstance(raw, dict):
         return None, ("world_bonus_invalid",)
     value = {key: raw[key] for key in WORLD_BONUS_FIELDS if key in raw}
+    if {"yaodao_attack_add", "quantao_crit_damage"} <= value.keys():
+        # 旧账号已显式确认两项；新增防御家具按产品默认满值，不改旧冻结正文。
+        value.setdefault("kaijia_defense_add", 30.0)
     if not value:
         return None, ("world_bonus_unconfirmed",)
     try:
@@ -101,7 +107,7 @@ def _world_inputs(dao):
             return None, ("world_bonus_invalid",)
         if set(value) != WORLD_BONUS_FIELDS:
             return value, ("world_bonus_unconfirmed",)
-        # 只有两个实际字段都存在才使用公共校验，避免from_payload为缺字段填满家具。
+        # 保留旧字段的完整性校验；只有本轮新增的防御允许使用明确的满值默认。
         WorldBonusSettings(**value).validate()
     except (ValueError, TypeError, OverflowError):
         return None, ("world_bonus_invalid",)

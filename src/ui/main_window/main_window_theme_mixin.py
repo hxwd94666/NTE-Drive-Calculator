@@ -1,0 +1,116 @@
+# 管理主窗口的全局主题和账号更新偏好。
+"""Global theme and account-scoped update preference methods."""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
+import ctypes
+import subprocess
+import sys
+
+from PySide6.QtWidgets import QApplication, QMessageBox
+
+from src.app.page_tasks import PageCommitLane
+from src.app.theme import (
+    apply_app_theme,
+    current_style_sheet,
+    refresh_inline_theme_styles,
+    theme_color,
+    theme_preference,
+)
+
+
+class MainWindowThemeMixin:
+
+
+    def _load_ui_preferences(self):
+        return self._account_settings.load("ui")
+
+    def _save_ui_preferences(self):
+        self._ui_preferences = self._account_settings.save("ui", self._ui_preferences)
+
+    def _load_theme_preference(self, legacy_theme=None):
+        return self._global_theme_settings.load(legacy_theme=legacy_theme)
+
+    def _save_theme_preference(self):
+        self._theme_preference = self._global_theme_settings.save(
+            self._theme_preference
+        )
+
+    def _current_style_sheet(self):
+        return current_style_sheet(QApplication.instance())
+
+    def _apply_theme_preference(self):
+        theme = getattr(self, "_theme_preference", "black")
+        apply_app_theme(QApplication.instance(), theme)
+        refresh_inline_theme_styles(self, QApplication.instance())
+        if hasattr(self, "status_lbl"):
+            self.status_lbl.setStyleSheet(f"color:{theme_color('#6e7681')};font-size:12px")
+
+    def _set_theme_preference(self, theme):
+        normalized = theme_preference(theme)
+        if getattr(self, "_theme_preference", "black") == normalized:
+            return True
+        if not self._restart_ready():
+            return False
+        if not self._prompt_restart_for_theme_change():
+            return False
+        # 确认弹窗会运行嵌套事件循环，保存前须重新核对是否出现提交。
+        if not self._restart_ready():
+            return False
+        previous = getattr(self, "_theme_preference", "black")
+        self._theme_preference = normalized
+        self._save_theme_preference()
+        if not self._restart_application_as_admin():
+            self._theme_preference = previous
+            self._save_theme_preference()
+            return False
+        return True
+
+    def _prompt_restart_for_theme_change(self):
+        box = QMessageBox(self)
+        box.setTextFormat(Qt.PlainText)
+        box.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.prompt_restart_for_theme_change.box'))
+        box.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.prompt_restart_for_theme_change.box_2'))
+        ok_button = box.addButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.prompt_restart_for_theme_change.ok_button'), QMessageBox.AcceptRole)
+        box.addButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('common.cancel'), QMessageBox.RejectRole)
+        box.setDefaultButton(ok_button)
+        box.exec()
+        return box.clickedButton() is ok_button
+
+    def _restart_ready(self):
+        # 先确认所有页面的原子提交已到物理终态，不用关闭读通道来做状态探测。
+        if any(lane.is_running() for lane in self.findChildren(PageCommitLane)):
+            QMessageBox.information(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.restart_ready.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.restart_ready.qmessagebox_2')))
+            return False
+        return True
+
+    def _restart_application_as_admin(self):
+        QApplication.processEvents()
+        if not self._restart_ready():
+            return False
+        program = sys.executable
+        args = sys.argv[:]
+        parameters = ""
+        if not getattr(sys, "frozen", False):
+            parameters = subprocess.list2cmdline(args)
+        elif len(args) > 1:
+            parameters = subprocess.list2cmdline(args[1:])
+        if sys.platform == "win32":
+            result = ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",
+                program,
+                parameters,
+                str(self.app_context.paths.app_dir),
+                1,
+            )
+            if result <= 32:
+                QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.restart_application_as_admin.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.restart_application_as_admin.qmessagebox_3')))
+                return False
+            QApplication.quit()
+            return True
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.restart_application_as_admin.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.main_window.restart_application_as_admin.qmessagebox_2')))
+        return False
+

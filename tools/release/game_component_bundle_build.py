@@ -10,7 +10,7 @@ import stat
 import tempfile
 from typing import Mapping
 
-from src.integrations.game_component_bundle import inspect_game_component_bundle
+from src.integrations.components.game_component_bundle import inspect_game_component_bundle
 from tools.release.managed_paths import plain_path_stat
 
 

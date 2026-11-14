@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -35,7 +36,9 @@ class BattleMarginalSessionController:
         reload_analysis: Callable[..., None],
         invalidate_analysis: Callable[[], None],
         show_error: Callable[[str, Exception], None],
+        text_catalog=None,
     ) -> None:
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._page = page
         self._service_provider = service_provider
         self._record_id_provider = record_id_provider
@@ -58,7 +61,7 @@ class BattleMarginalSessionController:
         try:
             editor_data = self._service_provider().load_build_editor_data(record_id)
         except Exception as error:
-            self._show_error("无法打开固定轴边际计算", error)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.open.self'), error)
             return
         equipment_editable = bool(
             editor_data.get(
@@ -131,7 +134,7 @@ class BattleMarginalSessionController:
         if session is None:
             return
         if not isinstance(profiles, list):
-            self._show_error("无法重算边际", ValueError("角色候选配置格式无效"))
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.recalculate.self'), ValueError("角色候选配置格式无效"))
             return
         try:
             candidate = BattleMarginalCandidateService.freeze(
@@ -143,7 +146,7 @@ class BattleMarginalSessionController:
                 ),
             )
         except (TypeError, ValueError) as error:
-            self._show_error("无法重算边际", error)
+            self._show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.recalculate.self'), error)
             return
         if not session.draft_changed or candidate == session.entry_candidate:
             self.load_baseline()

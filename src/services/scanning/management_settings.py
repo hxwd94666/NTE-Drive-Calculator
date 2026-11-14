@@ -1,7 +1,7 @@
 # 管理扫描专属配置的账号读写与旧文件回退；不读取仓库设置或创建界面。
 from pathlib import Path
-from src.domain.post_actions import default_post_action_config
-from src.domain.equipment.management_settings import normalize_scan_management_config
+from src.domain.inventory.post_actions import default_post_action_config
+from src.domain.equipment.eligibility.management_settings import normalize_scan_management_config
 from src.storage.json_store import read_json, write_json
 from src.services.accounts.settings import AccountSettingsService
 from src.storage.sqlite.user_data_dao import UserDataDao

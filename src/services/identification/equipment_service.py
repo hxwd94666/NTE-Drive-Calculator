@@ -6,14 +6,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 from dataclasses import replace
-from src.domain.equipment.management_settings import MatchingScope
+from src.domain.equipment.eligibility.management_settings import MatchingScope
 
 from src.integrations.vision.recognition.resources import RecognitionResources, RecognitionResourceError
 from src.services.recognition.resources import load_recognition_resources, check_recognition_resources
 from src.models.equipment import Drive, Tape
 from src.optimizer.scoring import ScoringEngine
 from src.solver.orchestrator import NTEPipelineOrchestrator
-from src.domain.equipment.matching import EquipmentMatchContext
+from src.domain.equipment.eligibility.matching import EquipmentMatchContext
 from src.services.identification.matching_context import build_equipment_match_context
 from src.services.identification.matching_settings import MatchingSettingsService
 
@@ -46,6 +46,7 @@ class EquipmentIdentificationService:
         cancel_check: Callable[[], bool] | None = None,
         resources: RecognitionResources | None = None,
         matching_scope=MatchingScope.IDENTIFICATION,
+        blueprint_executor=None,
     ) -> "EquipmentIdentificationService":
         """Build a matcher from paths frozen at operation start."""
         resources = resources or load_recognition_resources(config_dir, static_database_path)
@@ -59,10 +60,12 @@ class EquipmentIdentificationService:
             user_database_path=Path(user_database_path),
             static_database_path=resources.static_database_path,
             expected_dataset=resources.dataset, stat_catalog=catalog,
+            blueprint_executor=blueprint_executor,
         )
         settings_service = MatchingSettingsService(user_database_path, scope=matching_scope)
         settings = settings_service.load()
-        context = build_equipment_match_context(orchestrator, settings, cancel_check=cancel_check)
+        context = build_equipment_match_context(orchestrator, settings, cancel_check=cancel_check,
+                                                batch_defaults=blueprint_executor is not None)
         context = replace(context, settings_identity=settings_service.identity(settings))
         scoring = ScoringEngine(
             str(config_dir),

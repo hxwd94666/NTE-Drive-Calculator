@@ -1,8 +1,10 @@
 # 拥有规则展示排序的长按手势、源行反馈、插入落点与取消清理。
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QSizePolicy
+from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QSizePolicy
 from shiboken6 import isValid
 
 from src.app.theme import themed_style
@@ -11,8 +13,9 @@ from src.app.theme import themed_style
 class RuleOrderController(QObject):
     """编辑规则执行顺序草稿；首条命中动作由领域层按保存后的列表判定。"""
 
-    def __init__(self, scroll, rows, move, *, contains=lambda point: True):
+    def __init__(self, scroll, rows, move, *, contains=lambda point: True, text_catalog=None):
         super().__init__(scroll)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._scroll, self._rows, self._move = scroll, rows, move
         self._contains = contains
         self._rule = self._point = None
@@ -21,11 +24,11 @@ class RuleOrderController(QObject):
         # 反馈浮在 viewport 上，不参与行布局、不截获鼠标，长列表滚动时也不会改变落点。
         self.indicator = QFrame(viewport)
         self.indicator.setObjectName("preserveRuleInsertionIndicator")
-        self.indicator.setAccessibleName("规则插入位置")
+        self.indicator.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.indicator'))
         self.indicator.setStyleSheet(
             themed_style("QFrame#preserveRuleInsertionIndicator{background:#58a6ff;border:0;border-radius:2px;}")
         )
-        self.hint = QLabel(viewport)
+        self.hint = plain_label(viewport)
         self.hint.setObjectName("preserveRuleDragHint")
         self.hint.setStyleSheet(
             themed_style(
@@ -94,18 +97,18 @@ class RuleOrderController(QObject):
         self.target_index = destination[1] if destination is not None else None
         viewport = self._scroll.viewport()
         if destination is None:
-            suffix = "移出列表，释放取消"
+            suffix = resolve_text_catalog(self.text_catalog).render("ui.rules.drag_cancel")
             self.indicator.hide()
         else:
             source, target, gap = destination
-            suffix = f"放到第 {target + 1} 位" if target != source else "保持当前位置"
+            suffix = resolve_text_catalog(self.text_catalog).render("ui.rules.drag_position", position=target + 1) if target != source else resolve_text_catalog(self.text_catalog).render("ui.rules.drag_unchanged")
             self.indicator.setGeometry(0, max(0, min(gap - 2, viewport.height() - 4)), viewport.width(), 4)
             self.indicator.setVisible(target != source)
             self.indicator.raise_()
         name = self.hint.fontMetrics().elidedText(
             str(self._rule.get("name") or "未命名规则"), Qt.ElideRight, max(80, viewport.width() // 3)
         )
-        self.hint.setText(f"正在移动：{name}  ·  {suffix}")
+        self.hint.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.render_preview.hint', name=f'{name}', suffix=ui_enum_text(getattr(self, 'text_catalog', None), f'{suffix}')))
         self.hint.adjustSize()
         self.hint.move(max(0, viewport.width() - self.hint.width() - 6), 6)
         self.hint.show()
@@ -133,12 +136,13 @@ class RuleOrderController(QObject):
 class RuleOrderHandle(QPushButton):
     """长按才启动拖动；原生焦点及 Ctrl+方向键始终可用。"""
 
-    def __init__(self, order, rule):
+    def __init__(self, order, rule, *, text_catalog=None):
         super().__init__("≡")
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.order, self.rule = order, rule
         self._pressed = self._armed = False
-        self.setAccessibleName(f"拖动排序：{rule.get('name') or '未命名规则'}")
-        self.setToolTip("长按拖动排序；Ctrl+↑/↓ 移动。越靠上优先级越高，首条命中规则决定动作。")
+        self.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.self_2', value=f"{rule.get('name') or '未命名规则'}"))
+        self.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.self_3')))
         self.setCursor(Qt.OpenHandCursor)
         self.setAutoDefault(False)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)

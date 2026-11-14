@@ -14,7 +14,8 @@ from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies, BattleReportPersistenceService,
 )
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_battle_axis_dao import _profile, _snapshot
+from tests.battle_report.persistence.test_battle_axis_dao import _profile
+from tests.battle_report.persistence.test_battle_axis_dao import _snapshot
 from tests.battle_report.persistence.test_service import _summary
 
 

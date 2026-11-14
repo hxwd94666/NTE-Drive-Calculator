@@ -1,7 +1,7 @@
 # 无损还原原生逐击文本分片，并限制展开后的总数据量。
 from __future__ import annotations
 
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 MAX_EXPANDED_PAYLOAD_BYTES = 128 * 1024 * 1024
 

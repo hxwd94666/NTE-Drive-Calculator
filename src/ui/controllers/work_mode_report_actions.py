@@ -1,7 +1,8 @@
 # 编排检测报告、只读预检、同步激活及对话框收尾，冻结请求身份。
+from src.ui.common.text_catalog import resolve_text_catalog
 from PySide6.QtCore import QTimer
 
-from src.domain.work_mode import WorkMode
+from src.domain.preferences.work_mode import WorkMode
 from src.features.settings.work_mode_card import ModeReportDialog, prompt_offline_sync_mode
 from src.services.work_modes.observation import ObservationResult
 from src.services.work_modes.sync_preflight import decide_sync_enable
@@ -54,7 +55,7 @@ class WorkModeReportActionsMixin:
         if self._closed:
             return
         if self.policy.settings.mode == WorkMode.OFFLINE:
-            if prompt_offline_sync_mode(self.window):
+            if prompt_offline_sync_mode(self.window, text_catalog=getattr(self, 'text_catalog', None)):
                 self.open_settings("mode")
             return
         if self._sync_activation_request is not None:
@@ -89,11 +90,12 @@ class WorkModeReportActionsMixin:
             if self._report_dialog is None:
                 self._report_dialog = ModeReportDialog(
                     self.window, self, sync_action_provider=self.sync_enable_action_for_report,
+                    text_catalog=getattr(self, 'text_catalog', None),
                 )
                 self._report_dialog.finished.connect(self._dismiss_report)
             self._report_dialog.begin(self.policy.settings.mode.value, preview=preview)
             if self._controls:
-                self._controls[1].setText("正在核对同步条件…" if preview else "正在检测并处理组件…")
+                self._controls[1].setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.begin.overview') if preview else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.check.controls_1'))
         expected = self.policy.settings.revision, self.window.app_context.generation
 
         def perform():
@@ -142,7 +144,7 @@ class WorkModeReportActionsMixin:
                 self.policy.set_component_auto_ready(True)
         except OSError:
             if self._report_dialog is not None:
-                self._report_dialog.set_error("组件准备状态未能保存，请检查配置目录后重试。")
+                self._report_dialog.set_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.confirm_sync_enable.report_dialog'))
             return
         self._sync_preflight_callback = None
         self._sync_preflight_request = None

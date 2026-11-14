@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 
-from src.domain.equipment.loadout_equipment_identity import source_snapshots_share_equipment_uids
-from src.domain.equipment.virtual_equipment import is_virtual_equipment_assignment
+from src.domain.equipment.loadouts.loadout_equipment_identity import source_snapshots_share_equipment_uids
+from src.domain.equipment.loadouts.virtual_equipment import is_virtual_equipment_assignment
 
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.equipment.loadout_comparison_guard import assert_comparison_baseline

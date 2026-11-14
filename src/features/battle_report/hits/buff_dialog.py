@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Sequence
 
 from PySide6.QtGui import QTextCursor
@@ -21,9 +22,10 @@ from .inspection_dialog import HitInspectionDialog
 class BattleHitBuffDialog(HitInspectionDialog):
     """Keep one modeless dialog while the user inspects adjacent hit rows."""
 
-    def __init__(self, parent: QWidget | None = None, *, game_ui_asset_root=None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, game_ui_asset_root=None, text_catalog=None) -> None:
         super().__init__(parent, game_ui_asset_root=game_ui_asset_root)
-        self.setWindowTitle("逐击详情")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.battle_report.init.self_7'))
         self.detail.setObjectName("battleHitBuffDetail")
 
     def show_for_hit(
@@ -34,7 +36,7 @@ class BattleHitBuffDialog(HitInspectionDialog):
         replay: BattleHitReplayResult | None = None,
         projection=None, participant_names=None, target_resolutions=(),
     ) -> None:
-        self.setWindowTitle(f"逐击详情 · Hit #{hit.sequence} · {hit.character_name}")
+        self.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_for_hit.self', sequence=f'{hit.sequence}', character_name=f'{hit.character_name}'))
         self.inspection.set_hit(hit, replay, projection, participant_names=participant_names, target_resolutions=target_resolutions)
         hp_before = "—" if hit.target_hp_before is None else f"{hit.target_hp_before:,.0f}"
         hp_after = "—" if hit.target_hp_after is None else f"{hit.target_hp_after:,.0f}"
@@ -63,9 +65,10 @@ class BattleHitBuffDialog(HitInspectionDialog):
         self.detail.setPlainText(
             raw_lines + "\n" + render_field_evidence(hit.field_evidence)
             + "\n" + render_native_evidence(hit.native_evidence)
-            + "\n\n规则推断与公式重放（与原生采样分开）\n" + replay_lines + "\n\n"
+            + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_for_hit.detail') + replay_lines + "\n\n"
             + BattleHitBuffExplanationService.build(hit, intervals, projection=projection,
-                                                   allow_projection_fallback=False)
+                                                   allow_projection_fallback=False,
+                                                   text_catalog=getattr(self, 'text_catalog', None))
         )
         self.detail.moveCursor(QTextCursor.MoveOperation.Start)
         self.fit_overview()

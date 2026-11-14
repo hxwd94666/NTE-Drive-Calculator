@@ -12,7 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.integrations.role_catalog_release import read_role_catalog
+from src.integrations.static_catalog.role_catalog_release import read_role_catalog
 from tools.game_data.promote_role_catalog import promote_role_catalog
 
 

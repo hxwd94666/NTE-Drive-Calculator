@@ -7,7 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.battle_report.persistence.test_service import _summary
-from tests.test_battle_axis_dao import _equipped_item, _snapshot
+from tests.battle_report.persistence.test_battle_axis_dao import _equipped_item
+from tests.battle_report.persistence.test_battle_axis_dao import _snapshot
 from src.observability import OperationContext
 from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies, BattleReportPersistenceService,

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.domain.allocation_rating import loadout_total_grade
-from src.domain.rewind_loadout import RewindSlotReference, finite_score
-from src.domain.role_name_order import role_name_sort_key
+from src.domain.equipment.scoring.allocation_rating import loadout_total_grade
+from src.domain.rewind.rewind_loadout import RewindSlotReference, finite_score
+from src.domain.names.role_name_order import role_name_sort_key
 from src.services.rewind.recommendation import RewindTargetRole
 
 

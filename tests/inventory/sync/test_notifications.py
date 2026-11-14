@@ -85,7 +85,7 @@ def test_summary_receives_version_but_light_sync_status_is_immediate(notificatio
     window.home_sync_detail = QLabel(window)
     window.home_character_sync_detail = QLabel(window)
     window.auto_sync_controller = SimpleNamespace(inventory_state_changed=statuses.append, render=lambda: None)
-    from src.ui import dashboard_widgets
+    from src.ui.common import dashboard_widgets
     monkeypatch.setattr(dashboard_widgets, "set_status_badge", lambda _widget, *_args: None)
     window._inventory_sync_service.emit()
     app.processEvents()
@@ -198,7 +198,7 @@ def test_paused_sync_has_detection_guidance_only_for_manual_entry(notification_w
 
 @pytest.mark.parametrize("automatic", [False, True])
 def test_sync_start_missing_core_guides_only_manual_entry(notification_window, monkeypatch, automatic):
-    from src.integrations.nte_core_protocol import NteCoreNotFoundError
+    from src.integrations.native_core.nte_core_protocol import NteCoreNotFoundError
     _app, window, _accepted = notification_window
     window._stop_inventory_sync()
     prompts = []

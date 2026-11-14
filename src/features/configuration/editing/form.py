@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from copy import deepcopy
 from typing import TYPE_CHECKING
 from time import perf_counter
@@ -22,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.ui.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, match_pinyin
+from src.ui.common.widgets import NoWheelComboBox, NoWheelDoubleSpinBox, match_pinyin
 from src.app.theme import themed_style
 from src.features.configuration.dependencies import freeze_basic_weight_dependencies
 from .commit import (
@@ -41,7 +43,7 @@ if TYPE_CHECKING:
 _ACCOUNT_WEIGHT_CONFIG = "account_weights"
 
 
-def build_config_widgets(page: BasicWeightPage) -> None:
+def build_config_widgets(page: BasicWeightPage, *, text_catalog=None) -> None:
     layout = QVBoxLayout(page)
     layout.setContentsMargins(20, 16, 20, 16)
     layout.setSpacing(10)
@@ -58,13 +60,13 @@ def build_config_widgets(page: BasicWeightPage) -> None:
     )
 
     top_row = QHBoxLayout()
-    return_button = QPushButton("← 返回角色")
+    return_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.blueprints.build.return_button'))
     return_button.setObjectName("returnToRoleButton")
     return_button.clicked.connect(lambda: page._navigate("my_role"))
     top_row.addWidget(return_button)
 
     page.config_role_search = QLineEdit()
-    page.config_role_search.setPlaceholderText("搜索角色（支持拼音）...")
+    page.config_role_search.setPlaceholderText(resolve_text_catalog(text_catalog).render('roles.page.page_my_role.search.placeholder'))
     page.config_role_search.setClearButtonEnabled(True)
     page.config_role_search.textChanged.connect(
         lambda text: getattr(page, "_filter_config_roles", lambda _text: None)(text)
@@ -73,28 +75,28 @@ def build_config_widgets(page: BasicWeightPage) -> None:
 
     top_row.addStretch()
 
-    reset_current_btn = QPushButton("重置当前")
+    reset_current_btn = TextActionButton(resolve_text_catalog(text_catalog).render('roles.page.page_my_role.reset_current'))
     reset_current_btn.setObjectName("btnDanger")
-    reset_current_btn.clicked.connect(lambda: reset_current_config_weights(page))
+    reset_current_btn.clicked.connect(lambda: reset_current_config_weights(page, text_catalog=text_catalog))
     top_row.addWidget(reset_current_btn)
 
-    reset_all_btn = QPushButton("重置所有")
+    reset_all_btn = TextActionButton(resolve_text_catalog(text_catalog).render('roles.page.page_my_role.reset_all'))
     reset_all_btn.setObjectName("btnDanger")
-    reset_all_btn.clicked.connect(lambda: reset_all_config_weights(page))
+    reset_all_btn.clicked.connect(lambda: reset_all_config_weights(page, text_catalog=text_catalog))
     top_row.addWidget(reset_all_btn)
 
-    new_btn = QPushButton("新建")
+    new_btn = TextActionButton(resolve_text_catalog(text_catalog).render('ui.accounts.show_account_manager_dialog.add_btn'))
     new_btn.setObjectName("btnNew")
-    new_btn.clicked.connect(lambda: create_custom_role(page))
+    new_btn.clicked.connect(lambda: create_custom_role(page, text_catalog=text_catalog))
     top_row.addWidget(new_btn)
 
-    save_btn = QPushButton("保存")
+    save_btn = TextActionButton(resolve_text_catalog(text_catalog).render('common.save'))
     save_btn.setObjectName("btnPrimary")
-    save_btn.clicked.connect(lambda: save_config_form(page))
+    save_btn.clicked.connect(lambda: save_config_form(page, text_catalog=text_catalog))
     top_row.addWidget(save_btn)
     layout.addLayout(top_row)
     page.config_mutation_buttons = (reset_current_btn, reset_all_btn, new_btn, save_btn)
-    page.config_load_status = QLabel()
+    page.config_load_status = plain_label()
     layout.addWidget(page.config_load_status)
 
     page.config_form_area = QScrollArea()
@@ -107,14 +109,14 @@ def build_config_widgets(page: BasicWeightPage) -> None:
 
 
 
-def switch_config_form(page: BasicWeightPage, *, active_role=None):
+def switch_config_form(page: BasicWeightPage, *, active_role=None, text_catalog=None):
     """显示当前账号的 SQLite 词条权重；不再提供 JSON 配置入口。"""
     if getattr(page, "_config_dirty", False):
         return  # 同账号刷新保留未提交草稿；账号切换由页面 owner 先清空。
     controller = page.controller()
     if controller.is_writing():
         return
-    page.config_load_status.setText("正在读取当前账号权重…")
+    page.config_load_status.setText(resolve_text_catalog(text_catalog).render('ui.configuration.switch_config_form.config_load_status'))
     page.config_form_area.setEnabled(False)
     for button in page.config_mutation_buttons:
         button.setEnabled(False)
@@ -143,7 +145,7 @@ def switch_config_form(page: BasicWeightPage, *, active_role=None):
                     setattr(page, target, loaded[field])
                 for field in ("character", "shape_bonus", "board", "target_suit"):
                     setattr(page, f"_config_dirty_{field}_ids", set())
-                render_roles_form(page, loaded["roles"], active_role=active_role or getattr(page, "_config_active_role", None))
+                render_roles_form(page, loaded["roles"], active_role=active_role or getattr(page, "_config_active_role", None), text_catalog=text_catalog)
             page.config_load_status.clear()
             page.setEnabled(True)
             page.config_form_area.setEnabled(True)
@@ -155,7 +157,7 @@ def switch_config_form(page: BasicWeightPage, *, active_role=None):
 
     def failed(error):
         if current():
-            page.config_load_status.setText(f"权重读取失败：{error}；重新进入本页可重试。")
+            page.config_load_status.setText(resolve_text_catalog(text_catalog).render('ui.configuration.failed.config_load_status', error=f'{error}'))
             page._config_loaded_model = None
 
     controller.request_form_data(apply, failed)
@@ -163,12 +165,12 @@ def switch_config_form(page: BasicWeightPage, *, active_role=None):
 
 def _field(label, widget, layout):
     row = QHBoxLayout()
-    row.addWidget(QLabel(label))
+    row.addWidget(plain_label(label))
     row.addWidget(widget, 1)
     layout.addLayout(row)
 
 
-def _add_extra_shape_row(page, data, role_name, role_data, form_layout):
+def _add_extra_shape_row(page, data, role_name, role_data, form_layout, *, text_catalog=None):
     value = NoWheelComboBox()
     value.setMaxVisibleItems(6)
     value.addItems(getattr(page, "_config_shape_label_choices", ()))
@@ -178,32 +180,33 @@ def _add_extra_shape_row(page, data, role_name, role_data, form_layout):
     )
     role_data["extra_shape_label"] = current_label
     value.setCurrentText(current_label)
-    value.setPlaceholderText("选择额外形状标签")
+    value.setPlaceholderText(resolve_text_catalog(text_catalog).render('ui.configuration.add_extra_shape_row.value'))
     ownership = "点击“保存”后写入当前账号的自建角色数据。"
-    value.setToolTip(f"选择额外形状标签；{ownership}")
+    value.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.configuration.add_extra_shape_row.value_2', ownership=ui_enum_text(text_catalog, f'{ownership}'))))
     value.currentTextChanged.connect(
         lambda text, rn=role_name: save_extra_shape_label(page, rn, text, data)
     )
-    _field("额外形状标签", value, form_layout)
+    _field(resolve_text_catalog(text_catalog).render('ui.configuration.add_extra_shape_row.caption'), value, form_layout)
 
 
 def _add_extra_shape_buff_row(
     page, data, role_name, role_data, form_layout, rebuild_all_tabs,
+    *, text_catalog=None,
 ):
     """额外形状仅有一个属性槽；成对编辑，避免草稿积累互斥属性。"""
     extra_buffs = role_data.get("extra_shape_buffs", {}) or {}
     selected_property, selected_value = next(iter(extra_buffs.items()), ("", 0.0))
     row = QHBoxLayout()
-    row.addWidget(QLabel("额外形状加成："))
+    row.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.configuration.add_extra_shape_buff_row.caption')))
     property_combo = NoWheelComboBox()
     property_combo.setMaxVisibleItems(6)
-    property_combo.addItem("无加成", "")
+    property_combo.addItem(resolve_text_catalog(text_catalog).render('ui.configuration.add_extra_shape_buff_row.property_combo'), "")
     for label, property_id in getattr(page, "_config_shape_bonus_choices", ()):
         property_combo.addItem(str(label), str(property_id))
     selected_index = property_combo.findData(str(selected_property))
     property_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
     ownership = "点击“保存”后写入当前账号的自建角色数据。"
-    property_combo.setToolTip(f"选择额外形状提供的属性；{ownership}")
+    property_combo.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.configuration.add_extra_shape_buff_row.property_combo_2', ownership=ui_enum_text(text_catalog, f'{ownership}'))))
     row.addWidget(property_combo, 1)
     value_spin = NoWheelDoubleSpinBox()
     value_spin.setRange(0, 1000000)
@@ -212,7 +215,7 @@ def _add_extra_shape_buff_row(
     value_spin.setValue(float(selected_value))
     value_spin.setKeyboardTracking(False)
     value_spin.setEnabled(bool(property_combo.currentData()))
-    value_spin.setToolTip(f"额外形状加成数值；{ownership}")
+    value_spin.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.configuration.add_extra_shape_buff_row.value_spin', ownership=ui_enum_text(text_catalog, f'{ownership}'))))
     row.addWidget(value_spin)
     form_layout.addLayout(row)
 
@@ -227,15 +230,16 @@ def _add_extra_shape_buff_row(
     value_spin.editingFinished.connect(update_bonus)
 
 
-def _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuild_all_tabs, title, field_name, add_label):
+def _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuild_all_tabs, title, field_name, add_label, *, text_catalog=None):
     weights_header = QHBoxLayout()
-    weights_header.addWidget(QLabel(f"{title}:"))
+    weights_header.addWidget(plain_label(f"{title}:"))
     weights_header.addStretch()
     add_weight_btn = QPushButton(add_label)
     add_weight_btn.setObjectName("btnAction")
     add_weight_btn.clicked.connect(
         lambda checked=False, rn=role_name, field=field_name: add_weight(
-            page, rn, data, lambda active=rn: rebuild_all_tabs(active), field
+            page, rn, data, lambda active=rn: rebuild_all_tabs(active), field,
+            text_catalog=text_catalog,
         )
     )
     weights_header.addWidget(add_weight_btn)
@@ -243,14 +247,14 @@ def _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuil
 
     weights = role_data.get(field_name, {}) or {}
     if not weights:
-        empty_label = QLabel("暂无配置")
+        empty_label = plain_label(resolve_text_catalog(text_catalog).render('ui.configuration.add_role_weight_group.empty_label'))
         empty_label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         form_layout.addWidget(empty_label)
         return
     for weight_key in sorted(weights.keys()):
         weight_row = QHBoxLayout()
         weight_row.setSpacing(6)
-        weight_row.addWidget(QLabel(
+        weight_row.addWidget(plain_label(
             getattr(page, "_config_weight_property_labels", {}).get(
                 weight_key, weight_key
             )
@@ -281,16 +285,16 @@ def _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuil
         form_layout.addLayout(weight_row)
 
 
-def _add_custom_target_suit_row(page, role_name, role_data, form_layout):
+def _add_custom_target_suit_row(page, role_name, role_data, form_layout, *, text_catalog=None):
     combo = NoWheelComboBox()
     combo.setMaxVisibleItems(8)
-    combo.addItem("请选择套装", "")
+    combo.addItem(resolve_text_catalog(text_catalog).render('ui.configuration.add_custom_target_suit_row.combo'), "")
     for label, suit_id in getattr(page, "_config_suit_choices", ()):
         combo.addItem(str(label), str(suit_id))
     target_suit_id = str(role_data.get("target_suit_id") or "")
     index = combo.findData(target_suit_id)
     combo.setCurrentIndex(index if index >= 0 else 0)
-    combo.setToolTip("自建角色的默认计算套装；角色管理可在单次计算中临时调整。")
+    combo.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.configuration.add_custom_target_suit_row.combo_2')))
 
     def update_target_suit(_index: int) -> None:
         selected = str(combo.currentData() or "")
@@ -302,14 +306,14 @@ def _add_custom_target_suit_row(page, role_name, role_data, form_layout):
         page._config_dirty = True
 
     combo.currentIndexChanged.connect(update_target_suit)
-    _field("默认计算套装", combo, form_layout)
+    _field(resolve_text_catalog(text_catalog).render('ui.configuration.add_custom_target_suit_row.caption'), combo, form_layout)
 
 
-def _add_custom_board(page, role_name, role_data, form_layout):
+def _add_custom_board(page, role_name, role_data, form_layout, *, text_catalog=None):
     board_header = QHBoxLayout()
-    board_header.addWidget(QLabel("底盘矩阵：必须保持20格"))
+    board_header.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.configuration.add_custom_board.caption')))
     board_header.addStretch()
-    enabled_count_label = QLabel()
+    enabled_count_label = plain_label()
     enabled_count_label.setObjectName("customRoleBoardEnabledCount")
     board_header.addWidget(enabled_count_label)
     form_layout.addLayout(board_header)
@@ -324,7 +328,7 @@ def _add_custom_board(page, role_name, role_data, form_layout):
 
     def refresh_count() -> None:
         count = enabled_count()
-        enabled_count_label.setText(f"已启用 {count}/20")
+        enabled_count_label.setText(resolve_text_catalog(text_catalog).render('ui.configuration.refresh_count.enabled_count_label', count=f'{count}'))
         enabled_count_label.setStyleSheet(themed_style(
             "color:#3fb950;font-weight:700" if count == 20 else
             "color:#f85149;font-weight:700"
@@ -370,21 +374,21 @@ def _add_custom_board(page, role_name, role_data, form_layout):
 def official_shape_display_rows(window, role_data: dict) -> tuple[tuple[str, QLabel], ...]:
     # 这里只展示已冻结的发行形状与属性单位；不读库、不生成自建角色编辑草稿。
     tooltip = "官方角色额外形状由发行静态资源库提供，不可在基础权重页编辑。"
-    shape_label = QLabel(str(role_data.get("extra_shape_label") or "静态资源库未提供"))
-    shape_label.setToolTip(tooltip)
+    shape_label = plain_label(str(role_data.get("extra_shape_label") or "静态资源库未提供"))
+    shape_label.setToolTip(plain_tooltip(ui_enum_text(getattr(window, 'text_catalog', None), tooltip)))
 
     property_labels = getattr(window, "_config_weight_property_labels", {}) or {}
     rows = []
     for property_id, raw_value in (role_data.get("extra_shape_buffs") or {}).items():
         label = str(property_labels.get(property_id) or property_id)
         rows.append(f"{label}：{float(raw_value):g}")
-    bonus = QLabel("、".join(rows) if rows else "静态资源库未提供")
-    bonus.setToolTip(tooltip)
+    bonus = plain_label("、".join(rows) if rows else resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.configuration.official_shape_display_rows.bonus'))
+    bonus.setToolTip(plain_tooltip(ui_enum_text(getattr(window, 'text_catalog', None), tooltip)))
     return (("额外形状标签", shape_label), ("额外形状加成", bonus))
 
 
 
-def _populate_config_role_tab(page, data, role_name, tab_scroll, rebuild_all_tabs):
+def _populate_config_role_tab(page, data, role_name, tab_scroll, rebuild_all_tabs, *, text_catalog=None):
     if tab_scroll.property("loaded"):
         return
     role_data = data[role_name]
@@ -396,38 +400,39 @@ def _populate_config_role_tab(page, data, role_name, tab_scroll, rebuild_all_tab
     form_layout.setSpacing(12)
     form_layout.setContentsMargins(12, 12, 12, 12)
 
-    source_text = f"角色：{role_data['name_zh']}　当前账号权重设置"
+    source_text = resolve_text_catalog(text_catalog).render('frontend.configuration.editing.form.populate_config_role_tab.text', value=f"{role_data['name_zh']}")
     if not role_data.get("is_custom"):
         source_text += "\n额外形状：发行静态资源库 · 只读"
-    source = QLabel(source_text)
+    source = plain_label(source_text)
     source.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
     form_layout.addWidget(source)
     if role_data.get("is_custom"):
         custom_row = QHBoxLayout()
-        custom_row.addWidget(QLabel("自建可计算角色：没有发行模板；请在此设置默认计算套装与额外形状。"))
+        custom_row.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.configuration.populate_config_role_tab.caption_3')))
         custom_row.addStretch()
-        delete_btn = QPushButton("删除角色")
+        delete_btn = TextActionButton(resolve_text_catalog(text_catalog).render('ui.configuration.delete_custom_role.caption'))
         delete_btn.setObjectName("btnDanger")
         delete_btn.clicked.connect(
-            lambda: delete_custom_role(page, role_name, role_data, rebuild_all_tabs)
+            lambda: delete_custom_role(page, role_name, role_data, rebuild_all_tabs, text_catalog=text_catalog)
         )
         custom_row.addWidget(delete_btn)
         form_layout.addLayout(custom_row)
-        _add_custom_target_suit_row(page, role_name, role_data, form_layout)
-        _add_extra_shape_row(page, data, role_name, role_data, form_layout)
+        _add_custom_target_suit_row(page, role_name, role_data, form_layout, text_catalog=text_catalog)
+        _add_extra_shape_row(page, data, role_name, role_data, form_layout, text_catalog=text_catalog)
         _add_extra_shape_buff_row(
             page, data, role_name, role_data, form_layout, rebuild_all_tabs,
+            text_catalog=text_catalog,
         )
-        _add_custom_board(page, role_name, role_data, form_layout)
+        _add_custom_board(page, role_name, role_data, form_layout, text_catalog=text_catalog)
     else:
         for label, widget in official_shape_display_rows(page, role_data):
             _field(label, widget, form_layout)
-    _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuild_all_tabs, "卡带主词条权重", "main_weights", "+ 添加主词条")
-    _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuild_all_tabs, "副词条权重", "weights", "+ 添加副词条")
+    _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuild_all_tabs, resolve_text_catalog(text_catalog).render('ui.configuration.populate_config_role_tab.caption'), "main_weights", "+ 添加主词条", text_catalog=text_catalog)
+    _add_role_weight_group(page, data, role_name, role_data, form_layout, rebuild_all_tabs, resolve_text_catalog(text_catalog).render('ui.configuration.populate_config_role_tab.caption_2'), "weights", "+ 添加副词条", text_catalog=text_catalog)
     form_layout.addStretch()
 
 
-def render_roles_form(page, data, active_role=None):
+def render_roles_form(page, data, active_role=None, *, text_catalog=None):
     all_names = list(data.keys())
     roles_tabs = QTabWidget()
     page.config_roles_tabs = roles_tabs
@@ -452,7 +457,7 @@ def render_roles_form(page, data, active_role=None):
         role_name = tab_scroll.property("role_key") if tab_scroll else ""
         if role_name in data:
             page._config_active_role = role_name
-            _populate_config_role_tab(page, data, role_name, tab_scroll, rebuild_all_tabs)
+            _populate_config_role_tab(page, data, role_name, tab_scroll, rebuild_all_tabs, text_catalog=text_catalog)
 
     def rebuild_all_tabs(active_role=None):
         nonlocal all_names
@@ -485,7 +490,7 @@ def render_roles_form(page, data, active_role=None):
     page.config_form_layout.addWidget(roles_tabs)
 
 
-def add_weight(page, rn, data, cb, weight_field="weights"):
+def add_weight(page, rn, data, cb, weight_field="weights", *, text_catalog=None):
     choices = (
         getattr(page, "_config_weight_main_choices", ())
         if weight_field == "main_weights"
@@ -498,10 +503,10 @@ def add_weight(page, rn, data, cb, weight_field="weights"):
         if property_id not in existing
     ]
     if not available:
-        QMessageBox.information(page, "提示", "所有词条已添加。")
+        QMessageBox.information(page, resolve_text_catalog(text_catalog).render('ui.configuration.add_weight.qmessagebox'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.configuration.add_weight.qmessagebox_2')))
         return
     label, accepted = QInputDialog.getItem(
-        page, "添加词条", "选择词条:", [row[0] for row in available], 0, False,
+        page, resolve_text_catalog(text_catalog).render('ui.configuration.add_weight.label_accepted'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.configuration.add_weight.label_accepted_2')), [row[0] for row in available], 0, False,
     )
     if accepted:
         property_id = dict(available).get(str(label))

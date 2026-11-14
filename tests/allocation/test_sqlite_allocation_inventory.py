@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.services.allocation.inventory import SqliteAllocationInventory
+from src.services.allocation.inputs.inventory import SqliteAllocationInventory
 from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 

@@ -1,4 +1,4 @@
-# 从同批解包导出原生同步目录；数值和图纸重建，旧目录仅提供既有展示资源。
+# 从同批解包导出采集目录；完整重建属性、数值和图纸，旧目录只提供已核对展示资源。
 from __future__ import annotations
 
 import argparse
@@ -77,11 +77,28 @@ def export_catalogs(source: Path, resources: Path, output: Path) -> dict:
                      sub_count=int(element["RandomAttributeMaxCount"]))
         items[key] = value
     result["items"] = items
-    for key, value in result["attributes"].items():
+    old_attributes = result["attributes"]
+    missing = set(old_attributes) - attributes.keys()
+    if missing:
+        raise ValueError(f"属性正式身份变化，需核对删除或改名：{sorted(missing)}")
+    exported_attributes = {}
+    for key, row in attributes.items():
         # 旧显示可能带“加成”等单位后缀；属性身份只按正式属性键核对，不靠文字相等。
-        if key not in attributes or attributes[key].get("AttributeName") not in (key, "None"):
+        if row.get("AttributeName") not in (key, "None"):
             raise ValueError(f"属性正式身份变化：{key}")
-        value["percent"] = attributes[key]["bShowPercent"]
+        percent = row.get("bShowPercent")
+        if type(percent) is not bool:
+            raise ValueError(f"属性百分比单位缺失或无效：{key}")
+        value = deepcopy(old_attributes.get(key, {}))
+        if key not in old_attributes:
+            official = text(row.get("AttributeText"))
+            if not isinstance(official, str) or not official.strip():
+                raise ValueError(f"新增属性缺少正式中文名称：{key}")
+            # 新外语译文缺少证据时显式显示正式 ID，满足消费端非空约束，不编造翻译。
+            value.update(name_zh=official, name_en=key, name_ja=key)
+        value["percent"] = percent
+        exported_attributes[key] = value
+    result["attributes"] = exported_attributes
     if set(suits) != set(result["suits"]):
         raise ValueError("套装身份变化，需要成套更新展示数据")
     result["curves"] = {key: [[float(p["Time"]), float(p["Value"])] for p in row["Keys"]] for key, row in curves.items()}
@@ -124,7 +141,13 @@ def export_catalogs(source: Path, resources: Path, output: Path) -> dict:
     write(output / "characters/characters.json", {"characters": names})
     write(output / "equipment/equipment.json", result)
     report = {"characters": len(names), "plans": len(normalized), "items": len(items),
-              "added_characters": sorted(set(names) - set(old_characters)), "sources": sources}
+              "attributes": len(exported_attributes), "source_attributes": len(attributes),
+              "added_attributes": sorted(set(attributes) - set(old_attributes)),
+              # 只登记本次新增的兜底；旧译文与正式 ID 相同不自动视为缺翻译。
+              "attribute_translation_fallbacks": sorted(set(attributes) - set(old_attributes)),
+              "added_characters": sorted(set(names) - set(old_characters)), "sources": sources,
+              "output_sha256": {name: hashlib.sha256((output / name).read_bytes()).hexdigest()
+                                for name in ("characters/characters.json", "equipment/equipment.json")}}
     write(output / "catalog-build.json", report)
     return report
 

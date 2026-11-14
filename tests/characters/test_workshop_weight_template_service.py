@@ -36,7 +36,7 @@ def test_public_refresh_omits_api_key_and_atomically_replaces_template() -> None
         template_file = Path(directory) / "workshop_weight_template.json"
         service = WorkshopWeightTemplateService(template_file)
         with patch(
-            "src.integrations.workshop_weight_http.fetch_workshop_payload",
+            "src.integrations.official_role.workshop_weight_http.fetch_workshop_payload",
             return_value=body,
         ) as urlopen:
             result = service.refresh(known_character_ids=(1003, 1004))

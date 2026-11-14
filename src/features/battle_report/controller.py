@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -29,7 +30,7 @@ from src.features.battle_report.marginal.session import (
 )
 from src.features.battle_report.capture.overlay import BattleReportOverlay
 from src.features.battle_report.page import BattleReportPage
-from src.integrations.global_hotkeys import GlobalHotkeyManager
+from src.integrations.runtime.global_hotkeys import GlobalHotkeyManager
 from src.observability import OperationContext
 from src.observability.operation import log_event
 from src.observability.redaction import safe_exception
@@ -86,8 +87,10 @@ class BattleReportController(
         operation_entry: Callable[[str, str], bool] | None = None,
         operation_unavailable: Callable[..., None] | None = None,
         axis_allocation_requested: Callable[[BattleReportAnalysisLoadRequest], None] | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(dialog_parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._app_context = app_context
         self._dialog_parent = dialog_parent
         self._inventory_sync_is_running = inventory_sync_is_running
@@ -107,9 +110,9 @@ class BattleReportController(
         self._marginal_units_provider = marginal_units_provider
         asset_root = app_context.paths.game_ui_asset_root
         self._asset_root = asset_root
-        self._page = BattleReportPage(game_ui_asset_root=asset_root)
+        self._page = BattleReportPage(game_ui_asset_root=asset_root, text_catalog=text_catalog)
         self._page.axis_allocation_requested.connect(self._request_axis_allocation)
-        self._overlay = BattleReportOverlay(game_ui_asset_root=asset_root)
+        self._overlay = BattleReportOverlay(game_ui_asset_root=asset_root, text_catalog=text_catalog)
         self._overlay_disposed = False
         self._service: BattleCaptureService | ComparisonCapture | None = None
         self._history_service: BattleReportHistoryService | None = None
@@ -153,6 +156,7 @@ class BattleReportController(
             is_running=self.is_running,
             reload_analysis=self._load_changed_analysis,
             show_error=self._show_history_error,
+            text_catalog=text_catalog,
         )
         self._marginal_session_controller = BattleMarginalSessionController(
             page=self._page,
@@ -162,6 +166,7 @@ class BattleReportController(
             reload_analysis=self._load_analysis,
             invalidate_analysis=self._invalidate_analysis_loading,
             show_error=self._show_history_error,
+            text_catalog=text_catalog,
         )
         self._page.analysis_details_requested.connect(
             self._load_analysis_details
@@ -172,11 +177,11 @@ class BattleReportController(
 
     def _request_axis_allocation(self):
         if self._axis_allocation_requested is None:
-            QMessageBox.warning(self._dialog_parent, "轴优化未就绪", "本次计算服务未就绪。")
+            QMessageBox.warning(self._dialog_parent, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.request_axis_allocation.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.request_axis_allocation.qmessagebox_2')))
             return
         record_id = self._latest_state.battle_record_id
         if record_id is None:
-            QMessageBox.warning(self._dialog_parent, "请选择战报", "请先明确打开一个已保存战报。")
+            QMessageBox.warning(self._dialog_parent, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.request_axis_allocation.qmessagebox_3'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.request_axis_allocation.qmessagebox_4')))
             return
         base = self._latest_analysis_load_request
         if base is None or base.battle_record_id != record_id:
@@ -428,7 +433,7 @@ class BattleReportController(
         try:
             mutation = self._current_history_service().save_record(record_id)
         except Exception as error:
-            self._show_history_error("保存伤害结果失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.save_current_result.self'), error)
             return
         self._apply_retention_mutation(mutation, message="战报已手动保存。")
 
@@ -438,11 +443,12 @@ class BattleReportController(
         try:
             entries = self._current_history_service().list_entries()
         except Exception as error:
-            self._show_history_error("读取历史战报失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_history.self'), error)
             return
         dialog = BattleReportHistoryDialog(
             game_ui_asset_root=self._asset_root,
             parent=self._dialog_parent,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         dialog.view_requested.connect(self._view_history_record)
         dialog.retention_toggle_requested.connect(self._toggle_history_retention)
@@ -457,8 +463,8 @@ class BattleReportController(
         if self.is_running():
             QMessageBox.information(
                 self._dialog_parent,
-                "战报采集中",
-                "请先结束当前采集，再导出或读取战报包。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_transfer_dialog.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_transfer_dialog.qmessagebox_2')),
             )
             return
         try:
@@ -466,9 +472,9 @@ class BattleReportController(
             entries = service.list_entries()
             account_name = service.current_account_name()
         except Exception as error:
-            self._show_history_error("打开战报包页面失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_transfer_dialog.self'), error)
             return
-        dialog = BattleReportTransferDialog(parent=self._dialog_parent)
+        dialog = BattleReportTransferDialog(parent=self._dialog_parent, text_catalog=getattr(self, 'text_catalog', None))
         dialog.set_account_name(account_name)
         dialog.set_entries(entries)
         dialog.account_name_save_requested.connect(self._save_transfer_account_name)
@@ -490,10 +496,10 @@ class BattleReportController(
         try:
             saved = service.rename_current_account(value)
         except Exception as error:
-            dialog.show_error(f"保存昵称失败：{error}")
+            dialog.show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.save_transfer_account_name.dialog', error=f'{error}'))
             return
         dialog.set_account_name(saved)
-        QMessageBox.information(dialog, "账号昵称", "账号昵称已保存。")
+        QMessageBox.information(dialog, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.save_transfer_account_name.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.save_transfer_account_name.qmessagebox_2')))
 
     def _export_selected_reports(self, report_ids: object) -> None:
         dialog = self._transfer_dialog
@@ -501,21 +507,21 @@ class BattleReportController(
         if dialog is None or service is None:
             return
         if dialog.has_unsaved_account_name():
-            dialog.show_error("账号昵称有未保存修改，请先点击“保存昵称”。")
+            dialog.show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.export_selected_reports.dialog'))
             return
         selected = tuple(report_ids) if isinstance(report_ids, (tuple, list)) else ()
         if not selected:
-            dialog.show_error("请至少选择一场战报。")
+            dialog.show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.export_selected_reports.dialog_2'))
             return
         dialog.clear_error()
         try:
             suggested = service.suggested_filename()
         except Exception as error:
-            dialog.show_error(f"准备导出失败：{error}")
+            dialog.show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.export_selected_reports.dialog_3', error=f'{error}'))
             return
         target, _selected_filter = QFileDialog.getSaveFileName(
             dialog,
-            "导出战报包",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.export_selected_reports.target_selected_filter'),
             suggested,
             "NTE 战报包 (*.ntebr)",
         )
@@ -527,12 +533,12 @@ class BattleReportController(
         try:
             outcome = service.export_reports(selected, target)
         except Exception as error:
-            dialog.show_error(f"导出失败：{error}")
+            dialog.show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.export_selected_reports.dialog_4', error=f'{error}'))
         else:
             QMessageBox.information(
                 dialog,
-                "导出完成",
-                f"已导出 {outcome.report_count} 场战报。\n保存位置：{target}",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.export_selected_reports.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.export_selected_reports.qmessagebox_2', report_count=f'{outcome.report_count}', target=f'{target}')),
             )
         finally:
             dialog.set_busy(False)
@@ -544,7 +550,7 @@ class BattleReportController(
             return
         source, _selected_filter = QFileDialog.getOpenFileName(
             dialog,
-            "读取战报包",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.import_report_bundle.source_selected_filter'),
             "",
             "NTE 战报包 (*.ntebr)",
         )
@@ -556,14 +562,13 @@ class BattleReportController(
             outcome = service.import_bundle(source)
             dialog.set_entries(service.list_entries())
         except Exception as error:
-            dialog.show_error(f"读取战报包失败：{error}")
+            dialog.show_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.import_report_bundle.dialog', error=f'{error}'))
         else:
             QMessageBox.information(
                 dialog,
-                "读取完成",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.import_report_bundle.qmessagebox'),
                 (
-                    f"已导入 {len(outcome.imported_record_ids)} 场战报；"
-                    f"跳过 {outcome.skipped_existing_count} 场已有战报。"
+                    plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.import_report_bundle.qmessagebox_2', value=f'{len(outcome.imported_record_ids)}', skipped_existing_count=f'{outcome.skipped_existing_count}'))
                 ),
             )
             self._refresh_history_dialog()
@@ -587,7 +592,7 @@ class BattleReportController(
                 analysis_end_us=None,
             )
         except Exception as error:
-            self._show_history_error("读取战报详情失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.view_history_record.self'), error)
             self._refresh_history_dialog()
             return
         state = BattleCaptureState(
@@ -618,15 +623,15 @@ class BattleReportController(
                 mutation = history_service.save_record(battle_record_id)
                 message = "战报已手动保存。"
         except Exception as error:
-            self._show_history_error("更新战报保存状态失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.toggle_history_retention.self'), error)
             return
         self._apply_retention_mutation(mutation, message=message)
 
     def _delete_history_record(self, battle_record_id: int) -> None:
         answer = QMessageBox.question(
             self._history_dialog or self._dialog_parent,
-            "删除战报",
-            "确定删除这条战报吗？删除后不能恢复。",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.delete_history_record.answer'),
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.delete_history_record.answer_2')),
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
@@ -637,7 +642,7 @@ class BattleReportController(
                 battle_record_id
             )
         except Exception as error:
-            self._show_history_error("删除战报失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.delete_history_record.self'), error)
             return
         if not deleted:
             self._refresh_history_dialog()
@@ -701,7 +706,7 @@ class BattleReportController(
         try:
             entries = self._current_history_service().list_entries()
         except Exception as error:
-            self._show_history_error("刷新历史战报失败", error)
+            self._show_history_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.refresh_history_dialog.self'), error)
             return
         dialog.set_entries(entries)
 

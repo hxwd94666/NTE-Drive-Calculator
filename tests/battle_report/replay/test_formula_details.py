@@ -15,7 +15,7 @@ from src.services.battle_report.buffs.attribute_projection import (
     BattleBuffAttributeProjectionService,
 )
 from src.services.battle_report.replay.service import BattleHitReplayService
-from src.services.damage_calculation_service import calculate_resistance_multiplier
+from src.services.damage.damage_calculation_service import calculate_resistance_multiplier
 
 
 NTE_TEST_TIER = "core"

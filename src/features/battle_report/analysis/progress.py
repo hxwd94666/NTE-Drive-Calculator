@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QLabel,
     QProgressBar,
     QWidget,
 )
@@ -26,8 +26,9 @@ _DETAIL_COPY = {
 class BattleAnalysisProgressBar(QFrame):
     """Stay below the page stack instead of moving with scroll contents."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("battleAnalysisProgress")
         self.setStyleSheet(themed_style(
             "QFrame#battleAnalysisProgress{"
@@ -37,7 +38,7 @@ class BattleAnalysisProgressBar(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(18, 8, 18, 8)
         layout.setSpacing(14)
-        self.message_label = QLabel()
+        self.message_label = plain_label()
         self.message_label.setMinimumWidth(360)
         layout.addWidget(self.message_label)
         self.progress = QProgressBar()
@@ -68,7 +69,7 @@ class BattleAnalysisProgressBar(QFrame):
             self.progress.setTextVisible(True)
             if progress.determinate:
                 message = f'{message}（{progress.completed}/{progress.total}）'
-            self.progress.setToolTip('整体进度按阶段工作量估算；实际完成后推进，全部完成才到 100%。')
+            self.progress.setToolTip('')
         elif progress.determinate:
             assert progress.completed is not None
             assert progress.total is not None

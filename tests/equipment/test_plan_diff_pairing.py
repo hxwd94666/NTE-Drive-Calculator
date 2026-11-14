@@ -1,0 +1,56 @@
+# 测试配装方案差异中的驱动配对逻辑。
+import unittest
+
+from src.features.allocation.results.plan_diff_pairing import (
+    drive_shape_family,
+    pair_drive_diff_items,
+    pair_diff_items_by_key,
+)
+
+
+class PlanDiffPairingTests(unittest.TestCase):
+    def test_drive_shape_family_groups_rotations(self):
+        self.assertEqual("I_3", drive_shape_family("H_3"))
+        self.assertEqual("L_3", drive_shape_family("L_3_TR"))
+
+
+    def test_pair_diff_items_by_key_pairs_within_same_bucket(self):
+        old_items = [{"uid": "a", "shape_id": "H_3"}, {"uid": "b", "shape_id": "H_3"}]
+        new_items = [{"uid": "c", "shape_id": "H_3"}]
+        pairs, unmatched_old, unmatched_new = pair_diff_items_by_key(
+            old_items,
+            new_items,
+            lambda item: item["shape_id"],
+        )
+        self.assertEqual(1, len(pairs))
+        self.assertEqual("a", pairs[0][0]["uid"])
+        self.assertEqual("c", pairs[0][1]["uid"])
+        self.assertEqual(["b"], [item["uid"] for item in unmatched_old])
+        self.assertEqual([], unmatched_new)
+
+    def test_pair_drive_diff_items_matches_by_area_when_families_differ(self):
+        removed = [{"uid": "old", "shape_id": "L_3_TR", "area": 3}]
+        added = [{"uid": "new", "shape_id": "V_3", "area": 3}]
+        pairs, unmatched_old, unmatched_new = pair_drive_diff_items(removed, added, {"L_3_TR": 3, "V_3": 3})
+        self.assertEqual([("old", "new")], [(left["uid"], right["uid"]) for left, right in pairs])
+        self.assertEqual([], unmatched_old)
+        self.assertEqual([], unmatched_new)
+
+    def test_pair_drive_diff_items_keeps_cross_area_replacements_together(self):
+        removed = [
+            {"uid": "old-l", "shape_id": "L_3_BR", "area": 3},
+            {"uid": "old-v", "shape_id": "V_2", "area": 2},
+        ]
+        added = [
+            {"uid": "new-h", "shape_id": "H_2", "area": 2},
+            {"uid": "new-trap", "shape_id": "Trap_4_H", "area": 4},
+        ]
+
+        pairs, unmatched_old, unmatched_new = pair_drive_diff_items(removed, added)
+
+        self.assertEqual(2, len(pairs))
+        self.assertEqual(set(), {item["uid"] for item in unmatched_old})
+        self.assertEqual(set(), {item["uid"] for item in unmatched_new})
+        self.assertIn(("old-l", "new-trap"), {
+            (old["uid"], new["uid"]) for old, new in pairs
+        })

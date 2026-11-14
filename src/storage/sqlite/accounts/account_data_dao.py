@@ -56,6 +56,8 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
             # 新库的结构升级先于旧 JSON 导入；只在这次一次性导入中补齐管理域。
             from .management_migration import migrate_management_copies
             migrate_management_copies(connection, _utc_now())
+            from .rewind_migration import migrate_rewind_copies
+            migrate_rewind_copies(connection, _utc_now(), after_legacy_import=True)
             connection.execute(
                 "INSERT INTO application_setting_migration(singleton_id, legacy_imported_at_utc) VALUES (1, ?)",
                 (_utc_now(),),
@@ -78,7 +80,7 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
 
     def initialize_equipment_management_settings(self, legacy_scan=None) -> None:
         """旧 JSON 导入后补齐新域一次；显式新配置即使为空也不由另一入口覆盖。"""
-        from src.domain.equipment.management_settings import MatchingScope, split_legacy_management_config
+        from src.domain.equipment.eligibility.management_settings import MatchingScope, split_legacy_management_config
         with self.write_transaction():
             copies = self.list_application_setting_copies()
             ui = copies.get("ui", {})

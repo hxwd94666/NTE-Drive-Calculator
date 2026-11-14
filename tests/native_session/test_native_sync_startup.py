@@ -3,10 +3,11 @@ from copy import deepcopy
 
 import pytest
 
-from src.integrations.nte_core_protocol import NteCoreProtocolError
+from src.integrations.native_core.nte_core_protocol import NteCoreProtocolError
 from src.services.native_session.session import NativeGameSession
 from src.services.native_session.inventory import NativeSnapshotChanges, snapshot_change_key
-from tests.test_native_change_sync import ChangeCore, status
+from tests.native_session.test_native_change_sync import ChangeCore
+from tests.native_session.test_native_change_sync import status
 
 
 def test_not_ready_null_domain_key_is_a_valid_waiting_state():

@@ -6,7 +6,8 @@ import sqlite3
 import json
 from typing import Any
 
-from src.domain.native_role_sync import NativeRoleSyncResult
+from src.domain.characters.native_role_sync import NativeRoleSyncResult
+from src.domain.localization.catalog import TextCatalog, localized_text
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.user_data_support import UserDataError, UserDataValidationError, _utc_now, _valid_breakthrough_stage_for_level
 
@@ -127,6 +128,7 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
     def patch_native_character_profiles(
         self, profiles: Sequence[Mapping[str, Any]], *,
         growth_defaults: Mapping[int, Mapping[str, int]], check: Callable[[], None],
+        text_catalog: TextCatalog | None = None,
     ) -> NativeRoleSyncResult:
         patches = normalize_native_profile_patches(profiles)
         if any("likeability_levels" in patch for patch in patches):
@@ -155,7 +157,10 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                 baseline.update({name: patch[name] for name in GROWTH_FIELDS if name in patch})
                 level, stage = baseline.get("character_level"), baseline.get("breakthrough_stage")
                 if type(level) is not int or type(stage) is not int or not _valid_breakthrough_stage_for_level(level, stage):
-                    warnings.append(f"角色 {character_id} · 等级与突破：最终组合不匹配，保留原成长；未知阶段不会根据等级推测。")
+                    warnings.append(localized_text(
+                        text_catalog, "official_role.native_profiles_dao.growth_mismatch",
+                        "角色 {character_id} · 等级与突破：最终组合不匹配，保留原成长；未知阶段不会根据等级推测。",
+                        character_id=character_id))
                     for name in GROWTH_FIELDS:
                         patch.pop(name, None)
                 # 与页面投影同序：已知原生选择覆盖账号选择；缺失选择保留账号值。
@@ -169,7 +174,10 @@ class NativeCharacterProfileDaoMixin(UserDataDaoMixinHost):
                 if ("awakening_level" in patch
                         and "selected_awaken_effect_ids" not in patch
                         and selected_count > patch["awakening_level"]):
-                    warnings.append(f"角色 {character_id} · 觉醒等级：与已保存选择冲突，保留原觉醒配置。")
+                    warnings.append(localized_text(
+                        text_catalog, "official_role.native_profiles_dao.awakening_conflict",
+                        "角色 {character_id} · 觉醒等级：与已保存选择冲突，保留原觉醒配置。",
+                        character_id=character_id))
                     patch.pop("awakening_level")
                 if len(patch) == 1:
                     continue

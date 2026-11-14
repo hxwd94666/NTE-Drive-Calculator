@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from src.features.input_operation_entry import request_input_entry
 
 import json
@@ -57,15 +58,15 @@ from src.features.identification.task_controller import (
     IdentificationTask, IdentificationTaskController,
 )
 from src.models.equipment import Drive, Tape
-from src.integrations.global_hotkeys import GlobalHotkeyManager
+from src.integrations.runtime.global_hotkeys import GlobalHotkeyManager
 from src.observability.context import OperationContext
 from src.observability.operation import log_event
 from src.services.identification.tasks import (
     IdentificationImageJob, IdentificationImageRequest, IdentificationMatchRequest,
 )
-from src.ui.plain_text_edit import PlainTextOnlyTextEdit
-from src.ui.equipment_presentation import EquipmentPresentation
-from src.ui.widgets import SearchableComboBox
+from src.ui.common.plain_text_edit import PlainTextOnlyTextEdit
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
+from src.ui.common.widgets import SearchableComboBox
 from src.utils.logger import logger
 from src.utils.name_resolver import resolve_name
 
@@ -90,8 +91,10 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         activate_window: Callable[[], None],
         operation_entry: Callable[[str, str], bool] | None = None,
         operation_unavailable: Callable[[str, str, str], None] | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(dialog_parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.app_context = app_context
         self.role_suit_matching = role_suit_matching
         self.operation_entry = operation_entry
@@ -241,7 +244,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         for sid in sorted(
             [s for s in self._shape_areas.keys() if s != "TAPE_15"], key=lambda x: (self._shape_areas.get(x, 0), x)
         ):
-            self.ident_shape_combo.addItem(f"{sid} ({self._shape_areas.get(sid, 0)}格)", sid)
+            self.ident_shape_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.refresh_identify_options.ident_shape_combo', sid=f'{sid}', value=f'{self._shape_areas.get(sid, 0)}'), sid)
         idx = self.ident_shape_combo.findData(current_shape)
         if idx >= 0:
             self.ident_shape_combo.setCurrentIndex(idx)
@@ -336,7 +339,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self.ident_path_edit.clear()
         self.ident_manual_text.clear()
         self._clear_identify_results()
-        self.ident_summary.setText("正在结束上次鉴定..." if self._identify_tasks.has_worker() else "等待输入装备数据")
+        self.ident_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.clear_identify_input.ident_summary') if self._identify_tasks.has_worker() else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.ident_summary'))
         self._refresh_identify_previews()
 
     def _clear_identify_results(self):
@@ -423,8 +426,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         )
         QMessageBox.information(
             self._dialog_parent,
-            "截图鉴定",
-            f"点击 OK 后请切回游戏。\n\n按 {hotkeys.capture} 连续截图，按 {hotkeys.finish} 完成并返回鉴定页。",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.capture_btn'),
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.start_identify_capture_mode.qmessagebox', capture=f'{hotkeys.capture}', finish=f'{hotkeys.finish}')),
         )
         if self._identify_tasks.closed or dependencies != _current_identification_dependencies(self):
             return
@@ -434,7 +437,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self.showMinimized()
         self._start_capture_hotkeys()
         self.ident_summary.setText(
-            f"截图鉴定已启动：{hotkeys.capture} 截图，{hotkeys.finish} 完成"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.start_identify_capture_mode.ident_summary', capture=f'{hotkeys.capture}', finish=f'{hotkeys.finish}')
         )
 
     def _capture_identify_foreground(self):
@@ -504,13 +507,13 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             ),
             captured_count=count,
         )
-        self.ident_summary.setText(f"已完成鉴定截图 {count} 张，点击开始鉴定继续。")
+        self.ident_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.finish_identify_capture_mode.ident_summary', count=f'{count}'))
 
     def _identify_choose_file(self):
         dependencies = _current_identification_dependencies(self)
         paths, _ = QFileDialog.getOpenFileNames(
             self._dialog_parent,
-            "选择装备截图",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_choose_file.paths'),
             str(dependencies.screenshot_dir),
             "Images (*.png *.jpg *.jpeg *.bmp)",
         )
@@ -534,8 +537,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         if not text:
             QMessageBox.information(
                 self._dialog_parent,
-                "粘贴",
-                "剪贴板中没有图片、路径或文本数据。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.paste_btn'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_clipboard.qmessagebox')),
             )
             return
         maybe_paths = [
@@ -556,16 +559,16 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         if not paths:
             QMessageBox.warning(
                 self._dialog_parent,
-                "鉴定",
-                "请先选择或粘贴图片路径。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_image_path.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_image_path.qmessagebox_2')),
             )
             return
         missing = [str(path) for path in paths if not path.exists()]
         if missing:
             QMessageBox.warning(
                 self._dialog_parent,
-                "鉴定",
-                f"图片不存在：{missing[0]}",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_image_path.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_image_path.qmessagebox_3', value=f'{missing[0]}')),
             )
             return
         image_jobs = []
@@ -599,7 +602,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
                 self, "INFO", "identification.succeeded",
                 "图片解析完成但未识别到装备", item_count=0, result="no_items",
             )
-            QMessageBox.warning(self._dialog_parent, "鉴定", "未从图片中识别到可鉴定的驱动或卡带。")
+            QMessageBox.warning(self._dialog_parent, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_image_path.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.on_identify_items_loaded.qmessagebox')))
             return
         confirmed = self._confirm_identify_tape_main_stats(items)
         # 模态确认期间可发生取消/关闭；返回后再核对，不投影旧任务。
@@ -613,7 +616,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
                 self, "WARNING", "identification.cancelled",
                 "用户取消卡带主词条确认", item_count=len(items),
             )
-            self.ident_summary.setText("已取消鉴定")
+            self.ident_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.on_identify_items_loaded.ident_summary'))
             return
         self._load_identify_item_to_form(items[0])
         self._start_identify_items(items)
@@ -630,7 +633,7 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         if not self._identify_tasks.closed and not self._identify_tasks.is_running():
             self._set_identify_busy(False)
             if self._identify_task is None and hasattr(self, "ident_summary") and not self._matching_stale:
-                self.ident_summary.setText("等待输入装备数据")
+                self.ident_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.ident_summary'))
 
     def _on_identify_clipboard_cleaned(self, task, paths):
         if not self._identify_tasks.is_current(task):
@@ -709,8 +712,8 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
             )
             QMessageBox.critical(
                 self._dialog_parent,
-                "鉴定",
-                f"装备数据无效：\n{e}",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_image_path.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.identify_from_manual.qmessagebox', e=f'{e}')),
             )
             return
         self._start_identify_items([item])
@@ -778,6 +781,6 @@ class IdentificationController(IdentificationManualParsingMixin, QObject):
         self._set_identify_busy(False)
         QMessageBox.critical(
             self._dialog_parent,
-            "鉴定失败",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.on_identify_error.qmessagebox'),
             str(err),
         )

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QTextEdit
 
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.features.identification import controller, task_controller
 from src.features.identification.dependencies import IdentificationDependencies
 from src.features.identification.manual_parsing import IdentificationManualParsingMixin

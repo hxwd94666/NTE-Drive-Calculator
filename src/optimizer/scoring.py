@@ -7,12 +7,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import List, Dict, Any, Mapping
 
-from src.domain.crit_threshold import meets_preference_grade_limit, stat_priority_match_depth
-from src.domain.equipment.equipment_normalizer import equipment_quality_coefficient
-from src.domain.grade_limits import meets_min_grade
-from src.domain.suit_identity import tape_suit_key
-from src.domain.stat_catalog import StatCatalog
-from src.integrations.bundled_resources import bundled_config_dir
+from src.domain.equipment.scoring.crit_threshold import meets_preference_grade_limit, stat_priority_match_depth
+from src.domain.equipment.properties.equipment_normalizer import equipment_quality_coefficient
+from src.domain.equipment.scoring.grade_limits import meets_min_grade
+from src.domain.equipment.properties.suit_identity import tape_suit_key
+from src.domain.equipment.properties.stat_catalog import StatCatalog
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.utils.logger import logger
 from src.models.equipment import BaseEquipment, Drive, Tape
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
@@ -66,7 +66,7 @@ class ScoringEngine:
             self._apply_stat_catalog(stat_catalog)
         if roles_db is None:
             self._load_roles_from_sqlite()
-        from src.integrations.equipment_score_backend import NativeEquipmentScorer
+        from src.integrations.scoring.equipment_score_backend import NativeEquipmentScorer
         self._native_scores = NativeEquipmentScorer(self.stat_catalog, self.quality_map,
                                                     self.static_database_path, scoring_client)
 
@@ -205,9 +205,11 @@ class ScoringEngine:
                                     consume=consume if assign_scores else None, cache_items=cache_items)
 
     def prepare_weight_queries(self, weights, names):
-        profiles = [{"key": str(index), "weights": dict(row)} for index, row in enumerate(weights)]
-        result = self._native_scores.batch([], profiles, queries=tuple(names))
-        return [row['weights'] for row in result['profiles']]
+        return self._native_scores.weight_queries(weights, names)
+
+    def prepare_score_profiles(self, profiles, *, queries=(), checkpoint=None):
+        """冻结比较任务成批准备角色权重，不另实现最大权重或评分公式。"""
+        return self._native_scores.profile_maximums(profiles, queries=queries, checkpoint=checkpoint)
 
     def get_grade_tags(self, score_area_pairs, *, checkpoint=None):
         """列表评级走同一 Rust 公式，避免逐件重复冻结目录和调用组件。"""

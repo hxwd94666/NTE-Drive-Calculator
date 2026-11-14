@@ -157,7 +157,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         page = _AsyncPage(loop)
         host = self._host(page)
 
-        def load(_history, request, *, progress_callback=None):
+        def load(_history, request, *, progress_callback=None, timings=None):
             time.sleep(0.03)
             if progress_callback is not None:
                 progress_callback(BattleAnalysisProgress(
@@ -194,7 +194,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         host = self._host(page)
         loaded_scopes: list[str | None] = []
 
-        def load(_history, request, *, progress_callback=None):
+        def load(_history, request, *, progress_callback=None, timings=None):
             loaded_scopes.append(request.detail_scope)
             time.sleep(0.03)
             return BattleReportAnalysisLoadResult(
@@ -229,7 +229,7 @@ class BattleReportAnalysisControllerMixinTests(unittest.TestCase):
         first_started = Event()
         release_first = Event()
 
-        def load(_history, request, *, progress_callback=None):
+        def load(_history, request, *, progress_callback=None, timings=None):
             loaded_scopes.append(request.detail_scope)
             if len(loaded_scopes) == 1:
                 first_started.set()

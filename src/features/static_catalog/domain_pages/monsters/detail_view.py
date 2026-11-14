@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QScrollArea,
     QToolButton,
     QVBoxLayout,
@@ -31,7 +31,7 @@ from src.features.static_catalog.domain_pages.monsters.widgets import (
     source_color,
 )
 from src.services.static_catalog.monsters.service import CatalogDetail, CatalogSection
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 
 
 _SUMMARY_FIELDS = {
@@ -67,8 +67,9 @@ class MonsterContext:
 
 
 class MonsterDetailView(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.stat_cards: list[MetricCard] = []
         self.resistance_cards: list[ResistanceCard] = []
         self.buff_cards: list[BuffCard] = []
@@ -76,7 +77,7 @@ class MonsterDetailView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
-        self.crumb = QLabel("怪物与玩法", self)
+        self.crumb = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.build_static_catalog_domain_pages.caption_4'), self)
         self.crumb.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
         top.addWidget(self.crumb)
         top.addStretch(1)
@@ -108,14 +109,14 @@ class MonsterDetailView(QWidget):
         self.buff_cards = []
         self.drop_cards = []
         self.crumb.setText(
-            "怪物与玩法 / " + (context.play if context else _clean_subtitle(detail))
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_detail.crumb') + (context.play if context else _clean_subtitle(detail))
         )
         self.body.addWidget(self._hero(detail, icon, context))
         profile_sections = tuple(
             section for section in detail.sections if "画像" in section.title
         )
         if profile_sections:
-            self.body.addWidget(section_title("战斗画像", "生命、防御、倾陷与抗性"))
+            self.body.addWidget(section_title(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_detail.caption'), "生命、防御、倾陷与抗性"))
             world_sections = tuple(
                 section for section in profile_sections
                 if _profile_kind(section) == "world_level"
@@ -137,7 +138,7 @@ class MonsterDetailView(QWidget):
                 ))
                 selector_layout = QHBoxLayout(selector)
                 selector_layout.setContentsMargins(10, 8, 10, 8)
-                label = QLabel("大世界等级", selector)
+                label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_detail.label'), selector)
                 label.setStyleSheet(themed_style(
                     "color:#c9d1d9;font-size:10px;font-weight:800"
                 ))
@@ -150,7 +151,7 @@ class MonsterDetailView(QWidget):
                 for section_index, section in ordered:
                     level = _profile_level(section)
                     self.world_level_combo.addItem(
-                        f"等级 {level:g}", section_index,
+                        resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_detail.world_level_combo', level=f'{level:g}'), section_index,
                     )
                 self.world_level_combo.currentIndexChanged.connect(
                     self._show_selected_profile
@@ -199,7 +200,7 @@ class MonsterDetailView(QWidget):
             heading, f"{len(values)} 项规则，效果说明直接在当前页面展开" if values else "正式效果说明",
         ))
         if options.note:
-            description = QLabel(options.note, self.host)
+            description = plain_label(options.note, self.host)
             description.setWordWrap(True)
             description.setStyleSheet(themed_style(
                 "background:#161b22;color:#c9d1d9;border:0;"
@@ -233,7 +234,7 @@ class MonsterDetailView(QWidget):
                 self.buff_cards.append(card)
                 grid.addWidget(card, index // 2, index % 2)
             self.body.addWidget(_disclosure(
-                f"展开其余 {len(values) - 4} 项", remainder, self.host,
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_scene_options.caption', value=f'{len(values) - 4}'), remainder, self.host,
             ))
 
     def _add_drop_projection(self, detail: CatalogDetail) -> None:
@@ -244,7 +245,7 @@ class MonsterDetailView(QWidget):
         if drops is None:
             return
         self.body.addWidget(section_title(
-            "正式掉落", drops.note or "只展示已确认的掉落物与数量",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_drop_projection.caption'), drops.note or "只展示已确认的掉落物与数量",
         ))
         values = tuple(drops.values)
         preview = QWidget(self.host)
@@ -276,7 +277,7 @@ class MonsterDetailView(QWidget):
                 self.drop_cards.append(card)
                 remainder_grid.addWidget(card, index // columns, index % columns)
             self.body.addWidget(_disclosure(
-                f"展开其余掉落（{len(values) - len(initial)}）",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_drop_projection.caption_2', value=f'{len(values) - len(initial)}'),
                 remainder,
                 self.host,
             ))
@@ -291,7 +292,7 @@ class MonsterDetailView(QWidget):
         ]
         if not values:
             return
-        self.body.addWidget(section_title("玩法摘要", "常用信息"))
+        self.body.addWidget(section_title(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_summary.caption'), "常用信息"))
         host = QWidget(self.host)
         grid = QGridLayout(host)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -321,19 +322,19 @@ class MonsterDetailView(QWidget):
         ))
         layout = QHBoxLayout(hero)
         layout.setContentsMargins(14, 10, 16, 10)
-        art = QLabel(hero)
+        art = plain_label(hero)
         art.setFixedSize(132, 132)
         art.setAlignment(Qt.AlignCenter)
-        set_art(art, icon, 126, unavailable=icon is None)
+        set_art(art, icon, 126, unavailable=icon is None, text_catalog=getattr(self, 'text_catalog', None))
         layout.addWidget(art)
         copy = QVBoxLayout()
-        label = QLabel(
-            "玩法规则" if detail.entry.key.startswith(("witch_buff|", "outer_buff|"))
-            else "敌方档案",
+        label = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.hero.label') if detail.entry.key.startswith(("witch_buff|", "outer_buff|"))
+            else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.hero.label_2'),
             hero,
         )
         label.setStyleSheet(themed_style("color:#58a6ff;font-size:10px;font-weight:900"))
-        title = QLabel(_display_title(detail, context), hero)
+        title = plain_label(_display_title(detail, context), hero)
         title.setWordWrap(True)
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:23px;font-weight:900"))
         copy.addWidget(label)
@@ -342,7 +343,7 @@ class MonsterDetailView(QWidget):
             (context.scene, context.level, context.half, context.slot)
             if context else (_clean_subtitle(detail),)
         )
-        summary = QLabel("  •  ".join(value for value in values if value), hero)
+        summary = plain_label("  •  ".join(value for value in values if value), hero)
         summary.setWordWrap(True)
         summary.setStyleSheet(themed_style("color:#e3b341;font-size:10px;font-weight:800"))
         copy.addWidget(summary)
@@ -356,7 +357,7 @@ class MonsterDetailView(QWidget):
             "QFrame{background:#161b22;border:0;border-radius:14px;}"
         ))
         layout = QVBoxLayout(frame)
-        title = QLabel(_profile_title(section.title), frame)
+        title = plain_label(_profile_title(section.title), frame)
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:12px;font-weight:900"))
         layout.addWidget(title)
         values = {value.label: value for value in section.values}
@@ -384,9 +385,8 @@ class MonsterDetailView(QWidget):
             self.resistance_cards.append(card)
             resistance_grid.addWidget(card, index // columns, index % columns)
         layout.addLayout(resistance_grid)
-        penetration = QLabel(
-            f"防御忽略 {_value_text(values.get('防御忽略'))}  ·  "
-            f"攻击档 {_value_text(values.get('攻击档'))}",
+        penetration = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.profile.penetration', value=f"{_value_text(values.get('防御忽略'))}", value_2=f"{_value_text(values.get('攻击档'))}"),
             frame,
         )
         penetration.setWordWrap(True)

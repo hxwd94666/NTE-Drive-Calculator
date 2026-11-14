@@ -8,40 +8,41 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, TYPE_CHECKING
 
-from src.integrations.bundled_resources import bundled_config_dir
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.observability import OperationContext, operation_scope
-from src.services.allocation.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION, build_allocation_context, read_allocation_scoring_rules
+from src.services.allocation.inputs.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION, build_allocation_context, read_allocation_scoring_rules
 from src.domain.allocation.inputs import AllocationContext, StaticDatasetReference
 from src.domain.allocation.slot_binding import WeightedSlotBinding, WeightedSaveReceipt
-from src.services.allocation.slot_binding import assert_slot_bindings_current, assert_binding_comparisons
-from src.services.allocation.legacy_adapter import score_allocation_candidate
-from src.services.allocation_solver import (
+from src.services.allocation.inputs.slot_binding import assert_slot_bindings_current, assert_binding_comparisons
+from src.services.allocation.execution.legacy_adapter import score_allocation_candidate
+from src.services.allocation.execution.allocation_solver import (
     AllocationAssignment,
     AllocationSolveResult,
     RoleAllocationOption,
     UnifiedAllocation,
     solve_allocation_context,
 )
-from src.services.allocation.weighted_save import (
-    save_weighted_preview_records, freeze_weighted_allocation_locks,
+from src.services.allocation.results.weighted_save import (
+    save_weighted_preview_records,
+    freeze_weighted_allocation_locks,
 )
-from src.services.allocation.locks import AllocationLockSnapshot, verify_allocation_lock_snapshot
+from src.services.allocation.inputs.locks import AllocationLockSnapshot, verify_allocation_lock_snapshot
 
 if TYPE_CHECKING:
     from .save_owner import WeightedOperation
-from src.domain.equipment.virtual_equipment import (
+from src.domain.equipment.loadouts.virtual_equipment import (
     grid_count_from_geometry,
     virtual_equipment_item_id,
     virtual_equipment_uid,
 )
-from src.services.equipment.weighted_loadout_comparison_service import (
+from src.services.equipment.loadouts.weighted_loadout_comparison_service import (
     WeightedLoadoutComparison,
     freeze_weighted_loadout_comparisons,
     refresh_weighted_loadout_comparisons,
 )
-from src.domain.static_catalog import StaticCatalogRelease
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
-from src.services.allocation.plan_save import require_allocation_release
+from src.domain.catalog.static_catalog import StaticCatalogRelease
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
+from src.services.allocation.results.plan_save import require_allocation_release
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 from .role_weight_freeze import freeze_official_role_details
@@ -403,7 +404,7 @@ def _run_weighted_allocation(
             assert_slot_bindings_current(user_dao, request.slot_bindings)
             baselines = freeze_weighted_loadout_comparisons(user_dao, static_dao, context, (), checkpoint=cancel_check,
                 slot_ids_by_character=({row.character_id: row.slot_id for row in request.slot_bindings}
-                                       if request.slot_bindings else None))
+                                       if request.slot_bindings else None), static_release=release)
             assert_binding_comparisons(request.slot_bindings, baselines)
         cancel_check()
         if persistence is None:
@@ -486,7 +487,7 @@ def confirm_weighted_allocation_save(preview: WeightedAllocationPreview, plan_id
                                     slot_ids_by_character: Mapping[int, int | None] | None = None
                                     ) -> WeightedAllocationPreview:
     """DAO真实提交后返回新游标；原预览、历史评分与写入口保持不变。"""
-    from src.services.allocation.weighted_cursor import read_weighted_save_receipt
+    from src.services.allocation.results.weighted_cursor import read_weighted_save_receipt
     receipt, comparisons = read_weighted_save_receipt(preview, plan_ids, ownership=ownership,
         slot_ids_by_character=slot_ids_by_character)
     return replace(preview, slot_bindings=receipt.slot_bindings, explicit_slots=receipt.explicit_slots,

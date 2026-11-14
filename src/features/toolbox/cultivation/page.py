@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -14,8 +15,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
-    QLabel,
-    QPushButton,
     QScrollArea,
     QStackedWidget,
     QVBoxLayout,
@@ -23,20 +22,21 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.page_tasks import delete_when_page_tasks_finish
+from src.features.toolbox.cultivation.startup_controller import CultivationStartupController
 from src.app.theme import themed_style
 from src.features.toolbox.cultivation.calculator import (
     CultivationCalculatorContent,
 )
-from src.features.toolbox.cultivation.batch_page import CultivationBatchContent
-from src.features.toolbox.cultivation.history_binding import CultivationHistoryDraftBinding
-from src.features.toolbox.cultivation.history_controller import CultivationHistoryController, HistoryOperationResult
-from src.features.toolbox.cultivation.history_view import CultivationHistoryView
+from src.features.toolbox.cultivation.batch.batch_page import CultivationBatchContent
+from src.features.toolbox.cultivation.history.history_binding import CultivationHistoryDraftBinding
+from src.features.toolbox.cultivation.history.history_controller import CultivationHistoryController, HistoryOperationResult
+from src.features.toolbox.cultivation.history.history_view import CultivationHistoryView
 from src.services.progression.history_service import CultivationHistoryService
 from src.services.progression.history_adapters import PreparedHistoryRestore, prepare_history_restore
 from src.services.progression.planner_service import CultivationPlannerService
 from src.services.progression.owned_material_import import ImportedOwnedMaterials
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
-from src.integrations.bundled_resources import bundled_game_ui_asset_root
+from src.integrations.runtime.bundled_resources import bundled_game_ui_asset_root
 from src.utils.cultivation_trace import trace_cultivation
 
 
@@ -54,12 +54,17 @@ class CultivationCalculatorPage(QWidget):
         asset_root: str | Path | None = None,
         material_importer: Callable[[], ImportedOwnedMaterials] | None = None,
         history_service: CultivationHistoryService | None = None,
+        text_catalog=None,
+        defer_initial_load: bool = False,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._context_identity = context_identity
         self._initial_identity = context_identity() if context_identity is not None else None
         self._material_importer = material_importer
         self._service = service
+        self._startup_controller = None
+        self._initial_loading = False
         self._asset_root = asset_root
         self._history_service = history_service
         self._history_controller = (CultivationHistoryController(
@@ -88,6 +93,7 @@ class CultivationCalculatorPage(QWidget):
         self.calculator = CultivationCalculatorContent(
             service, self.mode_stack, context_identity=context_identity, asset_root=asset_root,
             history_binding=self._new_history_binding("single"),
+            text_catalog=text_catalog, load_initial_data=not defer_initial_load,
         )
         self.batch_calculator = CultivationBatchContent(
             service,
@@ -95,6 +101,7 @@ class CultivationCalculatorPage(QWidget):
             parent=self.mode_stack,
             asset_root=asset_root,
             history_binding=self._new_history_binding("batch"),
+            text_catalog=text_catalog, load_initial_data=not defer_initial_load,
         )
         for content in (self.calculator, self.batch_calculator):
             content.owned_materials.set_import_available(material_importer is not None)
@@ -142,6 +149,7 @@ class CultivationCalculatorPage(QWidget):
             self._history_view = CultivationHistoryView(
                 self._history_service, self._history_controller, self._body_stack,
                 icon_lookup=history_assets.progression_item_icon,
+                text_catalog=text_catalog,
             )
             self._history_view.back_requested.connect(self._leave_history)
             self._history_view.load_requested.connect(self._load_history)
@@ -150,6 +158,34 @@ class CultivationCalculatorPage(QWidget):
         root.addWidget(self._body_stack, 1)
         self._set_mode("single")
         self._sync_scroll_extent()
+        if defer_initial_load:
+            self._startup_controller = CultivationStartupController(
+                service, context_identity or (lambda: None), parent=self)
+            self._startup_controller.ready.connect(self._initial_data_ready)
+            self._startup_controller.failed.connect(self._initial_data_failed)
+            self._set_initial_loading(True)
+            QTimer.singleShot(0, self._startup_controller, self._startup_controller.start)
+
+    def _set_initial_loading(self, loading):
+        self._initial_loading = loading
+        self.calculator._editor.setEnabled(not loading)
+        self.calculator._calculate_button.setEnabled(not loading)
+        self.batch_calculator._add_button.setEnabled(not loading)
+        self.batch_calculator._calculate_button.setEnabled(not loading)
+        self._history_button.setEnabled(not loading and self._history_service is not None)
+
+    def _initial_data_ready(self, value):
+        # 首屏已画出再投影数据；两个模式共用一次目录读取，不创建第二份同步查询。
+        self.calculator.install_initial_data(value.roles, value.seed)
+        self.batch_calculator.install_initial_data(value.roles)
+        self._set_initial_loading(False)
+        self._queue_scroll_extent()
+
+    def _initial_data_failed(self):
+        self._set_initial_loading(False)
+        message = self.text_catalog.render('toolbox.cultivation.initial_failed')
+        self.calculator._set_result_message(message, error=True)
+        self.batch_calculator._set_result_message(message, error=True)
 
     def _new_history_binding(self, mode: str) -> CultivationHistoryDraftBinding | None:
         if self._history_service is None or self._history_controller is None:
@@ -185,7 +221,7 @@ class CultivationCalculatorPage(QWidget):
         self._restore_request = self._history_controller.submit("restore", partial(prepare_history_restore, self._service, record))
         if self._history_view is not None:
             self._history_view.set_restore_busy(True)
-            self._history_view.set_message("正在核对历史配置；原草稿暂时保持不变。")
+            self._history_view.set_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.load_history.history_view'))
 
     def _history_operation_completed(self, outcome: object) -> None:
         if (not isinstance(outcome, HistoryOperationResult) or outcome.operation != "restore"
@@ -196,7 +232,7 @@ class CultivationCalculatorPage(QWidget):
             self._history_view.set_restore_busy(False)
         if outcome.error_code is not None:
             if self._history_view is not None:
-                self._history_view.set_message(outcome.message or "历史加载请求已过期。")
+                self._history_view.set_message(outcome.message or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.history_operation_completed.history_view'))
             return
         if isinstance(outcome.value, PreparedHistoryRestore):
             self._replace_from_history(outcome.value)
@@ -214,8 +250,8 @@ class CultivationCalculatorPage(QWidget):
         try:
             binding = self._new_history_binding(prepared.mode)
             options = dict(context_identity=self._context_identity, asset_root=self._asset_root, history_binding=binding)
-            candidate = (CultivationCalculatorContent(self._service, self.mode_stack, **options) if prepared.mode == "single"
-                         else CultivationBatchContent(self._service, parent=self.mode_stack, **options))
+            candidate = (CultivationCalculatorContent(self._service, self.mode_stack, **options, text_catalog=getattr(self, 'text_catalog', None)) if prepared.mode == "single"
+                         else CultivationBatchContent(self._service, parent=self.mode_stack, **options, text_catalog=getattr(self, 'text_catalog', None)))
             candidate.restore_from_history(prepared)
             if self._context_identity is not None and self._context_identity() != self._initial_identity:
                 candidate.close_controller()
@@ -228,7 +264,7 @@ class CultivationCalculatorPage(QWidget):
             elif binding is not None:
                 binding.close()
             if self._history_view is not None:
-                self._history_view.set_message("历史配置未加载；原草稿保持不变，请确认资料兼容性后重试。")
+                self._history_view.set_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.replace_from_history.history_view'))
             return
         # Only a completely built candidate replaces the visible draft.
         self._cancel_batch_result_transition()
@@ -269,9 +305,9 @@ class CultivationCalculatorPage(QWidget):
         try:
             imported = importer()
         except ValueError as exc:
-            message = f"材料导入未完成：{exc}"
+            message = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.toolbox.cultivation.page.import_owned_materials.text_2', exc=f'{exc}')
         except Exception:
-            message = "材料导入未完成：读取同步数据失败，请检查同步状态后重试。"
+            message = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.toolbox.cultivation.page.import_owned_materials.text_3')
         else:
             if (self._context_identity is not None
                     and self._context_identity() != self._initial_identity):
@@ -284,8 +320,7 @@ class CultivationCalculatorPage(QWidget):
                 )
             origin = ("账号已保存的抓包材料观测于" if imported.source == "packet" else "原生归档保存于")
             message = (
-                f"{origin} {imported.saved_at_utc}；已识别 {len(observed)} 种材料，"
-                f"本次草稿更新 {applied} 处。未观测项和手工修改保持原值。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.toolbox.cultivation.page.import_owned_materials.text', origin=f'{origin}', saved_at_utc=f'{imported.saved_at_utc}', value=f'{len(observed)}', applied=f'{applied}')
             )
             if imported.skipped_item_count:
                 message += f" {imported.skipped_item_count} 种记录有冲突或字段异常，已跳过。"
@@ -303,50 +338,51 @@ class CultivationCalculatorPage(QWidget):
         row.setContentsMargins(10, 8, 10, 8)
         row.setSpacing(8)
 
-        back = QPushButton("‹ 返回工具", header)
+        back = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('navigation.main.build_ui.topbar_catalog_return'), header)
         back.setObjectName("cultivationCalculatorBack")
         back.clicked.connect(self.back_requested)
         row.addWidget(back)
 
-        title = QLabel("养成计算器", header)
+        title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.open.qmessagebox'), header)
         title.setObjectName("cultivationCalculatorPageTitle")
         title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:18px;font-weight:900"
         ))
         row.addWidget(title)
 
-        self.single_mode_button = QPushButton("单角色", header)
+        self.single_mode_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build_header.single_mode_button'), header)
         self.single_mode_button.setObjectName("cultivationSingleMode")
         self.single_mode_button.clicked.connect(lambda: self._set_mode("single"))
         row.addWidget(self.single_mode_button)
 
-        self.batch_mode_button = QPushButton("多角色", header)
+        self.batch_mode_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build_header.batch_mode_button'), header)
         self.batch_mode_button.setObjectName("cultivationMultiMode")
         self.batch_mode_button.clicked.connect(lambda: self._set_mode("batch"))
         row.addWidget(self.batch_mode_button)
         row.addStretch(1)
 
-        row.addWidget(QLabel("材料范围", header))
+        row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build_header.caption'), header))
         self.material_scope = QComboBox(header)
         self.material_scope.setObjectName("cultivationMaterialScope")
-        self.material_scope.addItem("全部", "all")
-        self.material_scope.addItem("仅体力", "stamina")
+        self.material_scope.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.configure_filters.button'), "all")
+        self.material_scope.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build_header.material_scope'), "stamina")
         self.material_scope.setCurrentIndex(1)
-        self.material_scope.setToolTip("展示已核实消耗体力获取的材料；世界 Boss 掉落效率未知时仍展示材料，总体力标为未知")
+        self.material_scope.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build_header.material_scope_2')))
         row.addWidget(self.material_scope)
 
-        reset = QPushButton("重置", header)
+        reset = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.build.primary_reset_btn'), header)
         reset.setObjectName("cultivationCalculatorReset")
         reset.clicked.connect(self._reset)
         row.addWidget(reset)
 
-        history = QPushButton("历史记录", header)
+        history = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.graduation.history'), header)
+        self._history_button = history
         history.setObjectName("cultivationHistoryOpen")
         history.setEnabled(self._history_service is not None)
         history.clicked.connect(self._show_history)
         row.addWidget(history)
 
-        self.copy_button = QPushButton("复制清单", header)
+        self.copy_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build_header.copy_button'), header)
         self.copy_button.setObjectName("cultivationCalculatorCopy")
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self._copy)
@@ -359,6 +395,10 @@ class CultivationCalculatorPage(QWidget):
         self.batch_calculator.set_material_scope(scope)
 
     def _reset(self) -> None:
+        if self._startup_controller is not None and self.calculator._seed is None:
+            self._set_initial_loading(True)
+            self._startup_controller.start()
+            return
         self._cancel_batch_result_transition()
         self._single_scroll_generation += 1
         self._active_content().reset_draft()
@@ -552,6 +592,8 @@ class CultivationCalculatorPage(QWidget):
         super().closeEvent(event)
 
     def shutdown(self) -> None:
+        if self._startup_controller is not None:
+            self._startup_controller.close()
         self._cancel_batch_result_transition()
         self._batch_retired_pending.clear()
         self.calculator.close_controller()

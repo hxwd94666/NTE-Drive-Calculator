@@ -11,9 +11,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from src.integrations.nte_core import NteCoreClient
-from src.domain.native_role_sync import NativeRoleSyncResult
-from src.integrations.operation_guard import OperationGuard, require_operation
+from src.integrations.native_core.nte_core import NteCoreClient
+from src.domain.characters.native_role_sync import NativeRoleSyncResult
+from src.integrations.runtime.operation_guard import OperationGuard, require_operation
 from src.observability import OperationContext, log_event
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
@@ -69,6 +69,7 @@ class InventorySyncService:
         operation_guard: OperationGuard | None = None,
         context_is_current: Callable[[], bool] | None = None,
         native_profiles_apply: Callable[..., NativeRoleSyncResult] | None = None,
+        native_furniture_apply: Callable[..., bool] | None = None,
     ) -> None:
         if settle_seconds is not None and settle_seconds <= 0:
             raise ValueError("settle_seconds 必须大于 0")
@@ -86,6 +87,9 @@ class InventorySyncService:
         self._operation_guard = operation_guard
         self._context_is_current = context_is_current
         self._native_profiles_apply = native_profiles_apply
+        self._native_furniture_apply = native_furniture_apply if capture_source == "native" else None
+        self._native_furniture_retry_at = 0.0
+        self._native_furniture_save_error = None
         self._capture_monitor = CaptureWaitMonitor()
         self._dao_factory = dao_factory
         self._settle_seconds = settle_seconds

@@ -17,7 +17,7 @@ import re
 from typing import Mapping, Sequence
 
 from src.models.equipment import Drive, Tape
-from src.domain.suit_identity import tape_matches_suit_target
+from src.domain.equipment.properties.suit_identity import tape_matches_suit_target
 from src.optimizer.dispatcher import DispatcherEngine
 from src.optimizer.scoring import ScoringEngine
 

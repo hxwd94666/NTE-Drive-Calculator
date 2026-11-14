@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.domain.all_item_snapshot import validate_all_item_snapshot
+from src.domain.inventory.all_item_snapshot import validate_all_item_snapshot
 from src.storage.sqlite.inventory.all_item_snapshot_dao import read_latest_all_item_snapshot_archive
 from src.storage.sqlite.inventory.packet_item_observation_dao import read_latest_packet_item_observation
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao

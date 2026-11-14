@@ -25,7 +25,7 @@
 公开复现入口：
 
 ```powershell
-uv run python -m pytest -q tests/test_application_bootstrap.py tests/test_ime_compat_bootstrap.py tests/test_runtime_logging.py tests/test_settings_context.py tests/test_scanning_identification_boundaries.py tests/test_update_workflows.py
+uv run python -m pytest -q tests/app/test_application_bootstrap.py tests/test_ime_compat_bootstrap.py tests/observability/test_runtime_logging.py tests/preferences/test_settings_context.py tests/test_scanning_identification_boundaries.py tests/updates/test_update_workflows.py
 uv run python -m ruff check main.py src tools tests --select E9,F63,F7,F821,F401
 ```
 
@@ -80,7 +80,7 @@ uv run python -m pytest -q tests/characters/test_basic_weight_commit_service.py 
 所有账号、角色写入和触发器故障均在临时合成数据库中，不启动完整 MainWindow、组件或游戏。
 
 ```powershell
-uv run python -m pytest -q tests/characters/test_basic_weight_page.py tests/characters/test_configuration_async.py tests/characters/test_configuration_account_lifecycle.py tests/test_official_role_async_commits.py tests/test_catalog_navigation_readiness.py tests/test_static_game_database.py tests/test_application_bootstrap.py tests/characters/test_basic_weight_commit_service.py tests/test_user_data_transactions.py tests/characters/test_character_weight_service.py tests/characters/test_character_weight_read_only.py tests/characters/test_protagonist_base_weight_contract.py tests/test_allocation_context.py tests/test_allocation_catalog_semantics.py
+uv run python -m pytest -q tests/characters/test_basic_weight_page.py tests/characters/test_configuration_async.py tests/characters/test_configuration_account_lifecycle.py tests/test_official_role_async_commits.py tests/static_catalog/test_catalog_navigation_readiness.py tests/game_data/test_static_game_database.py tests/app/test_application_bootstrap.py tests/characters/test_basic_weight_commit_service.py tests/test_user_data_transactions.py tests/characters/test_character_weight_service.py tests/characters/test_character_weight_read_only.py tests/characters/test_protagonist_base_weight_contract.py tests/test_allocation_context.py tests/test_allocation_catalog_semantics.py
 ```
 
 页面补丁与同名身份的前后/回退比较、确切命令、原始输出和哈希单独保留于本机验证记录。
@@ -135,7 +135,7 @@ DAO、schema、已发布迁移及正式协议未改。十三个相关测试模�
 这些是各自冻结输入上的专项证据，不是全仓 core/full、完整窗口、低配真机或发行验收。
 
 ```powershell
-uv run python -m pytest -q tests/official_role/test_static_read_unit.py tests/official_role/test_static_read_unit_consumers.py tests/official_role/test_replacement_static_source.py tests/official_role/test_official_role_replacement_score.py tests/official_role/test_official_role_inventory_contexts.py tests/equipment/test_equipment_public_services.py
+uv run python -m pytest -q tests/characters/official/test_static_read_unit.py tests/characters/official/test_static_read_unit_consumers.py tests/characters/official/test_replacement_static_source.py tests/characters/official/test_official_role_replacement_score.py tests/characters/official/test_official_role_inventory_contexts.py tests/equipment/test_equipment_public_services.py
 ```
 
 正式 owner、缓存身份和用途边界见[系统架构](../architecture.md#21-角色配置领域入口与测试发现)。
@@ -415,7 +415,7 @@ Controller 清空、账号重置与退出走公开取消/关闭；模态确认�
   当前仅验证既有失败/取消保留旧库存和未后处理输入边界。模型/模板冻结、真实 OCR 和低配性能仍待独立验证。
 
 ```powershell
-uv run python -m pytest -q tests/identification/test_batch_service.py tests/identification/test_task_owner.py tests/vision/test_recognition_templates.py tests/vision/test_recognition_pipeline.py tests/test_vision_inventory_snapshot.py tests/test_streaming_scan_pipeline.py tests/test_static_game_data_dao.py tests/test_blueprint_sqlite_solver.py tests/vision/test_recognition_resources.py
+uv run python -m pytest -q tests/identification/test_batch_service.py tests/identification/test_task_owner.py tests/vision/test_recognition_templates.py tests/vision/test_recognition_pipeline.py tests/inventory/test_vision_inventory_snapshot.py tests/test_streaming_scan_pipeline.py tests/game_data/test_static_game_data_dao.py tests/allocation/test_blueprint_sqlite_solver.py tests/vision/test_recognition_resources.py
 ```
 
 ## 17. 全量截图发布与后台提交 owner
@@ -438,7 +438,7 @@ uv run python -m pytest -q tests/identification/test_batch_service.py tests/iden
   精确 patch、修改行为及 runnable 回退在隔离镜像执行，开发工作区不回退。字面证据保存在本机批目录，不随发行。
 
 ```powershell
-uv run python -m pytest -q tests/test_streaming_scan_pipeline.py tests/test_gamepad_scanner.py tests/test_mouse_inventory_scanner.py tests/test_input_session_cancellation.py tests/vision/test_recognition_resources.py tests/identification/test_task_owner.py tests/vision/test_capture_publication.py tests/vision/test_capture_commit_owner.py
+uv run python -m pytest -q tests/test_streaming_scan_pipeline.py tests/scanning/test_gamepad_scanner.py tests/scanning/test_mouse_inventory_scanner.py tests/ui/test_input_session_cancellation.py tests/vision/test_recognition_resources.py tests/identification/test_task_owner.py tests/vision/test_capture_publication.py tests/vision/test_capture_commit_owner.py
 ```
 
 旧 workflow 离线后处理仍是独立路径；本节不证明真实 OCR、低配耗时、全窗口长期稳定性、崩溃自动恢复或 GUI 文件专用重试。
@@ -457,7 +457,7 @@ uv run python -m pytest -q tests/test_streaming_scan_pipeline.py tests/test_game
 - 全消费者专项与精确补丁/回退证据在本机本批验证记录；未构建 EXE、未运行游戏。不会把删除探测调用数称作真实低配提速。
 
 ```powershell
-uv run python -m pytest -q tests/vision tests/identification tests/test_streaming_scan_pipeline.py tests/test_input_session_cancellation.py tests/test_drive_assembly_input_backends.py tests/test_rewind_execution.py tests/test_gamepad_scanner.py tests/test_mouse_inventory_scanner.py
+uv run python -m pytest -q tests/vision tests/identification tests/test_streaming_scan_pipeline.py tests/ui/test_input_session_cancellation.py tests/equipment/assembly/test_drive_assembly_input_backends.py tests/rewind/test_rewind_execution.py tests/scanning/test_gamepad_scanner.py tests/scanning/test_mouse_inventory_scanner.py
 ```
 
 该批尚未覆盖的模型/字典全链身份已由第 20 节补齐；扫描标记由视觉资源链接管，装配/倒带单任务 OCR 见第 22 节，单后端环境与打包选择见第 23 节；各项沿其当前验收边界，不重复列为未开发。

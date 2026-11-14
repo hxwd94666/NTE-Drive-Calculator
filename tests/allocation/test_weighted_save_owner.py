@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication
 from src.app.context import CallbackAccountLifecycle
 from src.app.workers import WorkerThread
 from src.features.weighted_allocation.save_owner import WeightedOwnerIdentity, WeightedSaveOwner
-from tests.test_weighted_allocation_boundaries import make_context
+from tests.allocation.test_weighted_allocation_boundaries import make_context
 
 NTE_TEST_TIER = "core"
 

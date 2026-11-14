@@ -7,7 +7,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from src.models.equipment import Drive
-from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
+from src.domain.equipment.eligibility.matching import EquipmentMatchContext, RoleSuitMatch
 
 
 class WarehouseIdentificationServiceTests(unittest.TestCase):
@@ -72,7 +72,7 @@ class WarehouseIdentificationServiceTests(unittest.TestCase):
         self.assertEqual(["S", "A"], [row["grade"] for row in result["rows"]])
 
     def test_load_item_returns_official_snapshot_drive(self):
-        from src.services.inventory.warehouse_identification_service import WarehouseIdentificationService
+        from src.services.inventory.browsing.warehouse_identification_service import WarehouseIdentificationService
 
         payload = {
             "uid": "nte-module-1-2", "item_type": "drive", "quality": "Gold", "area": 3,

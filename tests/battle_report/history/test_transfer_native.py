@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from src.domain.battle_report.history.transfer import portable_battle_evidence
-from src.integrations.battle_report_bundle import (
+from src.integrations.capture.battle_report_bundle import (
     decode_battle_report_bundle, encode_battle_report_bundle,
 )
 from src.services.battle_report.history.transfer import BattleReportTransferService
@@ -18,7 +18,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationErro
 from src.storage.sqlite.user_data_support import SCHEMA_VERSION
 from tests.battle_report.history.test_transfer_dao import _insert_summary
 from tests.battle_report.history.test_transfer_policy import _bundle_payload
-from tests.native_execution_fixture import execution_evidence
+from tests.components.native_execution_fixture import execution_evidence
 
 
 def _dump(value: object) -> str:

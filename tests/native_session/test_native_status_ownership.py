@@ -3,10 +3,10 @@ from threading import Event, Thread
 
 import pytest
 
-from src.integrations.nte_core_protocol import NteCoreRpcError, NteCoreProcessError
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError, NteCoreProcessError
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 from src.services.native_session.session import NativeGameSession
-from tests.test_native_game_session import FakeNativeCore
+from tests.native_session.test_native_game_session import FakeNativeCore
 
 
 def inventory_session():

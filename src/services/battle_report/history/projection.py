@@ -9,7 +9,7 @@ from typing import Any, Literal, cast
 from src.domain.battle_report.history.records import (
     BattleReportHistoryEntry, BattleRetentionMutation, StoredBattleSummary,
 )
-from src.integrations.nte_core_battle import parse_battle_summary
+from src.integrations.native_core.nte_core_battle import parse_battle_summary
 
 
 def character_analysis_scopes(

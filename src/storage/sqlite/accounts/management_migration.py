@@ -1,7 +1,7 @@
 # 在调用方的同一账号事务中分离管理配置，不覆盖已有新域或重写鉴定设置。
 import json
 
-from src.domain.equipment.management_settings import MatchingScope, split_legacy_management_config
+from src.domain.equipment.eligibility.management_settings import MatchingScope, split_legacy_management_config
 
 
 def migrate_management_copies(connection, now):

@@ -7,11 +7,15 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from src.domain.work_mode import (
-    Capability, WorkMode, WorkModeProbe, WorkModeReport,
-    WorkModeSettings, allowed_capabilities,
+from src.domain.preferences.work_mode import (
+    Capability,
+    WorkMode,
+    WorkModeProbe,
+    WorkModeReport,
+    WorkModeSettings,
+    allowed_capabilities,
 )
-from src.integrations.work_mode_settings import WorkModeSettingsStore
+from src.integrations.preferences.work_mode_settings import WorkModeSettingsStore
 from src.services.work_modes.inspection import build_work_mode_report
 
 
@@ -156,6 +160,7 @@ class WorkModeService:
         if not self.allowed(capability, automatic=automatic):
             raise WorkModeDenied("当前工作模式或暂停设置不允许此操作，请检查工作模式设置。")
 
-    def build_report(self, probe: WorkModeProbe) -> WorkModeReport:
+    def build_report(self, probe: WorkModeProbe, *, text_catalog=None) -> WorkModeReport:
         settings = self._settings
-        return build_work_mode_report(settings, probe, deployment_record=json.loads(settings.deployment_json))
+        return build_work_mode_report(settings, probe, deployment_record=json.loads(settings.deployment_json),
+                                      text_catalog=text_catalog)

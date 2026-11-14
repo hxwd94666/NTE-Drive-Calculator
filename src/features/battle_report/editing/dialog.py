@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from copy import deepcopy
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
-    QLabel,
-    QPushButton,
     QScrollArea,
     QTabWidget,
     QVBoxLayout,
@@ -43,9 +42,11 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         self,
         editor_data: dict,
         parent: QWidget | None = None,
+        *, text_catalog=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("编辑本场角色配置副本")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.battle_report.init.self_4'))
         self._action = ""
         self._equipment_editable = bool(editor_data.get("equipment_editable", True))
         self._equipment_assumed = bool(editor_data.get("equipment_assumed", False))
@@ -59,13 +60,13 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         if any((detail.get("profile") or {}).get("capture_equipment_source") == "packet_settlement_account_snapshot"
                for detail in self._details):
             source_note = "低风险来源：结算时数据库配装，按本场观测角色冻结，未确认首击时的实时装备。\n"
-        note = QLabel(source_note + self._note_text())
+        note = plain_label(source_note + self._note_text())
         note.setWordWrap(True)
         note.setStyleSheet(themed_style("color:#58a6ff;font-weight:600"))
         layout.addWidget(note)
         if not editor_data.get("has_edit"):
-            seed = QLabel(
-                "首次修改已复制本场原始冻结配置；保存前不会改变战报或角色页。"
+            seed = plain_label(
+                resolve_text_catalog(text_catalog).render('ui.battle_report.init.seed')
             )
             seed.setWordWrap(True)
             seed.setStyleSheet(themed_style("color:#d29922;font-size:12px"))
@@ -82,39 +83,38 @@ class BattleBuildSnapshotEditorDialog(QDialog):
         layout.addWidget(self.tabs, 1)
 
         actions = QHBoxLayout()
-        self.cancel_button = QPushButton("取消")
+        self.cancel_button = TextActionButton(resolve_text_catalog(text_catalog).render('common.cancel'))
         self.cancel_button.clicked.connect(self.reject)
         actions.addWidget(self.cancel_button)
-        self.import_cultivation_button = QPushButton(
-            "从角色页面同步（不含空幕驱动）"
+        self.import_cultivation_button = TextActionButton(
+            resolve_text_catalog(text_catalog).render('ui.battle_report.init.import_cultivation_button')
         )
         self.import_cultivation_button.setToolTip(
-            "用当前角色页养成覆盖战报修改副本，保留副本已选空幕/驱动。"
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.init.import_cultivation_button_2'))
         )
         self.import_cultivation_button.clicked.connect(
             self._import_cultivation
         )
         actions.addWidget(self.import_cultivation_button)
-        self.import_all_button = QPushButton(
-            "从角色页面同步（含空幕驱动）"
+        self.import_all_button = TextActionButton(
+            resolve_text_catalog(text_catalog).render('ui.battle_report.init.import_all_button')
         )
         self.import_all_button.setToolTip(
-            "用当前角色页养成和当前空幕/驱动覆盖战报修改副本；"
-            "不会反向写回装备。"
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.init.import_all_button_2'))
         )
         self.import_all_button.clicked.connect(self._import_all)
         actions.addWidget(self.import_all_button)
         self.import_all_button.setVisible(self._equipment_editable)
         actions.addStretch()
-        self.save_button = QPushButton("保存修改副本")
+        self.save_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.battle_report.init.save_button'))
         self.save_button.setObjectName("btnPrimary")
         self.save_button.clicked.connect(self._save_only)
         actions.addWidget(self.save_button)
-        self.save_and_sync_button = QPushButton(
-            "保存并同步到角色页（不含空幕驱动）"
+        self.save_and_sync_button = TextActionButton(
+            resolve_text_catalog(text_catalog).render('ui.battle_report.init.save_and_sync_button')
         )
         self.save_and_sync_button.setToolTip(
-            "仅把养成配置同步到角色页；所选空幕/驱动只保存在战报副本。"
+            plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.init.save_and_sync_button_2'))
         )
         self.save_and_sync_button.clicked.connect(self._save_and_sync)
         actions.addWidget(self.save_and_sync_button)
@@ -182,6 +182,7 @@ class BattleBuildSnapshotEditorDialog(QDialog):
             ),
             scoring_engine=getattr(self.parent(), "scoring_engine", None),
             shape_areas=getattr(self.parent(), "_shape_areas", {}),
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if index < len(self._editors):
             self._editors[index] = editor
@@ -226,11 +227,11 @@ class BattleBuildSnapshotEditorDialog(QDialog):
                     replacement,
                 )
             ),
-            title="本场角色配置替换",
+            title=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.replace_equipment.accepted'),
             summary=(
-                "这里只修改当前弹窗草稿；点击保存后才复制进本场战报修改副本。"
-                "不会修改角色页、库存、游戏当前配装或已保存方案。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.replace_equipment.accepted_2')
             ),
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         # 公共装备组件在回调返回 True 后刷新当前编辑器的装备投影。
         # 保留编辑器本人及所选上下文，避免用进入弹窗时的 detail 重建而丢掉未保存养成。

@@ -1,0 +1,739 @@
+# 测试静态游戏数据 DAO 的只读查询和运行时路径解析。
+import json
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from src.storage.sqlite.static_game_data_dao import STATIC_DATABASE_ENV, StaticGameDataDao
+
+
+# 扩展静态查询会重复构建完整测试库，保留在 full；core 已覆盖静态库构建、只读和清单不变量。
+NTE_TEST_TIER = "full"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCHEMA_PATHS = (
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "002_game_static.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "003_game_static_remove_game_version.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "004_game_static_character_awaken.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "005_game_static_character_growth.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "006_game_static_character_skills.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "007_game_static_skill_damage.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "008_game_static_combat_context.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "009_game_static_monster_binding.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "010_game_static_abyss_binding.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "011_game_static_recommended_weights.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "012_game_static_graduation_template.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "013_game_static_setting_defaults.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "014_game_static_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "015_game_static_logical_character_shape_bonus.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "016_game_static_fork_refinement_parameter.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "017_game_static_combat_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "018_game_static_character_likeability.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "019_game_static_combat_blueprint.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "020_game_static_buff_definition.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "021_game_static_buff_modifier_scope.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "022_game_static_encounter_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "023_game_static_encounter_activity.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "024_game_static_encounter_rotation.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "025_game_static_encounter_lookup_indexes.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "026_game_static_outer_realm_buff.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "027_game_static_abyss_monster_name.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "028_game_static_high_risk_commission.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "029_game_static_boss_support.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "030_game_static_progression_catalog.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "031_game_static_character_progression.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "032_game_static_fork_permanent_property.sql",
+)
+
+
+class StaticGameDataDaoTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.temporary_directory.name) / "game_static.sqlite3"
+        connection = sqlite3.connect(self.database_path)
+        for schema_path in SCHEMA_PATHS:
+            connection.executescript(schema_path.read_text(encoding="utf-8"))
+        connection.execute("INSERT INTO schema_migration VALUES (2, '2026-07-18')")
+        connection.execute("INSERT INTO schema_migration VALUES (3, '2026-07-18')")
+        connection.execute("INSERT INTO schema_migration VALUES (4, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (5, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (6, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (7, '2026-07-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (8, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (9, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (10, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (11, '2026-07-22')")
+        connection.execute("INSERT INTO schema_migration VALUES (12, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (13, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (14, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (15, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (16, '2026-07-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (17, '2026-08-19')")
+        connection.execute("INSERT INTO schema_migration VALUES (18, '2026-08-20')")
+        connection.execute("INSERT INTO schema_migration VALUES (19, '2026-08-20')")
+        connection.execute("INSERT INTO schema_migration VALUES (20, '2026-08-20')")
+        connection.execute("INSERT INTO schema_migration VALUES (21, '2026-08-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (22, '2026-08-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (23, '2026-08-21')")
+        connection.execute("INSERT INTO schema_migration VALUES (24, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (25, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (26, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (27, '2026-08-23')")
+        connection.execute("INSERT INTO schema_migration VALUES (28, '2026-08-28')")
+        connection.execute("INSERT INTO schema_migration VALUES (29, '2026-08-28')")
+        connection.execute("INSERT INTO schema_migration VALUES (30, '2026-08-30')")
+        connection.execute("INSERT INTO schema_migration VALUES (31, '2026-08-30')")
+        connection.execute("INSERT INTO schema_migration VALUES (32, '2026-08-31')")
+        connection.execute(
+            "INSERT INTO dataset VALUES ('fixture', 19, '2026-08-20')"
+        )
+        connection.execute(
+            "INSERT INTO source_file VALUES (1, 'DataTable/Test.json', 'hash', 1)"
+        )
+        connection.execute(
+            "INSERT INTO source_row VALUES (1, 1, 'row', ?, 'row-hash')",
+            (json.dumps({"RawField": "RawValue"}),),
+        )
+        connection.execute(
+            "INSERT INTO character VALUES (1001, '角色', NULL, NULL, 'Element', "
+            "'Group', '/Game/Actor', NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO source_file VALUES (2, 'combat_blueprint/fixture.json', "
+            "'combat-hash', 3)"
+        )
+        connection.executemany(
+            "INSERT INTO combat_blueprint_asset VALUES (?,?,?,?,?,2)",
+            (
+                (
+                    "/Game/Ability/GA_Test", "GA_Test", "BlueprintGeneratedClass",
+                    "ability", 1001,
+                ),
+                (
+                    "/Game/Animation/Test_Montage", "Test_Montage", "AnimMontage",
+                    "montage", 1001,
+                ),
+                (
+                    "/Game/Effect/GE_Test", "GE_Test", "BlueprintGeneratedClass",
+                    "gameplay_effect", 1001,
+                ),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO buff_definition VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                "/Game/Effect/GE_Test", "GE_Test", "gameplay_effect", 1001,
+                "HasDuration", '{"Value":8}', '{"Value":1}', "Aggregate", 3, 2,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO buff_modifier VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "/Game/Effect/GE_Test", 0, "AtkUp", "Additive", "ScalableFloat",
+                0.2, None, '{"ScalableFloatMagnitude":{"Value":0.2}}',
+                "$[0].Properties.Modifiers",
+                0, None, '[]', '[]', '[]', '[]',
+            ),
+        )
+        connection.execute(
+            "INSERT INTO character_combat_ability_binding VALUES "
+            "(1001, 'active', 0, 'Skill1', 'GA_Test', '/Game/Ability/GA_Test')"
+        )
+        connection.execute(
+            "INSERT INTO combat_blueprint_reference VALUES "
+            "('/Game/Ability/GA_Test', '$[0].Properties.Montage', 0, 'animation', "
+            "'/Game/Animation/Test_Montage', "
+            "'/Game/Animation/Test_Montage.Test_Montage', 'Test_Montage', 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_blueprint_tag VALUES "
+            "('/Game/Ability/GA_Test', '$[0].Properties.EventTag', 0, 'Event.Hit')"
+        )
+        connection.execute(
+            "INSERT INTO combat_blueprint_semantic_property VALUES "
+            "('/Game/Ability/GA_Test', '$[0].Properties.AbilityTags', 0, "
+            "'AbilityTags', '{\"tags\":[\"Ability.Test\"]}')"
+        )
+        connection.execute(
+            "INSERT INTO combat_ability_montage_binding VALUES "
+            "('/Game/Ability/GA_Test', 0, 'Skill1', "
+            "'/Game/Animation/Test_Montage', "
+            "'/Game/Animation/Test_Montage.Test_Montage')"
+        )
+        connection.execute(
+            "INSERT INTO combat_ability_effect_binding VALUES "
+            "('/Game/Ability/GA_Test', 'Event.Hit', 0, "
+            "'/Game/Effect/GE_Test', 'GE_Test', NULL)"
+        )
+        connection.execute(
+            "INSERT INTO combat_montage VALUES "
+            "('/Game/Animation/Test_Montage', 1.2, 0.1, 0.2, 30, 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_montage_section VALUES "
+            "('/Game/Animation/Test_Montage', 0, 'Default', NULL, 0.0, 1.2, NULL)"
+        )
+        connection.execute(
+            "INSERT INTO combat_montage_notify VALUES "
+            "('/Game/Animation/Test_Montage', 0, 'Hit', NULL, 0.45, 0.45, "
+            "'Event.Hit', 0)"
+        )
+        connection.execute(
+            "INSERT INTO character_annotation VALUES "
+            "(1001, 'character:1001', 1001, 'playable', 'fixture.json')"
+        )
+        connection.execute(
+            """
+            INSERT INTO character_awaken_effect VALUES (
+                1001, 'resonance_3', 6, 'Awaken_Resonance', '三觉', NULL, NULL,
+                '技能等级提升', NULL, NULL, NULL, '[{\"SkillName\":\"Skill1\",\"SkillLevel\":1}]',
+                '[]', 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO character_awaken_skill_level_bonus VALUES "
+            "(1001, 'resonance_3', 0, 'Skill1', 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO character_panel_growth VALUES (
+                1001, 20, 1, 'breakthrough_after', 2000.0, 100.0, 80.0,
+                1, 1, 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO character_skill VALUES (
+                1001, 'Skill1', 'Proactive', 1, 1, 'Ability.Skill', NULL, 0, 1, 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO character_skill_level VALUES (
+                1001, 'Skill1', 1, 2, 0, '[{\"ID\":\"gold\",\"Number\":2000}]'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO skill_damage VALUES (
+                'Damage1', 'Skill1', 'NORMAL', 0.1, 0.2, 0.0, 'P', 0.5,
+                '[1.0,1.1]', '[]', '[]', 1.0, 'Low', 0, 0.0, 1, 2.0, 0, 0.0, 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO skill_damage_modifier VALUES ('Damage1', 0.9, 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_level_curve VALUES "
+            "('topple:character_level', 'topple', NULL, NULL, 'RCIM_Constant', 'exact_level', 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_level_curve_point VALUES "
+            "('topple:character_level', 0, 80, NULL, 3603)"
+        )
+        connection.execute(
+            "INSERT INTO combat_level_curve VALUES "
+            "('reaction:GE_Test', 'reaction', 'REACTION_RESULT_TYPE_1', 'GE_Test', NULL, 'source_tier', 1)"
+        )
+        connection.executemany(
+            "INSERT INTO combat_level_curve_point VALUES (?,?,?,?,?)",
+            (("reaction:GE_Test", 0, None, 0, 80), ("reaction:GE_Test", 1, None, 1, 120)),
+        )
+        connection.execute(
+            "INSERT INTO reaction_definition VALUES "
+            "('REACTION_RESULT_TYPE_1', 'COSMOS', 'NATURE', 'GE_Test', 1)"
+        )
+        connection.execute(
+            "INSERT INTO combat_effect_constant VALUES "
+            "('Reaction_Test_BuffTime', 1, 12, 'seconds', '测试持续时间', 1)"
+        )
+        connection.execute(
+            "INSERT INTO enemy_combat_profile VALUES "
+            "('night_999', 'Boss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, "
+            "1, 500000, 0.5, 1000)"
+        )
+        connection.execute(
+            "INSERT INTO enemy_element_resistance VALUES "
+            "('night_999', 'Boss1', 'chaos', 0.2, 0)"
+        )
+        connection.execute(
+            "INSERT INTO enemy_combat_profile VALUES "
+            "('standard', 'AbyssBoss1', 170, 0, 0, 0, 50, 1, 1, 0, 100, 200, "
+            "1, 800000, 0, 0)"
+        )
+        connection.execute(
+            "INSERT INTO abyss_level VALUES ('Abyss_Common', 1, NULL, '始发站', 1)"
+        )
+        connection.execute(
+            "INSERT INTO abyss_level_monster_spawn VALUES "
+            "('Abyss_Common', 1, 'EAbyssFightStage::FirstHalf', 0, 1, "
+            "'Pool1', 'EAbyssMonsterSpawnType::Spawn_KillAll', 0, 1)"
+        )
+        connection.execute(
+            "INSERT INTO abyss_monster_pool_entry VALUES "
+            "('Pool1', 0, '/Game/Monster/Boss.Boss_C', 2, 43, 'standard', "
+            "'AbyssBoss1', 1, 1, '测试首领')"
+        )
+        connection.execute(
+            "INSERT INTO equipment_attribute VALUES "
+            "('Attr1', '属性', NULL, NULL, 'Type', 0, 1, 1, 1.0, NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_likeability_bonus VALUES "
+            "(1001, 10, 'likeatt_1001', 1, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_likeability_bonus_property VALUES "
+            "(1001, 0, 'Attr1', 0.04, 'EGameplayModOp::Additive', 1)"
+        )
+        connection.execute(
+            "INSERT INTO equipment_shape VALUES "
+            "('EquipmentGeometry_ZhiJiao1', 3, 0, 0, 1)"
+        )
+        connection.executemany(
+            "INSERT INTO equipment_shape_cell VALUES (?,?,?,?)",
+            [
+                ("EquipmentGeometry_ZhiJiao1", 0, 0, 0),
+                ("EquipmentGeometry_ZhiJiao1", 1, 1, 0),
+                ("EquipmentGeometry_ZhiJiao1", 2, 0, 1),
+            ],
+        )
+        connection.execute(
+            "INSERT INTO equipment_suit VALUES "
+            "('Suit1', '官方数据空幕', NULL, NULL, NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO equipment_suit_required_shape VALUES "
+            "('Suit1', 0, 'EquipmentGeometry_ZhiJiao1')"
+        )
+        connection.execute(
+            "INSERT INTO equipment_suit_effect VALUES "
+            "('Suit1', 2, 'Modify1', NULL, '效果', NULL, NULL, 1, 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO equipment_item(
+                item_id, kind, quality, name_zh, geometry_id, geometry_enum,
+                grid_count, suit_id, suit_type_enum, max_level,
+                random_base_attribute_count, random_sub_attribute_count,
+                random_sub_attribute_max_count, is_guide_item, source_row_id
+            ) VALUES (
+                'Core1', 'core', 'Gold', '官方数据空幕', NULL,
+                'EEquipmentGeometryType::EquipmentGeometry_Core', NULL,
+                'Suit1', 'EEquipmentSuitType::EquipmentSuitType_TaoZhuang1',
+                20, 1, 4, 4, 0, 1
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO equipment_item(
+                item_id, kind, quality, name_zh, geometry_id, geometry_enum,
+                grid_count, max_level, random_base_attribute_count,
+                random_sub_attribute_count, random_sub_attribute_max_count,
+                is_guide_item, source_row_id
+            ) VALUES (
+                'Module1', 'module', 'Gold', '驱动',
+                'EquipmentGeometry_ZhiJiao1',
+                'EEquipmentGeometryType::EquipmentGeometry_ZhiJiao1',
+                3, 20, 2, 4, 4, 0, 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO equipment_plan VALUES "
+            "(1001, 'Core1', 20, 20, 100.0, NULL, NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO equipment_plan_core_attribute VALUES (1001, 0, 'Attr1')"
+        )
+        connection.execute(
+            "INSERT INTO equipment_plan_recommended_attribute VALUES "
+            "(1001, 0, 'Attr1')"
+        )
+        connection.execute(
+            "INSERT INTO equipment_plan_cell VALUES (1001, 1, 1, 'Module1')"
+        )
+        connection.execute(
+            "INSERT INTO equipment_plan_module VALUES (1001, 0, 'Module1')"
+        )
+        connection.execute(
+            "INSERT INTO character_weight_recommendation VALUES "
+            "(1001, 'workshop_api', '1001', '角色', '2026-07-22')"
+        )
+        connection.execute(
+            "INSERT INTO character_weight_recommendation_property VALUES "
+            "(1001, 'Attr1', 0.75, 1.0, 0)"
+        )
+        connection.execute(
+            "INSERT INTO fork_type VALUES (1, '固态', NULL, NULL, 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO fork_item(
+                fork_id, name_zh, quality, fork_type_id, raw_group_type,
+                breakthrough_pack_id, max_breakthrough,
+                exclusive_character_ids_json, source_row_id
+            ) VALUES (
+                'fork_Test', '测试弧盘', 'Gold', 1,
+                'ECharacterGroupType::CHARACTER_GROUP_TYPE_ONE',
+                'Breakthrough_pack_Fork_Test', 6, '[1001]', 1
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO fork_breakthrough VALUES "
+            "('Breakthrough_pack_fork_Test', 0, 20, NULL, NULL, NULL, 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO character_graduation_template(
+                character_id, source_kind, fork_id, fork_level,
+                fork_refinement_level, core_suit_id,
+                core_main_property_id, drive_area, extra_shape_count,
+                benchmark_damage, profile_json, equipment_json,
+                generated_at_utc
+            ) VALUES (
+                1001, 'legacy_role_config', 'fork_Test', 80, 1, 'Suit1',
+                'Attr1', 20, 2, 12345.0,
+                '{"character_level":80}',
+                '[{"kind":"core","main_stats":[]}]',
+                '2026-07-23'
+            )
+            """
+        )
+        connection.commit()
+        connection.close()
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def test_summary_and_read_only_connection(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            summary = dao.summary()
+            self.assertEqual(summary["schema_version"], 32)
+            self.assertEqual(summary["counts"]["character"], 1)
+            with self.assertRaises(sqlite3.OperationalError):
+                dao._connection.execute("DELETE FROM character")
+
+    def test_resolves_database_from_environment_for_packaged_runtime(self):
+        with patch.dict("os.environ", {STATIC_DATABASE_ENV: str(self.database_path)}):
+            with StaticGameDataDao() as dao:
+                self.assertEqual(dao.database_path, self.database_path.resolve())
+
+    def test_shapes_and_suits_keep_source_ids(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            shapes = dao.list_shapes()
+            suit = dao.get_suit("Suit1")
+        self.assertEqual(shapes[0]["shape_id"], "EquipmentGeometry_ZhiJiao1")
+        self.assertEqual(len(shapes[0]["cells"]), 3)
+        self.assertEqual(
+            suit["required_shape_ids"], ["EquipmentGeometry_ZhiJiao1"]
+        )
+        self.assertTrue(suit["effects"][0]["reapply_after_revive"])
+
+    def test_equipment_attributes_are_queryable_by_official_id(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            attributes = dao.list_equipment_attributes()
+            attribute = dao.get_equipment_attribute("Attr1")
+            missing = dao.get_equipment_attribute("Unknown")
+        self.assertEqual(["Attr1"], [row["attribute_id"] for row in attributes])
+        self.assertEqual("Attr1", attribute["attribute_id"])
+        self.assertFalse(attribute["show_percent"])
+        self.assertIsNone(missing)
+
+    def test_character_recommended_weights_use_official_property_ids(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            recommendation = dao.get_character_recommended_weights(1001)
+        self.assertEqual("workshop_api", recommendation["source_kind"])
+        self.assertEqual({"Attr1": 0.75}, recommendation["property_weights"])
+        self.assertEqual({"Attr1": 1.0}, recommendation["main_property_weights"])
+
+    def test_character_graduation_template_decodes_complete_payload(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            template = dao.get_character_graduation_template(1001)
+            templates = dao.list_character_graduation_templates()
+        self.assertEqual(12345.0, template["benchmark_damage"])
+        self.assertEqual({"character_level": 80}, template["profile"])
+        self.assertEqual("core", template["equipment"][0]["kind"])
+        self.assertEqual([1001], [row["character_id"] for row in templates])
+
+    def test_characters_plans_and_forks_are_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            character = dao.get_character(1001)
+            plan = dao.get_equipment_plan(1001)
+            plans = dao.list_equipment_plans()
+            default_suit = dao.get_character_default_suit(1001)
+            forks = dao.list_forks()
+            role_templates = dao.list_role_template_characters()
+            fork_templates = dao.list_fork_templates()
+        self.assertEqual(character["classification"], "playable")
+        self.assertEqual(plan["core_item_id"], "Core1")
+        self.assertEqual(plan["module_item_ids"], ["Module1"])
+        self.assertEqual(plans, [plan])
+        self.assertEqual({"suit_id": "Suit1", "suit_name_zh": "官方数据空幕"}, default_suit)
+        self.assertEqual(forks[0]["exclusive_character_ids"], [1001])
+        self.assertEqual(role_templates[0]["character_id"], 1001)
+        self.assertEqual(fork_templates[0]["fork_id"], "fork_Test")
+        self.assertEqual(fork_templates[0]["upgrade_levels"], [])
+        self.assertEqual(0, fork_templates[0]["breakthroughs"][0]["stage"])
+
+    def test_character_awaken_effects_include_skill_level_bonuses(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            effects = dao.list_character_awaken_effects(1001)
+        self.assertEqual(effects[0]["effect_id"], "resonance_3")
+        self.assertEqual(effects[0]["skill_level_bonuses"], [
+            {"ordinal": 0, "skill_id": "Skill1", "level_delta": 1}
+        ])
+
+    def test_character_likeability_bonus_is_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            bonus = dao.get_character_likeability_bonus(1001)
+        self.assertEqual(10, bonus["required_level"])
+        self.assertEqual(
+            [{
+                "ordinal": 0,
+                "property_id": "Attr1",
+                "value": 0.04,
+                "modifier_operation": "EGameplayModOp::Additive",
+                "source_row_id": 1,
+            }],
+            bonus["properties"],
+        )
+
+    def test_character_panel_growth_is_queryable_by_breakthrough_stage(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            growth = dao.get_character_panel_growth(1001, 20, 1)
+        self.assertEqual(growth["state"], "breakthrough_after")
+        self.assertEqual(growth["atk_base"], 100.0)
+
+    def test_character_skills_include_level_requirements_and_costs(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            skills = dao.list_character_skills(1001)
+        self.assertEqual(skills[0]["skill_id"], "Skill1")
+        self.assertTrue(skills[0]["show_detail_info"])
+        self.assertEqual(skills[0]["levels"], [{
+            "level": 1,
+            "required_breakthrough_stage": 2,
+            "required_awaken_level": 0,
+            "cost_items": [{"ID": "gold", "Number": 2000}],
+        }])
+        self.assertEqual(skills[0]["damage_entries"], [{
+            "damage_id": "Damage1",
+            "damage_type": "NORMAL",
+            "charge_add": 0.1,
+            "unbal_value": 0.2,
+            "heterochrome_add": 0.0,
+            "damage_source_category": "P",
+            "fixed_crit_rate": 0.5,
+            "atk_rate_base": [1.0, 1.1],
+            "def_rate_base": [],
+            "hp_rate_base": [],
+            "story_balance_ge_rate": 1.0,
+            "attack_break_level": "Low",
+            "override_breakable_damage": False,
+            "breakable_damage": 0.0,
+            "override_breakable_impulse": True,
+            "breakable_impulse": 2.0,
+            "override_vehicle_breakable_impulse": False,
+            "vehicle_breakable_impulse": 0.0,
+            "source_row_id": 1,
+            "modifier_atk_rate_base_coefficient": 0.9,
+            "modifier_source_row_id": 1,
+        }])
+
+    def test_combat_context_and_abyss_bindings_are_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            damage = dao.get_skill_damage("Damage1")
+            reaction = dao.get_reaction_damage_curve("GE_Test")
+            enemy = dao.get_enemy_combat_profile("night_999", "Boss1")
+            level = dao.get_abyss_level_monsters("Abyss_Common", 1)
+
+        self.assertEqual(damage["atk_rate_base"], [1.0, 1.1])
+        self.assertEqual([point["value"] for point in reaction["points"]], [80, 120])
+        self.assertEqual(enemy["resistances"]["chaos"]["resistance_base"], 0.2)
+        self.assertEqual(enemy["health_base"], 500000)
+        self.assertEqual(level["spawns"][0]["attribute_pack_id"], "AbyssBoss1")
+        self.assertEqual(level["spawns"][0]["monster_level"], 43)
+
+    def test_linko_lte_damage_follows_linko_qte_skill_level(self):
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "INSERT INTO character VALUES (1072, '灵可', NULL, NULL, 'NATURE', "
+            "'Group', '/Game/Player_072_radio', NULL, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_cultivation_guide VALUES "
+            "(1072, 1, 1.0, 1.0, NULL, NULL, 0, 1)"
+        )
+        connection.execute(
+            "INSERT INTO character_cultivation_stage VALUES "
+            "(1072, 0, 80, 80, 'Core1', 80, 80)"
+        )
+        connection.execute(
+            "INSERT INTO character_cultivation_stage_skill VALUES "
+            "(1072, 0, 'common', 0, 'GA_Radio072_QTE', 10)"
+        )
+        connection.execute(
+            "INSERT INTO gameplay_ability_catalog VALUES "
+            "('GA_Radio072_QTE', '恶灵左直拳！', NULL, NULL, NULL, NULL, NULL, 0, 1)"
+        )
+        connection.execute(
+            "INSERT INTO gameplay_ability_level_hint VALUES "
+            "('GA_Radio072_QTE', 0, NULL, '灵可同频合击', '{0}%', NULL, "
+            "'UseGEDamageType', '[\"GE_Player_Radio072_LTE_Damage\"]', '[]', '[]')"
+        )
+        connection.executemany(
+            "INSERT INTO combat_blueprint_asset VALUES (?,?,?,?,1072,2)",
+            (
+                (
+                    "/Game/Ability_072/GA_Radio072_QTE",
+                    "GA_Radio072_QTE",
+                    "BlueprintGeneratedClass",
+                    "ability",
+                ),
+                (
+                    "/Game/Ability_072/GA_Radio072_QTE_BackToLTE",
+                    "GA_Radio072_QTE_BackToLTE",
+                    "BlueprintGeneratedClass",
+                    "ability",
+                ),
+                (
+                    "/Game/Ability_072/GA_Radio072_QTE_FrontToLTE",
+                    "GA_Radio072_QTE_FrontToLTE",
+                    "BlueprintGeneratedClass",
+                    "ability",
+                ),
+            ),
+        )
+        for damage_id, ability_id in (
+            (
+                "GE_Player_Radio072_LTE_Damage",
+                "GA_Radio072_QTE_BackToLTE",
+            ),
+            (
+                "GE_Player_Radio072_LTE_Xiaozhen_Damage",
+                "GA_Radio072_QTE_FrontToLTE",
+            ),
+        ):
+            connection.execute(
+                """
+                INSERT INTO skill_damage VALUES (
+                    ?, ?, 'NATURE', 0.0, 0.0, 0.0, 'H', 0.0,
+                    '[5.0,9.995]', '[]', '[]', 1.0, 'Middle',
+                    0, 0.0, 0, 0.0, 0, 0.0, 1
+                )
+                """,
+                (damage_id, ability_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO combat_blueprint_reference VALUES (
+                    ?, '$[7].Properties.FollowSkillClass', 0, 'reference',
+                    '/Game/Ability_072/GA_Radio072_QTE',
+                    '/Game/Ability_072/GA_Radio072_QTE.1',
+                    'GA_Radio072_QTE_C', 1
+                )
+                """,
+                (f"/Game/Ability_072/{ability_id}",),
+            )
+        connection.commit()
+        connection.close()
+
+        with StaticGameDataDao(self.database_path) as dao:
+            back_candidates = dao.list_skill_level_ability_candidates(
+                1072,
+                "GE_Player_Radio072_LTE_Damage",
+            )
+            front_candidates = dao.list_skill_level_ability_candidates(
+                1072,
+                "GE_Player_Radio072_LTE_Xiaozhen_Damage",
+            )
+            front_damage = dao.get_skill_damage(
+                "GE_Player_Radio072_LTE_Xiaozhen_Damage"
+            )
+
+        self.assertEqual(["GA_Radio072_QTE"], back_candidates)
+        self.assertEqual(["GA_Radio072_QTE"], front_candidates)
+        self.assertEqual("GA_Radio072_QTE_FrontToLTE", front_damage["ability_id"])
+
+    def test_outer_realm_target_preset_keeps_official_localized_name(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            preset = dao.list_outer_realm_target_presets()[0]
+
+        self.assertEqual("测试首领", preset["monster_name_zh"])
+
+    def test_formal_boss_support_template_is_case_insensitive(self):
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "INSERT INTO monster_boss_support VALUES (?,?,?)",
+            ("boss_07_ChallengeLv5_BP", "审计展示说明", 1),
+        )
+        connection.commit()
+        connection.close()
+
+        with StaticGameDataDao(self.database_path) as dao:
+            self.assertEqual(
+                "Boss",
+                dao.get_monster_enemy_type_by_formal_id(
+                    "BOSS_07_CHALLENGELV5_BP"
+                ),
+            )
+            self.assertIsNone(
+                dao.get_monster_enemy_type_by_formal_id(
+                    "mon_012_2_ChallengeLv1_BP"
+                )
+            )
+
+    def test_combat_blueprint_action_graph_is_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            bindings = dao.list_character_combat_bindings(1001)
+            graph = dao.get_combat_ability_graph("/Game/Ability/GA_Test")
+            montage = dao.get_combat_montage("/Game/Animation/Test_Montage")
+
+        self.assertEqual("Skill1", bindings[0]["input_id"])
+        self.assertTrue(graph["references"][0]["target_available"])
+        self.assertEqual(
+            {"tags": ["Ability.Test"]},
+            graph["semantic_properties"][0]["value"],
+        )
+        self.assertEqual("Skill1", graph["montages"][0]["selector_key"])
+        self.assertEqual("Event.Hit", graph["effects"][0]["event_tag"])
+        self.assertEqual(1.2, montage["duration_seconds"])
+        self.assertEqual("Default", montage["sections"][0]["section_name"])
+        self.assertEqual(0.45, montage["notifies"][0]["start_seconds"])
+
+    def test_normalized_buff_definition_is_queryable(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            definition = dao.get_buff_definition("/Game/Effect/GE_Test")
+
+        self.assertEqual("HasDuration", definition["duration_policy"])
+        self.assertEqual({"Value": 8}, definition["duration_magnitude"])
+        self.assertEqual("AtkUp", definition["modifiers"][0]["property_id"])
+        self.assertEqual(0.2, definition["modifiers"][0]["magnitude_value"])
+        self.assertEqual((), definition["modifiers"][0]["source_require_tags"])
+
+    def test_raw_source_payload_is_available(self):
+        with StaticGameDataDao(self.database_path) as dao:
+            payload = dao.get_source_payload("DataTable/Test.json", "row")
+        self.assertEqual(payload, {"RawField": "RawValue"})
+
+    def test_distribution_database_can_omit_raw_source_payload(self):
+        connection = sqlite3.connect(self.database_path)
+        connection.execute("UPDATE source_row SET payload_json = NULL")
+        connection.commit()
+        connection.close()
+
+        with StaticGameDataDao(self.database_path) as dao:
+            payload = dao.get_source_payload("DataTable/Test.json", "row")
+        self.assertIsNone(payload)
+
+
+if __name__ == "__main__":
+    unittest.main()

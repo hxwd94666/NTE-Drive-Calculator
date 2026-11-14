@@ -6,6 +6,8 @@ from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.domain.battle_report.build.inputs import BattleCharacterBaseline
 from src.domain.battle_report.buffs.models import BattleHitBuffProjection
 from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
+from src.domain.localization.catalog import TextCatalog, localized_text
+from src.integrations.preferences.locale_files import enum_text
 from src.services.battle_report.replay.support import (
     dot_final_replay_factors,
     literal_replay_term,
@@ -25,6 +27,26 @@ from src.services.battle_report.targets.inferred_condition import INFERRED_ENCOU
 from src.services.battle_report.replay.direct_numeric import prepare_direct_formula_input, calculate_python_direct_formula
 
 
+_LOCALE_PREFIX = "battle_report.direct_rendering."
+_SOURCE_LABELS = {
+    "character": "人物",
+    "target": "敌方",
+    "resolved": "攻击者",
+}
+
+
+def _text(text_catalog: TextCatalog | None, key: str, fallback: str, **values: object) -> str:
+    """本文件用户可见说明统一挂在本模块前缀下；目录缺该 key 时回退原中文基线。"""
+
+    return localized_text(text_catalog, f"{_LOCALE_PREFIX}{key}", fallback, **values)
+
+
+def _source_labels(text_catalog: TextCatalog | None) -> Mapping[str, str]:
+    """整表投影来源分组标签；未注入目录时保留中文基线，服务层不读取资源文件。"""
+
+    return _SOURCE_LABELS if text_catalog is None else enum_text(text_catalog, _SOURCE_LABELS)
+
+
 class BattleDirectHitReplayMixin:
     @classmethod
     def _replay_direct(
@@ -41,11 +63,13 @@ class BattleDirectHitReplayMixin:
         excluded_intervals: tuple[str, ...],
         formula_label: str = "直伤",
         numeric: Mapping[str, Any] | None = None,
+        text_catalog: TextCatalog | None = None,
     ) -> BattleHitReplayResult:
         condition = analysis.target_condition
         assert condition is not None
         inferred_target = condition.source_kind == INFERRED_ENCOUNTER_SOURCE_KIND
         resolved_target, target_profile_basis = replay_target_profile_basis(analysis, inferred_target)
+        source_labels = _source_labels(text_catalog)
         if evidence.state_multiplier_label and evidence.state_multiplier <= 0.0:
             return cls._unreplayable(
                 hit.event_id,
@@ -58,9 +82,13 @@ class BattleDirectHitReplayMixin:
             return cls._unreplayable(
                 hit.event_id,
                 hit.damage,
-                (
-                    "静态 TRUE 没有独立属性抗性；该伤害必须由专用 channel "
-                    "适配器还原为角色固有属性后再计算防御与对应抗性。"
+                _text(
+                    text_catalog,
+                    "reason.true_attribute_without_resistance",
+                    (
+                        "静态 TRUE 没有独立属性抗性；该伤害必须由专用 channel "
+                        "适配器还原为角色固有属性后再计算防御与对应抗性。"
+                    ),
                 ),
                 formula_label,
             )
@@ -95,7 +123,13 @@ class BattleDirectHitReplayMixin:
         element_property = _ELEMENT_DAMAGE_PROPERTIES.get(attribute)
         penetration = values.get("DefIgnore", 0.0)
         defense_basis = (
-            "用户场景与显示等级近似" if condition.enemy_defense_base is None else f"{target_profile_basis} DefBase/6"
+            _text(
+                text_catalog,
+                "basis.defense_display_level",
+                "用户场景与显示等级近似",
+            )
+            if condition.enemy_defense_base is None
+            else f"{target_profile_basis} DefBase/6"
         )
         base_resistance = dict(condition.resistances).get(attribute, 0.20)
         resistance_property_ids = _ELEMENT_RESISTANCE_PROPERTIES.get(attribute, ())
@@ -127,12 +161,12 @@ class BattleDirectHitReplayMixin:
             literal_replay_term(
                 "character:level",
                 "CharacterLevel",
-                "角色等级",
+                _text(text_catalog, "term.character_level", "角色等级"),
                 character_level,
                 "character",
-                "人物",
+                source_labels["character"],
                 is_percent=False,
-                basis="冻结角色等级",
+                basis=_text(text_catalog, "basis.character_level_frozen", "冻结角色等级"),
             ),
             literal_replay_term(
                 "target:DefBase",
@@ -140,47 +174,47 @@ class BattleDirectHitReplayMixin:
                 "DefBase",
                 condition.enemy_defense_base or condition.enemy_level,
                 "target",
-                "敌方",
+                source_labels["target"],
                 is_percent=False,
                 basis=defense_basis,
             ),
             literal_replay_term(
                 "target:DefUp",
                 "DefUp",
-                "防御提升",
+                _text(text_catalog, "term.defense_up", "防御提升"),
                 condition.enemy_defense_up,
                 "target",
-                "敌方",
+                source_labels["target"],
                 is_percent=True,
                 basis=target_profile_basis,
             ),
             literal_replay_term(
                 "target:DefAdd",
                 "DefAdd",
-                "额外防御",
+                _text(text_catalog, "term.defense_add", "额外防御"),
                 condition.enemy_defense_add,
                 "target",
-                "敌方",
+                source_labels["target"],
                 is_percent=False,
                 basis=target_profile_basis,
             ),
             literal_replay_term(
                 "attacker:DefIgnore",
                 "DefIgnore",
-                "防御穿透",
+                _text(text_catalog, "term.defense_penetration", "防御穿透"),
                 penetration,
                 "resolved",
-                "攻击者",
+                source_labels["resolved"],
                 is_percent=True,
-                basis="命中时角色属性",
+                basis=_text(text_catalog, "basis.hit_character_attribute", "命中时角色属性"),
             ),
             literal_replay_term(
                 "target:DefReduction",
                 "DefReduction",
-                "防御降低",
+                _text(text_catalog, "term.defense_reduction", "防御降低"),
                 condition.defense_reduction,
                 "target",
-                "敌方",
+                source_labels["target"],
                 is_percent=True,
                 basis=target_profile_basis,
             ),
@@ -189,10 +223,10 @@ class BattleDirectHitReplayMixin:
             literal_replay_term(
                 "target:resistance",
                 f"Resistance:{attribute}",
-                "属性抗性",
+                _text(text_catalog, "term.resistance", "属性抗性"),
                 base_resistance,
                 "target",
-                "敌方",
+                source_labels["target"],
                 is_percent=True,
                 basis=target_profile_basis,
             ),
@@ -211,12 +245,17 @@ class BattleDirectHitReplayMixin:
             literal_replay_term(
                 "target:vulnerability",
                 "Vulnerability",
-                "受到伤害提升",
+                _text(text_catalog, "term.vulnerability", "受到伤害提升"),
                 condition.vulnerability,
                 "target",
-                "敌方",
+                source_labels["target"],
                 is_percent=True,
-                basis=f"{target_profile_basis}与敌方 Buff",
+                basis=_text(
+                    text_catalog,
+                    "basis.vulnerability_buff_suffix",
+                    "{basis}与敌方 Buff",
+                    basis=target_profile_basis,
+                ),
             ),
         )
         independent_ids = tuple(
@@ -237,7 +276,11 @@ class BattleDirectHitReplayMixin:
                     evidence.state_multiplier_label,
                     stack_coefficient,
                     evidence.state_multiplier_basis,
-                    formula="min(当前同类状态层数, 10) × 每层系数 1",
+                    formula=_text(
+                        text_catalog,
+                        "formula.state_coefficient",
+                        "min(当前同类状态层数, 10) × 每层系数 1",
+                    ),
                 ),
             )
         )
@@ -247,76 +290,128 @@ class BattleDirectHitReplayMixin:
                 "倍率区",
                 multiplier,
                 evidence.evidence_basis,
-                formula="静态基础倍率 × 倍率修正",
+                formula=_text(text_catalog, "formula.skill", "静态基础倍率 × 倍率修正"),
             ),
             *stack_factors,
             _factor(
                 "scaling",
-                f"{evidence.scaling_property_id} 乘区",
+                _text(
+                    text_catalog,
+                    "factor.scaling",
+                    "{property_id} 乘区",
+                    property_id=evidence.scaling_property_id,
+                ),
                 scaling_value,
-                "战报冻结配装与逐击 Buff 投影",
-                formula="基础值 × (1 + 百分比提升) + 额外固定值",
+                _text(
+                    text_catalog,
+                    "basis.scaling_frozen_projection",
+                    "战报冻结配装与逐击 Buff 投影",
+                ),
+                formula=_text(
+                    text_catalog,
+                    "formula.scaling",
+                    "基础值 × (1 + 百分比提升) + 额外固定值",
+                ),
                 terms=scaling_terms,
             ),
             _factor(
                 "damage_up",
-                "增伤区",
+                _text(text_catalog, "factor.damage_up", "增伤区"),
                 damage_increase,
-                "角色面板与命中时 Buff",
-                formula="1 + 通用增伤 + 属性增伤",
+                _text(text_catalog, "basis.damage_up_panel_buff", "角色面板与命中时 Buff"),
+                formula=_text(
+                    text_catalog,
+                    "formula.damage_up",
+                    "1 + 通用增伤 + 属性增伤",
+                ),
                 terms=damage_terms,
             ),
             _factor(
                 "defense",
-                "防御区",
+                _text(text_catalog, "factor.defense", "防御区"),
                 defense,
                 defense_basis,
-                formula=(
-                    "L / ([DefBase × (1 + DefUp) + DefAdd] / 6 × (1 - 防御穿透) × (1 - 防御降低) + L)，L=角色等级+100"
+                formula=_text(
+                    text_catalog,
+                    "formula.defense",
+                    "L / ([DefBase × (1 + DefUp) + DefAdd] / 6 × (1 - 防御穿透) × (1 - 防御降低) + L)，L=角色等级+100",
                 ),
                 terms=defense_terms,
             ),
             _factor(
                 "resistance",
-                "抗性区",
+                _text(text_catalog, "factor.resistance", "抗性区"),
                 resistance_factor,
                 target_profile_basis,
-                formula="抗性分段函数(目标抗性 - 属性穿透)",
+                formula=_text(
+                    text_catalog,
+                    "formula.resistance",
+                    "抗性分段函数(目标抗性 - 属性穿透)",
+                ),
                 terms=resistance_terms,
             ),
             _factor(
                 "vulnerability",
-                "易伤区",
+                _text(text_catalog, "factor.vulnerability", "易伤区"),
                 vulnerability,
-                f"{target_profile_basis}；敌方受到伤害提升默认 0",
-                formula="1 + 敌方受到伤害提升",
+                _text(
+                    text_catalog,
+                    "basis.vulnerability_zone",
+                    "{basis}；敌方受到伤害提升默认 0",
+                    basis=target_profile_basis,
+                ),
+                formula=_text(
+                    text_catalog,
+                    "formula.vulnerability",
+                    "1 + 敌方受到伤害提升",
+                ),
                 terms=vulnerability_terms,
             ),
             _factor(
                 "independent",
-                "独立最终乘区",
+                _text(text_catalog, "factor.independent", "独立最终乘区"),
                 independent,
                 (
-                    "命中时结构化最终伤害 Buff 与逐击限定觉醒"
+                    _text(
+                        text_catalog,
+                        "basis.independent_hit_buff_awakening",
+                        "命中时结构化最终伤害 Buff 与逐击限定觉醒",
+                    )
                     if evidence.skill_final_multiplier_basis
-                    else "命中时结构化最终伤害 Buff"
+                    else _text(
+                        text_catalog,
+                        "basis.independent_hit_buff",
+                        "命中时结构化最终伤害 Buff",
+                    )
                 ),
-                formula="各最终伤害提升与技能限定最终倍率独立相乘",
+                formula=_text(
+                    text_catalog,
+                    "formula.independent",
+                    "各最终伤害提升与技能限定最终倍率独立相乘",
+                ),
                 terms=independent_terms,
             ),
             *dot_final_replay_factors(evidence),
             _factor(
                 "critical",
-                "暴击伤害倍率",
+                _text(text_catalog, "factor.critical", "暴击伤害倍率"),
                 1.0 if critical_disabled else 1.0 + crit_damage_bonus,
                 (
-                    "正式伤害语义固定不可暴击"
+                    _text(text_catalog, "basis.critical_disabled", "正式伤害语义固定不可暴击")
                     if critical_disabled
-                    else "暴击能力未确认；仅并列展示候选"
+                    else _text(
+                        text_catalog,
+                        "basis.critical_unknown",
+                        "暴击能力未确认；仅并列展示候选",
+                    )
                     if critical_unknown
-                    else "命中时角色暴击伤害"
+                    else _text(text_catalog, "basis.critical_hit", "命中时角色暴击伤害")
                 ),
-                formula="固定为 1" if critical_disabled else "1 + 暴击伤害",
+                formula=(
+                    _text(text_catalog, "formula.critical_disabled", "固定为 1")
+                    if critical_disabled
+                    else _text(text_catalog, "formula.critical", "1 + 暴击伤害")
+                ),
                 terms=() if critical_disabled else critical_terms,
             ),
         )
@@ -343,20 +438,45 @@ class BattleDirectHitReplayMixin:
             confidence = "低"
         missing = []
         if excluded_intervals:
-            missing.append(f"{len(excluded_intervals)} 个 Buff 区间未进入数值")
+            missing.append(_text(
+                text_catalog,
+                "missing.excluded_buff_intervals",
+                "{count} 个 Buff 区间未进入数值",
+                count=len(excluded_intervals),
+            ))
         if not applied_intervals:
-            missing.append("当前击未匹配到动态 Buff 区间")
+            missing.append(_text(
+                text_catalog,
+                "missing.no_dynamic_buff_interval",
+                "当前击未匹配到动态 Buff 区间",
+            ))
         if inferred_target and not resolved_target:
-            missing.append("目标实例仍未识别；防御与抗性来自本场最大生命指纹唯一命中、且候选敌人共享同一乘区的静态配置")
+            missing.append(_text(
+                text_catalog,
+                "missing.target_instance_unresolved",
+                (
+                    "目标实例仍未识别；防御与抗性来自本场最大生命指纹唯一命中、"
+                    "且候选敌人共享同一乘区的静态配置"
+                ),
+            ))
         if evidence.state_multiplier_label:
-            missing.append(f"当前结算层数由逐击正向重放（置信度{evidence.state_confidence}），待运行时层数证据覆盖")
+            missing.append(_text(
+                text_catalog,
+                "missing.state_layers_from_replay",
+                "当前结算层数由逐击正向重放（置信度{confidence}），待运行时层数证据覆盖",
+                confidence=evidence.state_confidence,
+            ))
             if evidence.state_confidence == "低":
                 confidence = "低"
                 if not critical_disabled:
                     state = "ambiguous"
                 missing.append(evidence.state_multiplier_basis)
         if critical_unknown:
-            missing.append("该伤害是否允许暴击尚未确认；期望伤害暂不计算")
+            missing.append(_text(
+                text_catalog,
+                "missing.critical_policy_unknown",
+                "该伤害是否允许暴击尚未确认；期望伤害暂不计算",
+            ))
         return BattleHitReplayResult(
             event_id=hit.event_id,
             observed_damage=hit.damage,

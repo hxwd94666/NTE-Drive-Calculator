@@ -4,9 +4,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from tests.rewind.preferences_fixture import ProfileServiceFixture
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QToolButton
 
-from src.domain.rewind_loadout import RewindSlotReference, RewindSlotSummary
+from src.domain.rewind.rewind_loadout import RewindSlotReference, RewindSlotSummary
 from src.features.toolbox.rewind.role_picker import _RoleSelectionDialog
 from src.features.toolbox.rewind.slot_picker import RewindSlotPicker
 from src.services.rewind.recommendation import RewindTargetRole
@@ -150,7 +151,7 @@ def recommendation_dialog(monkeypatch, *, preferences=None, **kwargs):
     service.saved["saved_rewind_shape_ids"] = []
     if preferences is not None:
         service.saved.update(preferences)
-    dialog = page._RewindRecommendationDialog(service, None, **kwargs)
+    dialog = page._RewindRecommendationDialog(ProfileServiceFixture(service), None, **kwargs)
     role = role_fixture()
     dialog._on_roles_loaded((role,))
     return dialog, service, role
@@ -211,7 +212,7 @@ def test_role_confirmation_and_cancel_only_affect_the_selected_strategy(applicat
     assert service.saved["main_character_ids"] == ([] if main else [1005])
     dialog.reject()
     from src.features.toolbox.page import _RewindRecommendationDialog
-    reopened = _RewindRecommendationDialog(service, None)
+    reopened = _RewindRecommendationDialog(ProfileServiceFixture(service), None)
     reopened._on_roles_loaded((role, other))
     assert reopened._target_character_ids == ({1004} if main else set())
     assert reopened._main_character_ids == (set() if main else {1005})
@@ -258,7 +259,7 @@ def test_legacy_slots_seed_both_strategies_then_remain_independent_after_reopen(
     assert service.saved["target_character_ids"] == service.saved["main_character_ids"] == [1004]
     assert service.saved["selected_slots_by_strategy"] == {"balanced": {"1004": 1}, "focused": {"1004": 2}}
     dialog.reject()
-    reopened = _RewindRecommendationDialog(service, None)
+    reopened = _RewindRecommendationDialog(ProfileServiceFixture(service), None)
     reopened._on_roles_loaded((role,))
     assert reopened._selected_slots_by_strategy["balanced"][1004] == role.slots[0].reference
     assert reopened._selected_slots_by_strategy["focused"][1004] == role.slots[1].reference
@@ -414,8 +415,8 @@ def test_bulk_selection_and_keyboard_toggle_keep_accessible_check_state_in_sync(
 
 def test_visible_score_sort_tracks_selected_slot_without_changing_rewind_draft(application):
     from dataclasses import replace
-    from src.ui.role_selection_card import RoleSelectionCard
-    from src.ui.role_selection_sort import RoleSelectionSort
+    from src.ui.roles.role_selection_card import RoleSelectionCard
+    from src.ui.roles.role_selection_sort import RoleSelectionSort
 
     first = role_fixture(1004, "角色甲")
     second = replace(role_fixture(1005, "角色乙"), slots=())

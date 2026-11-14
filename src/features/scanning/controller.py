@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -11,21 +12,24 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton, QWidget
 
 from src.app.context import AppContext
-from src.domain.work_mode import WorkMode
+from src.domain.preferences.work_mode import WorkMode
 from src.features.allocation.controller import AllocationController
-from src.features.allocation.filter_settings_dialog import AllocationFilterSettingsDialog
-from src.integrations.global_hotkeys import GlobalHotkeyManager
-from src.ui.equipment_presentation import EquipmentPresentation
-from src.services.allocation.filter_settings import (
+from src.features.allocation.settings.filter_settings_dialog import AllocationFilterSettingsDialog
+from src.integrations.runtime.global_hotkeys import GlobalHotkeyManager
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
+from src.services.allocation.inputs.filter_settings import (
     AllocationFilterSettings,
     AllocationFilterSettingsService,
     AllocationFilterValidationError,
 )
 from src.utils.logger import logger
-from src.features.scanning.file_workflow import (
-    clear_capture_recovery, update_capture_actions,
-    resume_capture_stage, retry_capture_publication,
-    publication_retry_done, publication_retry_failed,
+from src.features.scanning.files.file_workflow import (
+    clear_capture_recovery,
+    update_capture_actions,
+    resume_capture_stage,
+    retry_capture_publication,
+    publication_retry_done,
+    publication_retry_failed,
     delete_paths as _delete_paths,
     matching_scope_files as _matching_scope_files,
     move_first_full_scan_to_tail as _move_first_full_scan_to_tail,
@@ -44,8 +48,8 @@ from src.features.scanning.hotkey_actions import (
 )
 from src.features.scanning.scan_contracts import scanning_is_running as _scanning_is_running
 from src.features.scanning.entry_controls import open_scan_post_action_manager as _open_scan_post_action_manager
-from src.features.scanning.vision_commit_controller import VisionCommitController
-from src.features.scanning.manual_recovery import ManualRecoverySession
+from src.features.scanning.vision.vision_commit_controller import VisionCommitController
+from src.features.scanning.vision.manual_recovery import ManualRecoverySession
 from src.features.scanning.dependencies import scanning_dependencies_are_current
 from functools import partial
 from src.features.scanning.workflow import (
@@ -154,9 +158,14 @@ class ScanningController(QObject):
         prepare_calculation: Callable[[Callable[[], None]], None] | None = None,
         axis_selection_service_provider: Callable[[], Any] | None = None,
         team_report_service_provider: Callable[[], Any] | None = None,
+        text_catalog=None,
+        current_page_key: Callable[[], str] = lambda: 'execute',
+        preparation_busy: Callable[[], bool] = lambda: False,
     ) -> None:
         super().__init__(dialog_parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.app_context = app_context
+        self.text_catalog = text_catalog
         self.role_suit_matching = role_suit_matching
         self.operation_entry = operation_entry
         self.operation_unavailable = operation_unavailable
@@ -182,7 +191,7 @@ class ScanningController(QObject):
         self._equipment_presentation = equipment_presentation
         self._hotkey_manager = hotkey_manager
         self._page: QWidget | None = None
-        self._manual_recovery = ManualRecoverySession()
+        self._manual_recovery = ManualRecoverySession(text_catalog=text_catalog)
         self._capture_recovery = None
         self._vision_commit = VisionCommitController(partial(scanning_dependencies_are_current, self), self)
         self._vision_commit.committed.connect(self._on_vision_committed)
@@ -229,8 +238,19 @@ class ScanningController(QObject):
             refresh_roles=refresh_roles,
             refresh_equipment=refresh_equipment,
             hotkey_manager=hotkey_manager,
+            text_catalog=text_catalog,
         )
         self._allocation_controller.plans_saved.connect(self.allocation_saved.emit)
+        from src.features.scanning.team_calculation import TeamCalculationController
+        self.team_calculation = TeamCalculationController(self,
+            clear_preview=self._allocation_controller.clear_preview, current_page=current_page_key,
+            preparation_busy=preparation_busy, parent=self)
+
+    def calculate_team(self, team, service):
+        self.team_calculation.start(team, service)
+
+    def cancel_team_calculation(self):
+        self.team_calculation.cancel()
 
     def build_page(self) -> QWidget:
         if self._page is not None:
@@ -252,21 +272,6 @@ class ScanningController(QObject):
         return (self._vision_commit.is_running() or _scanning_is_running(self) or self._allocation_controller.is_running()
                 or self._team_axis_dialog is not None and self._team_axis_dialog.is_running())
 
-    def configure_team_enhancement(self, team, match=None):
-        """队伍页窄导航只配置增强，不启动计算、同步或游戏操作。"""
-        if self.is_running():
-            QMessageBox.warning(self.dialog_parent, "计算进行中", "请先结束当前任务。")
-            return
-        self.build_page()
-        self.navigate("execute")
-        from src.features.allocation.team_axis_controls import configure_team_axes
-        def configure():
-            configure_team_axes(self, initial_team_id=team.team_id, initial_match=match)
-        if self._prepare_calculation is None:
-            configure()
-        else:
-            self._prepare_calculation(configure)
-
     def _do_exec(self):
         if self.is_running():
             return
@@ -277,8 +282,9 @@ class ScanningController(QObject):
 
     def start_axis_allocation_from_battle(self, request):
         """明确报告来自边际页；走同一冻结服务，不模拟点击或持久化候选。"""
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         if self.is_running():
-            QMessageBox.warning(self.dialog_parent, "计算进行中", "请先停止当前计算或扫描。")
+            QMessageBox.warning(self.dialog_parent, _ui_text('scanning.dialogs.start_axis_allocation_from_battle.qmessagebox'), plain_tooltip(_ui_text('scanning.dialogs.start_axis_allocation_from_battle.qmessagebox.body')))
             return
         self.build_page()
         self.navigate("execute")
@@ -292,6 +298,7 @@ class ScanningController(QObject):
 
     def request_stop(self) -> None:
         """Revoke active input/parse work without waiting on the GUI thread."""
+        self.team_calculation.cancel()
         if self._team_axis_dialog is not None:
             self._team_axis_dialog.reject()
         self._manual_recovery.cancel()
@@ -334,7 +341,7 @@ class ScanningController(QObject):
 
     def reset_account_state(self) -> None:
         self.request_stop()
-        from src.features.allocation.team_axis_controls import reset_team_axis_controls
+        from src.features.allocation.team_axis.team_axis_controls import reset_team_axis_controls
         reset_team_axis_controls(self)
         self._vision_commit.reset_account_state()
         self._pending_archive_paths = []
@@ -348,7 +355,7 @@ class ScanningController(QObject):
         self._allocation_controller.reset_account_state()
 
     def _reload_allocation_filter_settings(self) -> None:
-        from src.features.allocation.team_axis_controls import reload_search_mode
+        from src.features.allocation.team_axis.team_axis_controls import reload_search_mode
         reload_search_mode(self)
         service = AllocationFilterSettingsService(
             self.app_context.account.user_database_path
@@ -361,9 +368,11 @@ class ScanningController(QObject):
         self._update_allocation_filter_summary()
 
     def _open_allocation_filter_settings(self) -> None:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         dialog = AllocationFilterSettingsDialog(
             self._allocation_filter_settings,
             self.dialog_parent,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -375,7 +384,7 @@ class ScanningController(QObject):
         except Exception as exc:
             QMessageBox.warning(
                 self.dialog_parent,
-                "保存过滤设置失败",
+                _ui_text('scanning.dialogs.open_allocation_filter_settings.qmessagebox'),
                 str(exc),
             )
             return
@@ -383,18 +392,20 @@ class ScanningController(QObject):
         self._update_allocation_filter_summary()
 
     def _allocation_filter_settings_are_valid(self) -> bool:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         try:
             self._allocation_filter_settings.validate()
         except AllocationFilterValidationError as exc:
             QMessageBox.warning(
                 self.dialog_parent,
-                "过滤设置无效",
+                _ui_text('scanning.dialogs.allocation_filter_settings_are_valid.qmessagebox'),
                 str(exc),
             )
             return False
         return True
 
     def _update_allocation_filter_summary(self) -> None:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         label = getattr(self, "allocation_filter_summary", None)
         if label is None:
             return
@@ -410,7 +421,7 @@ class ScanningController(QObject):
             for value in ("tape", "drive")
             if value in self._allocation_filter_settings.item_types
         ) or "未选择"
-        label.setText(f"过滤设置：品质 {qualities}；类型 {item_types}")
+        label.setText(_ui_text('scanning.dialogs.update_allocation_filter_summary.label.state', qualities=f'{qualities}', item_types=f'{item_types}'))
 
     def _start_scan_hotkeys(self, mode: str) -> None:
         """Bind this scan session without exposing hotkeys to other features."""
@@ -433,17 +444,19 @@ class ScanningController(QObject):
         self._save_preferences_callback()
 
     def load_reading_options_expanded(self) -> bool:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         try:
             return self._data_reading_settings.load()
         except (OSError, ValueError):
-            QMessageBox.warning(self.dialog_parent, "数据读取", "展开状态读取失败，本次默认收起；原设置未修改。")
+            QMessageBox.warning(self.dialog_parent, _ui_text('scanning.dialogs.load_reading_options_expanded.qmessagebox'), plain_tooltip(_ui_text('scanning.dialogs.load_reading_options_expanded.qmessagebox.body')))
             return False
 
     def save_reading_options_expanded(self, expanded: bool) -> bool:
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         try:
             self._data_reading_settings.save(expanded)
         except (OSError, ValueError):
-            QMessageBox.warning(self.dialog_parent, "数据读取", "展开状态保存失败，已保留原状态；请检查配置文件。")
+            QMessageBox.warning(self.dialog_parent, _ui_text('scanning.dialogs.save_reading_options_expanded.qmessagebox'), plain_tooltip(_ui_text('scanning.dialogs.save_reading_options_expanded.qmessagebox.body')))
             return False
         return True
 
@@ -515,13 +528,14 @@ class ScanningController(QObject):
     def clear_calculation(self) -> None:
         """Discard only the current allocation preview, not saved plans or inputs."""
 
+        _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
         if self.is_running():
-            QMessageBox.information(self.dialog_parent, "暂不能清空", "请等待当前任务结束后再清空计算结果。")
+            QMessageBox.information(self.dialog_parent, _ui_text('scanning.dialogs.clear_calculation.qmessagebox'), plain_tooltip(_ui_text('scanning.dialogs.clear_calculation.qmessagebox.body')))
             return
         answer = QMessageBox.question(
             self.dialog_parent,
-            "清空计算结果",
-            "清空当前计算结果？\n已保存的配装、角色选择和分配设置不会改变。",
+            _ui_text('scanning.dialogs.clear_calculation.answer'),
+            plain_tooltip(_ui_text('scanning.dialogs.clear_calculation.answer.body')),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )

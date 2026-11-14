@@ -9,7 +9,7 @@ import io
 import json
 from pathlib import Path
 
-from src.integrations.bundled_resources import bundled_root
+from src.integrations.runtime.bundled_resources import bundled_root
 from src.integrations.vision.recognition.ocr.model_resources import (
     OcrModelResourceError, OcrModelResources, _file_version, load_ocr_model_resources,
 )

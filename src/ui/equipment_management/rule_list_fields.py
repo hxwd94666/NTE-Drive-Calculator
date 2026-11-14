@@ -1,6 +1,8 @@
 # 共用规则列表的展示控件；具体管理拥有自己的草稿、仲裁和持久化。
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 from src.app.theme import themed_style
 from src.ui.equipment_management.rule_order import RuleOrderController, RuleOrderHandle
 from src.ui.equipment_management.rule_text import _preserve_rule_summary
@@ -12,7 +14,7 @@ class RuleListFields:
         root = QVBoxLayout(page)
         root.setContentsMargins(0, 4, 0, 0)
         root.setSpacing(6)
-        order_hint = QLabel(self.catalog.render("scan.management.order_hint"))
+        order_hint = plain_label(self.catalog.render("scan.management.order_hint"))
         order_hint.setWordWrap(True)
         root.addWidget(order_hint)
 
@@ -25,7 +27,7 @@ class RuleListFields:
         self._preserve_rules_layout.setSpacing(8)
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
-        self._rule_order = RuleOrderController(scroll, lambda: self._rule_rows, self._move_preserve_rule)
+        self._rule_order = RuleOrderController(scroll, lambda: self._rule_rows, self._move_preserve_rule, text_catalog=getattr(self, 'text_catalog', None))
         self._render_preserve_rules()
         return page
 
@@ -43,7 +45,7 @@ class RuleListFields:
         self._clear_layout(self._preserve_rules_layout)
         self._rule_rows = []
         if not self._preserve_rules:
-            empty = QLabel("暂未添加处理规则")
+            empty = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.render_preserve_rules.empty'))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet("color:#8b949e;padding:48px 0")
             self._preserve_rules_layout.addWidget(empty)
@@ -70,10 +72,12 @@ class RuleListFields:
         layout = QHBoxLayout(row)
         layout.setContentsMargins(12, 10, 10, 10)
         layout.setSpacing(10)
+        text = resolve_text_catalog(getattr(self, "text_catalog", None)).render
+        rule_name = str(rule.get("name") or text("warehouse.management.rules.unnamed"))
         enabled = QCheckBox()
-        enabled.setToolTip("启用此规则")
-        enabled.setAccessibleName(f"启用规则：{rule.get('name') or '未命名规则'}")
-        layout.addWidget(RuleOrderHandle(self._rule_order, rule))
+        enabled.setToolTip('')
+        enabled.setAccessibleName(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_preserve_rule_row.enabled_2', value=rule_name))
+        layout.addWidget(RuleOrderHandle(self._rule_order, rule, text_catalog=getattr(self, 'text_catalog', None)))
         enabled.setChecked(bool(rule.get("enabled", True)))
         enabled.toggled.connect(
             lambda checked, current=rule: self._set_preserve_rule_enabled(self._rule_index(current), checked)
@@ -82,34 +86,34 @@ class RuleListFields:
         details = QVBoxLayout()
         details.setSpacing(3)
         origin = rule.get("intelligent")
-        source = "（智能生成·已编辑）" if origin and origin.get("edited") else "（智能生成）" if origin else ""
-        name = QLabel(str(rule.get("name") or "未命名规则") + source)
+        source = text("ui.equipment_management.build_preserve_rule_row.label") if origin and origin.get("edited") else text("ui.rules.origin.generated") if origin else ""
+        name = plain_label(rule_name + source)
         name.setWordWrap(True)
         if origin:
             enabled.toggled.connect(
                 lambda _checked, label=name, current=rule: label.setText(
-                    str(current.get("name") or "未命名规则") + "（智能生成·已编辑）"
+                    str(current.get("name") or text("warehouse.management.rules.unnamed")) + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_preserve_rule_row.label')
                 )
             )
         name.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
-        summary = QLabel(_preserve_rule_summary(rule))
+        summary = plain_label(_preserve_rule_summary(rule, text_catalog=getattr(self, "text_catalog", None)))
         summary.setStyleSheet(themed_style("color:#8b949e"))
         summary.setWordWrap(True)
         details.addWidget(name)
         details.addWidget(summary)
         layout.addLayout(details, 1)
-        edit_button = QPushButton("编辑")
-        copy_button = QPushButton("复制")
-        delete_button = QPushButton("删除")
+        edit_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('warehouse.management.rules.edit'))
+        copy_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('warehouse.management.rules.copy'))
+        delete_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('warehouse.management.rules.delete'))
         compact_height = edit_button.sizeHint().height()
         item_type = "动态" if rule.get("smart_kind") else "卡带" if rule.get("item_type") == "tape" else "驱动"
-        type_badge = QLabel(item_type)
+        type_badge = plain_label(ui_enum_text(getattr(self, 'text_catalog', None), item_type))
         type_badge.setFixedHeight(compact_height)
         type_badge.setStyleSheet(
             themed_style("color:#58a6ff;border:1px solid #1f6feb;border-radius:6px;padding:1px 7px")
         )
         action_label = {"lock": "锁定", "discard": "弃置"}.get(rule.get("action"), "仅保留")
-        action_badge = QLabel(action_label)
+        action_badge = plain_label(ui_enum_text(getattr(self, "text_catalog", None), action_label))
         action_badge.setFixedHeight(compact_height)
         action_badge.setStyleSheet(
             themed_style(
@@ -123,7 +127,7 @@ class RuleListFields:
         layout.addWidget(type_badge, 0, Qt.AlignVCenter)
         layout.addWidget(action_badge, 0, Qt.AlignVCenter)
         for button, action in ((edit_button, "编辑规则"), (copy_button, "复制规则"), (delete_button, "删除规则")):
-            button.setAccessibleName(f"{action}：{rule.get('name') or '未命名规则'}")
+            button.setAccessibleName(text("ui.rules.accessible.action", action=ui_enum_text(getattr(self, "text_catalog", None), action), name=rule_name))
         edit_button.clicked.connect(
             lambda _checked=False, current=rule: self._edit_preserve_rule(self._rule_index(current))
         )

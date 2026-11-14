@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import resolve_text_catalog
+from src.domain.localization.catalog import localized_text
 from pathlib import Path
 
 from src.features.static_catalog.contracts import (
@@ -34,14 +37,22 @@ _STATE_LABELS = {
 class StaticCatalogOverviewProvider:
     """Expose every normalized table, including empty and omitted-payload facts."""
 
-    domain = CatalogDomain(
-        key="coverage",
-        label="覆盖总览",
-        description="发行静态库 125 张表的逐表行数、领域与可展示状态",
-        order=0,
-    )
+    @property
+    def domain(self) -> CatalogDomain:
+        catalog = getattr(self, "text_catalog", None)
+        return CatalogDomain(
+            key="coverage",
+            label=localized_text(catalog, "static_catalog.overview.domain.label", "覆盖总览"),
+            description=localized_text(
+                catalog,
+                "static_catalog.overview.domain.description",
+                "发行静态库 125 张表的逐表行数、领域与可展示状态",
+            ),
+            order=0,
+        )
 
-    def __init__(self, database_path: str) -> None:
+    def __init__(self, database_path: str, *, text_catalog=None) -> None:
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._queries = StaticCatalogOverviewQueries(database_path)
         self._rows = self._queries.list_tables()
 
@@ -69,7 +80,7 @@ class StaticCatalogOverviewProvider:
             if not needle
             or needle in row.name.casefold()
             or needle in row.domain.casefold()
-            or needle in _STATE_LABELS[row.coverage_state].casefold()
+            or needle in ui_enum_text(getattr(self, 'text_catalog', None), _STATE_LABELS)[row.coverage_state].casefold()
         )
         return CatalogPage(
             items=tuple(self._item(row) for row in matched[offset : offset + limit]),
@@ -86,37 +97,52 @@ class StaticCatalogOverviewProvider:
         if row is None:
             return None
         notes = []
+        catalog = getattr(self, "text_catalog", None)
         if row.name == "source_row" and release.source_payloads_omitted:
-            notes.append("发行清单明确省略 source_row.payload_json；来源键和内容哈希仍可追溯。")
+            notes.append(localized_text(
+                catalog,
+                "static_catalog.overview.note.source_row_omitted",
+                "发行清单明确省略 source_row.payload_json；来源键和内容哈希仍可追溯。",
+            ))
         if row.rows == 0:
-            notes.append("该表属于正式 schema，但本次发行没有记录；不会用 0 伪装未知业务值。")
+            notes.append(localized_text(
+                catalog,
+                "static_catalog.overview.note.empty_table",
+                "该表属于正式 schema，但本次发行没有记录；不会用 0 伪装未知业务值。",
+            ))
         return CatalogDetail(
             item=self._item(row),
             sections=(
                 CatalogSection(
-                    title="逐表覆盖审计",
+                    title=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.caption_3'),
                     fields=(
-                        self._field("正式表名", row.name, copyable=True),
-                        self._field("数据领域", row.domain),
-                        self._field("记录数", f"{row.rows:,}"),
-                        self._field("覆盖状态", f"{row.coverage_state} · {_STATE_LABELS[row.coverage_state]}"),
+                        self._field(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.self'), row.name, copyable=True),
+                        self._field(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.self_2'), row.domain),
+                        self._field(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.self_3'), f"{row.rows:,}"),
+                        self._field(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.self_4'), f"{row.coverage_state} · {ui_enum_text(getattr(self, 'text_catalog', None), _STATE_LABELS)[row.coverage_state]}"),
                         self._field("Dataset", release.dataset_id, copyable=True),
                         self._field("Schema", f"v{release.schema_version}"),
                         self._field("Importer", f"v{release.importer_version}"),
-                        self._field("只读", "是" if release.read_only else "否"),
+                        self._field(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.self_5'), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.self_6') if release.read_only else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.self_7')),
                     ),
                 ),
             ),
             notes=tuple(notes),
         )
 
-    @staticmethod
-    def _item(row: StaticTableOverview) -> CatalogItem:
+    def _item(self, row: StaticTableOverview) -> CatalogItem:
         return CatalogItem(
             domain_key="coverage",
             record_id=row.name,
             title=row.name,
-            subtitle=f"{row.domain} · {row.rows:,} 行 · 状态 {row.coverage_state}",
+            subtitle=localized_text(
+                getattr(self, "text_catalog", None),
+                "static_catalog.overview.item.subtitle",
+                "{domain} · {rows} 行 · 状态 {state}",
+                domain=row.domain,
+                rows=f"{row.rows:,}",
+                state=row.coverage_state,
+            ),
         )
 
     @staticmethod

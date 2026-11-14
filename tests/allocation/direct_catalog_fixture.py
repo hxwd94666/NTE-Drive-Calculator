@@ -4,11 +4,11 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
-from src.domain.equipment.equipment_normalizer import calculate_drive_main_stats
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
-from src.services.allocation.inventory import SqliteAllocationInventory, legacy_stat_name
+from src.domain.equipment.properties.equipment_normalizer import calculate_drive_main_stats
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
+from src.services.allocation.inputs.inventory import SqliteAllocationInventory, legacy_stat_name
 from src.services.equipment.tape_main_value import full_level_tape_main_value
-from src.services.official_role.attributes import calculate_official_role_combat_stat_components
+from src.services.official_role.panel.attributes import calculate_official_role_combat_stat_components
 from src.services.official_role.page import load_official_role_detail
 from src.storage.sqlite.user_data_dao import UserDataDao
 

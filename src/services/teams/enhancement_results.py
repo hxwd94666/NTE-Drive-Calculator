@@ -2,12 +2,12 @@
 from dataclasses import dataclass
 import json
 from uuid import uuid4
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader, static_catalog_read_unit
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader, static_catalog_read_unit
 
 from src.domain.teams.enhancement import (
     PROVENANCE_KEYS, SEARCH_KEYS, TeamResultCommit, TeamResultCommitEntry, validate_team_result_payload,
 )
-from src.services.allocation.postprocess_facts import allocation_inputs_digest, allocation_save_projection, allocation_row_save_projection
+from src.services.allocation.results.postprocess_facts import allocation_inputs_digest, allocation_save_projection, allocation_row_save_projection
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 

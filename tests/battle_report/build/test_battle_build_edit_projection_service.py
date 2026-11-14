@@ -12,6 +12,17 @@ from src.services.battle_report.build.edit_projection import (
 
 
 class BattleBuildEditProjectionServiceTests(unittest.TestCase):
+    def test_two_field_edit_keeps_frozen_defense_without_touching_original(self) -> None:
+        defense = {"source_group": "world_bonus", "property_id": "DefAdd", "value": 15.}
+        original = {"characters": [{"character_id": 1042, "stats": [defense]}]}
+        edited = {"character_id": 1042, "character_level": 80, "breakthrough_stage": 6,
+                  "awakening_level": 0, "profile": {
+                      "battle_world_bonus": {"AtkAdd": 14., "CritDamageBase": .024}}}
+        build = deepcopy(original)
+        apply_battle_build_edit(build, {"is_active": True, "characters": [edited]})
+        self.assertIn(defense, build["characters"][0]["stats"])
+        self.assertEqual(original["characters"][0]["stats"], [defense])
+
     def test_explicit_world_bonus_recovery_keeps_original_and_inactive_edit(self) -> None:
         original = {"characters": [{"character_id": 1042, "stats": [
             {"source_group": "world_bonus", "property_id": "AtkAdd", "value": 20.0},

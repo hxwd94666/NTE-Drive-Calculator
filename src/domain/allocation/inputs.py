@@ -164,6 +164,8 @@ class AllocationContext:
     suits: tuple[SuitConstraint, ...]
     scoring_rules: AllocationScoringRules
     attributes: tuple[OfficialAttribute, ...] = ()
+    # 本次冻结静态发行库的路径只作组件绑定身份，不允许评分器回退到随附主库。
+    static_database_path: str | None = None
 
     def __post_init__(self):
         if not isinstance(self.scoring_rules, AllocationScoringRules):

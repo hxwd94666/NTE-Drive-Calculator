@@ -1,12 +1,12 @@
 # 队伍条目按阵容与状态就近分组；窄屏重排同一批控件，保留身份、焦点和后台结果。
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy,
-    QToolButton, QVBoxLayout, QWidget,
+    QGridLayout, QHBoxLayout, QLabel, QMenu, QSizePolicy,
+    QToolButton, QWidget,
 )
 
 from src.app.theme import themed_style
-from src.ui.text_catalog import resolve_text_catalog
+from src.ui.common.text_catalog import ElidedTextLabel, TextActionButton, plain_tooltip, resolve_text_catalog, set_button_text
 from src.domain.teams.models import TeamRole
 from src.features.teams.cards import MemberSlots, set_role
 
@@ -17,6 +17,7 @@ class TeamCard(QWidget):
     def __init__(self, team, roles, *, actions, parent=None, catalog=None):
         super().__init__(parent)
         catalog = resolve_text_catalog(catalog)
+        text = catalog.render
         self.setObjectName('teamCard')
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
@@ -37,57 +38,59 @@ class TeamCard(QWidget):
         name.setWordWrap(True)
         name.setStyleSheet('font-size:16px;font-weight:700;')
         heading.addWidget(name)
-        count = QLabel(f'{len(team.character_ids)}/4 人')
+        count = QLabel(text('teams.card.member_count', count=len(team.character_ids)))
         count.setStyleSheet(themed_style('color:#8b949e;font-size:12px;'))
         heading.addWidget(count)
         heading.addStretch()
-        self.members = MemberSlots(self, compact=True)
+        self.members = MemberSlots(self, compact=True, catalog=catalog)
         for index, button in enumerate(self.members.buttons):
             role = None
             if index < len(team.character_ids):
                 key = team.character_ids[index]
-                role = roles.get(key, TeamRole(key, f'角色 {key}（暂不可用）'))
+                role = roles.get(key, TeamRole(key, text('teams.editor.unavailable_role', id=key)))
                 self.names.append(role.name)
             set_role(button, role)
-            button.setAccessibleName(f'编辑队伍 {team.name}，' + (role.name if role else '添加成员'))
+            button.setAccessibleName(text('teams.card.edit_member', team=team.name, member=role.name if role else text('teams.card.add_member')))
             button.clicked.connect(lambda checked=False, key=team.team_id: actions['edit'].emit(key))
 
-        self.summary = QWidget(self)
-        summary = QGridLayout(self.summary)
-        summary.setContentsMargins(0, 2, 0, 2)
-        summary.setHorizontalSpacing(12)
+        # 两行共享四列，摘要与入口始终一一对齐；窄屏只重排外层阵容区域。
+        self.right = QWidget(self)
+        right = QGridLayout(self.right)
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setHorizontalSpacing(8)
+        right.setVerticalSpacing(8)
+        for column in range(4):
+            right.setColumnStretch(column, 1)
         self.labels = {}
-        for key, text in (('axis_graduation', '毕业率：尚未读取历史'), ('enhancement', '增强：正在读取…'),
-                          ('source', '配装：正在读取…')):
-            label = QLabel(text)
+        for key, label_key in (('source', 'teams.card.source_loading'),
+                               ('axis_graduation', 'teams.card.graduation_unread'),
+                               ('enhancement', 'teams.card.enhancement_loading')):
+            label = ElidedTextLabel(text(label_key))
             label.setTextFormat(Qt.PlainText)
-            label.setWordWrap(True)
-            label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            label.setWordWrap(False)
+            label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             label.setStyleSheet(themed_style('color:#c9d1d9;font-size:12px;'))
             column = len(self.labels)
-            summary.addWidget(label, 0, column)
-            summary.setColumnStretch(column, 2 if key == 'source' else 1)
+            label.setAlignment(Qt.AlignCenter)
+            right.addWidget(label, 0, column)
             self.labels[key] = label
-        self.labels['axis_graduation'].setToolTip(
-            '固定战报轴下，当前伤害相对理论目标的比例。实战可执行性另行提示。')
+        self.labels['axis_graduation'].setToolTip(plain_tooltip(text('teams.card.graduation_hint')))
 
-        self.actions = QWidget(self)
-        self.actions.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        toolbar = QHBoxLayout(self.actions)
-        toolbar.setContentsMargins(0, 0, 0, 0)
-        toolbar.setSpacing(8)
-        for text, key, tip in (('匹配战报', 'match', '查找相同四人阵容的战报'),
-                               ('战报增强', 'enhancement', '进入增强配置，不会立即计算'),
-                               ('毕业率', 'graduation', '比较固定战报轴下的当前伤害与理论目标')):
-            button = QPushButton(text)
+        action_buttons = []
+        for column, (label_key, key, tip_key) in enumerate((('teams.menu.loadouts', 'loadouts', 'teams.card.loadouts_hint'),
+                                        ('teams.card.graduation', 'graduation', 'teams.card.graduation_hint'),
+                                        ('teams.menu.history', 'enhancement_details', 'teams.card.history_hint'))):
+            label = text(label_key)
+            button = TextActionButton(label)
             button.setStyleSheet('padding:6px 12px;')
-            button.setAccessibleName(f'{team.name}：{text}')
-            button.setToolTip(tip)
+            button.setAccessibleName(f'{team.name}：{label}')
+            button.setToolTip(plain_tooltip(text(tip_key)))
             button.clicked.connect(lambda checked=False, target=key: actions[target].emit(team.team_id))
-            toolbar.addWidget(button, 1)
+            right.addWidget(button, 1, column)
+            action_buttons.append(button)
         more = QToolButton(self)
-        more.setText('更多')
-        more.setAccessibleName(f'{team.name}：更多操作')
+        set_button_text(more, text('teams.card.more'))
+        more.setAccessibleName(f'{team.name}：' + text('teams.card.more'))
         more.setFocusPolicy(Qt.StrongFocus)
         more.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         more.setPopupMode(QToolButton.InstantPopup)
@@ -96,27 +99,23 @@ class TeamCard(QWidget):
             'border-radius:6px;padding:6px 10px;}'
             'QToolButton:hover{background:#21262d;}QToolButton:focus{border-color:#58a6ff;}'))
         menu = QMenu(more)
-        for label_key, key in (('teams.menu.edit', 'edit'), ('teams.menu.loadouts', 'loadouts'),
-                               ('teams.menu.history', 'enhancement_details'), ('teams.menu.delete', 'delete')):
+        for label_key, key in (('teams.menu.edit', 'edit'), ('teams.menu.delete', 'delete')):
             if key == 'delete':
                 menu.addSeparator()
             action = menu.addAction(catalog.render(label_key))
             action.triggered.connect(lambda checked=False, target=key: actions[target].emit(team.team_id))
         more.setMenu(menu)
-        toolbar.addWidget(more, 1)
-        # 状态按 1:1:2 给较长的配装说明更多空间；操作行仍等宽铺满。
-        self.right = QWidget(self)
-        right = QVBoxLayout(self.right)
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(8)
-        right.addWidget(self.summary, 1)
-        right.addWidget(self.actions)
-        self.matches = QLabel(self)
-        self.matches.setTextFormat(Qt.PlainText)
-        self.matches.setWordWrap(True)
-        self.matches.setStyleSheet(themed_style('color:#8b949e;font-size:12px;'))
-        self.matches.hide()
-        self.labels['matches'] = self.matches
+        right.addWidget(more, 1, 3)
+        calculate = TextActionButton(text('teams.calculate.title'))
+        calculate.setObjectName('btnPrimary')
+        calculate.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        calculate.setAccessibleName(f'{team.name}：' + text('teams.calculate.title'))
+        calculate.setToolTip(plain_tooltip(text('teams.calculate.hint')))
+        calculate.clicked.connect(lambda checked=False: actions['calculate'].emit(team.team_id))
+        right.addWidget(calculate, 0, 3, Qt.AlignCenter)
+        QWidget.setTabOrder(self.members.buttons[-1], calculate)
+        for previous, following in zip([calculate, *action_buttons], [*action_buttons, more]):
+            QWidget.setTabOrder(previous, following)
         self._reflow(False)
 
     def _reflow(self, wide):
@@ -133,14 +132,12 @@ class TeamCard(QWidget):
             self.grid.addWidget(self.heading, 0, 0)
             self.grid.addWidget(self.members, 1, 0)
             self.grid.addWidget(self.right, 0, 1, 2, 1)
-            self.grid.addWidget(self.matches, 2, 0, 1, 2)
         else:
             self.grid.setColumnStretch(0, 1)
             self.grid.setColumnStretch(1, 0)
             self.grid.addWidget(self.heading, 0, 0, 1, 2)
             self.grid.addWidget(self.members, 1, 0, 1, 2)
             self.grid.addWidget(self.right, 2, 0, 1, 2)
-            self.grid.addWidget(self.matches, 3, 0, 1, 2)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

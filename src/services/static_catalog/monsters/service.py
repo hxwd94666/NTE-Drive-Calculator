@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import quote, unquote
 
+from src.domain.localization.catalog import TextCatalog, localized_text
+from src.integrations.preferences.locale_files import enum_text
 from src.services.static_catalog.monsters.display import (
     NAME_UNAVAILABLE,
     display_catalog_scalar,
@@ -63,6 +65,16 @@ _RELEASE_LABELS = {
     "scheduled": "待开放",
     "unscheduled": "未提供排期",
 }
+# 怪物资料文案统一登记在 static_catalog.monster_service 前缀下；无目录时回退下列中文基线。
+_PREFIX = "static_catalog.monster_service."
+
+
+def _text(text_catalog: TextCatalog | None, suffix: str, fallback: str, **values: object) -> str:
+    """按怪物资料前缀取词；目录未注入或未登记该 key 时逐字回退原中文。"""
+
+    return localized_text(text_catalog, f"{_PREFIX}{suffix}", fallback, **values)
+
+
 def _key(kind: str, *parts: object) -> str:
     encoded = [quote(str(part), safe="") for part in parts]
     return "|".join((kind, *encoded))
@@ -94,10 +106,15 @@ class StaticCatalogMonsterService(
         *,
         terminology_service: StaticCatalogTerminologyService,
         mainland_now: datetime | None = None,
+        text_catalog: TextCatalog | None = None,
     ) -> None:
         self._queries = queries
         self._terminology_service = terminology_service
-        self._gameplay = StaticCatalogMonsterGameplayProjector(terminology_service)
+        # 目录由组合根注入并冻结；未注入时保持发行中文基线，不另读语言偏好。
+        self._text_catalog = text_catalog
+        self._gameplay = StaticCatalogMonsterGameplayProjector(
+            terminology_service, text_catalog=text_catalog,
+        )
         now = mainland_now or datetime.now(_MAINLAND_TIMEZONE)
         if now.tzinfo is not None:
             now = now.astimezone(_MAINLAND_TIMEZONE).replace(tzinfo=None)
@@ -110,11 +127,13 @@ class StaticCatalogMonsterService(
         *,
         terminology_service: StaticCatalogTerminologyService,
         mainland_now: datetime | None = None,
+        text_catalog: TextCatalog | None = None,
     ) -> "StaticCatalogMonsterService":
         return cls(
             StaticCatalogMonsterQueries(database_path),
             terminology_service=terminology_service,
             mainland_now=mainland_now,
+            text_catalog=text_catalog,
         )
 
     @property
@@ -206,18 +225,25 @@ class StaticCatalogMonsterService(
 
     def _entry_from_row(self, row: dict[str, Any]) -> CatalogEntry:
         title, localization_available = _text_state(row.get("title_zh"), NAME_UNAVAILABLE)
+        catalog = self._text_catalog
         play_mode = str(row.get("play_mode") or "")
+        play_labels = enum_text(catalog, _PLAY_MODE_LABELS)
         region, region_available = _text_state(
-            row.get("region"), _PLAY_MODE_LABELS.get(play_mode, play_mode)
+            row.get("region"), play_labels.get(play_mode, play_mode)
         )
         release_state = str(row.get("release_state") or "")
         subtitle_parts = list(dict.fromkeys((
-            _PLAY_MODE_LABELS.get(play_mode, play_mode), region,
+            play_labels.get(play_mode, play_mode), region,
         )))
         if row.get("difficulty"):
-            subtitle_parts.append(f"难度 / 层：{row['difficulty']}")
+            subtitle_parts.append(_text(
+                catalog, "entry.difficulty_floor", "难度 / 层：{value}",
+                value=row["difficulty"],
+            ))
         if release_state:
-            subtitle_parts.append(_RELEASE_LABELS.get(release_state, release_state))
+            subtitle_parts.append(enum_text(
+                catalog, _RELEASE_LABELS.get(release_state, release_state),
+            ))
         key_parts = [row.get("identity_1", "")]
         if row.get("identity_2") != "":
             key_parts.append(row["identity_2"])
@@ -299,22 +325,40 @@ class StaticCatalogMonsterService(
         return CatalogValue(label, text, OFFICIAL if available else UNAVAILABLE)
 
     def _source_section(self, source: dict[str, Any] | None) -> CatalogSection:
+        catalog = self._text_catalog
         if not source:
             return CatalogSection(
-                "来源追溯",
-                (self._value("来源", None, UNAVAILABLE),),
-                "当前规范化记录没有可用的 source_row_id。",
+                _text(catalog, "section.source_trace", "来源追溯"),
+                (self._value(_text(catalog, "label.source", "来源"), None, UNAVAILABLE),),
+                _text(
+                    catalog, "note.source_row_missing",
+                    "当前规范化记录没有可用的 source_row_id。",
+                ),
             )
         return CatalogSection(
-            "来源追溯",
+            _text(catalog, "section.source_trace", "来源追溯"),
             (
-                self._value("来源文件", source.get("relative_path"), copyable=True),
-                self._value("源行键", source.get("row_key"), copyable=True),
-                self._value("源行 SHA-256", source.get("content_sha256"), copyable=True),
-                self._value("源文件 SHA-256", source.get("source_file_sha256"), copyable=True),
                 self._value(
-                    "原始 payload",
-                    "可用" if source.get("payload_available") else "不可用（发行库已省略）",
+                    _text(catalog, "label.source_file", "来源文件"),
+                    source.get("relative_path"), copyable=True,
+                ),
+                self._value(
+                    _text(catalog, "label.source_row_key", "源行键"),
+                    source.get("row_key"), copyable=True,
+                ),
+                self._value(
+                    _text(catalog, "label.source_row_sha256", "源行 SHA-256"),
+                    source.get("content_sha256"), copyable=True,
+                ),
+                self._value(
+                    _text(catalog, "label.source_file_sha256", "源文件 SHA-256"),
+                    source.get("source_file_sha256"), copyable=True,
+                ),
+                self._value(
+                    _text(catalog, "label.raw_payload", "原始 payload"),
+                    _text(catalog, "value.available", "可用")
+                    if source.get("payload_available")
+                    else _text(catalog, "value.payload_omitted", "不可用（发行库已省略）"),
                     OFFICIAL if source.get("payload_available") else UNAVAILABLE,
                 ),
             ),
@@ -324,45 +368,71 @@ class StaticCatalogMonsterService(
         self,
         profile: dict[str, Any] | None,
         *,
-        title: str = "等价公式画像",
+        title: str | None = None,
         level: object = None,
         variant_kind: str = "",
-        note: str = "公式画像不等于怪物正式身份。",
+        note: str = "",
     ) -> CatalogSection:
+        catalog = self._text_catalog
+        title = title if title is not None else _text(
+            catalog, "section.combat_profile", "等价公式画像",
+        )
+        note = note if note else _text(
+            catalog, "note.combat_profile_identity", "公式画像不等于怪物正式身份。",
+        )
         if not profile:
             return CatalogSection(
                 title,
-                (self._value("画像", None, UNAVAILABLE),),
+                (self._value(_text(catalog, "label.profile", "画像"), None, UNAVAILABLE),),
                 note,
             )
         values = [
-            self._value("怪物等级", level, FORMULA),
+            self._value(_text(catalog, "label.monster_level", "怪物等级"), level, FORMULA),
             self._value("profile_set", profile.get("profile_set"), FORMULA, copyable=True),
             self._value("pack_id", profile.get("pack_id"), FORMULA, copyable=True),
-            self._value("生命基础", profile.get("health_base"), FORMULA),
-            self._value("生命加成", profile.get("health_up"), FORMULA),
-            self._value("生命固定值", profile.get("health_add"), FORMULA),
-            self._value("防御基础", profile.get("defense_base"), FORMULA),
-            self._value("防御加成", profile.get("defense_up"), FORMULA),
-            self._value("防御固定值", profile.get("defense_add"), FORMULA),
-            self._value("防御忽略", profile.get("defense_ignore"), FORMULA),
-            self._value("倾陷上限", profile.get("topple_limit"), FORMULA),
-            self._value("倾陷恢复", profile.get("topple_reduce_reset"), FORMULA),
+            self._value(_text(catalog, "label.health_base", "生命基础"),
+                        profile.get("health_base"), FORMULA),
+            self._value(_text(catalog, "label.health_up", "生命加成"),
+                        profile.get("health_up"), FORMULA),
+            self._value(_text(catalog, "label.health_add", "生命固定值"),
+                        profile.get("health_add"), FORMULA),
+            self._value(_text(catalog, "label.defense_base", "防御基础"),
+                        profile.get("defense_base"), FORMULA),
+            self._value(_text(catalog, "label.defense_up", "防御加成"),
+                        profile.get("defense_up"), FORMULA),
+            self._value(_text(catalog, "label.defense_add", "防御固定值"),
+                        profile.get("defense_add"), FORMULA),
+            self._value(_text(catalog, "label.defense_ignore", "防御忽略"),
+                        profile.get("defense_ignore"), FORMULA),
+            self._value(_text(catalog, "label.topple_limit", "倾陷上限"),
+                        profile.get("topple_limit"), FORMULA),
+            self._value(_text(catalog, "label.topple_reset", "倾陷恢复"),
+                        profile.get("topple_reduce_reset"), FORMULA),
             self._value(
-                "攻击档",
-                "不可用（schema v30 无攻击属性字段）",
+                _text(catalog, "label.attack_tier", "攻击档"),
+                _text(
+                    catalog, "value.attack_unavailable",
+                    "不可用（schema v30 无攻击属性字段）",
+                ),
                 UNAVAILABLE,
-                display_value="暂无数据",
+                display_value=_text(catalog, "value.no_data", "暂无数据"),
             ),
         ]
         if variant_kind:
-            values.append(self._value("画像档位类型", variant_kind, FORMULA))
+            values.append(self._value(
+                _text(catalog, "label.profile_variant_kind", "画像档位类型"),
+                variant_kind, FORMULA,
+            ))
         for resistance in profile.get("resistances", ()):
             damage_type = str(resistance["damage_type"])
             values.append(self._value(
-                f"抗性 {damage_type}",
-                f"{display_catalog_scalar(resistance.get('resistance_base'))} / "
-                f"免疫 {display_catalog_scalar(resistance.get('immunity'))}",
+                _text(catalog, "label.resistance", "抗性 {damage_type}",
+                      damage_type=damage_type),
+                _text(
+                    catalog, "value.resistance", "{base} / 免疫 {immunity}",
+                    base=display_catalog_scalar(resistance.get("resistance_base")),
+                    immunity=display_catalog_scalar(resistance.get("immunity")),
+                ),
                 FORMULA,
                 display_label=display_damage_type(
                     self._terminology_service, damage_type,
@@ -374,6 +444,7 @@ class StaticCatalogMonsterService(
         row = self._queries.manual_monster(manual_id)
         if row is None:
             return None
+        catalog = self._text_catalog
         mode = "world_boss" if world_boss else "official_illustrated"
         entry = self._entry(
             _key("world_boss" if world_boss else "manual_monster", manual_id),
@@ -381,21 +452,27 @@ class StaticCatalogMonsterService(
             play_mode=mode,
             title_value=row.get("name_zh"),
             fallback=NAME_UNAVAILABLE,
-            subtitle=_PLAY_MODE_LABELS[mode],
+            subtitle=enum_text(catalog, _PLAY_MODE_LABELS[mode]),
             primary_id=manual_id,
             secondary_id=str(row.get("enemy_type") or ""),
             resource_path=str(row.get("world_image_path") or row.get("image_path") or ""),
         )
         values = (
-            self._value("正式图鉴 ID", manual_id, copyable=True),
-            self._localized_value("中文名", row.get("name_zh")),
-            self._value("敌人类型", row.get("enemy_type")),
-            self._localized_value("地区 / 位置", row.get("place_zh")),
-            self._value("追踪类型", row.get("trace_type")),
+            self._value(_text(catalog, "label.formal_manual_id", "正式图鉴 ID"),
+                        manual_id, copyable=True),
+            self._localized_value(_text(catalog, "label.name_zh", "中文名"), row.get("name_zh")),
+            self._value(_text(catalog, "label.enemy_type", "敌人类型"), row.get("enemy_type")),
+            self._localized_value(_text(catalog, "label.place", "地区 / 位置"),
+                                  row.get("place_zh")),
+            self._value(_text(catalog, "label.trace_type", "追踪类型"), row.get("trace_type")),
         )
-        sections = [CatalogSection("正式身份", values)]
+        sections = [CatalogSection(
+            _text(catalog, "section.formal_identity", "正式身份"), values,
+        )]
         if row.get("aliases"):
-            sections.append(CatalogSection("正式别名", tuple(
+            sections.append(CatalogSection(_text(
+                catalog, "section.formal_aliases", "正式别名",
+            ), tuple(
                 self._value(
                     str(alias.get("alias_kind") or "alias"),
                     alias.get("alias_value"),
@@ -410,29 +487,51 @@ class StaticCatalogMonsterService(
         ]
         for binding in bindings:
             sections.append(CatalogSection(
-                f"模板绑定 · {binding['binding_kind']}",
-                (
-                    self._value("模板 ID", binding.get("monster_template_name"), copyable=True),
-                    self._value("绑定类型", binding.get("binding_kind")),
+                _text(
+                    catalog, "section.template_binding", "模板绑定 · {binding_kind}",
+                    binding_kind=binding["binding_kind"],
                 ),
-                "这是静态库显式绑定，不是按中文名匹配。",
+                (
+                    self._value(
+                        _text(catalog, "label.template_id", "模板 ID"),
+                        binding.get("monster_template_name"), copyable=True,
+                    ),
+                    self._value(
+                        _text(catalog, "label.binding_kind", "绑定类型"),
+                        binding.get("binding_kind"),
+                    ),
+                ),
+                _text(
+                    catalog, "note.explicit_binding",
+                    "这是静态库显式绑定，不是按中文名匹配。",
+                ),
             ))
             for profile in binding.get("profiles", ()):
                 relations.append(CatalogRelation(
-                    f"查看模板画像：{profile['static_table']}",
+                    _text(
+                        catalog, "relation.view_template_profile",
+                        "查看模板画像：{static_table}",
+                        static_table=profile["static_table"],
+                    ),
                     _key("profile_monster", profile["static_table"], profile["monster_id"]),
                     "explicit_template_binding",
-                    "由 monster_template_binding 的正式模板名连接。",
+                    _text(
+                        catalog, "note.template_binding_relation",
+                        "由 monster_template_binding 的正式模板名连接。",
+                    ),
                 ))
         if not world_boss and row.get("enemy_type") == "WeeklyBoss":
             relations.append(CatalogRelation(
-                "查看异象追猎玩法条目",
+                _text(catalog, "relation.view_world_boss", "查看异象追猎玩法条目"),
                 _key("world_boss", manual_id),
                 "official_enemy_type",
             ))
         sections.append(self._source_section(row.get("source")))
         notices = () if entry.localization_available else (
-            "该记录的中文文本在发行静态库中已含替换字符，本页不修复或补猜。",
+            _text(
+                catalog, "notice.replacement_characters",
+                "该记录的中文文本在发行静态库中已含替换字符，本页不修复或补猜。",
+            ),
         )
         return CatalogDetail(entry, tuple(sections), unique_relations(relations), notices)
 
@@ -469,16 +568,22 @@ class StaticCatalogMonsterService(
             play_mode="template_profile",
             title_value=title_value,
             fallback=NAME_UNAVAILABLE,
-            subtitle=_PLAY_MODE_LABELS["template_profile"],
+            subtitle=enum_text(self._text_catalog, _PLAY_MODE_LABELS["template_profile"]),
             primary_id=monster_id,
             secondary_id=static_table,
         )
-        sections = [CatalogSection("正式模板记录", (
-            self._value("静态表", static_table, copyable=True),
-            self._value("怪物模板 ID", monster_id, copyable=True),
-            self._value("默认等级", row.get("monster_level")),
-            self._value("online_ratio_id", row.get("online_ratio_id"), copyable=True),
-        ))]
+        catalog = self._text_catalog
+        sections = [CatalogSection(
+            _text(catalog, "section.formal_template_record", "正式模板记录"), (
+                self._value(_text(catalog, "label.static_table", "静态表"),
+                            static_table, copyable=True),
+                self._value(_text(catalog, "label.monster_template_id", "怪物模板 ID"),
+                            monster_id, copyable=True),
+                self._value(_text(catalog, "label.default_level", "默认等级"),
+                            row.get("monster_level")),
+                self._value("online_ratio_id", row.get("online_ratio_id"), copyable=True),
+            ),
+        )]
         default_profile = None
         if row.get("default_profile_set") and row.get("default_pack_id"):
             default_profile = self._queries.combat_profile(
@@ -487,20 +592,32 @@ class StaticCatalogMonsterService(
         sections.append(self._combat_profile_section(
             default_profile,
             level=row.get("monster_level"),
-            title="默认等价公式画像",
+            title=_text(
+                catalog, "section.default_combat_profile", "默认等价公式画像",
+            ),
         ))
         for variant in row.get("variants", ()):
             sections.append(self._combat_profile_section(
                 self._queries.combat_profile(variant["profile_set"], variant["pack_id"]),
                 level=variant.get("threshold_level"),
                 variant_kind=str(variant.get("variant_kind") or ""),
-                title=f"等级画像 · 等级 {variant['threshold_level']}",
+                title=_text(
+                    catalog, "section.level_profile",
+                    "等级画像 · 等级 {level}",
+                    level=variant["threshold_level"],
+                ),
             ))
         relations: list[CatalogRelation] = [CatalogRelation(
-            f"正式图鉴：{binding['monster_manual_id']}",
+            _text(
+                catalog, "relation.formal_manual", "正式图鉴：{manual_id}",
+                manual_id=binding["monster_manual_id"],
+            ),
             _key("manual_monster", binding["monster_manual_id"]),
             "explicit_template_binding",
-            f"绑定类型：{binding['binding_kind']}",
+            _text(
+                catalog, "note.binding_type", "绑定类型：{binding_kind}",
+                binding_kind=binding["binding_kind"],
+            ),
         ) for binding in bindings]
         for reference in self._queries.template_encounter_references(monster_id):
             kind = str(reference["entity_kind"])
@@ -511,18 +628,34 @@ class StaticCatalogMonsterService(
                 parts.append(reference["identity_3"])
             title, _available = _text_state(reference.get("title_zh"), kind)
             relations.append(CatalogRelation(
-                f"玩法引用：{_PLAY_MODE_LABELS.get(kind, kind)} · {title}",
+                _text(
+                    catalog, "relation.gameplay_reference",
+                    "玩法引用：{label} · {title}",
+                    label=enum_text(
+                        catalog, _PLAY_MODE_LABELS.get(kind, kind),
+                    ),
+                    title=title,
+                ),
                 _key(kind, *parts),
                 str(reference.get("relation_kind") or "exact_official_reference"),
-                "来自正式模板 ID 或 Unreal 类路径对象名，不使用中文名。",
+                _text(
+                    catalog, "note.reference_identity",
+                    "来自正式模板 ID 或 Unreal 类路径对象名，不使用中文名。",
+                ),
             ))
         sections.append(self._source_section(row.get("source")))
         notice = (
-            "标题使用同一正式 mon/boss 数字家族中全部可用名称证据的唯一结果；"
-            "这只补充展示，不建立当前模板与图鉴的身份关系。"
+            _text(
+                catalog, "notice.family_evidence_title",
+                "标题使用同一正式 mon/boss 数字家族中全部可用名称证据的唯一结果；"
+                "这只补充展示，不建立当前模板与图鉴的身份关系。",
+            )
             if family_evidence_row else (
-                "怪物模板 ID 是正式静态字段；只有显式 monster_template_binding "
-                "才建立与图鉴 ID 的身份关系。共用数值画像不证明身份。"
+                _text(
+                    catalog, "notice.template_identity",
+                    "怪物模板 ID 是正式静态字段；只有显式 monster_template_binding "
+                    "才建立与图鉴 ID 的身份关系。共用数值画像不证明身份。",
+                )
             )
         )
         return CatalogDetail(entry, tuple(sections), unique_relations(relations), (notice,))
@@ -548,54 +681,87 @@ class StaticCatalogMonsterService(
         entry = self._entry(
             _key("clone", clone_id, ordinal), domain="encounter", play_mode="clone",
             title_value=row.get("name_zh"), fallback=NAME_UNAVAILABLE,
-            subtitle=f"{_PLAY_MODE_LABELS['clone']} · 难度 {ordinal}",
+            subtitle=_text(
+                self._text_catalog, "entry.clone_subtitle",
+                "{play_mode} · 难度 {ordinal}",
+                play_mode=enum_text(
+                    self._text_catalog, _PLAY_MODE_LABELS["clone"],
+                ),
+                ordinal=ordinal,
+            ),
             primary_id=clone_id, secondary_id=str(row.get("clone_type") or ""),
         )
-        sections = [CatalogSection("正式副本配置", (
-            self._value("副本 ID", clone_id, copyable=True),
-            self._value(
-                "副本类型", row.get("clone_type"),
-                OFFICIAL if row.get("clone_type") else UNAVAILABLE,
-                copyable=bool(row.get("clone_type")),
+        catalog = self._text_catalog
+        sections = [CatalogSection(
+            _text(catalog, "section.clone_config", "正式副本配置"), (
+                self._value(_text(catalog, "label.clone_id", "副本 ID"),
+                            clone_id, copyable=True),
+                self._value(
+                    _text(catalog, "label.clone_type", "副本类型"), row.get("clone_type"),
+                    OFFICIAL if row.get("clone_type") else UNAVAILABLE,
+                    copyable=bool(row.get("clone_type")),
+                ),
+                self._localized_value(_text(catalog, "label.category", "类目"),
+                                      row.get("category_name_zh")),
+                self._value(
+                    _text(catalog, "label.adventure_manual", "冒险手册展示"),
+                    bool(row.get("show_in_adventure")) if row.get("show_in_adventure") is not None else None,
+                    OFFICIAL if row.get("show_in_adventure") is not None else UNAVAILABLE,
+                ),
+                self._value(
+                    _text(catalog, "label.cross_scene", "跨场景"),
+                    bool(row.get("cross_scene")) if row.get("cross_scene") is not None else None,
+                    OFFICIAL if row.get("cross_scene") is not None else UNAVAILABLE,
+                ),
+                self._value(_text(catalog, "label.difficulty_ordinal", "难度序号"), ordinal),
+                self._value(_text(catalog, "label.difficulty_level", "难度等级"),
+                            row.get("difficulty_level")),
+                self._value(_text(catalog, "label.team_level", "队伍等级"),
+                            row.get("team_level")),
+                self._value(_text(catalog, "label.stamina", "体力"),
+                            row.get("stamina_cost")),
+                self._value(_text(catalog, "label.spawn_config_id", "刷怪配置 ID"),
+                            row.get("spawn_id"), copyable=True),
+                self._value(_text(catalog, "label.kill_time_limit", "击杀时限"),
+                            row.get("kill_monster_time_limit")),
             ),
-            self._localized_value("类目", row.get("category_name_zh")),
-            self._value(
-                "冒险手册展示",
-                bool(row.get("show_in_adventure")) if row.get("show_in_adventure") is not None else None,
-                OFFICIAL if row.get("show_in_adventure") is not None else UNAVAILABLE,
-            ),
-            self._value(
-                "跨场景",
-                bool(row.get("cross_scene")) if row.get("cross_scene") is not None else None,
-                OFFICIAL if row.get("cross_scene") is not None else UNAVAILABLE,
-            ),
-            self._value("难度序号", ordinal),
-            self._value("难度等级", row.get("difficulty_level")),
-            self._value("队伍等级", row.get("team_level")),
-            self._value("体力", row.get("stamina_cost")),
-            self._value("刷怪配置 ID", row.get("spawn_id"), copyable=True),
-            self._value("击杀时限", row.get("kill_monster_time_limit")),
-        ))]
+        )]
         sections.append(self._gameplay.drop_section(row.get("drop_projection")))
         relations: list[CatalogRelation] = []
         members = row.get("members", ())
         if not members:
-            sections.append(CatalogSection("刷怪槽位", (
-                self._value("正式怪物池", None, UNAVAILABLE),
-            )))
+            sections.append(CatalogSection(
+                _text(catalog, "section.spawn_slots", "刷怪槽位"), (
+                    self._value(
+                        _text(catalog, "label.formal_monster_pool", "正式怪物池"),
+                        None, UNAVAILABLE,
+                    ),
+                ),
+            ))
         for index, member in enumerate(members, 1):
-            sections.append(CatalogSection(f"刷怪槽位 {index}", (
-                self._value("波次", member.get("wave_ordinal")),
-                self._value("模板路径", member.get("monster_template_path"), copyable=True),
-                self._value("模板 ID", member.get("monster_template_name"), copyable=True),
-                self._value("数量", member.get("monster_count")),
+            sections.append(CatalogSection(_text(
+                catalog, "section.spawn_slot", "刷怪槽位 {index}", index=index,
+            ), (
+                self._value(_text(catalog, "label.wave", "波次"),
+                            member.get("wave_ordinal")),
+                self._value(_text(catalog, "label.template_path", "模板路径"),
+                            member.get("monster_template_path"), copyable=True),
+                self._value(_text(catalog, "label.template_id", "模板 ID"),
+                            member.get("monster_template_name"), copyable=True),
+                self._value(_text(catalog, "label.count", "数量"),
+                            member.get("monster_count")),
             )))
             profiles = self._queries.template_profile_candidates(
                 member.get("monster_template_name") or ""
             )
             for candidate in profiles:
                 relations.append(CatalogRelation(
-                    f"刷怪槽位 {index} 模板画像：{candidate['static_table']}",
+                    _text(
+                        catalog, "relation.spawn_slot_profile",
+                        "刷怪槽位 {index} 模板画像：{static_table}",
+                        index=index,
+                        static_table=candidate["static_table"],
+                    ),
                     _key("profile_monster", candidate["static_table"], candidate["monster_id"]),
                     "exact_official_template_id",
                 ))
@@ -609,37 +775,73 @@ class StaticCatalogMonsterService(
         entry = self._entry(
             _key("high_risk", commission_id, difficulty), domain="encounter",
             play_mode="high_risk", title_value=row.get("name_zh"), fallback=NAME_UNAVAILABLE,
-            subtitle=f"高危委托 · 难度 {difficulty}", primary_id=commission_id,
+            subtitle=_text(
+                self._text_catalog, "entry.high_risk_subtitle",
+                "高危委托 · 难度 {difficulty}", difficulty=difficulty,
+            ), primary_id=commission_id,
             secondary_id=str(row.get("monster_pool_id") or ""),
         )
-        sections = [CatalogSection("正式委托配置", (
-            self._value("委托 ID", commission_id, copyable=True),
-            self._localized_value("委托名", row.get("name_zh")),
-            self._value("难度", difficulty),
-            self._value("推荐角色等级", row.get("recommended_character_level")),
-            self._value("场景 ID", row.get("scene_data_id"), copyable=True),
-            self._value("逐难度怪物池", row.get("monster_pool_id"), copyable=True),
-            self._value("通用回退池", row.get("fallback_monster_pool_id"), copyable=True),
-        ))]
+        catalog = self._text_catalog
+        sections = [CatalogSection(
+            _text(catalog, "section.commission_config", "正式委托配置"), (
+                self._value(_text(catalog, "label.commission_id", "委托 ID"),
+                            commission_id, copyable=True),
+                self._localized_value(_text(catalog, "label.commission_name", "委托名"),
+                                      row.get("name_zh")),
+                self._value(_text(catalog, "label.difficulty", "难度"), difficulty),
+                self._value(_text(catalog, "label.recommended_level", "推荐角色等级"),
+                            row.get("recommended_character_level")),
+                self._value(_text(catalog, "label.scene_id", "场景 ID"),
+                            row.get("scene_data_id"), copyable=True),
+                self._value(_text(catalog, "label.per_difficulty_pool", "逐难度怪物池"),
+                            row.get("monster_pool_id"), copyable=True),
+                self._value(_text(catalog, "label.fallback_pool", "通用回退池"),
+                            row.get("fallback_monster_pool_id"), copyable=True),
+            ),
+        )]
         relations: list[CatalogRelation] = []
         members = row.get("members", ())
         if not row.get("monster_pool_id"):
-            sections.append(CatalogSection("逐难度正式怪物池", (
-                self._value("怪物池", "不可用（本难度只有通用回退池）", UNAVAILABLE),
-            )))
+            sections.append(CatalogSection(
+                _text(
+                    catalog, "section.per_difficulty_pool",
+                    "逐难度正式怪物池",
+                ), (
+                    self._value(
+                        _text(catalog, "label.monster_pool", "怪物池"),
+                        _text(
+                            catalog, "value.pool_unavailable",
+                            "不可用（本难度只有通用回退池）",
+                        ),
+                        UNAVAILABLE,
+                    ),
+                ),
+            ))
         for index, member in enumerate(members, 1):
-            sections.append(CatalogSection(f"怪物池成员 {index}", (
-                self._value("类路径", member.get("monster_class_path"), copyable=True),
-                self._value("模板 ID", member.get("monster_template_name"), copyable=True),
-                self._value("数量", member.get("monster_count")),
-                self._value("配置等级", member.get("configured_monster_level")),
-                self._value("属性 ID", member.get("attribute_id"), copyable=True),
+            sections.append(CatalogSection(_text(
+                catalog, "section.pool_member", "怪物池成员 {index}", index=index,
+            ), (
+                self._value(_text(catalog, "label.class_path", "类路径"),
+                            member.get("monster_class_path"), copyable=True),
+                self._value(_text(catalog, "label.template_id", "模板 ID"),
+                            member.get("monster_template_name"), copyable=True),
+                self._value(_text(catalog, "label.count", "数量"),
+                            member.get("monster_count")),
+                self._value(_text(catalog, "label.configured_level", "配置等级"),
+                            member.get("configured_monster_level")),
+                self._value(_text(catalog, "label.attribute_id", "属性 ID"),
+                            member.get("attribute_id"), copyable=True),
             )))
             for candidate in self._queries.template_profile_candidates(
                 member.get("monster_template_name") or ""
             ):
                 relations.append(CatalogRelation(
-                    f"怪物池成员 {index} 模板画像：{candidate['static_table']}",
+                    _text(
+                        catalog, "relation.pool_member_profile",
+                        "怪物池成员 {index} 模板画像：{static_table}",
+                        index=index,
+                        static_table=candidate["static_table"],
+                    ),
                     _key("profile_monster", candidate["static_table"], candidate["monster_id"]),
                     "exact_official_template_id",
                 ))
@@ -653,36 +855,49 @@ class StaticCatalogMonsterService(
         object_name = path.rsplit(".", 1)[-1]
         if object_name.endswith("_C"):
             object_name = object_name[:-2]
+        catalog = self._text_catalog
         relations = []
         for candidate in self._queries.template_profile_candidates(object_name):
             relations.append(CatalogRelation(
-                f"类路径对象的模板画像：{candidate['static_table']}",
+                _text(
+                    catalog, "relation.class_path_profile",
+                    "类路径对象的模板画像：{static_table}",
+                    static_table=candidate["static_table"],
+                ),
                 _key("profile_monster", candidate["static_table"], candidate["monster_id"]),
                 "exact_class_path_object",
-                "仅按正式类路径中的对象名精确连接，不使用中文名。",
+                _text(
+                    catalog, "note.class_path_identity",
+                    "仅按正式类路径中的对象名精确连接，不使用中文名。",
+                ),
             ))
         return relations
 
 
-def provenance_label(provenance: str) -> str:
+def provenance_label(
+    provenance: str, *, text_catalog: TextCatalog | None = None,
+) -> str:
     return {
-        OFFICIAL: "官方静态事实",
-        FORMULA: "等价公式画像",
-        DERIVED: "项目派生 / 注解",
-        UNAVAILABLE: "不可用",
+        OFFICIAL: _text(text_catalog, "provenance.official", "官方静态事实"),
+        FORMULA: _text(text_catalog, "provenance.formula", "等价公式画像"),
+        DERIVED: _text(text_catalog, "provenance.derived", "项目派生 / 注解"),
+        UNAVAILABLE: _text(text_catalog, "provenance.unavailable", "不可用"),
     }.get(provenance, provenance)
 
 
-def play_mode_choices() -> tuple[tuple[str, str], ...]:
-    return (("all", "全部玩法"), *tuple(_PLAY_MODE_LABELS.items()))
-
-
-def release_scope_choices() -> tuple[tuple[str, str], ...]:
+def play_mode_choices(*, text_catalog: TextCatalog | None = None) -> tuple[tuple[str, str], ...]:
     return (
-        ("all", "全部期数"),
-        ("current_next", "当前 + 下一期"),
-        ("current", "仅当前期"),
-        ("next", "仅下一期"),
+        ("all", _text(text_catalog, "play_mode.all", "全部玩法")),
+        *tuple(enum_text(text_catalog, _PLAY_MODE_LABELS).items()),
+    )
+
+
+def release_scope_choices(*, text_catalog: TextCatalog | None = None) -> tuple[tuple[str, str], ...]:
+    return (
+        ("all", _text(text_catalog, "release_scope.all", "全部期数")),
+        ("current_next", _text(text_catalog, "release_scope.current_next", "当前 + 下一期")),
+        ("current", _text(text_catalog, "release_scope.current", "仅当前期")),
+        ("next", _text(text_catalog, "release_scope.next", "仅下一期")),
     )
 
 

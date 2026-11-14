@@ -27,9 +27,10 @@ from tools.game_data.promote_static_release import (
     validate_database_size,
 )
 from src.app.version import __version__
+from src.integrations.analysis_core.nte_analysis_core import ENGINE_VERSION
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
-from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.integrations.nte_core import NteCoreClient
+from src.integrations.components.game_component_bundle import inspect_game_component_bundle
+from src.integrations.native_core.nte_core import NteCoreClient
 from src.integrations.vision.recognition.ocr.model_resources import validate_packaged_ocr_models
 from tools.release.game_component_bundle_build import source_component_manifest, validate_packaged_component_bundle
 from tools.release.native_component_bundle_build import native_component_build_inputs
@@ -296,6 +297,35 @@ def validate_components() -> None:
     validate_core_capabilities(core)
 
 
+def validate_release_identity() -> dict[str, str]:
+    """冻结版本、静态库与分析组件的构建身份，阻止同版本异内容进入发布准备。"""
+    static_manifest = json.loads((ROOT / "data" / "manifest.json").read_text(encoding="utf-8"))
+    component_manifest_path = ROOT / "third_party" / "analysis-core" / "component.json"
+    component_manifest = json.loads(component_manifest_path.read_text(encoding="utf-8"))
+    static_db = ROOT / "data" / "game_static.sqlite3"
+    component_exe = ROOT / "third_party" / "analysis-core" / "bin" / "nte-analysis-core.exe"
+    static_declared = str(static_manifest.get("database", {}).get("sha256") or "").lower()
+    component_declared = str(component_manifest.get("sha256") or "").lower()
+    static_actual, component_actual = sha256(static_db).lower(), sha256(component_exe).lower()
+    if static_declared != static_actual:
+        raise RuntimeError("发布身份校验失败：静态库清单与实际文件不一致")
+    if component_declared != component_actual:
+        raise RuntimeError("发布身份校验失败：分析组件清单与实际文件不一致")
+    if component_manifest.get("engine_version") != ENGINE_VERSION:
+        raise RuntimeError("发布身份校验失败：分析组件版本与代码版本不一致")
+    identity = {
+        "app_version": __version__,
+        "static_dataset_id": str(static_manifest.get("database", {}).get("dataset_id") or ""),
+        "static_sha256": static_actual,
+        "analysis_engine_version": str(component_manifest.get("engine_version") or ""),
+        "analysis_sha256": component_actual,
+    }
+    if not identity["static_dataset_id"]:
+        raise RuntimeError("发布身份校验失败：静态库缺少 dataset_id")
+    print(f"[通过] 发布构建身份：app={__version__}，dataset={identity['static_dataset_id']}，analysis={component_actual}")
+    return identity
+
+
 def validate_core_capabilities(core: Path) -> None:
     """实际抓包入口握手；原生入口仍需配套 DLL 隔离验证和实机验收。"""
     with NteCoreClient(executable=core, required_source="packet") as client:
@@ -379,6 +409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.local_config,
         )
         validate_components()
+        validate_release_identity()
         if args.skip_tests:
             print("[警告] 已显式跳过测试；仅用于本地调试，不构成发布测试通过证据。")
         else:

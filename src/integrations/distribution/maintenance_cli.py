@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.integrations.application_runtime_paths import resolve_application_roots, select_runtime_data_root
+from src.integrations.runtime.application_runtime_paths import resolve_application_roots, select_runtime_data_root
 from .data_lifecycle import migrate_existing_data, restore_data_recovery, resume_data_import
 from .data_roots import select_external_data_root
 from .lock import DataRootLease

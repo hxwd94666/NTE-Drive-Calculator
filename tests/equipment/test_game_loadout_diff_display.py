@@ -1,11 +1,21 @@
 # 验证游戏导入配装的差异展示与快照边界。
 """Regression coverage for game-loadout score, badges, and diff hydration."""
 
-from src.features.inventory.equipment import display_loaders as equipment_display_loaders
+from src.features.inventory.equipment.display import display_loaders as equipment_display_loaders
+
+
+def _borrowed_static(monkeypatch, dao_type):
+    from contextlib import nullcontext
+    from pathlib import Path
+    from types import SimpleNamespace
+    def read(path, *, read_unit=None):
+        return nullcontext(read_unit or SimpleNamespace(dao=dao_type(),
+            release=SimpleNamespace(database_path=Path(path))))
+    monkeypatch.setattr(equipment_display_loaders, 'static_catalog_read_unit', read)
 
 
 def test_saved_plan_minimal_diff_is_hydrated_from_its_source_snapshot() -> None:
-    from src.features.inventory.equipment.plan_display_state import _sqlite_plan_display_state
+    from src.features.inventory.equipment.display.plan_display_state import _sqlite_plan_display_state
 
     class StaticDao:
         pass
@@ -88,7 +98,7 @@ def test_saved_plan_minimal_diff_is_hydrated_from_its_source_snapshot() -> None:
 def test_saved_plan_cards_use_its_frozen_assignment_scores() -> None:
     """当前方案的单件分数必须与保存时的冻结总分来自同一份数据。"""
 
-    from src.features.inventory.equipment.plan_display_state import _sqlite_plan_display_state
+    from src.features.inventory.equipment.display.plan_display_state import _sqlite_plan_display_state
 
     drive = {
         "kind": "module",
@@ -132,7 +142,7 @@ def test_saved_plan_cards_use_its_frozen_assignment_scores() -> None:
 def test_saved_plan_total_is_rebuilt_from_complete_frozen_item_scores() -> None:
     """旧聚合分有偏差时，展示总分必须服从完整逐件冻结分。"""
 
-    from src.features.inventory.equipment.plan_display_state import _sqlite_plan_display_state
+    from src.features.inventory.equipment.display.plan_display_state import _sqlite_plan_display_state
 
     drive = {
         "kind": "module",
@@ -176,7 +186,7 @@ def test_diff_tape_card_renders_its_projected_item_icon(tmp_path) -> None:
     from PySide6.QtGui import QColor, QPixmap
     from PySide6.QtWidgets import QApplication, QLabel
 
-    from src.ui.equipment_presentation import EquipmentPresentation
+    from src.ui.equipment.equipment_presentation import EquipmentPresentation
 
     app = QApplication.instance() or QApplication([])
     icon_path = tmp_path / "core.png"
@@ -223,8 +233,8 @@ def test_virtual_core_diff_is_hydrated_and_grouped_as_one_tape_swap() -> None:
 
     from PySide6.QtWidgets import QApplication, QLabel
 
-    from src.features.inventory.equipment.plan_display_state import _sqlite_plan_display_state
-    from src.ui.equipment_presentation import EquipmentPresentation
+    from src.features.inventory.equipment.display.plan_display_state import _sqlite_plan_display_state
+    from src.ui.equipment.equipment_presentation import EquipmentPresentation
 
     app = QApplication.instance() or QApplication([])
     old_uid = "nte-core-22-11"
@@ -306,7 +316,7 @@ def test_virtual_core_diff_is_hydrated_and_grouped_as_one_tape_swap() -> None:
 
 
 def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch, tmp_path) -> None:
-    import src.features.inventory.equipment.display_view as display_view
+    import src.features.inventory.equipment.display.display_view as display_view
 
     old_item = {
         "kind": "module",
@@ -421,7 +431,7 @@ def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch, tmp_pa
             ]
 
     monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
-    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
+    _borrowed_static(monkeypatch, StaticDao)
     summary_calls = []
 
     def load_summaries(_user_path, _static_path, _character_id, items, **_kwargs):
@@ -457,7 +467,7 @@ def test_removed_diff_item_uses_previous_plan_fixed_snapshot(monkeypatch, tmp_pa
 def test_persisted_virtual_slot_is_not_queried_as_snapshot_uid(
     monkeypatch,
 ) -> None:
-    import src.features.inventory.equipment.display_view as display_view
+    import src.features.inventory.equipment.display.display_view as display_view
 
     plan = {
         "plan_id": 1,
@@ -533,7 +543,7 @@ def test_persisted_virtual_slot_is_not_queried_as_snapshot_uid(
             ]
 
     monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
-    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
+    _borrowed_static(monkeypatch, StaticDao)
 
     states = display_view._load_sqlite_equipment_display_states(
         "user.sqlite3",
@@ -550,7 +560,7 @@ def test_persisted_virtual_slot_is_not_queried_as_snapshot_uid(
 def test_saved_plan_display_accepts_packet_and_scan_snapshots(
     monkeypatch,
 ) -> None:
-    import src.features.inventory.equipment.display_view as display_view
+    import src.features.inventory.equipment.display.display_view as display_view
 
     item = {
         "kind": "module",
@@ -626,7 +636,7 @@ def test_saved_plan_display_accepts_packet_and_scan_snapshots(
             return []
 
     monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
-    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
+    _borrowed_static(monkeypatch, StaticDao)
 
     for source in ("nte_core", "gamepad"):
         UserDao.source = source
@@ -640,7 +650,7 @@ def test_saved_plan_display_accepts_packet_and_scan_snapshots(
 
 
 def test_missing_tape_game_detail_keeps_blueprint(monkeypatch) -> None:
-    import src.features.inventory.equipment.display_view as display_view
+    import src.features.inventory.equipment.display.display_view as display_view
 
     module = {
         "uid_serial": 11,
@@ -710,7 +720,7 @@ def test_missing_tape_game_detail_keeps_blueprint(monkeypatch) -> None:
             return []
 
     monkeypatch.setattr(equipment_display_loaders, "UserDataDao", Dao)
-    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", Dao)
+    _borrowed_static(monkeypatch, Dao)
     monkeypatch.setattr(
         equipment_display_loaders,
         "_load_sqlite_equipment_display_states",

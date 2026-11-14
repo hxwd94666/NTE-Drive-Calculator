@@ -10,7 +10,7 @@ from src.integrations.vision.capture_files import (
     capture_output_lease, create_capture_directory, freeze_capture_stage,
 )
 
-from src.features.scanning.file_lifecycle import (
+from src.features.scanning.files.file_lifecycle import (
     ScanFileLifecycle,
     build_screenshot_cleanup_plan,
     execute_screenshot_cleanup,
@@ -202,7 +202,7 @@ def test_cleanup_clipboard_only_without_screenshot_directory(tmp_path):
 @pytest.mark.parametrize("transition", ["cancel", "unchanged", "account", "aba", "after_execute"])
 def test_cleanup_confirmation_preserves_frozen_account(tmp_path, monkeypatch, transition):
     from src.app.context import AccountContext, AppContext
-    from src.ui import main_window_data_mixin as entry
+    from src.ui.main_window import main_window_data_mixin as entry
 
     accounts = []
     for identity in ("first", "second"):

@@ -6,7 +6,6 @@ import sqlite3
 
 import pytest
 from src.features.weighted_allocation import runner
-from src.integrations.static_catalog_release import StaticCatalogReleaseError
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError, UserDataValidationError
 from src.storage.sqlite.inventory.inventory_snapshot_usage import exported_snapshot_ids
 from src.features.weighted_allocation.save_owner import WeightedOperation
@@ -93,12 +92,11 @@ def test_c9_failed_first_slot_save_never_advances_receipt(scenario, failure):
         with actual(operation):
             yield
     with patch.object(WeightedOperation, 'commit_context', stop_at_accept):
-        with pytest.raises(CancelledError if failure == 'cancel' else StaticCatalogReleaseError) as caught:
+        with pytest.raises(CancelledError if failure == 'cancel' else sqlite3.OperationalError) as caught:
             save_confirm(s.owner, preview, slot_ids_by_character={1003: None})
     if failure == 'sqlite':
-        # 强静态租约保留原SQLite故障为cause；公开包装不改变真实writer的回滚事实。
-        assert isinstance(caught.value.__cause__, sqlite3.OperationalError)
-        assert str(caught.value.__cause__) == '受控真实提交前故障'
+        # 业务故障原样传播，不冒充静态发行读取失败；真实writer仍完整回滚。
+        assert str(caught.value) == '受控真实提交前故障'
     assert len(attempts) == 1
     assert attempts[0].cancelled.is_set() is (failure == 'cancel')
     assert preview.save_receipt is None and preview.slot_bindings == ()
@@ -107,7 +105,7 @@ def test_c9_failed_first_slot_save_never_advances_receipt(scenario, failure):
 
 @pytest.mark.parametrize('failure', ['receipt', 'late-pointer', 'cancel'])
 def test_c9_post_commit_confirmation_failure_preserves_db_fact_not_old_cursor(scenario, failure):
-    from src.services.allocation import weighted_cursor
+    from src.services.allocation.results import weighted_cursor
     s = scenario
     s.primary(serial=11)
     b, q = s.explicit(serial=12)

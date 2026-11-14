@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.services.allocation.catalog import AllocationCatalogService, CatalogDependencies
+from src.services.allocation.inputs.catalog import AllocationCatalogService, CatalogDependencies
 from src.services.characters.character_weight_service import save_account_character_weights
 from src.storage.sqlite.user_data_dao import UserDataDao
 

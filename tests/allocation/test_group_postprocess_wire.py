@@ -8,8 +8,8 @@ from unittest.mock import Mock
 import pytest
 
 from tests.allocation.test_axis_postprocess_wire import request_fixture, response_fixture
-from src.integrations.allocation_group_postprocess import postprocess_allocation_groups
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.allocation.allocation_group_postprocess import postprocess_allocation_groups
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 
 NTE_TEST_TIER = "core"
@@ -147,11 +147,15 @@ def test_exchange_coverage_and_links_are_required_not_legacy_success():
 
 def test_exchange_save_requires_linked_groups_and_keeps_preview_identity():
     from unittest.mock import patch
-    from src.services.allocation.direct_group_postprocess import (
-        FrozenDirectGroupInputs, DirectGroupPreviewSource, verify_direct_group_save,
+    from src.services.allocation.direct.direct_group_postprocess import (
+        FrozenDirectGroupInputs,
+        DirectGroupPreviewSource,
+        verify_direct_group_save,
     )
-    from src.services.allocation.postprocess_facts import (
-        allocation_inputs_digest, allocation_row_save_projection, linked_save_dependencies,
+    from src.services.allocation.results.postprocess_facts import (
+        allocation_inputs_digest,
+        allocation_row_save_projection,
+        linked_save_dependencies,
     )
     groups = [{"members": [{"role": role}]} for role in ("A", "B", "C")]
     links = linked_save_dependencies(groups, [["A", "B"], ["B", "C"]])
@@ -168,7 +172,7 @@ def test_exchange_save_requires_linked_groups_and_keeps_preview_identity():
         row["direct_group_preview_source"] = DirectGroupPreviewSource(
             frozen, allocation_inputs_digest(meta), allocation_inputs_digest(allocation_row_save_projection(row)))
         rows.append(row)
-    with patch("src.services.allocation.direct_group_postprocess.locked_allocation_owners", return_value=[]):
+    with patch("src.services.allocation.direct.direct_group_postprocess.locked_allocation_owners", return_value=[]):
         verify_direct_group_save(Mock(), rows, dataset_id="test")
         with pytest.raises(RuntimeError, match="关联组"):
             verify_direct_group_save(Mock(), rows[:1], dataset_id="test")

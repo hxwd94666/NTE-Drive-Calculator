@@ -2,7 +2,7 @@
 import json
 from unittest.mock import patch
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient, RESPONSE_SCHEMA
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient, RESPONSE_SCHEMA
 
 
 def test_editor_request_excludes_fragments_but_hit_request_keeps_them(tmp_path):

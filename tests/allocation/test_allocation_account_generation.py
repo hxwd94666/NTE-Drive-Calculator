@@ -9,14 +9,14 @@ from unittest.mock import patch
 
 import pytest
 
-from src.features.allocation.runner import (
+from src.features.allocation.execution.runner import (
     AllocationRunResult,
     _on_done,
     _run_allocation,
     _select_allocation_save_slots,
 )
-from src.features.allocation.save_workflow import save_allocation
-from src.services.allocation.locks import AllocationLockSnapshot
+from src.features.allocation.execution.save_workflow import save_allocation
+from src.services.allocation.inputs.locks import AllocationLockSnapshot
 from tests.allocation.static_release_helpers import clone_test_release
 
 
@@ -27,7 +27,7 @@ def test_slot_selection_does_not_create_an_empty_slot() -> None:
     owner = SimpleNamespace(final_plan={"role": {"valid": True}})
     user_dao = SimpleNamespace(list_loadout_slots=lambda _character_id: [])
     with patch(
-        "src.features.allocation.runner.resolve_character_id_for_allocation_role",
+        "src.features.allocation.execution.runner.resolve_character_id_for_allocation_role",
         return_value=1004,
     ):
         targets = _select_allocation_save_slots(owner, user_dao, object(), 1)
@@ -118,14 +118,14 @@ def test_save_rechecks_current_account_after_slot_dialog(tmp_path) -> None:
         return {"role": (1, 1)}
 
     with (
-        patch("src.features.allocation.runner._allocation_paths", return_value=(
+        patch("src.features.allocation.execution.runner._allocation_paths", return_value=(
             Path("account.sqlite3"), Path("config"), Path("user-config"),
             Path("screenshots"), static_path,
         )),
-        patch("src.features.allocation.runner._select_allocation_save_slots",
+        patch("src.features.allocation.execution.runner._select_allocation_save_slots",
               side_effect=switch_account),
-        patch("src.features.allocation.save_workflow.UserDataDao"),
-        patch("src.features.allocation.save_workflow.AllocationSaveProgress") as progress,
+        patch("src.features.allocation.execution.save_workflow.UserDataDao"),
+        patch("src.features.allocation.execution.save_workflow.AllocationSaveProgress") as progress,
     ):
         assert save_allocation(owner, show_message=False) is False
 

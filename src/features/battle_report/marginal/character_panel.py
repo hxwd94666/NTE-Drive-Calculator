@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QFrame,
     QHeaderView,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -101,6 +101,7 @@ def render_character_panel_and_margins(
     analysis: BattleAnalysisSnapshot | None,
     baseline: BattleCharacterBaseline | None,
     marginal_panel: BattleMarginalPanelResult | None,
+    text_catalog=None,
 ) -> None:
     """Render both views from one shared fixed-axis marginal calculation."""
 
@@ -119,6 +120,7 @@ def render_character_panel_and_margins(
     render_attribute_results(
         attribute_table,
         tuple(row for row in results if row.property_id in drive_property_ids),
+        text_catalog=text_catalog,
     )
 
 
@@ -181,16 +183,17 @@ def _derived_value(
 class BattleMarginalCharacterPanel(QFrame):
     """Render two wide rows without inventing unsupported dynamic values."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, text_catalog=None) -> None:
         super().__init__()
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("card")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(10)
-        title = QLabel("人物面板")
+        title = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.title_2'))
         title.setObjectName("cardTitle")
         layout.addWidget(title)
-        note = QLabel("静态面板取自本场快照；动态证据不足时显示“—”。")
+        note = plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.note_3'))
         note.setObjectName("battleMarginalCharacterPanelNote")
         note.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         note.setWordWrap(True)
@@ -248,7 +251,7 @@ class BattleMarginalCharacterPanel(QFrame):
         self.table.clear()
         self.table.setRowCount(2)
         self.table.setColumnCount(len(properties) + 1)
-        self.table.setHorizontalHeaderLabels(("属性", *tuple(
+        self.table.setHorizontalHeaderLabels((resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.participant.self'), *tuple(
             f"{row.label}（本系）"
             if row.property_id == current_element_property else row.label
             for row in properties
@@ -276,7 +279,7 @@ class BattleMarginalCharacterPanel(QFrame):
                 )
                 item.setTextAlignment(Qt.AlignCenter)
                 if row_index == 1 and value is None:
-                    item.setToolTip("该属性没有可安全归属的公式面板伤害或动态投影。")
+                    item.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render.item_2')))
                 self.table.setItem(row_index, column, item)
             self.table.setColumnWidth(column, max(112, len(row.label) * 18 + 24))
 

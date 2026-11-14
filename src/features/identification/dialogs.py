@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize
@@ -13,7 +14,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFrame,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -22,9 +22,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import current_style_sheet, themed_style
-from src.features.inventory.warehouse.cards import warehouse_shape_pixmap
+from src.features.inventory.warehouse.display.cards import warehouse_shape_pixmap
 from src.models.equipment import Tape
-from src.ui.widgets import SearchableComboBox
+from src.ui.common.widgets import SearchableComboBox
 
 __all__ = [
     "choose_identify_image_options",
@@ -49,13 +49,13 @@ def group_shape_ids_by_area(shape_areas: dict) -> dict[int, list[str]]:
 
 def choose_identify_image_options(self, path: Path, *, parent=None):
     dlg = QDialog(parent)
-    dlg.setWindowTitle("选择鉴定类型")
+    dlg.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.choose_identify_image_options.dlg'))
     dlg.setMinimumSize(900, 720)
     dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
     layout.setSpacing(10)
 
-    image_label = QLabel()
+    image_label = plain_label()
     image_label.setAlignment(Qt.AlignCenter)
     image_label.setMinimumHeight(320)
     pix = QPixmap(str(path))
@@ -64,10 +64,10 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     layout.addWidget(image_label, 1)
 
     type_row = QHBoxLayout()
-    type_row.addWidget(QLabel("装备类型"))
+    type_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.label')))
     type_group = QButtonGroup(dlg)
-    drive_rb = QRadioButton("驱动")
-    tape_rb = QRadioButton("卡带")
+    drive_rb = QRadioButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('warehouse.management.rules.type_drive'))
+    tape_rb = QRadioButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('matching.position.cartridge'))
     drive_rb.setChecked(True)
     type_group.addButton(drive_rb, 0)
     type_group.addButton(tape_rb, 1)
@@ -80,7 +80,7 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     drive_layout = QVBoxLayout(drive_widget)
     drive_layout.setContentsMargins(0, 0, 0, 0)
     drive_layout.setSpacing(6)
-    drive_layout.addWidget(QLabel("驱动形状"))
+    drive_layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.label_3')))
     selected_shape = {"value": None}
     shape_buttons = []
 
@@ -104,14 +104,14 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     for area in (2, 3, 4):
         shape_row = QHBoxLayout()
         shape_row.setSpacing(8)
-        title = QLabel(f"{area}型")
+        title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.choose_identify_image_options.title', area=f'{area}'))
         title.setFixedWidth(36)
         shape_row.addWidget(title)
         for sid in grouped_shapes.get(area, []):
             btn = QPushButton(sid)
             btn.setToolTip(sid)
             btn.setMinimumSize(84, 54)
-            pixmap = warehouse_shape_pixmap(sid, "Gold")
+            pixmap = warehouse_shape_pixmap(sid, "Gold", text_catalog=getattr(self, 'text_catalog', None))
             if not pixmap.isNull():
                 btn.setIcon(QIcon(pixmap))
                 btn.setIconSize(QSize(32, 32))
@@ -130,17 +130,17 @@ def choose_identify_image_options(self, path: Path, *, parent=None):
     layout.addWidget(drive_widget)
 
     tape_row = QHBoxLayout()
-    tape_row.addWidget(QLabel("卡带套装"))
+    tape_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.label_4')))
     set_combo = SearchableComboBox()
-    set_combo.addItem("自动识别", AUTO_CHOICE)
+    set_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.choose_identify_image_options.set_combo'), AUTO_CHOICE)
     for set_name in self.all_set_names:
         set_combo.addItem(set_name, set_name)
     self._make_combo_searchable(set_combo)
     tape_row.addWidget(set_combo, 1)
-    tape_row.addWidget(QLabel("主词条"))
+    tape_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('identification.page.build_identify_page.label_5')))
     main_combo = SearchableComboBox()
     main_pool = self._get_tape_main_stats_pool()
-    main_combo.addItem("自动识别", AUTO_CHOICE)
+    main_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.choose_identify_image_options.set_combo'), AUTO_CHOICE)
     for stat_name in main_pool:
         main_combo.addItem(stat_name, stat_name)
     self._make_combo_searchable(main_combo)
@@ -194,12 +194,12 @@ def confirm_identify_tape_main_stats(self, items, *, parent=None):
 
     main_pool = self._get_tape_main_stats_pool()
     dlg = QDialog(parent)
-    dlg.setWindowTitle("确认卡带主词条")
+    dlg.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.confirm_identify_tape_main_stats.dlg'))
     dlg.setMinimumSize(720, 420)
     dlg.setStyleSheet(current_style_sheet())
     layout = QVBoxLayout(dlg)
     layout.setSpacing(10)
-    hint = QLabel("请为每个识别到的卡带分别确认主词条；可直接输入中文或拼音搜索。")
+    hint = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.confirm_identify_tape_main_stats.hint'))
     hint.setStyleSheet(themed_style("color:#8b949e;border:none"))
     hint.setWordWrap(True)
     layout.addWidget(hint)
@@ -219,7 +219,7 @@ def confirm_identify_tape_main_stats(self, items, *, parent=None):
         row.setContentsMargins(10, 8, 10, 8)
         row.setSpacing(10)
         summary = ", ".join(f"{k}{v:g}" for k, v in list(item.sub_stats.items())[:4])
-        label = QLabel(f"卡带 {idx}  {item.set_name or ''}  {summary}")
+        label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.identification.confirm_identify_tape_main_stats.label', idx=f'{idx}', value=f"{item.set_name or ''}", summary=f'{summary}'))
         label.setWordWrap(True)
         row.addWidget(label, 1)
         combo = SearchableComboBox()

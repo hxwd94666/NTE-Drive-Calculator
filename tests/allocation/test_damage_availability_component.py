@@ -4,13 +4,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.app.facade import NTEAppFacade
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.integrations.static_catalog_release import static_catalog_read_unit
-from src.services.allocation.baseline_fallback import baseline_save_available
-from src.services.allocation.direct_postprocess import optimization_payload
-from src.services.allocation.locks import build_allocation_lock_snapshot
-from src.services.allocation.plan_save import save_allocation_plans
-from src.services.allocation.postprocess_facts import allocation_save_projection
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+from src.services.allocation.execution.baseline_fallback import baseline_save_available
+from src.services.allocation.direct.direct_postprocess import optimization_payload
+from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+from src.services.allocation.results.plan_save import save_allocation_plans
+from src.services.allocation.results.postprocess_facts import allocation_save_projection
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.allocation.test_axis_postprocess_component import axis_facade_case, ROOT
 

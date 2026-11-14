@@ -4,12 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.allocation.damage_result_summary import damage_optimization_presentation
-from src.services.allocation.baseline_fallback import attach_baseline_fallbacks, baseline_save_available
-from src.services.allocation.direct_postprocess import optimization_payload
-from src.services.allocation.plan_save import save_allocation_plans
-from src.services.allocation.postprocess_facts import allocation_save_projection
-from src.services.allocation.baseline_fallback import verify_baseline_save
+from src.features.allocation.results.damage_result_summary import damage_optimization_presentation
+from src.services.allocation.execution.baseline_fallback import attach_baseline_fallbacks, baseline_save_available
+from src.services.allocation.direct.direct_postprocess import optimization_payload
+from src.services.allocation.results.plan_save import save_allocation_plans
+from src.services.allocation.results.postprocess_facts import allocation_save_projection
+from src.services.allocation.execution.baseline_fallback import verify_baseline_save
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.allocation.test_direct_postprocess_save import setup_case
 

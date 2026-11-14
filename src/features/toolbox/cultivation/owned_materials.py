@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -13,7 +14,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QSizePolicy,
     QSpinBox,
     QVBoxLayout,
@@ -25,8 +25,8 @@ from src.domain.progression.materials import allocate_owned, lower_tier_ids
 from src.domain.progression.history import normalize_owned_materials
 from src.features.toolbox.cultivation.controls import disable_numeric_input_method
 from src.services.progression.planner_service import CultivationMaterial
-from src.ui.progression_material_card import ProgressionMaterialCard
-from src.ui.progression_material_grid import ProgressionMaterialGrid
+from src.ui.progression.progression_material_card import ProgressionMaterialCard
+from src.ui.progression.progression_material_grid import ProgressionMaterialGrid
 
 
 IconLookup = Callable[[str], str | Path | None]
@@ -68,8 +68,9 @@ class _OwnedMaterialCanvas(QWidget):
     _MIN_WIDTH = 132
     _GAP = 8
 
-    def __init__(self, icon_lookup: IconLookup, parent: QWidget) -> None:
+    def __init__(self, icon_lookup: IconLookup, parent: QWidget, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("cultivationOwnedMaterialGrid")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -223,14 +224,14 @@ class _OwnedMaterialCanvas(QWidget):
             painter.drawText(
                 QRect(rect.left() + 8, rect.top() + 80, rect.width() - 16, 20),
                 Qt.AlignmentFlag.AlignCenter,
-                (f"需要 × {max(0, int(material.quantity)):,}"
-                 if material.quantity else "可合成材料"),
+                (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.paintevent.painter', value=f'{max(0, int(material.quantity)):,}')
+                 if material.quantity else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.paintevent.painter_2')),
             )
             painter.setPen(QColor(theme_color("#8b949e")))
             painter.drawText(
                 QRect(rect.left() + 8, rect.top() + 111, 42, 28),
                 Qt.AlignmentFlag.AlignVCenter,
-                "已有",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.paintevent.painter_3'),
             )
             if not active:
                 field_rect = self._editor_rect(rect)
@@ -306,8 +307,9 @@ class CultivationOwnedMaterials(QFrame):
     layout_changed = Signal()
     import_requested = Signal()
 
-    def __init__(self, icon_lookup: IconLookup, parent: QWidget) -> None:
+    def __init__(self, icon_lookup: IconLookup, parent: QWidget, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("cultivationOwnedMaterials")
         self.setStyleSheet(themed_style(
             "QFrame#cultivationOwnedMaterials{background:#161b22;"
@@ -319,26 +321,26 @@ class CultivationOwnedMaterials(QFrame):
         root.setContentsMargins(14, 10, 14, 12)
         root.setSpacing(8)
         header = QHBoxLayout()
-        title = QLabel("已有材料", self)
+        title = plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.title'), self)
         title.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:14px;font-weight:800"
         ))
         header.addWidget(title)
-        header.addWidget(QLabel("点击材料卡填写已有数量，再点击计算", self))
+        header.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.caption'), self))
         header.addStretch(1)
-        self._import_button = QPushButton("同步材料", self)
+        self._import_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.toolbox.init.import_button'), self)
         self._import_button.setObjectName("cultivationOwnedImport")
         self._import_button.setEnabled(False)
-        self._import_button.setToolTip("原生模式读取当前账号归档；低风险模式读取账号已保存的稳定抓包材料观测，停止同步后仍可使用。未观测项数量未知。")
+        self._import_button.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.toolbox.init.import_button_2')))
         self._import_button.clicked.connect(lambda _checked=False: self.import_requested.emit())
         header.addWidget(self._import_button)
-        clear = QPushButton("清空", self)
+        clear = TextActionButton(resolve_text_catalog(text_catalog).render('selector.clear'), self)
         clear.setObjectName("cultivationOwnedClear")
-        clear.setToolTip("清空本次草稿中的全部已有材料数量，不修改账号物品归档。")
+        clear.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.toolbox.init.clear')))
         clear.clicked.connect(lambda _checked=False: self.clear_quantities())
         header.addWidget(clear)
         root.addLayout(header)
-        self._canvas = _OwnedMaterialCanvas(icon_lookup, self)
+        self._canvas = _OwnedMaterialCanvas(icon_lookup, self, text_catalog=text_catalog)
         self._owned_cache: dict[str, int] = {}
         self._manual_overrides: set[str] = set()
         self._history_sources: dict[str, tuple[str, str | None]] = {}
@@ -355,7 +357,7 @@ class CultivationOwnedMaterials(QFrame):
     def set_import_status(self, message: str) -> None:
         self._import_button.setToolTip(message)
         if self._status_label is None:
-            label = QLabel(self)
+            label = plain_label(self)
             label.setObjectName("cultivationOwnedImportStatus")
             label.setWordWrap(True)
             label.setStyleSheet(themed_style("color:#8b949e;font-size:12px;"))
@@ -398,7 +400,7 @@ class CultivationOwnedMaterials(QFrame):
         self._history_sources.clear()
         self._canvas.clear_quantities()
         self._owned_cache.update(self._canvas.quantities())
-        self.set_import_status("已有材料草稿已清空；账号已保存的同步记录保持不变。")
+        self.set_import_status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.clear_quantities.self'))
         if changed:
             self.quantities_changed.emit()
 
@@ -448,7 +450,7 @@ class CultivationOwnedMaterials(QFrame):
         self._manual_overrides.clear()
         self._history_sources.clear()
         self._canvas.set_materials(())
-        self._import_button.setToolTip("同步后仅已观测材料更新；未观测项保持手填值。")
+        self._import_button.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.clear_materials.import_button')))
         if self._status_label is not None:
             self._status_label.hide()
         self.layout_changed.emit()

@@ -1,52 +1,70 @@
 # 在规则页顶部同步总量与评级草稿，规则开关由下方列表表达。
+from src.ui.common.text_catalog import ElidedTextLabel, plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import QEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QSpinBox, QVBoxLayout, QWidget
 from src.app.theme import themed_style
-from src.ui.widgets import NoWheelComboBox
-from src.domain.grade_limits import GRADE_LADDER
+from src.ui.common.widgets import NoWheelComboBox
+from src.domain.equipment.scoring.grade_limits import GRADE_LADDER
 
-from src.domain.equipment.intelligent_rules import preserve_origin
+from src.domain.equipment.warehouse.intelligent_rules import preserve_origin
 
 
 class IntelligentBudgetBar(QWidget):
-    def __init__(self, rules, changed, parent=None, *, advice=lambda: None):
+    def __init__(self, rules, changed, parent=None, *, advice=lambda: None, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.rules, self.changed = rules, changed
         self.advice = advice
         self.current_rule = None
         self.grade_rule = None
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        line = QHBoxLayout()
-        label = QLabel("目标保留总量（卡带＋驱动）")
+        line = QGridLayout()
+        label = ElidedTextLabel(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.label'))
         self.amount = QSpinBox()
         self.amount.setRange(0, 100000)
-        self.amount.setSpecialValueText("不限")
-        self.amount.setSuffix(" 件")
-        self.amount.setAccessibleName("目标保留总量，卡带与驱动合计")
+        self.amount.setSpecialValueText(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.amount'))
+        self.amount.setSuffix(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.amount_2'))
+        self.amount.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.amount_3'))
         self.amount.setMinimumWidth(150)
         label.setBuddy(self.amount)
-        line.addWidget(label)
-        line.addWidget(self.amount)
-        grade_label = QLabel("驱动保留评级")
+        grade_label = ElidedTextLabel(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.grade_label'))
         self.grade = NoWheelComboBox()
-        self.grade.setAccessibleName("驱动保留评级")
-        self.grade.addItem("不额外保留", "none")
+        self.grade.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.grade_label'))
+        self.grade.addItem(resolve_text_catalog(text_catalog).render('ui.equipment_management.init.grade'), "none")
         for value in GRADE_LADDER:
-            self.grade.addItem(value + " 及以上", value)
+            self.grade.addItem(value + resolve_text_catalog(text_catalog).render('ui.equipment_management.init.grade_2'), value)
         self.grade.setMinimumWidth(140)
         grade_label.setBuddy(self.grade)
-        line.addWidget(grade_label)
-        line.addWidget(self.grade)
-        line.addStretch()
+        self._fields = label, self.amount, grade_label, self.grade
+        self._field_grid, self._wide = line, None
+        self._reflow_fields(self.width() >= 800)
         root.addLayout(line)
-        self.hint = QLabel()
+        self.hint = plain_label()
         self.hint.setWordWrap(True)
         self.hint.setVisible(False)
         root.addWidget(self.hint)
         self.amount.valueChanged.connect(self._change)
         self.grade.currentIndexChanged.connect(self._change_grade)
         self._apply_style()
+
+    def _reflow_fields(self, wide):
+        if self._wide == wide:
+            return
+        self._wide = wide
+        grid = self._field_grid
+        while grid.count():
+            grid.takeAt(0)
+        for column in range(4):
+            grid.setColumnStretch(column, 1 if column == 1 or (wide and column == 3) else 0)
+        for index, field in enumerate(self._fields):
+            grid.addWidget(field, 0 if wide else index // 2, index if wide else index % 2)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_fields'):
+            # 长译文与窄窗采用两行，不让预算栏撑宽整个规则区并挤走行内动作。
+            self._reflow_fields(self.width() >= 800)
 
     def _apply_style(self):
         style = themed_style(
@@ -77,23 +95,21 @@ class IntelligentBudgetBar(QWidget):
         self.grade.setEnabled(self.grade_rule is not None)
         # 规则是否启用由下方列表直接表达；顶部不重复显示状态提示。
         self.hint.clear()
-        self.amount.setToolTip("与下方未来用途储备规则同步。")
-        self.grade.setToolTip("与下方驱动评级保护规则同步。")
+        self.amount.setToolTip('')
+        self.grade.setToolTip('')
         suggestion = self.advice() or {}
         if suggestion:
             rate = suggestion.get("drive_rate")
             budget = suggestion.get("budget") or {}
+            text = self.text_catalog.render
             reason = (
-                f"首次建议 {suggestion['recommended_drive_grade']}：目标不超过 {budget['target']} 件，"
-                "按评级数量和已有保护估算，选择预算内最宽松的一档。正式计算仍会检查全角色损失。"
+                text('ui.rules.budget.fits', grade=suggestion['recommended_drive_grade'], target=budget['target'])
                 if budget.get("target") and budget.get("fits_target")
-                else "必要保护估计已超过目标，不能靠提高评级强行取消保护。"
-                if budget.get("target")
-                else f"首次建议 {suggestion['recommended_drive_grade']}：驱动质量样本平均得分率 {rate:.1%}。"
-                if rate is not None
-                else "首次评估缺少有效样本，采用默认 SSS。"
+                else text('ui.rules.budget.exceeded') if budget.get("target")
+                else text('ui.rules.budget.sample', grade=suggestion['recommended_drive_grade'], rate=f"{rate:.1%}")
+                if rate is not None else text('ui.rules.budget.no_sample')
             )
-            self.grade.setToolTip(reason + " 已有评级设置不会被后续仓库变化自动覆盖。")
+            self.grade.setToolTip(plain_tooltip(reason + resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.refresh.grade_2')))
 
     def _change(self, value):
         if self.current_rule is None:

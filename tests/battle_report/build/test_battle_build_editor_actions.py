@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from src.features.battle_report.editing.dialog import (
     BattleBuildSnapshotEditorDialog,
 )
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 
 
 class BattleBuildEditorActionTests(unittest.TestCase):

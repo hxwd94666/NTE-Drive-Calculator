@@ -6,7 +6,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-from src.integrations.operation_guard import require_operation
+from src.integrations.runtime.operation_guard import require_operation
 
 
 class InventorySyncCancelled(Exception):

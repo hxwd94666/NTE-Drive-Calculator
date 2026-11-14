@@ -7,6 +7,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from time import perf_counter
+from collections import OrderedDict
 
 from src.domain.progression.materials import allocate_owned
 from src.domain.progression.history import HistoryCalculationEnvelope
@@ -20,6 +21,7 @@ from src.services.progression.planner_service import (
     CultivationStaminaPlan,
 )
 from src.services.progression.stamina_planner import (
+    StaminaPlanningSession,
     calculate_stamina_result,
     normalize_owned_quantities,
     stamina_material_ids,
@@ -115,12 +117,28 @@ class CultivationBatchPlannerService:
 
     def __init__(self, single_service: CultivationPlannerService) -> None:
         self._single = single_service
+        self._plan_cache: OrderedDict[tuple[object, ...], CultivationPlan] = OrderedDict()
+        self._plan_cache_limit = 64
+
+    def _calculate_target(self, target: CultivationTargetDraft) -> CultivationPlan:
+        """同一批次内复用完全相同目标，保持目标顺序和材料语义不变。"""
+        key = (target.character_id, target.request)
+        cached = self._plan_cache.get(key)
+        if cached is not None:
+            self._plan_cache.move_to_end(key)
+            return cached
+        plan = self._single.calculate(target.request)
+        self._plan_cache[key] = plan
+        self._plan_cache.move_to_end(key)
+        while len(self._plan_cache) > self._plan_cache_limit:
+            self._plan_cache.popitem(last=False)
+        return plan
 
     def prepare(self, request: CultivationBatchRequest) -> CultivationBatchPreparation:
         """与正式计算共用材料公式；准备阶段不消费库存或求解体力。"""
         _validate_request(request)
         stages = self._single.load_farming_stages()
-        raw_plans = tuple((target, self._single.calculate(target.request))
+        raw_plans = tuple((target, self._calculate_target(target))
                           for target in request.ordered_targets)
         merged = _merge_materials(plan.totals for _target, plan in raw_plans)
         return CultivationBatchPreparation(
@@ -161,6 +179,7 @@ class CultivationBatchPlannerService:
         target_plans: list[CultivationTargetPlan] = []
         ledger: list[CultivationMaterialSource] = []
         gaps: list[CultivationBatchGap] = []
+        session = StaminaPlanningSession()
         for target, plan in raw_plans:
             allocated, sources = _allocate_plan(target.line_id, plan, available)
             ledger.extend(sources)
@@ -176,6 +195,7 @@ class CultivationBatchPlannerService:
                 stages,
                 hunter_level=request.hunter_level,
                 identification_level=request.effective_identification_level,
+                session=session,
             )
             target_plans.append(CultivationTargetPlan(
                 line_id=target.line_id,
@@ -196,6 +216,7 @@ class CultivationBatchPlannerService:
             hunter_level=request.hunter_level,
             effective_identification_level=request.effective_identification_level,
             material_gaps=tuple(gap.reason_code for gap in gaps),
+            session=session,
         )
         trace_cultivation(
             request.trace_id, "worker.combined_solved",
@@ -300,6 +321,7 @@ def _calculate_target_stamina(
     *,
     hunter_level: int,
     identification_level: int | None,
+    session: StaminaPlanningSession | None = None,
 ) -> CultivationStaminaPlan:
     total = calculate_stamina_result(
         plan.totals,
@@ -308,6 +330,7 @@ def _calculate_target_stamina(
         hunter_level=hunter_level,
         effective_identification_level=identification_level,
         material_gaps=tuple(gap.reason_code for gap in plan.gaps),
+        session=session,
     )
     available = dict(allocated)
     sections: list[CultivationSectionStamina] = []
@@ -324,6 +347,7 @@ def _calculate_target_stamina(
                 stages,
                 hunter_level=hunter_level,
                 effective_identification_level=identification_level,
+                session=session,
             ),
         ))
     return CultivationStaminaPlan(total, tuple(sections), stamina_material_ids(stages, materials=plan.totals))

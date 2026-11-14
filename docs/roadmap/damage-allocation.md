@@ -252,12 +252,12 @@ Python 保留账号与数据读取、冻结请求、正式身份和协议校验�
 
 | 责任 | 当前入口 |
 | --- | --- |
-| 分配与后处理编排 | `src/app/facade.py`、`src/features/allocation/runner.py` |
-| 标准模型与联合组输入 | `src/services/allocation/direct_postprocess.py`、`direct_group_postprocess.py` |
-| 轴选择、冻结、物化与保存来源 | `src/services/allocation/axis_selection.py`、`axis_postprocess.py` |
-| 保护、合法性和基础评分验收 | `src/services/allocation/postprocess_facts.py` |
-| 联合组与轴协议校验 | `src/integrations/allocation_group_postprocess.py`、`axis_allocation_postprocess.py` |
-| 结果说明 | `src/features/allocation/damage_result_summary.py` |
+| 分配与后处理编排 | `src/app/facade.py`、`src/features/allocation/execution/runner.py` |
+| 标准模型与联合组输入 | `src/services/allocation/direct/direct_postprocess.py`、`direct_group_postprocess.py` |
+| 轴选择、冻结、物化与保存来源 | `src/services/allocation/axis/axis_selection.py`、`axis_postprocess.py` |
+| 保护、合法性和基础评分验收 | `src/services/allocation/results/postprocess_facts.py` |
+| 联合组与轴协议校验 | `src/integrations/allocation/allocation_group_postprocess.py`、`axis_allocation_postprocess.py` |
+| 结果说明 | `src/features/allocation/results/damage_result_summary.py` |
 
 必要回归保留：锁定/未锁定旧方案与游戏锁区别；软偏好不扩大为硬排除；单件停滞但双件改善；
 UID 一对一与同级竞争；标准模型与实际等级差别；暴击渠道/取整；固定 A 与共享目标；未知量化不接受；
@@ -277,17 +277,17 @@ Rust 迁移须有小输入等价与完整调用链证据，不能只检查“请
 
 | 范围 | 当前调用证据 | 判断与后续处理 |
 | --- | --- | --- |
-| 主计算页角色优先分配 | `src/app/facade.py` → `src/integrations/native_allocation.py:create_allocation_executor` → `client.allocate`；检查 `allocation_v2` 能力 | 分配评分/筛选/求解交给 Rust 组件；Python 编排软主词条回退和响应验收，不代表前置链全 Rust |
+| 主计算页角色优先分配 | `src/app/facade.py` → `src/integrations/allocation/native_allocation.py:create_allocation_executor` → `client.allocate`；检查 `allocation_v2` 能力 | 分配评分/筛选/求解交给 Rust 组件；Python 编排软主词条回退和响应验收，不代表前置链全 Rust |
 | 直伤后处理 | 正式门面 → `damage_allocation_v1` → Rust 原值投影和联合搜索 | 数值主链已迁入同一次 Rust 作业；旧 Python 投影/生产后处理退场 |
 | 轴伤后处理 | 正式 T/S/R 预检/固定 A → `damage_allocation_v1` → 全队搜索 | 队内子集与 B0 前固定队友已接通；选一人也走统一全队目标，不再使用单成员生产入口 |
-| 战报页面分析 | `src/integrations/nte_analysis_core.py:load_battle_page` 的 `battle_page_v1`；来源见 `third_party/analysis-core/SOURCE.md` | 正式页面走独立 Rust 分析，不由此推断其他角色页公式也已迁移 |
-| 图纸生成与摆盘 | 伤害策略在完整 Rust 作业内生成/落位；普通角色优先和鉴定匹配仍保留原 Python 入口 | 两种伤害链已迁移，其他入口不作为失败回退，继续单独审计 |
-| 后处理输入数值投影 | 正式门面经 `src/integrations/damage_allocation_job.py`，消费 `src/services/allocation/direct_projection.py` 原值 | 正式入口与随附组件均已切为 Rust 原值投影，旧 Python 投影及生产调用已退场 |
+| 战报页面分析 | `src/integrations/analysis_core/nte_analysis_core.py:load_battle_page` 的 `battle_page_v1`；来源见 `third_party/analysis-core/SOURCE.md` | 正式页面走独立 Rust 分析，不由此推断其他角色页公式也已迁移 |
+| 图纸生成与摆盘 | 伤害策略在完整 Rust 作业内生成/落位；普通桌面分配经正式 `allocation_blueprints_v1`；鉴定的独立匹配入口另行维护 | 普通桌面图纸不再默认走 Python DFS；其他独立入口不充当伤害链失败回退 |
+| 后处理输入数值投影 | 正式门面经 `src/integrations/allocation/damage_allocation_job.py`，消费 `src/services/allocation/direct/direct_projection.py` 原值 | 正式入口与随附组件均已切为 Rust 原值投影，旧 Python 投影及生产调用已退场 |
 | 后处理评分复核 | 完整作业返回共用评分核的逐 UID 基础分证明；Calc 复核身份、集合和冻结分数 | 正式新链不再重复评分或暴击数值计算；公共 ScoringEngine 已统一适配 Rust 核，身份/集合/占格门禁保留 Python |
 | 鉴定、仓库快捷鉴定、弃置锁定评分 | 公共 ScoringEngine → `equipment_scoring_v1`，各入口共用匹配上下文 | 基础评分/评级已迁入 Rust，批量化避免逐件进程；套装匹配和基础分语义不变 |
-| 角色页边际、装备收益与替换 | `src/features/official_role/role_calculation.py` / `role_equipment.py` → `src/services/official_role/marginal_scoring.py`、`attributes.py` → `DamageCalculationService.calculate_direct` | 装备基础评分已适配 Rust；属性、直伤公式和边际循环仍有 Python，与计算页直伤不是同一入口，另列公共模型迁移项 |
+| 角色页边际、装备收益与替换 | 冻结有效面板 → `RoleDamageCalculator` → 正式 analysis `direct_damage_v1` | 连续未取整乘区已批量接入；Python 仅投影候选、比值和展示。静态构建/离线差分保留纯值参考，与逐击取整协议独立；进程与能力边界见 [分析组件](../integrations.md#11-nte-analysis-core) |
 | 养成材料与体力 | `src/services/progression/planner_service.py` → `src/domain/progression/materials.py`、`src/services/progression/stamina_planner.py` | 仍有 Python 材料分配/换算算法；不是本轮两种伤害策略的一部分，不在本轮改动 |
-| 存量独立加权分配入口 | `src/features/weighted_allocation/runner.py` → `solve_allocation_context` → `src/services/allocation/legacy_adapter.py` → `AllocationKernel` / `DispatcherEngine` | 存在 Python 求解路径；本轮引用搜索未发现主 UI 直接调用该 runner，不能称为主计算页回退，也不能未经动态入口/测试核查就删除 |
+| 存量独立加权分配入口 | `src/features/weighted_allocation/runner.py` → `solve_allocation_context` → `src/services/allocation/execution/legacy_adapter.py` → `AllocationKernel` / `DispatcherEngine` | 存在 Python 求解路径；本轮引用搜索未发现主 UI 直接调用该 runner，不能称为主计算页回退，也不能未经动态入口/测试核查就删除 |
 
 当前正式轴链在冻结队伍与固定 A 后验证完整 S，先于 B0；低层选择器保留记录选择职责，不单凭“出现过的伤害角色”证明 T。
 审计中的“仍为 Python”只适用于明确列出的其他功能/旧独立调用，不再据旧入口推断当前伤害主链。

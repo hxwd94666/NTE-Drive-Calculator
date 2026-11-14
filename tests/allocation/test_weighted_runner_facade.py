@@ -8,7 +8,7 @@ import pytest
 
 from src.features.weighted_allocation import runner
 from src.observability import OperationContext
-from src.services.allocation_solver import AllocationSolveResult, UnifiedAllocation
+from src.services.allocation.execution.allocation_solver import AllocationSolveResult, UnifiedAllocation
 
 NTE_TEST_TIER = "core"
 

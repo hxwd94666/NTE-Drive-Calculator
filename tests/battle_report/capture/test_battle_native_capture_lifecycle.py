@@ -6,7 +6,10 @@ from typing import Any
 
 from src.observability import OperationContext
 from src.services.battle_report.capture.service import BattleCaptureService
-from tests.test_battle_capture_axis_service import _Core, _Writer, _summary_payload, _wait_until
+from tests.battle_report.capture.test_battle_capture_axis_service import _Core
+from tests.battle_report.capture.test_battle_capture_axis_service import _Writer
+from tests.battle_report.capture.test_battle_capture_axis_service import _summary_payload
+from tests.battle_report.capture.test_battle_capture_axis_service import _wait_until
 
 
 class _NativeCore(_Core):
@@ -220,7 +223,7 @@ def test_ui_stop_during_live_snapshot_still_finalizes_and_saves():
         check()
         service.request_stop()
         check()
-    with patch('src.integrations.native_battle_snapshot.freeze_native_battle_snapshot', snapshot):
+    with patch('src.integrations.native_core.snapshots.native_battle_snapshot.freeze_native_battle_snapshot', snapshot):
         try:
             service.start()
             assert _wait_until(lambda: not service.is_running)

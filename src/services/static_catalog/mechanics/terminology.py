@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from src.domain.static_catalog_terminology import LocalizedTermRecord
+from src.domain.catalog.static_catalog_terminology import LocalizedTermRecord
 from src.services.static_catalog.misc.models import CatalogDetail
 from src.services.static_catalog.misc.service import StaticCatalogMiscService
 from src.services.static_catalog.common.terminology import (

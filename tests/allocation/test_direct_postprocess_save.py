@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
-from src.services.allocation.locks import build_allocation_lock_snapshot
-from src.services.allocation.plan_save import save_allocation_plans
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
+from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+from src.services.allocation.results.plan_save import save_allocation_plans
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.equipment.test_saved_state_loadout_bridge import _inventory_item, _snapshot
 

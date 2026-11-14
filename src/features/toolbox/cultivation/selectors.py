@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
@@ -12,9 +13,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
-    QPushButton,
     QScrollArea,
     QToolButton,
     QVBoxLayout,
@@ -22,10 +21,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.domain.role_name_order import role_name_sort_key
+from src.domain.names.role_name_order import role_name_sort_key
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.ui.image_scaling import asset_pixmap
-from src.ui.widgets import match_pinyin
+from src.ui.common.image_scaling import asset_pixmap
+from src.ui.common.widgets import match_pinyin
 
 
 class CultivationImageSelector(QDialog):
@@ -41,8 +40,10 @@ class CultivationImageSelector(QDialog):
         selected_id: str | None,
         selected_ids: tuple[str, ...] = (),
         multi_select: bool = False,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setWindowTitle(title)
         self.setObjectName("cultivationImageSelector")
         self._options = (
@@ -59,12 +60,12 @@ class CultivationImageSelector(QDialog):
     def _build(self, description: str, selected_ids: set[str | None]) -> None:
         root = QVBoxLayout(self)
         root.setSpacing(10)
-        note = QLabel(description, self)
+        note = plain_label(description, self)
         note.setWordWrap(True)
         note.setStyleSheet(themed_style("color:#8b949e"))
         root.addWidget(note)
         self._search = QLineEdit(self)
-        self._search.setPlaceholderText("搜索（支持拼音）")
+        self._search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build.search'))
         self._search.setInputMethodHints(
             Qt.InputMethodHint.ImhLatinOnly | Qt.InputMethodHint.ImhNoPredictiveText
         )
@@ -73,14 +74,14 @@ class CultivationImageSelector(QDialog):
         root.addWidget(self._search)
         if self._multi_select:
             toolbar = QHBoxLayout()
-            select_all = QPushButton("全选", self)
-            clear_all = QPushButton("清空", self)
+            select_all = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('selector.select_all'), self)
+            clear_all = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('selector.clear'), self)
             select_all.clicked.connect(lambda: self._set_all_checked(True))
             clear_all.clicked.connect(lambda: self._set_all_checked(False))
             toolbar.addWidget(select_all)
             toolbar.addWidget(clear_all)
             toolbar.addStretch(1)
-            self._count = QLabel(self)
+            self._count = plain_label(self)
             toolbar.addWidget(self._count)
             root.addLayout(toolbar)
         self._scroll = QScrollArea(self)
@@ -156,7 +157,7 @@ class CultivationImageSelector(QDialog):
             card.setChecked(checked)
 
     def _refresh_count(self, *_args: object) -> None:
-        self._count.setText(f"已选 {len(self.selected_ids())} 名")
+        self._count.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.refresh_count.count', value=f'{len(self.selected_ids())}'))
 
 
 def select_cultivation_item(
@@ -166,6 +167,7 @@ def select_cultivation_item(
     description: str,
     options: tuple[tuple[str, str, str | None], ...],
     selected_id: str | None,
+    text_catalog=None,
 ) -> str | None:
     """Run a selector and return the newly confirmed identity, if any."""
 
@@ -175,6 +177,7 @@ def select_cultivation_item(
         description=description,
         options=options,
         selected_id=selected_id,
+        text_catalog=text_catalog,
     )
     try:
         return dialog.selected_id() if dialog.exec() == QDialog.DialogCode.Accepted else None
@@ -189,6 +192,7 @@ def select_cultivation_items(
     description: str,
     options: tuple[tuple[str, str, str | None], ...],
     selected_ids: tuple[str, ...],
+    text_catalog=None,
 ) -> tuple[str, ...] | None:
     """Return the entire confirmed selection; cancellation leaves the draft intact."""
 
@@ -200,6 +204,7 @@ def select_cultivation_items(
         selected_id=None,
         selected_ids=selected_ids,
         multi_select=True,
+        text_catalog=text_catalog,
     )
     try:
         return dialog.selected_ids() if dialog.exec() == QDialog.DialogCode.Accepted else None

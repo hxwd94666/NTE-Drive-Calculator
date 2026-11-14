@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 from unittest.mock import Mock, patch
 
-from src.domain.post_actions import summarize_state_changes
-from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
+from src.domain.inventory.post_actions import summarize_state_changes
+from src.domain.equipment.eligibility.matching import EquipmentMatchContext, RoleSuitMatch
 
 
 def _fake_state_sync_factory(scanner, *, total_drives, post_action_ready_callback, sleep_fn, check_current=None):
@@ -128,7 +128,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("locked", right_panel_button_state_from_image(image))
 
     def test_post_action_thresholds_include_equal_grade(self):
-        from src.domain.post_actions import (
+        from src.domain.inventory.post_actions import (
             default_post_action_config,
             target_state_for_item,
         )
@@ -155,7 +155,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("locked", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
 
     def test_post_action_preserve_rules_keep_or_lock_matching_tape(self):
-        from src.domain.post_actions import default_post_action_config, target_state_for_item
+        from src.domain.inventory.post_actions import default_post_action_config, target_state_for_item
         from src.models.equipment import Tape
 
         class FakeScoring:
@@ -196,7 +196,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("locked", target_state_for_item(tape, "normal", config, FakeScoring()))
 
     def test_preserve_rule_sub_stat_match_counts(self):
-        from src.domain.post_actions import preserve_rule_matches_item
+        from src.domain.inventory.post_actions import preserve_rule_matches_item
         from src.models.equipment import Drive
 
         drive = Drive(
@@ -226,7 +226,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertFalse(preserve_rule_matches_item(drive, rule))
 
     def test_post_action_type_range_filters_default_drive_shapes_and_tape_sets(self):
-        from src.domain.post_actions import (
+        from src.domain.inventory.post_actions import (
             default_post_action_config,
             summarize_post_action_filtering,
             target_state_for_item,
@@ -307,7 +307,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         )
 
     def test_post_action_scores_only_usable_roles_when_context_is_strict(self):
-        from src.domain.post_actions import (
+        from src.domain.inventory.post_actions import (
             default_post_action_config,
             target_state_for_item,
         )
@@ -337,7 +337,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         self.assertEqual("normal", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
 
     def test_custom_keep_rules_override_score_based_discard_and_can_lock(self):
-        from src.domain.post_actions import default_post_action_config, target_state_for_item
+        from src.domain.inventory.post_actions import default_post_action_config, target_state_for_item
         from src.models.equipment import Drive, Tape
 
         class FakeScoring:

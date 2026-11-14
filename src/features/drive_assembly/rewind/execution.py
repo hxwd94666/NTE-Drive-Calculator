@@ -19,7 +19,7 @@ from src.features.drive_assembly.input_backends import (
 from src.features.drive_assembly.page_navigation_mapping import map_rewind_controls
 from src.features.drive_assembly.rewind.shape_detection import detect_rewind_shape_positions
 from src.integrations.vision.window_capture import WindowRect, capture_foreground_window
-from src.domain.equipment.shapes import OFFICIAL_SHAPE_LABELS
+from src.domain.equipment.geometry.shapes import OFFICIAL_SHAPE_LABELS
 
 
 REWIND_COST_PER_DRAW = 60
@@ -162,6 +162,9 @@ def execute_rewind_request(
                         _click(action_backend, controls["rewind_ten"], stop_checker)
                         _dismiss_rewind_result(action_backend, stop_checker)
                         executed += 1
+                # 最后一次暂停/零余额识别也可能失焦或取消，不交付迟到成功。
+                if stop_checker():
+                    raise RuntimeError("倒带执行已停止")
                 planned_draws = total_ten_draws * REWIND_DRAWS_PER_TEN
                 return RewindExecutionReport(
                     total_currency,
@@ -182,7 +185,7 @@ def execute_rewind_request(
             finally:
                 # 同步 OCR 物理返回后才离开作用域；取消不提前销毁输入 owner。
                 if backend is None:
-                    _close_owned_rewind_backend(
+                    close_rewind_input_backend(
                         cast(PyAutoGuiMouseBackend, action_backend), primary_error
                     )
     except CancelledError as exc:
@@ -190,7 +193,7 @@ def execute_rewind_request(
 
 
 
-def _close_owned_rewind_backend(
+def close_rewind_input_backend(
     backend: PyAutoGuiMouseBackend, primary_error: BaseException | None,
 ) -> None:
     errors: list[tuple[str, BaseException]] = []

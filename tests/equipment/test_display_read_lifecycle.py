@@ -13,8 +13,8 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.app.context import AccountContext, AppContext, ApplicationPaths
 from src.app.page_tasks import close_page_tasks
-from src.features.inventory.equipment import display_view as view
-from src.features.inventory.equipment.display_controller import EquipmentDisplayControllerMixin
+from src.features.inventory.equipment.display import display_view as view
+from src.features.inventory.equipment.display.display_controller import EquipmentDisplayControllerMixin
 
 NTE_TEST_TIER = "core"
 

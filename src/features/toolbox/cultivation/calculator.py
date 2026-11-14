@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
+from src.domain.localization.catalog import localized_text
 from collections.abc import Callable
 from dataclasses import replace
 import json
@@ -14,9 +17,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
-    QPushButton,
     QSizePolicy,
     QSpinBox,
     QVBoxLayout,
@@ -25,9 +26,9 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.domain.progression.history import PAYLOAD_VERSION
-from src.features.toolbox.cultivation.single_result import CultivationSingleResultMixin
-from src.features.toolbox.cultivation.history_binding import CultivationHistoryDraftBinding, CultivationHistorySaveStatus
-from src.features.toolbox.cultivation.history_draft import capture_target, apply_target_values
+from src.features.toolbox.cultivation.single.single_result import CultivationSingleResultMixin
+from src.features.toolbox.cultivation.history.history_binding import CultivationHistoryDraftBinding, CultivationHistorySaveStatus
+from src.features.toolbox.cultivation.history.history_draft import capture_target, apply_target_values
 from src.services.progression.history_adapters import single_history_payload
 from src.services.progression.history_adapters import PreparedHistoryRestore
 from src.services.progression.models import CultivationPreparedTarget
@@ -38,14 +39,16 @@ from src.features.toolbox.cultivation.owned_materials import (
     visible_owned_inputs,
 )
 from src.features.toolbox.cultivation.selectors import select_cultivation_item
-from src.features.toolbox.cultivation.single_controller import (
-    CultivationSingleController, SingleCalculationRequest, SingleCalculationResult,
+from src.features.toolbox.cultivation.single.single_controller import (
+    CultivationSingleController,
+    SingleCalculationRequest,
+    SingleCalculationResult,
 )
-from src.features.toolbox.cultivation.single_editor import CultivationSingleEditor
+from src.features.toolbox.cultivation.single.single_editor import CultivationSingleEditor
 from src.features.toolbox.cultivation.stamina_ui import (
     CultivationStaminaControls,
 )
-from src.integrations.bundled_resources import bundled_game_ui_asset_root
+from src.integrations.runtime.bundled_resources import bundled_game_ui_asset_root
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.services.progression.planner_service import (
     CultivationFork,
@@ -77,8 +80,11 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         context_identity: Callable[[], object] | None = None,
         asset_root: str | Path | None = None,
         history_binding: CultivationHistoryDraftBinding | None = None,
+        text_catalog=None,
+        load_initial_data: bool = True,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._service = service
         self._history_binding = history_binding
         self._restoring = False
@@ -92,7 +98,6 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._controller.busy_changed.connect(self._set_busy)
         self._controller.preparation_ready.connect(self._receive_preparation)
         self._controller.preparation_error.connect(self._preparation_failed)
-        self._controller.preparing_changed.connect(self._preparation_busy)
         self._prepared: CultivationPreparedTarget | None = None
         self._prepare_timer = QTimer(self)
         self._prepare_timer.setSingleShot(True)
@@ -118,7 +123,8 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
             QSizePolicy.Policy.Minimum,
         )
         self._build()
-        self._load_roles()
+        if load_initial_data:
+            self._load_roles()
 
     @property
     def owned_materials(self) -> CultivationOwnedMaterials:
@@ -134,7 +140,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(10)
 
-        self._editor = CultivationSingleEditor(input_body)
+        self._editor = CultivationSingleEditor(input_body, text_catalog=getattr(self, 'text_catalog', None))
         input_layout.addWidget(self._editor)
         self._role = self._editor.role_button
         self._fork = self._editor.fork_button
@@ -172,10 +178,12 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
             toggle.toggled.connect(self._draft_edited)
         self._set_fork_controls_enabled(False)
 
-        self._stamina_controls = CultivationStaminaControls(input_body)
+        self._stamina_controls = CultivationStaminaControls(input_body, text_catalog=getattr(self, 'text_catalog', None))
         self._stamina_controls.values_changed.connect(self._stamina_inputs_changed)
         input_layout.addWidget(self._stamina_controls)
-        self._preparation_hint = QLabel("目标确定后会提前列出已有材料输入项。", input_body)
+        self._preparation_hint = plain_label('', input_body)
+        # 材料预准备不插入/隐藏进度行；只在真实失败时显示一次错误，避免反复推动结果区。
+        self._preparation_hint.hide()
         self._preparation_hint.setWordWrap(True)
         self._preparation_hint.setTextFormat(Qt.TextFormat.PlainText)
         input_layout.addWidget(self._preparation_hint)
@@ -183,6 +191,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._owned_materials = CultivationOwnedMaterials(
             self._asset_catalog.progression_item_icon,
             input_body,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self._owned_materials.quantities_changed.connect(
             self._owned_quantities_changed
@@ -191,7 +200,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         input_layout.addWidget(self._owned_materials)
 
         action_row = QHBoxLayout()
-        self._calculate_button = QPushButton("计算所需材料与体力", input_body)
+        self._calculate_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build.calculate_button'), input_body)
         self._calculate_button.setObjectName("cultivationCalculatorCalculate")
         self._calculate_button.setMinimumHeight(44)
         self._calculate_button.setStyleSheet(themed_style(
@@ -204,7 +213,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         action_row.addWidget(self._calculate_button)
         input_layout.addLayout(action_row)
         if self._history_binding is not None:
-            input_layout.addWidget(CultivationHistorySaveStatus(self._history_binding, input_body))
+            input_layout.addWidget(CultivationHistorySaveStatus(self._history_binding, input_body, text_catalog=getattr(self, 'text_catalog', None)))
         layout.addWidget(input_body)
 
         result_panel = QFrame(self)
@@ -216,7 +225,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         result_layout = QVBoxLayout(result_panel)
         result_layout.setContentsMargins(14, 12, 14, 12)
         result_layout.setSpacing(8)
-        result_caption = QLabel("材料清单", result_panel)
+        result_caption = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build.materials_heading'), result_panel)
         result_caption.setStyleSheet(themed_style("font-size:15px;font-weight:900;color:#58a6ff"))
         result_layout.addWidget(result_caption)
         self._result_body = QWidget(result_panel)
@@ -226,24 +235,24 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         result_layout.addWidget(self._result_body)
         layout.addWidget(result_panel)
         layout.addStretch(1)
-        self._set_result_message("选择角色后填写目标等级和技能目标，再计算所需材料。")
+        self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build.self'))
 
     def _load_roles(self) -> None:
         try:
             self._roles = self._service.list_roles()
         except Exception as exc:
-            self._set_result_message(f"读取角色列表失败：{exc}", error=True)
+            self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.load_roles.self_2', exc=f'{exc}'), error=True)
             return
         if self._roles:
             self._load_selected_seed(self._roles[0].character_id)
         else:
-            self._set_result_message("当前静态库没有可用于养成计算的角色。", error=True)
+            self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.load_roles.self'), error=True)
 
     def _select_role(self) -> None:
         selected = select_cultivation_item(
             self,
-            title="选择角色",
-            description="选择要计算养成材料的角色。角色页已保存的养成状态会自动预填。",
+            title=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('matching.role'),
+            description=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.select_role.selected'),
             options=tuple(
                 (
                     str(role.character_id),
@@ -253,6 +262,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
                 for role in self._roles
             ),
             selected_id=str(self._seed.character_id) if self._seed else None,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if selected is not None:
             self._load_selected_seed(int(selected))
@@ -264,8 +274,19 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         try:
             seed = self._service.load_seed(int(character_id))
         except Exception as exc:
-            self._set_result_message(f"读取角色养成状态失败：{exc}", error=True)
+            self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.load_selected_seed.self_2', exc=f'{exc}'), error=True)
             return
+        self._install_selected_seed(seed)
+
+    def install_initial_data(self, roles, seed) -> None:
+        """主页面的启动读取在后台统一完成，GUI 只接收同一冻结账号的纯值。"""
+        self._roles = tuple(roles)
+        if seed is not None:
+            self._install_selected_seed(seed)
+        else:
+            self._set_result_message(self.text_catalog.render('ui.toolbox.load_roles.self'), error=True)
+
+    def _install_selected_seed(self, seed: CultivationSeed) -> None:
         self._seed = seed
         self._editor.set_role(
             seed.character_name, self._asset_catalog.character_icon(seed.character_id),
@@ -281,9 +302,9 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._last_stamina_plan = None
         self._materials_dirty = False
         self._result_current = False
-        self._calculate_button.setText("计算所需材料与体力")
+        self._calculate_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build.calculate_button'))
         self.plan_available.emit(False)
-        self._set_result_message("已按角色页保存的等级、突破和技能等级预填。")
+        self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.load_selected_seed.self'))
         if self._history_binding is not None:
             self._history_binding.reset()
         self._prepare_timer.start()
@@ -293,12 +314,12 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
             if not self._forks:
                 self._forks = self._service.list_forks()
         except Exception as exc:
-            QMessageBox.warning(self, "养成计算器", f"读取弧盘列表失败：{exc}")
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.open.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.select_fork.qmessagebox', exc=f'{exc}')))
             return
         selected = select_cultivation_item(
             self,
-            title="选择弧盘",
-            description="选择要计算养成材料的弧盘。选择后可填写等级和突破前后状态。",
+            title=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_hero.name'),
+            description=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.select_fork.selected'),
             options=tuple(
                 (
                     item.fork_id,
@@ -308,6 +329,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
                 for item in self._forks
             ),
             selected_id=self._fork_seed.fork_id if self._fork_seed else None,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if selected is None:
             return
@@ -317,7 +339,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
                 character_id=self._seed.character_id if self._seed else None,
             ))
         except Exception as exc:
-            QMessageBox.warning(self, "养成计算器", f"读取弧盘养成状态失败：{exc}")
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.open.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.select_fork.qmessagebox_2', exc=f'{exc}')))
 
     def _apply_fork_seed(self, seed: CultivationForkSeed | None) -> None:
         self._controller.invalidate()
@@ -396,14 +418,18 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
             self._fork_target_stage.currentData(),
         )
 
-    @staticmethod
-    def _set_stages(combo: QComboBox, level: int, preferred: object) -> None:
+    def _set_stages(self, combo: QComboBox, level: int, preferred: object) -> None:
         previous = int(preferred) if preferred is not None else None
         options = _stages_for_level(level)
         blocked = combo.blockSignals(True)
         combo.clear()
         for stage in options:
-            combo.addItem(_stage_label(level, stage), stage)
+            combo.addItem(
+                _stage_label(
+                    level, stage, text_catalog=getattr(self, 'text_catalog', None),
+                ),
+                stage,
+            )
         selected = previous if previous in options else options[0]
         combo.setCurrentIndex(options.index(selected))
         combo.blockSignals(blocked)
@@ -437,13 +463,8 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._owned_materials.set_materials(self._input_options(value.plan))
         self._preparation_hint.hide()
 
-    def _preparation_busy(self, busy: bool) -> None:
-        if busy:
-            self._preparation_hint.setText("材料输入准备中；尚未求解体力。")
-            self._preparation_hint.show()
-
     def _preparation_failed(self, _message: str) -> None:
-        self._preparation_hint.setText("材料输入准备失败；已填数量保留，可点击计算重新尝试。")
+        self._preparation_hint.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.preparation_failed.preparation_hint'))
         self._preparation_hint.show()
 
     def _single_request(self) -> SingleCalculationRequest:
@@ -490,7 +511,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._prepared = value.preparation
         self._materials_dirty = False
         self._result_current = True
-        self._calculate_button.setText("计算所需材料与体力")
+        self._calculate_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build.calculate_button'))
         self.plan_available.emit(True)
         self._render_plan(plan)
         self._preparation_hint.hide()
@@ -505,14 +526,14 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
             )
 
     def _calculation_error(self, message: str) -> None:
-        QMessageBox.warning(self, "养成计算器", f"计算材料失败：{message}")
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.open.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.calculation_error.qmessagebox', message=f'{message}')))
 
     def _set_busy(self, busy: bool) -> None:
         self._calculate_button.setEnabled(not busy)
         self._calculate_button.setText(
-            "正在计算中" if busy else (
-                "重新计算所需材料与体力" if self._materials_dirty
-                else "计算所需材料与体力"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.set_busy.calculate_button') if busy else (
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.set_busy.calculate_button_2') if self._materials_dirty
+                else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build.calculate_button')
             )
         )
 
@@ -527,7 +548,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         if self._last_plan is not None:
             self._materials_dirty = True
             self.plan_available.emit(False)
-            self._set_result_message("养成目标已修改，请点击重新计算更新材料与体力。")
+            self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.draft_edited.self'))
         self._prepare_timer.start()
 
     def _owned_quantities_changed(self) -> None:
@@ -540,9 +561,9 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._result_current = False
         if self._last_plan is not None and not self._materials_dirty:
             self._materials_dirty = True
-            self._calculate_button.setText("重新计算所需材料与体力")
+            self._calculate_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.set_busy.calculate_button_2'))
             self.plan_available.emit(False)
-            self._set_result_message("已有材料已修改，请点击重新计算更新材料与体力。")
+            self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.owned_quantities_changed.self'))
 
     def _stamina_inputs_changed(self) -> None:
         if self._restoring:
@@ -553,7 +574,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._result_current = False
         if self._last_plan is not None and not self._materials_dirty:
             self.plan_available.emit(False)
-            self._set_result_message("体力设置已修改，正在重新计算。")
+            self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.stamina_inputs_changed.self'))
             self._calculate(explicit=False)
         else:
             self._prepare_timer.start()
@@ -596,7 +617,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         finally:
             self._restoring = False
         self.plan_available.emit(False)
-        self._set_result_message("已加载历史配置；请确认当前状态与材料数量后点击计算。")
+        self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.restore_from_history.self'))
         self._prepare_timer.start()
 
     def set_material_scope(self, scope: str) -> None:
@@ -634,9 +655,19 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
     def copy_plan(self) -> None:
         if self._last_plan is None or not self._result_current:
             return
-        lines = [f"{self._last_plan.character_name} · 养成材料"]
+        lines = [localized_text(
+            getattr(self, 'text_catalog', None),
+            "cultivation.calculator.copy.title",
+            "{name} · 养成材料",
+            name=self._last_plan.character_name,
+        )]
         if self._last_plan.fork_required_experience:
-            lines.append(f"弧盘升级经验 × {self._last_plan.fork_required_experience:,}")
+            lines.append(localized_text(
+                getattr(self, 'text_catalog', None),
+                "cultivation.calculator.copy.fork_experience",
+                "弧盘升级经验 × {experience}",
+                experience=f"{self._last_plan.fork_required_experience:,}",
+            ))
         for material in remaining_materials(
             self._visible(self._last_plan.totals),
             self._owned_materials.quantities(),
@@ -653,14 +684,14 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
         self._last_stamina_plan = None
         self._materials_dirty = False
         self._result_current = False
-        self._calculate_button.setText("计算所需材料与体力")
+        self._calculate_button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.build.calculate_button'))
         self.plan_available.emit(False)
         if self._seed is not None:
             self._load_selected_seed(self._seed.character_id)
         elif self._roles:
             self._load_selected_seed(self._roles[0].character_id)
         else:
-            self._set_result_message("正在读取可用于养成计算的角色。")
+            self._set_result_message(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.reset_draft.self'))
 
     def close_controller(self) -> None:
         self._prepare_timer.stop()
@@ -676,7 +707,7 @@ class CultivationCalculatorContent(CultivationSingleResultMixin, QWidget):
 
     def _set_result_message(self, text: str, *, error: bool = False) -> None:
         self._clear_result()
-        message = QLabel(text, self._result_body)
+        message = plain_label(text, self._result_body)
         message.setWordWrap(True)
         message.setStyleSheet(themed_style(
             "color:#f85149" if error else "color:#8b949e"
@@ -701,11 +732,24 @@ def _stages_for_level(level: int) -> tuple[int, ...]:
     )
 
 
-def _stage_label(level: int, stage: int) -> str:
+def _stage_label(level: int, stage: int, *, text_catalog=None) -> str:
     alternatives = _stages_for_level(level)
     if len(alternatives) == 2:
-        return f"突破 {stage}（{'突破前' if stage == alternatives[0] else '突破后'}）"
-    return f"突破 {stage}"
+        return localized_text(
+            text_catalog,
+            "cultivation.calculator.stage_label.with_phase",
+            "突破 {stage}（{phase}）",
+            stage=stage,
+            phase=ui_enum_text(
+                text_catalog, "突破前" if stage == alternatives[0] else "突破后",
+            ),
+        )
+    return localized_text(
+        text_catalog,
+        "cultivation.calculator.stage_label.plain",
+        "突破 {stage}",
+        stage=stage,
+    )
 
 
 def _asset_path(value: object) -> str | None:

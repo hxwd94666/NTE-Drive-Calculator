@@ -11,10 +11,10 @@ from threading import Lock
 from src.domain.teams.report_matching import (
     MatchPage, MatchStatus, ReportDiscovery, TeamReportMatch, classify_evidence, discover_candidates,
 )
-from src.integrations.analysis_core_release import create_bundled_analysis_client
-from src.integrations.bundled_resources import bundled_config_dir
-from src.integrations.nte_analysis_core import NativeAnalysisCancelled
-from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
+from src.integrations.runtime.bundled_resources import bundled_config_dir
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
 from src.services.battle_report.history.access import list_history_entries
 from src.storage.sqlite.user_data_dao import UserDataDao
 

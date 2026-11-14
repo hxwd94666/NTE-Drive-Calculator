@@ -1,6 +1,7 @@
 # 防止新的大体积二进制与本机运行数据意外进入版本库。
 from __future__ import annotations
 
+import ast
 import subprocess
 import unittest
 from pathlib import Path
@@ -89,6 +90,18 @@ class RepositoryHygieneTests(unittest.TestCase):
         }
 
         self.assertEqual({}, oversized)
+        # 同名测试会被 Python 静默覆盖；目录维护不能以文件存在代替有效用例存在。
+        duplicate_tests = []
+        for path in sorted((ROOT / "tests").rglob("test*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for scope in (tree, *(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef))):
+                names = set()
+                for node in scope.body:
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                        if node.name in names:
+                            duplicate_tests.append((path.relative_to(ROOT).as_posix(), node.name))
+                        names.add(node.name)
+        self.assertEqual([], duplicate_tests, "同名测试定义遮蔽了前面的验证")
 
 
 if __name__ == "__main__":

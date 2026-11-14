@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from src.services.allocation.search_settings import load_search_mode, save_search_mode, search_budget
+from src.services.allocation.inputs.search_settings import load_search_mode, save_search_mode, search_budget
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -25,8 +25,9 @@ def test_search_profiles_persist_per_account_and_old_settings_default_fast(tmp_p
 
 
 def test_ui_restores_each_account_without_overwriting_other_account(tmp_path):
-    from auto_sync_ui_fixture import application, dispose
-    from src.features.allocation.team_axis_controls import build_team_axis_controls, reload_search_mode
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
+    from src.features.allocation.team_axis.team_axis_controls import build_team_axis_controls, reload_search_mode
     application()
     a,b = tmp_path/'a.sqlite3',tmp_path/'b.sqlite3'
     UserDataDao(a,account_id='a').close()
@@ -51,7 +52,7 @@ def test_ui_restores_each_account_without_overwriting_other_account(tmp_path):
 
 def test_deep_profile_is_frozen_for_both_teams_but_not_remaining_roles(tmp_path):
     from tests.allocation.test_team_axis_enhancement import selection_for_database
-    from src.services.allocation.team_enhancement import execute_team_enhancement
+    from src.services.allocation.axis.team_enhancement import execute_team_enhancement
     database,selection=selection_for_database(tmp_path)
     facade=SimpleNamespace(user_database_path=database,execute_allocation_inventory=Mock(return_value=({},None)))
     execute_team_enhancement(facade,[],list(selection.roles)+['remaining'],replace(selection,search_mode='deep'),
@@ -63,8 +64,8 @@ def test_deep_profile_is_frozen_for_both_teams_but_not_remaining_roles(tmp_path)
 
 def test_wire_accepts_deep_axis_budget_without_relaxing_direct_search():
     from tests.allocation.test_group_postprocess_wire import group_request
-    from src.integrations.allocation_group_postprocess import _request
-    from src.integrations.nte_analysis_core import NativeAnalysisError
+    from src.integrations.allocation.allocation_group_postprocess import _request
+    from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
     axis = group_request(axis=True)
     axis['budget']['max_millis'] = 600_000
     _request(axis, axis=True)

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from collections.abc import Iterable
 
 from PySide6.QtCore import Qt, Signal
@@ -45,7 +47,7 @@ TONE_COLORS = {
 
 
 def pill(text: str, *, color: str = "#58a6ff", parent=None) -> QLabel:
-    label = QLabel(str(text), parent)
+    label = plain_label(str(text), parent)
     label.setObjectName("mechanicsPill")
     label.setAlignment(Qt.AlignCenter)
     label.setStyleSheet(themed_style(
@@ -56,9 +58,9 @@ def pill(text: str, *, color: str = "#58a6ff", parent=None) -> QLabel:
     return label
 
 
-def status_pill(status: str, parent=None) -> QLabel:
+def status_pill(status: str, parent=None, *, text_catalog=None) -> QLabel:
     return pill(
-        STATUS_LABELS.get(status, status),
+        ui_enum_text(text_catalog, STATUS_LABELS).get(status, status),
         color=STATUS_COLORS.get(status, "#8b949e"),
         parent=parent,
     )
@@ -67,8 +69,9 @@ def status_pill(status: str, parent=None) -> QLabel:
 class MechanicsGalleryCard(QFrame):
     activated = Signal(str)
 
-    def __init__(self, model: MechanicsCard, parent: QWidget | None = None) -> None:
+    def __init__(self, model: MechanicsCard, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.model = model
         self.setObjectName("mechanicsGalleryCard")
         self.setProperty("recordId", model.record_id)
@@ -86,24 +89,24 @@ class MechanicsGalleryCard(QFrame):
         root.setSpacing(7)
 
         top = QHBoxLayout()
-        eyebrow = QLabel(model.eyebrow, self)
+        eyebrow = plain_label(model.eyebrow, self)
         eyebrow.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:11px;font-weight:900;letter-spacing:1px;"
         ))
         top.addWidget(eyebrow)
         top.addStretch(1)
         if model.status:
-            top.addWidget(status_pill(model.status, self))
+            top.addWidget(status_pill(model.status, self, text_catalog=text_catalog))
         root.addLayout(top)
 
-        title = QLabel(model.title, self)
+        title = plain_label(model.title, self)
         title.setObjectName("mechanicsCardTitle")
         title.setWordWrap(True)
         title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:17px;font-weight:900;"
         ))
         root.addWidget(title)
-        subtitle = QLabel(model.subtitle, self)
+        subtitle = plain_label(model.subtitle, self)
         subtitle.setObjectName("mechanicsCardSubtitle")
         subtitle.setWordWrap(True)
         subtitle.setMaximumHeight(54)
@@ -137,7 +140,7 @@ class FieldCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 10, 12, 10)
         root.setSpacing(9)
-        heading = QLabel(title, self)
+        heading = plain_label(title, self)
         heading.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:16px;font-weight:900;"
         ))
@@ -147,11 +150,11 @@ class FieldCard(QFrame):
             row_layout = QVBoxLayout(row)
             row_layout.setContentsMargins(0, 4, 0, 5)
             row_layout.setSpacing(3)
-            label = QLabel(field.label, row)
+            label = plain_label(field.label, row)
             label.setStyleSheet(themed_style(
                 "color:#8b949e;font-size:11px;font-weight:800;"
             ))
-            value = QLabel(field.value, row)
+            value = plain_label(field.value, row)
             value.setObjectName("mechanicsFieldValue")
             value.setWordWrap(True)
             value.setTextInteractionFlags(Qt.TextSelectableByMouse)

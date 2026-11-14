@@ -15,10 +15,10 @@ from src.services.battle_report.buffs.counterfactual_plan import BattleBuffCount
 from src.services.battle_report.buffs.interval_index import BattleBuffIntervalIndex
 from src.services.battle_report.buffs.projection_memo import BattleBuffProjectionMemo
 from src.services.battle_report.replay.formula_projection import project_formula_hit
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from tests.battle_report.buffs.test_attribute_projection import _hit, _interval
 from tests.battle_report.replay.test_selected_context import _evidence
-from tests.test_native_buff_projection import ProjectionBackendStub
+from tests.battle_report.native.test_native_buff_projection import ProjectionBackendStub
 
 
 def _inputs():

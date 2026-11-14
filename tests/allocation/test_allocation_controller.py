@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 import pytest
 
 from src.features.allocation.controller import AllocationController
-from src.services.allocation.filter_settings import AllocationFilterSettings
+from src.services.allocation.inputs.filter_settings import AllocationFilterSettings
 
 
 NTE_TEST_TIER = "core"
@@ -70,7 +70,7 @@ def test_begin_close_rejects_new_worker_and_reset_releases_only_allocation_owner
 def test_worker_receives_frozen_axis_selection_and_its_own_cancel_token(controller):
     selection = {"report": 7, "range": [500_000, 1_000_000], "anchor": "original"}
     controller._run_allocation = Mock()
-    with patch("src.features.allocation.runner.WorkerThread.start"):
+    with patch("src.features.allocation.execution.runner.WorkerThread.start"):
         start(controller, strategy="axis_priority", axis_selection=selection)
     selection["range"][0] = 9_000_000
     controller._pending_axis_selection = {"report": 99}

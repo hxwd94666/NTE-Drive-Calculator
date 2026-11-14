@@ -2,7 +2,7 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
-from src.services.damage_calculation_service import (
+from src.services.damage.damage_calculation_service import (
     DamageScene,
     EnemyDefenseProfileInput,
     calculate_defense_multiplier,

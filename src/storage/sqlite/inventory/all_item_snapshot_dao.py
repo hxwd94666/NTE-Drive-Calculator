@@ -7,7 +7,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from src.domain.all_item_snapshot import encode_all_item_snapshot
+from src.domain.inventory.all_item_snapshot import encode_all_item_snapshot
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.user_data_support import DEFAULT_SNAPSHOT_RETENTION_COUNT, UserDataError, UserDataValidationError, _utc_now
 

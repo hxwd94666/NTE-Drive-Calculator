@@ -9,8 +9,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from src.domain.static_catalog import CatalogLink
-from src.domain.static_catalog_terminology import LocalizedForkCampaign
+from src.domain.catalog.static_catalog import CatalogLink
+from src.domain.catalog.static_catalog_terminology import LocalizedForkCampaign
 from src.services.static_catalog.mechanics.models import encode_record
 from src.services.static_catalog.forks.service import (
     ForkBuffDefinition,

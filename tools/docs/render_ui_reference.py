@@ -35,7 +35,7 @@ def main() -> None:
         _build_run_button,
         _build_result_card,
     )
-    from src.features.inventory.equipment.display_view import _page_equipment
+    from src.features.inventory.equipment.display.display_view import _page_equipment
     from src.features.settings.work_mode_card import build_work_mode_card
 
     app = QApplication([])

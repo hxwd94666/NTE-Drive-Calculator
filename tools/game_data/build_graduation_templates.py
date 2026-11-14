@@ -16,12 +16,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.domain.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
+from src.domain.characters.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
 from src.domain.official_role.likeability import likeability_unavailable
 from src.domain.official_role.graduation_shape import graduation_extra_shape_stats
-from src.services.official_role.marginal_scoring import calculate_official_role_margins
-from src.services.official_role.detail_inputs import materialize_official_role_detail_inputs
-from src.services.official_role.detail_model import assemble_official_role_detail
+from src.services.official_role.equipment.marginal_scoring import calculate_official_role_margins
+from src.services.official_role.detail.detail_inputs import materialize_official_role_detail_inputs
+from src.services.official_role.detail.detail_model import assemble_official_role_detail
 from src.storage.sqlite.static_game_data_build_dao import StaticGameDataBuildDao
 
 
@@ -249,6 +249,9 @@ def populate_graduation_templates(
                 "quality": "orange",
                 "grid_count": DRIVE_AREA,
                 "geometry": None,
+                "theoretical_source": "official_graduation_template_v1",
+                "graduation_assumed_shape_ids": [str(equipment_by_id[str(item_id)]["geometry_id"])
+                    for item_id in (equipment_plans[character_id] or {}).get("module_item_ids") or ()],
                 "main_stats": [],
                 "sub_stats": [
                     _stat(

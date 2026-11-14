@@ -1,8 +1,9 @@
 # 赏宴条件只消费冻结正式目标目录，多目标显式选择主目标并分别保存完整画像。
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFormLayout, QGridLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFormLayout, QGridLayout, QVBoxLayout, QWidget
 
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 from src.services.static_catalog.monsters.feast import feast_mechanism_note
 from src.services.battle_report.targets.feast_profiles import feast_target_profiles
 
@@ -24,18 +25,18 @@ class FeastConditionMixin:
         self.feast_stage_combo = NoWheelComboBox()
         self.feast_target_combo = NoWheelComboBox()
         self.feast_difficulty_combo = NoWheelComboBox()
-        selectors.addWidget(QLabel("赏宴关卡"), 0, 0)
+        selectors.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_feast_page.caption')), 0, 0)
         selectors.addWidget(self.feast_stage_combo, 0, 1)
-        selectors.addWidget(QLabel("难度"), 0, 2)
+        selectors.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_feast_page.caption_2')), 0, 2)
         selectors.addWidget(self.feast_difficulty_combo, 0, 3)
-        selectors.addWidget(QLabel("主要目标"), 1, 0)
+        selectors.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_feast_page.caption_3')), 1, 0)
         selectors.addWidget(self.feast_target_combo, 1, 1, 1, 3)
         layout.addLayout(selectors)
         self.feast_options_widget = QWidget()
         self.feast_options_layout = QFormLayout(self.feast_options_widget)
         self.feast_options_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.feast_options_widget)
-        self.feast_goal_note = QLabel()
+        self.feast_goal_note = plain_label()
         self.feast_goal_note.setWordWrap(True)
         layout.addWidget(self.feast_goal_note)
         self.feast_stage_combo.currentIndexChanged.connect(self._feast_stage_changed)
@@ -51,9 +52,9 @@ class FeastConditionMixin:
             targets = _targets(stage)
             self.feast_target_combo.clear()
             if len(targets) > 1:
-                self.feast_target_combo.addItem("请选择主要目标", None)
+                self.feast_target_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.feast_stage_changed.feast_target_combo'), None)
             for index, target in enumerate(targets, 1):
-                self.feast_target_combo.addItem(f"目标 {index} · {target.get('name_zh') or '名称暂未提供'}", target)
+                self.feast_target_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.feast_stage_changed.feast_target_combo_2', index=f'{index}', value=f"{target.get('name_zh') or '名称暂未提供'}"), target)
             self.feast_target_combo.setEnabled(len(targets) > 1)
             self.feast_difficulty_combo.clear()
             while self.feast_options_layout.rowCount():
@@ -62,7 +63,7 @@ class FeastConditionMixin:
             self.feast_goal_note.setText(feast_mechanism_note(stage))
             for category in stage.get("option_categories") or ():
                 combo = NoWheelComboBox()
-                combo.addItem("不选择", None)
+                combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.feast_stage_changed.combo'), None)
                 for option in category.get("options") or ():
                     combo.addItem(self._option_label(option), option)
                     combo.setItemData(combo.count() - 1, self._option_label(option), Qt.ItemDataRole.ToolTipRole)

@@ -7,9 +7,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.domain.stat_catalog import StatCatalog
-from src.integrations.equipment_scoring import freeze_equipment_scoring, score_equipment
-from src.integrations.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError
+from src.domain.equipment.properties.stat_catalog import StatCatalog
+from src.integrations.scoring.equipment_scoring import freeze_equipment_scoring, score_equipment
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError
 
 NTE_TEST_TIER = "core"
 

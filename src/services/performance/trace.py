@@ -4,7 +4,7 @@ from time import monotonic
 from uuid import uuid4
 
 from src.integrations.performance.journals import TraceJournal, validate_trace
-from src.integrations.nte_core_protocol import NteCoreRpcError
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
 
 
 class PerformanceTrace:

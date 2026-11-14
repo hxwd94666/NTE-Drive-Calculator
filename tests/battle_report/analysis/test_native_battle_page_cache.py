@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from src.integrations.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError, NteAnalysisCoreClient
 from src.domain.battle_report.counterfactual.results import BattleMarginalCandidate
 from src.services.battle_report.analysis.page_cache import BattleNativePageCache
 from src.services.battle_report.analysis.native_page import BattleNativePageService
@@ -62,6 +62,27 @@ class PageCacheTests(unittest.TestCase):
         self.assertEqual([event.phase for event in events], ['native_page', 'cache', 'decode', 'complete'])
         self.assertEqual(events[1].message, '正在读取已完成结果…')
         self.assertEqual(events[-1].overall_percent, 100)
+
+    def test_phase_timing_keeps_identity_gates_and_cache_result_independence(self):
+        from src.observability.context import OperationContext
+        from src.observability.stage_timings import StageTimings
+        rows = []
+        timings = StageTimings(OperationContext.create('battle_report'), sink=lambda *args, **fields: rows.append(fields),
+                               details_enabled=lambda: True)
+        first = self.service.load(self.request, timings=timings)
+        second = self.service.load(self.request, timings=timings)
+        timings.flush('test_complete')
+        timings.close()
+        self.assertEqual(first.target_catalog, second.target_catalog)
+        self.assertIsNot(first.analysis, second.analysis)
+        self.assertEqual(self.client.load_battle_page.call_count, 1)
+        self.assertEqual(self.client.load_battle_page_identity.call_count, 3)
+        phases = {row['stage']: row for row in rows if 'stage' in row}
+        self.assertEqual(phases['battle_page.identity_before']['sample_count'], 2)
+        self.assertEqual(phases['battle_page.identity_after']['sample_count'], 1)
+        self.assertEqual(phases['battle_page.cache']['cache_hit_count'], 1)
+        self.assertEqual(phases['battle_page.cache']['cache_miss_count'], 1)
+        self.assertIn('battle_page.project', phases)
 
     def test_a_b_a_roles_reuse_two_entries_but_other_record_clears(self):
         self.service.load(self.request)

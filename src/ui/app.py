@@ -1,12 +1,13 @@
 # PySide6 主窗口入口和功能模块挂载。
 """组合桌面窗口及功能 owner；数据准备只在显式启动时执行。"""
-import sys, ctypes
-from src.ui.axis_allocation_composition import build_axis_allocation_selection_service, build_team_report_matching_service
-from src.ui.team_composition import build_team_controller
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
+from src.ui.startup.process_privileges import ensure_process_privileges
+from src.ui.composition.axis_allocation_composition import build_axis_allocation_selection_service, build_team_report_matching_service
+from src.ui.composition.team_composition import build_team_controller
 from pathlib import Path
-from src.domain.equipment.loadout_management import LoadoutAccount
-from src.services.equipment.loadout_management import LoadoutManagementService
-from src.features.inventory.equipment.persistence_controller import EquipmentPersistenceController, wait_for_equipment_persistence
+from src.domain.equipment.loadouts.loadout_management import LoadoutAccount
+from src.services.equipment.loadouts.loadout_management import LoadoutManagementService
+from src.features.inventory.equipment.management.persistence_controller import EquipmentPersistenceController, wait_for_equipment_persistence
 from typing import Optional
 from src.app.context import (
     AccountChangedEvent,
@@ -15,7 +16,7 @@ from src.app.context import (
 )
 from src.ui.controllers.workshop_refresh_controller import WorkshopRefreshController
 from src.app.constants import APP_VERSION
-from src.ui.application_runtime import ApplicationRuntime, prepare_application_runtime
+from src.ui.startup.application_runtime import ApplicationRuntime, prepare_application_runtime
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -29,22 +30,25 @@ from src.utils.logger import (
     logger,
     set_log_dir,
 )
-from src.ui.qt_log_sink import QtLogSink
+from src.ui.main_window.qt_log_sink import QtLogSink
 
 from src.features.accounts.manager import populate_account_combo, show_account_manager_dialog
 from src.features.settings.page import refresh_account_scoped_settings
 from src.features.settings.updates.controller import CalcUpdateController
-from src.integrations.global_hotkeys import GlobalHotkeyManager
+from src.integrations.runtime.global_hotkeys import GlobalHotkeyManager
 from src.services.components.loader_service import ModPluginLoadingService
-from src.ui.work_mode_composition import (
-    initialize_mode_policy, initialize_mode_runtime, migrate_legacy_component_facts, initialize_character_profile_sync,
+from src.ui.composition.work_mode_composition import (
+    initialize_mode_policy,
+    initialize_mode_runtime,
+    migrate_legacy_component_facts,
+    initialize_character_profile_sync,
 )
-from src.ui.main_window_mixins import FeatureMainWindowMixin
-from src.ui.equipment_presentation import EquipmentPresentation
+from src.ui.main_window.main_window_mixins import FeatureMainWindowMixin
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
 from src.features.configuration.page_owner import BasicWeightPage
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxPage
-from src.ui.toolbox_composition import build_toolbox_dependencies, register_toolbox_account_lifecycle
+from src.ui.composition.toolbox_composition import build_toolbox_dependencies, register_toolbox_account_lifecycle
 from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.dependencies import (
     build_static_catalog_domain_pages,
@@ -52,7 +56,7 @@ from src.features.static_catalog.dependencies import (
 )
 from src.features.static_catalog.page import StaticCatalogPage
 from src.services.static_catalog.service import StaticCatalogService
-from src.services.inventory.warehouse_inventory_service import WarehouseInventoryService
+from src.services.inventory.browsing.warehouse_inventory_service import WarehouseInventoryService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.features.battle_report.dependencies import build_battle_report_controller
 from src.features.identification.controller import IdentificationController
@@ -60,42 +64,13 @@ from src.features.onboarding.guide import OnboardingGuide
 from src.features.official_role.page import refresh_official_role_page
 from src.features.scanning.controller import ScanningController
 
-def _is_admin():
-    if sys.platform != "win32":
-        return True
-    try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
-        return False
-
-
-def _restart_as_admin():
-    if sys.platform != "win32":
-        return False
-    try:
-        args = sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv
-        params = " ".join(f'"{a}"' for a in args)
-        result = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-        return result > 32
-    except Exception:
-        return False
-
-
-def _ensure_admin():
-    if _is_admin():
-        return
-    if _restart_as_admin():
-        sys.exit(0)
-    raise RuntimeError("需要管理员权限启动，请右键程序选择“以管理员身份运行”。")
-
-
 # ── Main Window
-from src.ui.main_window_data_mixin import MainWindowDataMixin
+from src.ui.main_window.main_window_data_mixin import MainWindowDataMixin
 
-from src.ui.main_window_navigation_mixin import MainWindowNavigationMixin
-from src.ui.main_window_theme_mixin import MainWindowThemeMixin
-from src.ui.main_window_lifecycle import MainWindowLifecycleMixin
-from src.ui.tray_controller import TrayController
+from src.ui.main_window.main_window_navigation_mixin import MainWindowNavigationMixin
+from src.ui.main_window.main_window_theme_mixin import MainWindowThemeMixin
+from src.ui.main_window.main_window_lifecycle import MainWindowLifecycleMixin
+from src.ui.main_window.tray_controller import TrayController
 
 class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavigationMixin, MainWindowDataMixin, FeatureMainWindowMixin, QMainWindow):
     log_signal = Signal(str)
@@ -120,12 +95,16 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         )
         self._language_settings = runtime.language_settings
         self.text_catalog = self._language_settings.startup().catalog
+        from src.app.theme import install_dialog_defaults
+        install_dialog_defaults(QApplication.instance(), catalog=self.text_catalog)
         from src.ui.role_suit_matching.controller import RoleSuitMatchingController
         self.role_suit_matching = RoleSuitMatchingController(
             self.app_context, self.text_catalog, self)
-        from src.features.inventory.warehouse.management_controller import WarehouseManagementController
-        from src.features.inventory.warehouse.management_projection import (
-            capture_management_input, project_management_preview, invalidate_management_preview,
+        from src.features.inventory.warehouse.management.management_controller import WarehouseManagementController
+        from src.features.inventory.warehouse.management.management_projection import (
+            capture_management_input,
+            project_management_preview,
+            invalidate_management_preview,
         )
         self.warehouse_management_controller = WarehouseManagementController(
             self.app_context, self.text_catalog, self,
@@ -171,6 +150,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         from src.ui.controllers.configuration_controller import register_page_configuration_lifecycle
         self.basic_weight_page = BasicWeightPage(
             self.app_context, self._go, self.on_configuration_changed, self,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self._unregister_page_tasks = register_page_configuration_lifecycle(
             self.app_context, lambda: (self.basic_weight_page.task_owner,
@@ -236,6 +216,10 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             dialog_parent=self,
         )
         self.scanning_controller = ScanningController(
+            text_catalog=self.text_catalog,
+            current_page_key=lambda: self._nav_key_for_index(self.stack.currentIndex()),
+            preparation_busy=lambda: (getattr(self, 'allocation_catalog_controller', None) is not None
+                                      and self.allocation_catalog_controller.is_preparing()),
             global_preferences=runtime.theme_settings.store,
             role_suit_matching=self.role_suit_matching,
             prepare_calculation=self.prepare_calculation,
@@ -274,6 +258,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             minimize_window=self.showMinimized,
             restore_window=self.showNormal,
             activate_window=self.activateWindow,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.battle_report_controller = build_battle_report_controller(
             axis_allocation_requested=self.scanning_controller.start_axis_allocation_from_battle,
@@ -289,10 +274,12 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             start_inventory_sync=lambda: self._start_inventory_sync(automatic=True),
             hotkey_manager=self.global_hotkey_manager,
             work_mode_service=self.work_mode_service, native_session=self.native_game_session,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.blueprint_page = BlueprintPage(
             app_context=self.app_context,
             navigate=self._go,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.toolbox_page = ToolboxPage(
             text_catalog=self.text_catalog,
@@ -302,6 +289,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 operation_unavailable=self.operation_unavailable,
                 operation_guard=self.operation_guard,
                 operation_generation=self.operation_generation,
+                game_executable=lambda: self.work_mode_service.settings.game_executable,
                 material_importer=self._import_cultivation_materials,
                 navigate_static_catalog=lambda: self._go("static_catalog"),
             ),
@@ -309,7 +297,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         )
         self._unregister_toolbox_lifecycle = register_toolbox_account_lifecycle(self.app_context, self.toolbox_page)
         self.team_controller = build_team_controller(self.app_context, self,
-            configure_enhancement=self.scanning_controller.configure_team_enhancement, text_catalog=self.text_catalog)
+            text_catalog=self.text_catalog, calculate_team=self.scanning_controller.calculate_team)
         self.scanning_controller.allocation_saved.connect(self.team_controller.plans_saved)
         static_catalog_controller = StaticCatalogController(
             StaticCatalogService(
@@ -317,6 +305,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 providers=build_static_catalog_providers(
                     self.app_context.paths.static_database_path,
                     role_catalog=self.app_context.paths.role_catalog,
+                    text_catalog=getattr(self, 'text_catalog', None),
                 ),
                 domain_database_paths=(
                     {key: self.app_context.paths.role_catalog.database_path for key in self.app_context.paths.role_catalog.catalog_domains}
@@ -342,6 +331,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 dialog_parent=self,
                 game_ui_asset_root=self.app_context.paths.game_ui_asset_root,
                 domain_pages=static_catalog_domains,
+                text_catalog=getattr(self, 'text_catalog', None),
             )
         except Exception:
             for spec in reversed(static_catalog_domains):
@@ -358,6 +348,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             app_context=self.app_context,
             parent=self,
             on_help=self._show_group_chat_notice,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         self.calc_update_controller = CalcUpdateController(
             identity_provider=lambda: (self.app_context.account.active_account_id, self.app_context.generation),
@@ -366,6 +357,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             style_sheet=self._current_style_sheet, show_group=self._show_group_chat_notice,
             show_netdisk=self._show_netdisk_download_dialog, request_close=self.close, parent=self,
             update_channel=runtime.distribution.update_channel,
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         # rebuild 早于账号变更通知；回调直接读取新上下文，不借旧账号 settings 缓存。
         self._unregister_calc_updates = self.app_context.register_account_lifecycle(CallbackAccountLifecycle(
@@ -391,8 +383,8 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         except Exception as exc:
             self._qt_log_sink_id = None
             logger.debug(f"注册界面日志输出失败，仅写入文件日志: {exc}")
-        self.tray_controller = TrayController(self)
-        from src.ui.quick_wheel_composition import build_quick_wheel
+        self.tray_controller = TrayController(self, text_catalog=getattr(self, 'text_catalog', None))
+        from src.ui.composition.quick_wheel_composition import build_quick_wheel
         self.quick_wheel_controller = build_quick_wheel(self)
         self._build_ui()
         from src.ui.controllers.dashboard_controller import initialize_dashboard
@@ -569,8 +561,8 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         if self._equipment_assembly_is_running() or self.toolbox_page.is_rewind_running():
             QMessageBox.information(
                 self,
-                "输入任务运行中",
-                "装配或倒带仍在使用本账号的数据和游戏状态。请停止任务并等待收尾，再切换账号。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_2')),
             )
             log_event(
                 "WARNING",
@@ -586,8 +578,8 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         ):
             QMessageBox.information(
                 self,
-                "视觉任务运行中",
-                "当前扫描或鉴定任务仍在使用本账号的截图与数据库。请等待任务结束或取消扫描后再切换账号。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_3'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_4')),
             )
             log_event(
                 "WARNING",
@@ -600,8 +592,8 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         if self.battle_report_controller.is_running():
             QMessageBox.information(
                 self,
-                "战报采集中",
-                "当前战报仍在使用本账号和 nte-core 会话。请先结束战报采集，再切换账号。",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.show_transfer_dialog.qmessagebox'),
+                plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_5')),
             )
             log_event(
                 "WARNING",
@@ -625,7 +617,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         # 维护取消先于账号 owner.stop；尚未物理退场时不推进索引或部分停用旧账号。
         if self.native_plugin_update_controller.is_running():
             self.native_plugin_update_controller.stop()
-            QMessageBox.information(self, "正在等待插件更新退场", "本次更新正在收尾，账号保持不变；结束后请重试切换。")
+            QMessageBox.information(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_6'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_7')))
             return False
         # 同步bool切换不排队；只由combo拥有可撤销continuation，索引尚未改变。
         if not self.equipment_persistence_controller.request_stop():
@@ -650,12 +642,12 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 except Exception:
                     logger.error("账号恢复受阻，自动监听仍在退场；新的副作用权限已撤销")
                 self.setEnabled(False)
-                QMessageBox.warning(self, "账号恢复待完成", str(exc))
+                QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.accounts.delete_account.qmessagebox'), str(exc))
                 return exc.committed
             if not self.equipment_persistence_controller.is_running():
                 self.equipment_persistence_controller.rebuild()
             committed = isinstance(exc, AccountSwitchError) and exc.committed
-            QMessageBox.warning(self, "账号自动服务待恢复" if committed else "账号切换未完成", str(exc))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_8') if committed else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_9'), str(exc))
             return committed
         log_event("INFO", "account.switch_succeeded", "账号切换完成", operation,
                   target_account_id=account_id, new_context_generation=self.app_context.generation)
@@ -663,7 +655,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             try:
                 self._maybe_auto_start_inventory_sync()
             except Exception as exc:
-                QMessageBox.warning(self, "账号自动服务待恢复", str(exc))
+                QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_8'), str(exc))
         return True
 
     def _on_app_context_account_changed(self, event: AccountChangedEvent):
@@ -718,15 +710,16 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             show_account_manager_dialog(
                 self, self._current_style_sheet(), self._account_manager,
                 self.app_context.account.active_account_id, self._switch_account, self._refresh_account_combo,
+                text_catalog=getattr(self, 'text_catalog', None),
             )
 
 def run_gui():
     """先确认启动权限，再准备账号，最后把明确依赖交给 Qt 入口。"""
-    from src.ui.gui_startup import run_gui as start_gui
+    from src.ui.startup.gui_startup import run_gui as start_gui
     from src.utils.logger import disable_console_logging
     # 账号初始化前移除可能阻塞的控制台输出，文件日志仍由账号 owner 管理。
     disable_console_logging()
-    _ensure_admin()
+    ensure_process_privileges()
     with prepare_application_runtime() as runtime:
         start_gui(runtime.context, runtime.theme_settings, lambda: MainWindow(runtime), on_ready=runtime.accept_release)
 

@@ -7,14 +7,14 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
+from src.domain.equipment.eligibility.matching import EquipmentMatchContext, RoleSuitMatch
 
 
 class PostActionAccountWeightTests(unittest.TestCase):
     def test_each_scoring_module_resolves_and_uses_its_own_character_ids(self):
-        from src.domain.post_actions import default_post_action_config
+        from src.domain.inventory.post_actions import default_post_action_config
         from src.models.equipment import Drive
-        from src.services.inventory.post_action_evaluation import PostActionEvaluator
+        from src.services.inventory.scanning.post_action_evaluation import PostActionEvaluator
 
         class Scoring:
             roles_db = {"低分角色": {"character_id": 1003}, "高分角色": {"character_id": 1004}}
@@ -82,8 +82,8 @@ class PostActionAccountWeightTests(unittest.TestCase):
             )
 
     def test_evaluator_passes_account_and_static_paths_to_shared_matcher(self):
-        from src.domain.post_actions import default_post_action_config
-        from src.services.inventory.post_action_evaluation import PostActionEvaluator
+        from src.domain.inventory.post_actions import default_post_action_config
+        from src.services.inventory.scanning.post_action_evaluation import PostActionEvaluator
 
         captured = {}
         evaluated = []
@@ -173,7 +173,7 @@ class PostActionAccountWeightTests(unittest.TestCase):
         )
 
     def test_tape_set_display_wrapper_matches_scoring_context_and_type_filter(self):
-        from src.domain.post_actions import (
+        from src.domain.inventory.post_actions import (
             _type_range_matches,
             _usable_role_names,
         )

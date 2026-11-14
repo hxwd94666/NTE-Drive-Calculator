@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from src.domain.allocation_rating import allocation_grade, loadout_total_grade
-from src.features.inventory.equipment.loadout_scoring import score_equipment_display_state
+from src.domain.equipment.scoring.allocation_rating import allocation_grade, loadout_total_grade
+from src.features.inventory.equipment.display.loadout_scoring import score_equipment_display_state
 from src.optimizer.contracts import (
     EQUIP_GRADE,
     EQUIP_MAIN_STATS,

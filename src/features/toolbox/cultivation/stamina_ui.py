@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -27,8 +29,9 @@ class CultivationStaminaControls(QFrame):
 
     values_changed = Signal()
 
-    def __init__(self, parent: QWidget) -> None:
+    def __init__(self, parent: QWidget, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("cultivationStaminaControls")
         self.setStyleSheet(themed_style(
             "QFrame#cultivationStaminaControls{background:#161b22;"
@@ -37,23 +40,23 @@ class CultivationStaminaControls(QFrame):
         row = QHBoxLayout(self)
         row.setContentsMargins(14, 10, 14, 10)
         row.setSpacing(9)
-        title = QLabel("体力计算", self)
+        title = plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.title_2'), self)
         title.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:14px;font-weight:800"
         ))
         row.addWidget(title)
-        row.addWidget(QLabel("猎人等级", self))
+        row.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.build.hunter_label'), self))
         self.hunter_level = QSpinBox(self)
         disable_numeric_input_method(self.hunter_level)
         self.hunter_level.setObjectName("cultivationHunterLevel")
         self.hunter_level.setRange(1, 60)
         self.hunter_level.setValue(60)
         row.addWidget(self.hunter_level)
-        row.addWidget(QLabel("生效鉴别等级", self))
+        row.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.build.identification_label'), self))
         self.identification_level = QComboBox(self)
         self.identification_level.setObjectName("cultivationIdentificationLevel")
         row.addWidget(self.identification_level)
-        hint = QLabel("产出与体力均为估算，不保证单次掉落；缺资料标未知", self)
+        hint = plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.hint'), self)
         hint.setWordWrap(True)
         hint.setStyleSheet(themed_style("color:#8b949e;font-size:11px"))
         row.addWidget(hint, 1)
@@ -87,7 +90,7 @@ class CultivationStaminaControls(QFrame):
         self.identification_level.clear()
         for level in levels:
             suffix = "（当前）" if level == projection.native_level else "（下调）"
-            self.identification_level.addItem(f"鉴别 {level} {suffix}", level)
+            self.identification_level.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.refresh_identification.identification_level', level=f'{level}', suffix=ui_enum_text(getattr(self, 'text_catalog', None), f'{suffix}')), level)
         selected = previous if previous in levels else projection.native_level
         self.identification_level.setCurrentIndex(levels.index(selected))
         self.identification_level.blockSignals(False)

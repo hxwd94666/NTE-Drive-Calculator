@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -103,10 +104,10 @@ def refresh_participation_tooltip(toggle: QToolButton) -> None:
     toggle.setAccessibleDescription(f"{label}：{state}")
 
 
-def level_spinbox(parent: QWidget) -> QSpinBox:
+def level_spinbox(parent: QWidget, *, text_catalog=None) -> QSpinBox:
     control = _CultivationSpinBox(parent)
     control.setRange(1, 80)
-    control.setSuffix(" 级")
+    control.setSuffix(resolve_text_catalog(text_catalog).render('ui.toolbox.level_spinbox.control'))
     control.setFixedWidth(92)
     return control
 

@@ -8,7 +8,7 @@ from concurrent.futures import CancelledError
 from pathlib import Path
 
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError, UserDataValidationError
-from src.domain.equipment.management_settings import MatchingScope, normalize_warehouse_config
+from src.domain.equipment.eligibility.management_settings import MatchingScope, normalize_warehouse_config
 
 
 SETTING_KEY = "identification_role_suits"
@@ -109,7 +109,7 @@ class MatchingSettingsService:
         if matching_settings_identity(value) == matching_settings_identity(expected):
             value = expected
         if post_action_config is not None:
-            from src.domain.post_actions import merge_post_action_config, validate_post_action_config
+            from src.domain.inventory.post_actions import merge_post_action_config, validate_post_action_config
             post_action_config = (normalize_warehouse_config(post_action_config)
                                   if self.scope == MatchingScope.WAREHOUSE
                                   else merge_post_action_config(post_action_config))

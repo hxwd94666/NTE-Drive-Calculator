@@ -16,7 +16,7 @@ from src.app.theme import apply_app_theme, current_theme_name
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.integrations.preferences.locale_files import LocaleFiles
 from src.services.identification.matching_settings import MatchingSettingsService
-from src.domain.equipment.management_settings import MatchingScope
+from src.domain.equipment.eligibility.management_settings import MatchingScope
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.role_suit_matching.controller import RoleSuitMatchingController
 from src.ui.role_suit_matching.dialog import MatchingEditorDialog
@@ -263,7 +263,7 @@ def test_projected_avatar_noop_save_keeps_original_identity_and_results(app, tmp
 
 def test_result_details_expand_all_suits_and_positions_without_duplicate_score(app, tmp_path):
     from PySide6.QtWidgets import QLabel, QToolButton
-    from src.domain.equipment.matching import EquipmentMatchContext, RoleSuitMatch
+    from src.domain.equipment.eligibility.matching import EquipmentMatchContext, RoleSuitMatch
     from src.features.identification.page import build_identify_result_row
     from src.models.equipment import Drive
     from src.optimizer.scoring import ScoringEngine
@@ -354,7 +354,7 @@ def test_identification_entries_keep_owner_and_scan_requests_its_scope(app, tmp_
     from PySide6.QtCore import QObject, Signal
     from PySide6.QtWidgets import QGroupBox, QVBoxLayout, QDialog, QLabel, QScrollArea
     from src.features.identification.controller import IdentificationController
-    from src.features.scanning.post_action_dialog import ScanPostActionDialog
+    from src.features.scanning.post_actions.post_action_dialog import ScanPostActionDialog
     from src.features.inventory.warehouse.identification_controller import (
         show_warehouse_identification_dialog, show_warehouse_identification_comparison,
     )
@@ -393,9 +393,9 @@ def test_identification_entries_keep_owner_and_scan_requests_its_scope(app, tmp_
     try:
         button = next(b for b in page.findChildren(QPushButton) if b.text() == matching.catalog.render("matching.title"))
         button.click()
-        with patch("src.features.scanning.post_action_dialog._load_drive_shape_options", return_value=[]), \
-             patch("src.features.scanning.post_action_dialog._load_set_name_options", return_value=[]), \
-             patch("src.features.scanning.post_action_dialog._load_role_options", return_value=[]):
+        with patch("src.features.scanning.post_actions.post_action_dialog._load_drive_shape_options", return_value=[]), \
+             patch("src.features.scanning.post_actions.post_action_dialog._load_set_name_options", return_value=[]), \
+             patch("src.features.scanning.post_actions.post_action_dialog._load_role_options", return_value=[]):
             manager = ScanPostActionDialog(parent, tmp_path / "config", Path("config"),
                 user_database_path=ctx.account.user_database_path, role_suit_matching=matching)
         assert manager._main_tabs.count() == 3
@@ -432,7 +432,7 @@ def test_identification_entries_keep_owner_and_scan_requests_its_scope(app, tmp_
 
 def test_embedded_matching_stays_visible_after_tab_switch_and_hidden_load(app, tmp_path):
     from src.app.theme import _DialogPolishFilter
-    from src.features.scanning.post_action_dialog import ScanPostActionDialog
+    from src.features.scanning.post_actions.post_action_dialog import ScanPostActionDialog
 
     parent = QWidget()
     owner = RoleSuitMatchingController(context(tmp_path), catalog(tmp_path), parent)
@@ -441,9 +441,9 @@ def test_embedded_matching_stays_visible_after_tab_switch_and_hidden_load(app, t
     manager = None
     try:
         with patch("src.ui.role_suit_matching.controller.load_matching_editor", return_value=data({"version": 1, "extra_suits": {}})), \
-             patch("src.features.scanning.post_action_dialog._load_drive_shape_options", return_value=[]), \
-             patch("src.features.scanning.post_action_dialog._load_set_name_options", return_value=[]), \
-             patch("src.features.scanning.post_action_dialog._load_role_options", return_value=[]):
+             patch("src.features.scanning.post_actions.post_action_dialog._load_drive_shape_options", return_value=[]), \
+             patch("src.features.scanning.post_actions.post_action_dialog._load_set_name_options", return_value=[]), \
+             patch("src.features.scanning.post_actions.post_action_dialog._load_role_options", return_value=[]):
             manager = ScanPostActionDialog(parent, tmp_path / "config", Path("config"),
                 user_database_path=owner.context.account.user_database_path, role_suit_matching=owner)
             manager.show()
@@ -472,7 +472,7 @@ def test_embedded_matching_stays_visible_after_tab_switch_and_hidden_load(app, t
 
 
 def test_scan_management_is_atomic_but_isolated_from_identification(app, tmp_path):
-    from src.features.scanning.post_action_dialog import ScanPostActionDialog
+    from src.features.scanning.post_actions.post_action_dialog import ScanPostActionDialog
     from src.services.scanning.management_settings import load_scan_post_action_config
     ctx = context(tmp_path)
     service = MatchingSettingsService(ctx.account.user_database_path, scope=MatchingScope.SCAN)
@@ -494,9 +494,9 @@ def test_scan_management_is_atomic_but_isolated_from_identification(app, tmp_pat
     try:
         with patch("src.ui.role_suit_matching.controller.load_matching_editor", side_effect=lambda request, *_: data(MatchingSettingsService(request.database, scope=request.scope).load())), \
              patch("src.ui.role_suit_matching.controller.preview_matching_role", return_value={"A": "matched"}), \
-             patch("src.features.scanning.post_action_dialog._load_drive_shape_options", return_value=[]), \
-             patch("src.features.scanning.post_action_dialog._load_set_name_options", return_value=[]), \
-             patch("src.features.scanning.post_action_dialog._load_role_options", return_value=[]):
+             patch("src.features.scanning.post_actions.post_action_dialog._load_drive_shape_options", return_value=[]), \
+             patch("src.features.scanning.post_actions.post_action_dialog._load_set_name_options", return_value=[]), \
+             patch("src.features.scanning.post_actions.post_action_dialog._load_role_options", return_value=[]):
             first_manager, first = open_manager("扫描管理副本")
             second_manager, second = open_manager("全量扫描管理")
             owner.open(parent)

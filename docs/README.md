@@ -19,17 +19,20 @@
 | 直伤优先、战报轴伤优先及独立后处理开发 | [伤害分配开发方案](roadmap/damage-allocation.md) |
 | 按队伍阵容发现战报、半场定位与明确选择 | [队伍匹配战报方案](roadmap/team-report-matching.md) |
 | 队伍配装来源、成员缺口与已保存增强简报 | [队伍简报方案](roadmap/team-overview.md) |
+| 队伍与战报增强的紧凑布局、状态交互及分阶段前端优化 | [前端优化方案](roadmap/team-enhancement-ux.md) |
 | 新队伍轴伤毕业率实现、旧代码/前端清理与验收（不含库存最优搜索） | [队伍轴伤毕业率开发方案](roadmap/team-axis-graduation.md) |
 | 新队伍轴伤毕业率源码专项、失败分类与未覆盖门禁 | [轴伤毕业率验证](validation/team-axis-graduation.md) |
 | 免安装 ZIP、平台原目录覆盖更新及数据升级恢复 | [免安装发行开发方案](roadmap/portable-distribution.md) |
 | 已交付的页面、计算、同步、配装和设置 | [功能原理](features.md) |
 | 扫描／仓库管理拆分与预览的剩余验证 | [管理拆分与预览交付门禁](roadmap/warehouse-management-preview.md) |
+| 剩余非 Rust 计算、桌面主路径区别及前端可见漏翻译清单 | [计算与前端文本审查](roadmap/architecture-post-refactor-review.md#76-剩余-python-计算与前端语言补丁缺口) |
 | 界面语言补丁、本机偏好、生效与识别语言边界 | [界面语言预备](features/localization.md) |
 | 角色匹配套装的已交付行为与专项边界 | [功能原理](features.md#角色匹配套装) |
 | 战报当前行为 | [战报功能](features/battle-report.md) |
 | 资料库与养成计算器当前行为 | [工具与游戏资料库](features/tools-and-catalog.md) |
 | 养成历史、材料录入与批量删除开发契约 | [养成历史方案](roadmap/cultivation-history.md) |
 | 倒带推荐的配装槽位选择、评分来源与失败隔离：当前行为 | [倒带当前规则](features.md#7-倒带推荐与执行) |
+| 倒带双组独立等级目标与共同形状缺口：当前实现与剩余验收 | [兼顾模式](features/rewind-dual-target.md) · [待验收](roadmap/rewind-dual-target.md) |
 | 倒带推荐的槽位输入：剩余验收 | [倒带待验收事项](roadmap.md#43-倒带推荐的槽位输入) |
 | nte-core、分析组件、插件、OCR、输入和静态构建 | [外部集成](integrations.md) |
 | 尚未稳定或仍待外部事实的能力 | [当前路线图](roadmap.md) |
@@ -48,6 +51,7 @@
 | 战报导入导出格式 | [战报包格式](reference/battle-report-package.md) |
 | 结构化日志与脱敏字段 | [日志事件规范](reference/logging-events.md) |
 | Windows、插件、扫描、更新与发行 | [Windows 验收](validation/windows.md) |
+| 测试目录归属、夹具、保留与清理规则 | [测试维护](../tests/README.md) |
 | 队伍简报来源、毕业率、事务保存与专项边界 | [简报验证](validation/team-overview.md)、[剩余门禁](roadmap/team-overview.md) |
 
 ## 版本、路线图与发布

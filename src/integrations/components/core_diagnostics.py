@@ -8,16 +8,29 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from src.integrations.nte_core import (
+from src.domain.localization.catalog import TextCatalog, localized_text
+from src.integrations.native_core.nte_core import (
     NteCoreClient,
     NteCoreError,
     NteCoreRpcError,
     resolve_nte_core_executable,
 )
-from src.integrations.windows_capture_diagnostics import collect_windows_capture_support
+from src.integrations.vision.windows_capture_diagnostics import collect_windows_capture_support
 
 
 DiagnosticResult = dict[str, Any]
+_LOCALE_PREFIX = "integration.core_diagnostics."
+
+
+def _text(
+    text_catalog: TextCatalog | None,
+    suffix: str,
+    fallback: str,
+    **values: object,
+) -> str:
+    """本文件用户可见文案统一挂在本模块前缀下；目录缺该 key 时逐字回退中文基线。"""
+
+    return localized_text(text_catalog, f"{_LOCALE_PREFIX}{suffix}", fallback, **values)
 
 
 def collect_nte_core_diagnostics(
@@ -72,27 +85,37 @@ def collect_nte_core_diagnostics(
     return result
 
 
-def format_nte_core_diagnostics(result: Mapping[str, Any]) -> str:
+def format_nte_core_diagnostics(
+    result: Mapping[str, Any], *, text_catalog: TextCatalog | None = None,
+) -> str:
     """报告只呈现已观测的排障事实，缺失不伪装成零或完整就绪。"""
 
-    lines = ["NTE Drive Calc · nte-core 抓包诊断"]
+    lines = [_text(text_catalog, "report.title", "NTE Drive Calc · nte-core 抓包诊断")]
     core = result.get("core")
     if isinstance(core, Mapping):
+        unknown = _text(text_catalog, "value.unknown", "未知")
         lines.append(
-            "核心："
-            f"v{core.get('version', '未知')}（协议 {core.get('protocol_version', '未知')}）"
+            _text(
+                text_catalog,
+                "report.core",
+                "核心：v{version}（协议 {protocol}）",
+                version=core.get("version", unknown),
+                protocol=core.get("protocol_version", unknown),
+            )
         )
 
     detected = result.get("capture_detect")
     if not isinstance(detected, Mapping):
-        lines.extend(_format_core_error(result))
+        lines.extend(_format_core_error(result, text_catalog=text_catalog))
         return "\n".join(lines)
 
     support = result.get("windows_capture_support")
-    lines.extend(_format_capture_summary(detected))
+    lines.extend(_format_capture_summary(detected, text_catalog=text_catalog))
     if isinstance(support, Mapping):
-        lines.extend(_format_windows_support(support))
-    lines.extend(_format_next_step(detected, support if isinstance(support, Mapping) else {}))
+        lines.extend(_format_windows_support(support, text_catalog=text_catalog))
+    lines.extend(_format_next_step(
+        detected, support if isinstance(support, Mapping) else {}, text_catalog=text_catalog,
+    ))
     return "\n".join(lines)
 
 
@@ -121,119 +144,255 @@ def _copy_recent_stderr(result: DiagnosticResult, client: NteCoreClient | None) 
         result["stderr"] = list(client.recent_stderr[-3:])
 
 
-def _format_capture_summary(detected: Mapping[str, Any]) -> list[str]:
+def _format_capture_summary(
+    detected: Mapping[str, Any], *, text_catalog: TextCatalog | None = None,
+) -> list[str]:
     devices = capture_device_names(detected)
     lines = [
         "",
-        "抓包枚举",
-        f"游戏进程：{_yes_no_unknown(detected.get('game_process_detected'))}",
-        f"游戏网络连接：{_yes_no_unknown(detected.get('local_ip_detected'))}",
-        f"Npcap 枚举设备：{len(devices)} 个",
-        f"自动选择：{_format_compact_value(detected.get('recommended_device'))}",
+        _text(text_catalog, "summary.heading", "抓包枚举"),
+        _text(
+            text_catalog,
+            "summary.game_process",
+            "游戏进程：{state}",
+            state=_yes_no_unknown(detected.get("game_process_detected"), text_catalog=text_catalog),
+        ),
+        _text(
+            text_catalog,
+            "summary.game_network",
+            "游戏网络连接：{state}",
+            state=_yes_no_unknown(detected.get("local_ip_detected"), text_catalog=text_catalog),
+        ),
+        _text(text_catalog, "summary.npcap_devices", "Npcap 枚举设备：{count} 个", count=len(devices)),
+        _text(
+            text_catalog,
+            "summary.auto_select",
+            "自动选择：{device}",
+            device=_format_compact_value(detected.get("recommended_device"), text_catalog=text_catalog),
+        ),
     ]
     if devices:
-        lines.append("已发现可选网卡；默认由 nte-core 自动选择。")
+        lines.append(_text(text_catalog, "summary.devices_present", "已发现可选网卡；默认由 nte-core 自动选择。"))
     else:
         lines.extend(
             [
-                "核心枚举错误详情：协议未提供（核心仅返回零设备）。",
-                "逐网卡过滤原因：协议未提供。",
+                _text(
+                    text_catalog,
+                    "summary.core_enum_error",
+                    "核心枚举错误详情：协议未提供（核心仅返回零设备）。",
+                ),
+                _text(text_catalog, "summary.per_adapter_reason", "逐网卡过滤原因：协议未提供。"),
             ]
         )
     return lines
 
 
-def _format_windows_support(support: Mapping[str, Any]) -> list[str]:
+def _format_windows_support(
+    support: Mapping[str, Any], *, text_catalog: TextCatalog | None = None,
+) -> list[str]:
+    heading = _text(text_catalog, "windows.heading", "Windows 抓包环境")
     if support.get("supported") is False:
-        return ["", "Windows 抓包环境", str(support.get("reason", "当前系统未提供 Windows 探测"))]
+        reason = support.get(
+            "reason",
+            _text(text_catalog, "windows.unsupported_reason", "当前系统未提供 Windows 探测"),
+        )
+        return ["", heading, str(reason)]
     installation = support.get("npcap_installation")
     service = support.get("driver_service")
     adapters = support.get("network_adapters")
     libraries = support.get("runtime_libraries")
-    lines = ["", "Windows 抓包环境"]
+    lines = ["", heading]
     if isinstance(installation, Mapping):
         installed = bool(installation.get("directory_present"))
         tool_ready = bool(installation.get("installer_tool_present"))
-        lines.append("Npcap 安装：" + ("已检测到" if installed and tool_ready else "目录或驱动工具不完整"))
+        lines.append(
+            _text(text_catalog, "windows.npcap_ready", "Npcap 安装：已检测到")
+            if installed and tool_ready
+            else _text(text_catalog, "windows.npcap_incomplete", "Npcap 安装：目录或驱动工具不完整")
+        )
         if installation.get("driver_log_present"):
-            lines.append("Npcap 驱动日志：可用（NPFInstall.log）")
+            lines.append(_text(text_catalog, "windows.driver_log", "Npcap 驱动日志：可用（NPFInstall.log）"))
     if isinstance(service, Mapping):
-        lines.append("Npcap 驱动服务：" + _service_text(service))
+        lines.append(_text(
+            text_catalog,
+            "windows.driver_service",
+            "Npcap 驱动服务：{state}",
+            state=_service_text(service, text_catalog=text_catalog),
+        ))
     if isinstance(adapters, Mapping):
-        lines.extend(_adapter_lines(adapters))
+        lines.extend(_adapter_lines(adapters, text_catalog=text_catalog))
     if isinstance(libraries, list):
-        lines.append("抓包 DLL 候选：" + _library_text(libraries))
+        lines.append(_text(
+            text_catalog,
+            "windows.libraries",
+            "抓包 DLL 候选：{libraries}",
+            libraries=_library_text(libraries, text_catalog=text_catalog),
+        ))
     return lines
 
 
-def _format_next_step(detected: Mapping[str, Any], support: Mapping[str, Any]) -> list[str]:
+def _format_next_step(
+    detected: Mapping[str, Any],
+    support: Mapping[str, Any],
+    *,
+    text_catalog: TextCatalog | None = None,
+) -> list[str]:
     devices = capture_device_names(detected)
+    heading = _text(text_catalog, "next_step.heading", "下一步")
     if devices:
         if detected.get("recommended_device") is None:
             return [
                 "",
-                "下一步",
-                "未获得自动推荐；先保持自动选择并重新启动背包同步。持续失败时再使用高级排障。",
+                heading,
+                _text(
+                    text_catalog,
+                    "next_step.no_recommendation",
+                    "未获得自动推荐；先保持自动选择并重新启动背包同步。持续失败时再使用高级排障。",
+                ),
             ]
-        return ["", "下一步", "抓包环境已满足枚举条件；若同步仍失败，请提交同步阶段错误。"]
+        return [
+            "",
+            heading,
+            _text(
+                text_catalog,
+                "next_step.enumeration_ready",
+                "抓包环境已满足枚举条件；若同步仍失败，请提交同步阶段错误。",
+            ),
+        ]
 
     installation = support.get("npcap_installation")
     service = support.get("driver_service")
     adapters = support.get("network_adapters")
     if isinstance(installation, Mapping) and not installation.get("installer_tool_present"):
-        action = "Npcap 安装不完整：以管理员身份修复或重装 Npcap，完成后重启 Windows。"
-    elif isinstance(service, Mapping) and service.get("state") == "missing":
-        action = "未发现 Npcap 驱动服务：修复或重装 Npcap，完成后重启 Windows。"
-    elif isinstance(service, Mapping) and _service_state(service).casefold() != "running":
-        action = "Npcap 驱动未运行：先检查服务错误与 NPFInstall.log，再修复或重装 Npcap。"
-    elif isinstance(adapters, Mapping) and adapters.get("state") == "ok" and not adapters.get("active_count"):
-        action = "Windows 未检测到已启用的网络适配器：连接并启用实际联网的 Wi-Fi 或以太网后重试。"
-    else:
-        action = (
-            "Windows 已有 Npcap/网卡线索，但核心枚举为 0：检查 VPN、加速器、虚拟网卡和终端防护的网络过滤驱动；"
-            "提交本报告及 NPFInstall.log。"
+        action = _text(
+            text_catalog,
+            "next_step.action_install_incomplete",
+            "Npcap 安装不完整：以管理员身份修复或重装 Npcap，完成后重启 Windows。",
         )
-    return ["", "下一步", action]
+    elif isinstance(service, Mapping) and service.get("state") == "missing":
+        action = _text(
+            text_catalog,
+            "next_step.action_service_missing",
+            "未发现 Npcap 驱动服务：修复或重装 Npcap，完成后重启 Windows。",
+        )
+    elif isinstance(service, Mapping) and _service_state(
+        service, text_catalog=text_catalog,
+    ).casefold() != "running":
+        action = _text(
+            text_catalog,
+            "next_step.action_service_stopped",
+            "Npcap 驱动未运行：先检查服务错误与 NPFInstall.log，再修复或重装 Npcap。",
+        )
+    elif isinstance(adapters, Mapping) and adapters.get("state") == "ok" and not adapters.get("active_count"):
+        action = _text(
+            text_catalog,
+            "next_step.action_no_adapter",
+            "Windows 未检测到已启用的网络适配器：连接并启用实际联网的 Wi-Fi 或以太网后重试。",
+        )
+    else:
+        action = _text(
+            text_catalog,
+            "next_step.action_no_device",
+            "Windows 已有 Npcap/网卡线索，但核心枚举为 0：检查 VPN、加速器、虚拟网卡和终端防护的网络过滤驱动；"
+            "提交本报告及 NPFInstall.log。",
+        )
+    return ["", heading, action]
 
 
-def _format_core_error(result: Mapping[str, Any]) -> list[str]:
+def _format_core_error(
+    result: Mapping[str, Any], *, text_catalog: TextCatalog | None = None,
+) -> list[str]:
+    unknown = _text(text_catalog, "value.unknown", "未知")
     lines = [
         "",
-        "核心调用失败",
-        f"错误类别：{result.get('error_type', '未知')}",
-        f"错误码：{result.get('domain_code') or result.get('rpc_code') or '未提供'}",
-        f"信息：{result.get('error', '未知')}",
+        _text(text_catalog, "core_failure.heading", "核心调用失败"),
+        _text(
+            text_catalog,
+            "core_failure.category",
+            "错误类别：{name}",
+            name=result.get("error_type", unknown),
+        ),
+        _text(
+            text_catalog,
+            "core_failure.code",
+            "错误码：{code}",
+            code=result.get("domain_code")
+            or result.get("rpc_code")
+            or _text(text_catalog, "value.unspecified", "未提供"),
+        ),
+        _text(
+            text_catalog,
+            "core_failure.message",
+            "信息：{message}",
+            message=result.get("error", unknown),
+        ),
     ]
     stderr = result.get("stderr")
     if isinstance(stderr, list) and stderr:
-        lines.append("核心输出：" + " | ".join(str(item) for item in stderr[-3:]))
+        lines.append(_text(
+            text_catalog,
+            "core_failure.stderr",
+            "核心输出：{output}",
+            output=" | ".join(str(item) for item in stderr[-3:]),
+        ))
     return lines
 
 
-def _service_state(service: Mapping[str, Any]) -> str:
+def _service_state(service: Mapping[str, Any], *, text_catalog: TextCatalog | None = None) -> str:
     details = service.get("details")
-    return str(details.get("State") or "未知") if isinstance(details, Mapping) else "未知"
+    unknown = _text(text_catalog, "value.unknown", "未知")
+    return str(details.get("State") or unknown) if isinstance(details, Mapping) else unknown
 
 
-def _service_text(service: Mapping[str, Any]) -> str:
+def _service_text(service: Mapping[str, Any], *, text_catalog: TextCatalog | None = None) -> str:
     if service.get("state") == "missing":
-        return "未发现"
+        return _text(text_catalog, "service.missing", "未发现")
     if service.get("state") != "ok":
-        return "查询失败：" + str(service.get("error", "未提供原因"))
+        return _text(
+            text_catalog,
+            "service.query_failed",
+            "查询失败：{error}",
+            error=str(service.get(
+                "error",
+                _text(text_catalog, "value.reason_unspecified", "未提供原因"),
+            )),
+        )
     details = service.get("details")
     if not isinstance(details, Mapping):
-        return "查询返回无效结果"
-    return f"{_service_state(service)}（启动方式 {details.get('StartMode', '未知')}）"
+        return _text(text_catalog, "service.invalid_result", "查询返回无效结果")
+    return _text(
+        text_catalog,
+        "service.detail",
+        "{state}（启动方式 {start_mode}）",
+        state=_service_state(service, text_catalog=text_catalog),
+        start_mode=details.get("StartMode", _text(text_catalog, "value.unknown", "未知")),
+    )
 
 
-def _adapter_lines(adapters: Mapping[str, Any]) -> list[str]:
+def _adapter_lines(
+    adapters: Mapping[str, Any], *, text_catalog: TextCatalog | None = None,
+) -> list[str]:
     if adapters.get("state") != "ok":
-        return ["Windows 网卡：查询失败：" + str(adapters.get("error", "未提供原因"))]
+        return [_text(
+            text_catalog,
+            "adapters.query_failed",
+            "Windows 网卡：查询失败：{error}",
+            error=str(adapters.get(
+                "error",
+                _text(text_catalog, "value.reason_unspecified", "未提供原因"),
+            )),
+        )]
     active_hardware = adapters.get("active_hardware_count", 0)
     active_total = adapters.get("active_count", 0)
     lines = [
-        f"Windows 已启用实体网卡：{active_hardware} 个"
-        f"（全部已启用适配器 {active_total} 个，共 {adapters.get('adapter_count', 0)} 个）"
+        _text(
+            text_catalog,
+            "adapters.summary",
+            "Windows 已启用实体网卡：{hardware} 个（全部已启用适配器 {active} 个，共 {total} 个）",
+            hardware=active_hardware,
+            active=active_total,
+            total=adapters.get("adapter_count", 0),
+        )
     ]
     items = adapters.get("adapters")
     if isinstance(items, list):
@@ -243,31 +402,37 @@ def _adapter_lines(adapters: Mapping[str, Any]) -> list[str]:
                 and item.get("hardware")
                 and str(item.get("status", "")).casefold() == "up"
             ):
-                lines.append(f"  - {item.get('name', '未知')}：{item.get('description', '未知')}")
+                lines.append("  - " + _text(
+                    text_catalog,
+                    "adapters.item",
+                    "{name}：{description}",
+                    name=item.get("name", _text(text_catalog, "value.unknown", "未知")),
+                    description=item.get("description", _text(text_catalog, "value.unknown", "未知")),
+                ))
     return lines
 
 
-def _library_text(libraries: list[Any]) -> str:
+def _library_text(libraries: list[Any], *, text_catalog: TextCatalog | None = None) -> str:
     if not libraries:
-        return "未在常见位置发现"
+        return _text(text_catalog, "dll.none_found", "未在常见位置发现")
     values = []
     for library in libraries:
         if isinstance(library, Mapping):
             values.append(f"{library.get('location')}\\{library.get('file')}#{library.get('sha256_prefix')}")
-    return "；".join(values) if values else "查询结果无效"
+    return "；".join(values) if values else _text(text_catalog, "dll.invalid", "查询结果无效")
 
 
-def _yes_no_unknown(value: object) -> str:
+def _yes_no_unknown(value: object, *, text_catalog: TextCatalog | None = None) -> str:
     if value is True:
-        return "已检测到"
+        return _text(text_catalog, "yes_no.detected", "已检测到")
     if value is False:
-        return "未检测到"
-    return "核心未提供"
+        return _text(text_catalog, "yes_no.not_detected", "未检测到")
+    return _text(text_catalog, "yes_no.not_provided", "核心未提供")
 
 
-def _format_compact_value(value: object) -> str:
+def _format_compact_value(value: object, *, text_catalog: TextCatalog | None = None) -> str:
     if value is None:
-        return "无"
+        return _text(text_catalog, "value.none", "无")
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))

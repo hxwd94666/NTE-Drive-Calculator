@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any, Iterable
 
-from src.domain.recommended_weights import workshop_weight_source_ids
+from src.domain.characters.recommended_weights import workshop_weight_source_ids
 from src.storage.sqlite.static_game_data_metadata import SCHEMA_VERSION, SUMMARY_TABLES
 
 _DEFAULT_LOGICAL_CHARACTER_IDS = {"protagonist": 1051}
@@ -37,6 +37,7 @@ from src.storage.sqlite.catalog.static_game_data_skill_damage_queries import (
 from src.storage.sqlite.catalog.static_game_data_equipment_queries import (
     StaticGameDataEquipmentQueriesMixin,
 )
+from src.storage.sqlite.catalog.static_game_data_suit_queries import StaticGameDataSuitQueriesMixin
 
 
 class StaticGameDataError(RuntimeError):
@@ -52,6 +53,7 @@ class StaticGameDataQueriesMixin(
     StaticGameDataSkillDamageQueriesMixin,
     StaticGameDataExtendedQueriesMixin,
     StaticGameDataEquipmentQueriesMixin,
+    StaticGameDataSuitQueriesMixin,
 ):
     """同一套角色/装备查询，不持有连接收尾或全局注册权限。"""
 

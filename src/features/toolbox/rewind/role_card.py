@@ -1,7 +1,7 @@
 # 将倒带槽位评分投影到公共角色选择卡，不维护另一套卡片样式。
 from __future__ import annotations
 
-from src.ui.role_selection_card import RoleSelectionCard
+from src.ui.roles.role_selection_card import RoleSelectionCard
 from src.features.toolbox.rewind.role_selection import rewind_role_card_presentation
 
 

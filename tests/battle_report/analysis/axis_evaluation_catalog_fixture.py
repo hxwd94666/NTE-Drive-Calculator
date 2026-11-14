@@ -4,9 +4,9 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
-from src.domain.equipment.equipment_normalizer import calculate_drive_main_stats
-from src.integrations.nte_core_battle import parse_battle_summary
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.domain.equipment.properties.equipment_normalizer import calculate_drive_main_stats
+from src.integrations.native_core.nte_core_battle import parse_battle_summary
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
 from src.observability import OperationContext
 from src.services.battle_report.history.service import BattleReportHistoryService
 from src.services.battle_report.persistence import BattleReportPersistenceDependencies, BattleReportPersistenceService
@@ -16,7 +16,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_id=None, second_character=False, account_id="axis-evaluation-public", main_character_id=1072, capture_suffix="", merge_inventory=False):
+def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_id=None, second_character=False, account_id="axis-evaluation-public", main_character_id=1072, capture_suffix="", merge_inventory=False, hit_count=3):
     """Reuse the mature long-page persistence path; only UIDs, rolls and recorded hit amounts are synthetic."""
     database, static_path = directory / "synthetic-axis-user.sqlite3", ROOT / "data/game_static.sqlite3"
     capture_operation = "capture-axis-public" + capture_suffix
@@ -60,7 +60,7 @@ def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_
                                                 operation_context=OperationContext.create("battle_report"))
     persistence.begin_capture(capture_operation_id=capture_operation, captured_at_utc="2026-08-20T00:00:00+00:00")
     hits = []
-    for sequence, amount in enumerate((100.0, 200.0, 300.0), 1):
+    for sequence, amount in enumerate((100.0 * (index % 3 + 1) for index in range(hit_count)), 1):
         hits.append({"sequence": str(sequence), "timestamp_unix": 100 + sequence * 0.5,
             "relative_time_seconds": sequence * 0.5, "character_id": 1072, "character_name": "灵可",
             "character_known": True, "direction": "outgoing", "damage": amount, "total_damage": amount,
@@ -81,6 +81,8 @@ def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_
             hit.update(character_id=1003, character_name="早雾", ability_name="GA_Sagiri_Melee",
                        attack_type="normal", damage_component="normal", damage_attribute="incantation",
                        gameplay_effect_name="GE_Player_Sagiri_Melee1_Damage")
+    if hit_count != 3:
+        assert not second_character, "long-axis fixture uses one explicitly frozen character"
     persistence.append_axis_page(capture_operation_id=capture_operation, page={
         "contract_version": 4, "battle_record_id": source_record, "generation": "1", "complete": True,
         "total_hits": str(len(hits)), "retained_hits": len(hits), "rows": hits})
@@ -88,6 +90,11 @@ def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_
         "total_dps": 300.0, "total_damage_taken": 0.0, "total_hits": 3, "characters": [{
             "char_id": 1072, "name": "灵可", "hits": 3, "damage": 600.0, "dps": 300.0, "damage_share_percent": 100.0}],
         "skills": [], "abyss": {"detected": False}, "quality": {}}
+    if hit_count != 3:
+        total = sum(hit["damage"] for hit in hits)
+        duration = hit_count * .5 + .5
+        summary.update(duration_seconds=duration, total_damage=total, total_hits=hit_count, total_dps=total / duration)
+        summary["characters"][0].update(hits=hit_count, damage=total, dps=total / duration)
     if main_character_id == 1003:
         summary["characters"][0].update(char_id=1003, name="早雾")
     if second_character:

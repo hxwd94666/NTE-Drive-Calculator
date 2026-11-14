@@ -1,6 +1,8 @@
 # 持有官方角色runtime页面读取与页签顺序owner，构建期使用独立借用入口。
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
@@ -8,11 +10,11 @@ from typing import Any
 
 from src.domain.official_role.models import OFFICIAL_ROLE_TAB_ORDER_SCOPE
 from src.integrations.official_role.read_inputs import _asset_root
-from src.integrations.static_catalog_release import StaticCatalogReadUnit, static_catalog_read_unit
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReadUnit, static_catalog_read_unit
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.storage.sqlite.user_data_dao import UserDataDao
-from .detail_inputs import materialize_official_role_detail_inputs
-from .detail_model import assemble_official_role_detail
+from src.services.official_role.detail.detail_inputs import materialize_official_role_detail_inputs
+from src.services.official_role.detail.detail_model import assemble_official_role_detail
 
 
 def load_official_role_index(
@@ -111,12 +113,16 @@ def load_official_role_detail(
     shared_database_path: str | Path | None = None,
     request_cache: dict[object, Any] | None = None,
     static_read_unit: StaticCatalogReadUnit | None = None,
+    user_read_unit: UserDataDao | None = None,
 ) -> dict[str, Any]:
     """正式manifest/pin/专属事务内物化，关闭后纯装配；失败不发布新缓存。"""
     pending_cache = dict(request_cache) if request_cache is not None else None
     with static_catalog_read_unit(static_database_path, expected_schema_version=static_schema_version,
                                   read_unit=static_read_unit) as read_unit:
-        with UserDataDao(user_database_path) as user_dao:
+        if user_read_unit is not None and user_read_unit.database_path != Path(user_database_path).resolve():
+            raise ValueError("冻结库存身份不一致")
+        # 仓库冻结借用同一账号读事务，详情不另开连接追随较新的养成状态。
+        with (nullcontext(user_read_unit) if user_read_unit is not None else UserDataDao(user_database_path)) as user_dao:
             inputs = materialize_official_role_detail_inputs(
                 read_unit.dao, character_id, user_dao=user_dao, asset_root=asset_root,
                 include_inventory_contexts=include_inventory_contexts,

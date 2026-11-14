@@ -10,7 +10,7 @@ from unittest.mock import patch
 from tests.battle_report.characters.linko_fixtures import (
     _e_animation, _linko_e, _lte_aoe, _qte, _time_stops,
 )
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.characters.linko_inference import (
     BattleLinkoCoattackInferenceService, BattleLinkoType6Evidence,
 )

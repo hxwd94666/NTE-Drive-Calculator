@@ -226,7 +226,7 @@ cargo clippy --manifest-path analysis-core/Cargo.toml --target-dir analysis-core
 
 ```powershell
 # 只有尚无夹具时在Calc仓库运行；已有fixture.json直接用于后续步骤。
-.venv/Scripts/python.exe -X utf8 -m tests.team_axis_graduation_file_fixture --output 'build/<本次全新目录>'
+.venv/Scripts/python.exe -X utf8 -m tests.teams.graduation.team_axis_graduation_file_fixture --output 'build/<本次全新目录>'
 # 独立分析仓库使用上述生成的fixture.json绝对路径。
 $env:NTE_TEAM_AXIS_GRADUATION_FILE_FIXTURE = '<本次生成的fixture.json绝对路径>'
 cargo test --manifest-path analysis-core/Cargo.toml --target-dir analysis-core/target --offline --locked --lib team_axis_graduation:: -- --include-ignored --nocapture

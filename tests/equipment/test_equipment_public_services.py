@@ -8,16 +8,16 @@ from unittest.mock import patch
 
 import numpy as np
 
-from src.domain.equipment.equipment_normalizer import (
+from src.domain.equipment.properties.equipment_normalizer import (
     calculate_drive_main_stats,
     normalize_equipment_item,
     normalize_inventory,
 )
 from src.services.equipment.equipment_level_projection_service import project_equipment_items_to_max_level
 from src.services.equipment.equipment_scoring_service import score_drive_stats, score_tape_stats
-from src.services.official_role.base_equipment_scoring import score_official_role_equipment
-from src.services.official_role.replacement import _same_inventory_item, replacement_candidates_for_official_role, save_official_role_replacement
-from src.domain.equipment.virtual_equipment import (
+from src.services.official_role.equipment.base_equipment_scoring import score_official_role_equipment
+from src.services.official_role.equipment.replacement import _same_inventory_item, replacement_candidates_for_official_role, save_official_role_replacement
+from src.domain.equipment.loadouts.virtual_equipment import (
     grid_count_from_geometry,
     is_virtual_equipment_assignment,
     make_virtual_equipment_assignment,
@@ -235,7 +235,7 @@ class OfficialEquipmentScoringTests(unittest.TestCase):
             ),
         )
         with patch(
-            "src.services.official_role.base_equipment_scoring.score_tape_stats",
+            "src.services.official_role.equipment.base_equipment_scoring.score_tape_stats",
             return_value=12.5,
         ) as tape_score:
             result = score_official_role_equipment(
@@ -255,11 +255,11 @@ class OfficialEquipmentScoringTests(unittest.TestCase):
 
         with (
             patch(
-                "src.services.official_role.base_equipment_scoring.legacy_shape_id",
+                "src.services.official_role.equipment.base_equipment_scoring.legacy_shape_id",
                 side_effect=Exception,
             ),
             patch(
-                "src.services.official_role.base_equipment_scoring.score_drive_stats",
+                "src.services.official_role.equipment.base_equipment_scoring.score_drive_stats",
                 return_value=8.0,
             ) as drive_score,
         ):
@@ -271,17 +271,15 @@ class OfficialEquipmentScoringTests(unittest.TestCase):
                     shape_areas={"shape": 4},
                 )
 
-        from src.services.allocation.inventory import (
-            AllocationInventoryProjectionError,
-        )
+        from src.services.allocation.inputs.inventory import AllocationInventoryProjectionError
 
         with (
             patch(
-                "src.services.official_role.base_equipment_scoring.legacy_shape_id",
+                "src.services.official_role.equipment.base_equipment_scoring.legacy_shape_id",
                 side_effect=AllocationInventoryProjectionError("bad"),
             ),
             patch(
-                "src.services.official_role.base_equipment_scoring.score_drive_stats",
+                "src.services.official_role.equipment.base_equipment_scoring.score_drive_stats",
                 return_value=8.0,
             ) as drive_score,
         ):
@@ -428,7 +426,7 @@ class VirtualEquipmentTests(unittest.TestCase):
 
 class OfficialRoleReplacementTests(unittest.TestCase):
     def setUp(self):
-        from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+        from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
         release = StaticCatalogReleaseReader().freeze(Path(__file__).resolve().parents[2] / "data/game_static.sqlite3")
         self.source = {"static_database_path": str(release.database_path), "static_schema_version": release.schema_version,
                        "static_release": release}
@@ -496,26 +494,30 @@ class OfficialRoleReplacementTests(unittest.TestCase):
 
         with (
             patch(
-                "src.services.official_role.replacement.project_equipment_items_to_max_level",
+                "src.services.official_role.equipment.replacement.project_equipment_items_to_max_level",
                 side_effect=lambda items, _dao: [dict(item) for item in items],
             ),
             patch(
-                "src.services.official_role.replacement.calculate_official_role_margins",
-                side_effect=[{"damage": 100.0}, {"damage": 110.0}],
+                "src.services.official_role.equipment.replacement.calculate_official_role_damage",
+                return_value=110.0,
             ),
             patch(
-                "src.services.official_role.replacement.calculate_official_role_final_weights",
+                "src.services.official_role.equipment.replacement.calculate_official_role_margins",
+                return_value={"damage": 100.0},
+            ),
+            patch(
+                "src.services.official_role.equipment.replacement.calculate_official_role_final_weights",
                 return_value={
                     "property_weights": {},
                     "main_property_weights": {},
                 },
             ),
             patch(
-                "src.services.official_role.replacement.calculate_official_role_item_gain",
-                return_value={"gain_percent": 5.0},
+                "src.services.official_role.equipment.replacement.calculate_official_role_item_gain",
+                return_value={"gain_percent": 5.0, "baseline_damage": 100.0 / 1.05},
             ),
             patch(
-                "src.services.official_role.replacement.calculate_official_role_hidden_equipment_score",
+                "src.services.official_role.equipment.replacement.calculate_official_role_hidden_equipment_score",
                 side_effect=[10.0, 20.0],
             ),
         ):
@@ -570,7 +572,7 @@ class OfficialRoleReplacementTests(unittest.TestCase):
                 return [77]
 
         with patch(
-            "src.services.official_role.replacement.UserDataDao",
+            "src.services.official_role.equipment.replacement.UserDataDao",
             _UserDao,
         ):
             saved_id = save_official_role_replacement(

@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from src.domain.rewind_loadout import RewindSlotReference, default_slot, read_slot_preferences, inspect_slot, shape_key
+from src.domain.rewind.rewind_loadout import RewindSlotReference, default_slot, read_slot_preferences, inspect_slot, shape_key
 from src.services.rewind.recommendation import RewindShapeRecommendationService
 
 
@@ -115,6 +115,24 @@ class StaticDao:
         return {"dataset": {"dataset_id": "fixture"}}
 
 
+def test_sql_geometry_counts_equal_full_rows_without_hydrating_stats(tmp_path, monkeypatch):
+    from src.storage.sqlite.user_data_dao import UserDataDao
+    from src.services.rewind.recommendation import _owned_shape_counts
+    from tests.allocation.direct_catalog_fixture import create_catalog_case
+    case = create_catalog_case(tmp_path, copies=3)
+    with UserDataDao(case["user_database_path"]) as dao, dao.read_consistent_state():
+        items = dao.list_inventory_items(case["snapshot_id"], kind="module")
+        known = {str(row["geometry"]) for row in items} | {"EquipmentGeometry_Hen2"}
+        expected = _owned_shape_counts(items, known)
+        def forbidden(*args, **kwargs):
+            pytest.fail("数量汇总不应水合装备或词条")
+        monkeypatch.setattr(dao, "list_inventory_items", forbidden)
+        grouped = dao.inventory_module_geometry_counts(case["snapshot_id"])
+        assert _owned_shape_counts(grouped, known) == expected
+        assert sum(row["item_count"] for row in grouped) == len(items)
+        assert dao.inventory_module_geometry_counts(case["snapshot_id"] + 100) == []
+
+
 class UserDao(StaticDao):
     def __init__(self, *_):
         self.slots = [slot_fixture()[0], slot_fixture(2, virtual=True)[0]]
@@ -136,6 +154,12 @@ class UserDao(StaticDao):
     def list_inventory_items(self, snapshot_id, *, kind=None, uids=None):
         self.queries.append((snapshot_id, uids))
         return [item for item in self.items.values() if uids is None or (item["uid_serial"], item["uid_slot"]) in uids]
+
+    def inventory_module_geometry_counts(self, snapshot_id):
+        from collections import Counter
+        self.queries.append((snapshot_id, None))
+        counts = Counter(row.get("geometry") for row in self.items.values() if row.get("kind") == "module")
+        return [dict(geometry=key, item_count=value) for key, value in counts.items()]
 
     def current_inventory_snapshot_id(self):
         return 9
@@ -300,7 +324,7 @@ def test_catalog_preserves_unusable_siblings_and_custom_roles(tmp_path, monkeypa
 
 
 def test_unknown_total_does_not_compete_as_zero_and_deleted_choice_is_preserved():
-    from src.domain.rewind_loadout import references_for_roles
+    from src.domain.rewind.rewind_loadout import references_for_roles
     from src.services.rewind.recommendation import RewindTargetRole
     slot, plan, items = slot_fixture()
     plan["score"] = None

@@ -66,26 +66,43 @@ def _find_ocr_target_position(action: dict[str, Any], backend: MouseBackend,
     return (x1 + crop_x, y1 + crop_y)
 
 
-def _maybe_click_optional_confirm(action: dict[str, Any], backend: MouseBackend) -> bool:
-    if not _optional_prompt_visible(action, backend):
-        return False
+def _maybe_click_optional_confirm(action: dict[str, Any], backend: MouseBackend) -> bool | None:
+    visible = _optional_prompt_visible(action, backend)
+    if visible is not True:
+        return visible
     backend.click(_point(action["optional_confirm_position"]))
     return True
 
 
-def _optional_prompt_visible(action: dict[str, Any], backend: MouseBackend) -> bool:
+def _optional_prompt_visible(action: dict[str, Any], backend: MouseBackend) -> bool | None:
+    """False 表示有效图像中未见弹窗，None 表示缺少证据；两者不可混为失败或成功。"""
     capture = getattr(backend, "screenshot", None)
     if capture is None:
-        return False
+        return None
     try:
         image = capture()
+    except (CancelledError, OcrModelResourceError, OcrTaskStateError):
+        raise
     except Exception:
-        return False
+        return None
     probe = action.get("modal_probe_position")
     if not probe:
-        return False
-    threshold = float(action.get("brightness_threshold") or 150)
-    return _region_brightness(image, _point(probe), radius=28) >= threshold
+        return None
+    try:
+        import numpy as np
+
+        pixels = np.asarray(image)
+        if pixels.ndim not in (2, 3) or not pixels.size or not np.issubdtype(pixels.dtype, np.number):
+            return None
+        x, y = _point(probe)
+        if not (0 <= x < pixels.shape[1] and 0 <= y < pixels.shape[0]) or not np.isfinite(pixels).all():
+            return None
+        threshold = float(action.get("brightness_threshold") or 150)
+        if not np.isfinite(threshold):
+            return None
+        return _region_brightness(pixels, (x, y), radius=28) >= threshold
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None
 
 
 def _region_brightness(image: Any, center: tuple[int, int], radius: int = 20) -> float:

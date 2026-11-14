@@ -11,12 +11,12 @@ import stat
 import tempfile
 from typing import Callable
 
-from src.integrations.native_plugin_bundle import (
+from src.integrations.components.native_plugin_bundle import (
     HOT_PLUGIN_LAYOUT, HOT_PLUGIN_LAYOUTS, NATIVE_PLUGIN_DEPLOYMENT_PATHS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS, TRAINING_DEPLOYMENT_PATHS, inspect_native_plugin_bundle,
 )
-from src.integrations.native_host_control import NativeHostClient, NativeHostError, NativeHostOutcomeUnknown
-from src.integrations.operation_guard import require_operation
-from src.integrations.legacy_game_proxy import remove_legacy_game_proxy
+from src.integrations.native_core.native_host_control import NativeHostClient, NativeHostError, NativeHostOutcomeUnknown
+from src.integrations.runtime.operation_guard import require_operation
+from src.integrations.components.legacy_game_proxy import remove_legacy_game_proxy
 from src.integrations.components.environment import (
     EquipmentPluginDeploymentError,
     GAME_EXECUTABLE_NAME, game_executable, game_process_running,

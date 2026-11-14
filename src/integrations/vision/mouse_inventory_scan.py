@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
-from src.integrations.operation_guard import bind_stop_guard
+from src.integrations.runtime.operation_guard import bind_stop_guard
 
 import cv2
 import numpy as np

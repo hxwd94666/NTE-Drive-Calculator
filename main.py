@@ -20,6 +20,7 @@ def main() -> None:
     add_maintenance_arguments(parser)
     parser.add_argument("--cli", action="store_true", help="旧命令行模式（已移除）")
     parser.add_argument("--gui", action="store_true", help="桌面 GUI 模式（默认）")
+    parser.add_argument("--admin-restarted", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--ime-compat", action="store_true",
         help="仅本进程禁用输入法以规避第三方 IME 原生崩溃；应用内中文输入将不可用",
@@ -32,16 +33,18 @@ def main() -> None:
     if args.ime_compat and sys.platform == "win32":
         _enable_ime_compatibility()
     from src.ui.app import run_gui
+    from src.ui.startup.process_privileges import StartupPrivilegeError
 
     try:
         if run_maintenance(args):
             return
-        from src.ui.startup_data_selection import choose_first_external_root
+        from src.ui.startup.startup_data_selection import choose_first_external_root
         if choose_first_external_root():
             run_gui()
     except Exception as error:
         # Qt 尚未创建时也必须有明确提示；不把数据目录故障表现为无窗口退出。
-        message = f"启动已停止：{error}\n请修复所示位置或恢复完整程序包后重试；未选择替代数据目录。"
+        message = (str(error) if isinstance(error, StartupPrivilegeError) else
+                   f"启动已停止：{error}\n请修复所示位置或恢复完整程序包后重试；未选择替代数据目录。")
         if sys.platform == "win32":
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, message, "NTE Drive Calc", 0x10)

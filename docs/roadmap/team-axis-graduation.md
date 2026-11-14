@@ -44,11 +44,11 @@
 | `src/domain/teams/overview.py` | 来源/成员事实模型；旧均值字段已移除 | 继续复用来源和完整性；新轴伤结果使用独立类型 |
 | `src/services/teams/overview.py` | 冻结并复核来源、关联增强历史；旧个人计算/缓存已移除 | 继续轻量读取，新轴伤评估另建服务 |
 | `src/services/teams/source_inputs.py` | 按稳定槽位或完整游戏库存冻结装备并检查冲突 | 复用为当前方案输入，不用最新库存重解释旧方案 |
-| `src/services/official_role/graduation.py` | 角色页个人装备直伤基准与比例 | 保留公共个人能力，不作为新队伍分母 |
+| `src/services/official_role/equipment/graduation.py` | 角色页个人装备直伤基准与比例 | 保留公共个人能力，不作为新队伍分母 |
 | 已移除的旧队伍个人毕业适配 | 原 `graduation_inputs.py` 和 `graduation_rules.py` 仅服务旧队伍均值，已删除 | 新合法规则按正式来源重新建模，不保留死代码或旧满强化假设；公共个人能力保留 |
 | `src/features/teams/page.py`、`loadout_dialog.py`、`loadout_row.py` | 队伍卡片、来源选择、成员配装详情 | 复用布局与来源交互，替换主指标呈现和状态 |
-| `src/services/teams/report_matching.py`、`src/services/allocation/team_axis_selection.py` | 四人阵容核验和明确轴范围选择 | 复用正式身份与范围契约，匹配成功后仍检查量化能力 |
-| `src/services/allocation/team_enhancement.py` | 固定库存中的队伍增强与原分配策略编排 | 既有功能保留；仅审计可复用的评价能力，新毕业功能不接入其库存分配流程 |
+| `src/services/teams/report_matching.py`、`src/services/allocation/axis/team_axis_selection.py` | 四人阵容核验和明确轴范围选择 | 复用正式身份与范围契约，匹配成功后仍检查量化能力 |
+| `src/services/allocation/axis/team_enhancement.py` | 固定库存中的队伍增强与原分配策略编排 | 既有功能保留；仅审计可复用的评价能力，新毕业功能不接入其库存分配流程 |
 | 独立分析组件 | 冻结战报读取、轴评价、反事实及有界后处理 | 审计现有模式后扩展理论域与整队优化；新请求和能力另行版本化 |
 
 角色页独立的个人毕业率会固定模板养成并投影装备主属性，衡量装备直伤水平；它没有固定战报轴作为目标，也没有寻找整队最优构筑。
@@ -230,15 +230,15 @@ D* = D(A,T,E,X*;M)
 
 | 落点 | 具体改动与边界 |
 | --- | --- |
-| `src/domain/teams/axis_graduation.py`、`axis_graduation_inputs.py`、`axis_graduation_target.py` | 分别定义比较结果/上下文、当前构筑、版本化毕业目标；只做结构、有限值、版本和引用校验，不读库、不实现伤害公式 |
+| `src/domain/teams/graduation/axis_graduation.py`、`axis_graduation_inputs.py`、`axis_graduation_target.py` | 分别定义比较结果/上下文、当前构筑、版本化毕业目标；只做结构、有限值、版本和引用校验，不读库、不实现伤害公式 |
 | `src/services/teams/axis_graduation/` | `inputs.py` 组装并冻结四人成员、实际养成和装备；`service.py` 编排当前评价、理论求解、建议及显式保存；输入冻结和编排各有责任，不为每个方法增加转发文件 |
-| `src/integrations/team_axis_graduation.py`、`team_axis_graduation_current.py`、`team_axis_graduation_advice.py` | 新请求/响应序列化、大小及有限值校验、身份回显核对；通过现有独立分析传输派发，不从 UI 或 Service 直接启动进程 |
-| `src/integrations/nte_analysis_core.py` | 为新能力增加窄入口，复用清单、哈希、取消和超时门禁；当前文件接近800行，超过门禁前按传输/线协议责任拆分并同步全部导入，不继续堆叠新业务 |
-| `src/storage/sqlite/team_axis_graduation_dao.py` | 独占第11节的新表、目标修订、结果一致性保存、查询与删除；与当前账号 DAO 同一连接/事务边界，不拼接其他账号路径 |
-| `src/features/teams/axis_graduation_controller.py` | 独占该功能 worker、取消、请求序号、当前任务状态和页面投影；不复用匹配/增强 worker 作为隐式 owner |
-| `src/features/teams/axis_graduation_dialog.py`、`axis_graduation_target_dialog.py` | 目标编辑、结果/建议详情；复用轴范围选择和公共装备展示，按现有窗口几何入口限位；内容过大时按完整子流程拆分 |
+| `src/integrations/battle_analysis/graduation/team_axis_graduation.py`、`team_axis_graduation_current.py`、`team_axis_graduation_advice.py` | 新请求/响应序列化、大小及有限值校验、身份回显核对；通过现有独立分析传输派发，不从 UI 或 Service 直接启动进程 |
+| `src/integrations/analysis_core/nte_analysis_core.py` | 为新能力增加窄入口，复用清单、哈希、取消和超时门禁；当前文件接近800行，超过门禁前按传输/线协议责任拆分并同步全部导入，不继续堆叠新业务 |
+| `src/storage/sqlite/teams/team_axis_graduation_dao.py` | 独占第11节的新表、目标修订、结果一致性保存、查询与删除；与当前账号 DAO 同一连接/事务边界，不拼接其他账号路径 |
+| `src/features/teams/graduation/axis_graduation_controller.py` | 独占该功能 worker、取消、请求序号、当前任务状态和页面投影；不复用匹配/增强 worker 作为隐式 owner |
+| `src/features/teams/graduation/axis_graduation_dialog.py`、`axis_graduation_target_dialog.py` | 目标编辑、结果/建议详情；复用轴范围选择和公共装备展示，按现有窗口几何入口限位；内容过大时按完整子流程拆分 |
 | `src/features/teams/page.py`、`overview_controller.py` | 卡片接入独立 `show_axis_graduation(...)` 投影；原简报只更新来源/缺口/增强，不再计算或写入任何毕业率 |
-| `src/ui/team_composition.py` | 在组合根创建并显式注入新服务及 owner；继续使用完整主静态作战斗输入，图片目录单独注入，不把图鉴身份作为战报 dataset |
+| `src/ui/composition/team_composition.py` | 在组合根创建并显式注入新服务及 owner；继续使用完整主静态作战斗输入，图片目录单独注入，不把图鉴身份作为战报 dataset |
 
 Service 先通过各 `prepare_*` 入口冻结任务，再执行 `evaluate_current`、`solve_benchmark`、`evaluate_advice` 或 `evaluate_equipment_advice`；计算操作只读，`save_completed_result` 仅消费显式预览并写本账号新毕业结果，不调用保存真实配装的入口。Controller 消费 typed 结果，不访问 DAO，也不自行除出另一个百分比。
 
@@ -458,15 +458,15 @@ Controller 状态至少分开：未选择轴、未建基准、输入缺失、组
 | `src/services/official_role/graduation_inputs.py` | 退役前生产调用方仅为旧队伍简报；已删除整个旧适配及 `GRADUATION_RULE_ID`、`materialize_graduation_detail`、`freeze_graduation_equipment`、`calculate_frozen_graduation` | 公共角色面板及实际装备投影另从正式公共入口使用，不移植此文件的满强化假设 |
 | `src/integrations/official_role/graduation_rules.py` | 退役前仅旧简报调用，现已删除；新合法规则按正式证据建模，需要严格JSON/哈希快照时以中性职责实现，不为无消费者的辅助函数留兼容壳 | 仅复用确有消费者的规则读取；`stats.json`/`StatCatalog` 是属性数值来源之一，不自动证明全部档位/次数/互斥规则齐全 |
 | `src/features/teams/page.py` | 删除“平均装备毕业率”文案、成员计数兜底、旧 tooltip 和 `.show_overview` 对毕业率区域的写入；由新 owner 独占新字段 | 卡片成员、编辑/删除、来源、匹配、增强按钮和筛选/可见队伍范围 |
-| `src/features/teams/loadout_dialog.py`、`loadout_row.py` | 成员弹窗改为“成员与配装来源”，删除旧成员毕业百分比/解释；不保留折叠的自动旧计算 | 稳定槽位选择、成员装备与来源/缺口；个人直伤需要时由独立角色页查看 |
+| `src/features/teams/loadouts/loadout_dialog.py`、`loadout_row.py` | 成员弹窗改为“成员与配装来源”，删除旧成员毕业百分比/解释；不保留折叠的自动旧计算 | 稳定槽位选择、成员装备与来源/缺口；个人直伤需要时由独立角色页查看 |
 | `src/features/teams/overview_controller.py` | 移除旧毕业回调/缓存/详情字段，确保旧 refresh 不写新主指标；来源改变通知新 owner 使对应分子失效 | 来源交互、保存通知、历史入口、账号代次与可见范围生命周期 |
-| `src/ui/team_composition.py` | 删除旧专属参数注入，新增新服务/owner显式注入；完整主库与图片分开 | 当前已正确的主静态来源，不退回独立图鉴 |
+| `src/ui/composition/team_composition.py` | 删除旧专属参数注入，新增新服务/owner显式注入；完整主库与图片分开 | 当前已正确的主静态来源，不退回独立图鉴 |
 
 清理时重新全库查调用方及动态导入；若发现新的有效消费者，先迁移到对应正式公共能力再删除。旧团队专属入口不因为单个测试还在 patch 它而保留。`graduation_count` 在静态构建工具中的模板计数等同名概念不属于本次清理，不应全仓库按字符串删除。
 
 ### 12.2 明确保留，不借清理扩大范围
 
-- `src/services/official_role/graduation.py` 及角色页个人毕业功能、基础评分和公共面板；新队伍算法不以个人毕业模板为前置条件，也不更改角色页数值。
+- `src/services/official_role/equipment/graduation.py` 及角色页个人毕业功能、基础评分和公共面板；新队伍算法不以个人毕业模板为前置条件，也不更改角色页数值。
 - `source_inputs.py`、`team_overview_dao.py`、既有 source/binding 表：保留真实来源、方案自己的快照、UID冲突、完整性及账号隔离。
 - 战报匹配、明确范围选择、`team_enhancement.py`、增强事务、历史B0增幅和保存通知：继续运行，既有增强不重命名为毕业率。
 - 公共装备显示、角色图片、窗口几何和 owner 取消基础设施；只复用接口/行为，不跨 feature 调用私有控件或 worker。
@@ -476,11 +476,11 @@ Controller 状态至少分开：未选择轴、未建基准、输入缺失、组
 
 | 现有文件 | 处理 |
 | --- | --- |
-| `tests/test_team_overview_service.py` | 删除“四人均值等于角色页”、旧规则ID/cache、旧无限/非有限均值口径用例；保留并调整来源快照、次要槽位、UID冲突、视觉来源、并发改源、账号失效和跨账号ID冲突测试。个人模板缺失用例改成验证“不依赖个人模板”，真正伤害缺项另测 |
-| `tests/test_team_overview_ui.py` | 替换旧均值标签和数字断言；保留来源、按钮、无写操作、键盘可操作性和窗口不遮挡。新增未建基准/组件待更新，禁止出现旧数字兜底 |
-| `tests/test_team_overview_composition.py` | 保留主静态与公共图片隔离；移除强制四个成员毕业数值断言，改验新服务获得完整主库而非图鉴 |
-| `tests/test_team_overview_notifications.py` | 保留来源相关保存通知、账号/generation、可见范围和owner退出；换掉旧计算mock，不全局关窗或吞收尾错误 |
-| `tests/test_team_overview_sources.py`、`tests/team_overview_fixture.py` | 保留来源配置、schema/事务、固定快照和共享组队夹具；只删除均值专属孤立数据/工具，逐消费者确认后删 |
+| `tests/teams/overview/test_team_overview_service.py` | 删除“四人均值等于角色页”、旧规则ID/cache、旧无限/非有限均值口径用例；保留并调整来源快照、次要槽位、UID冲突、视觉来源、并发改源、账号失效和跨账号ID冲突测试。个人模板缺失用例改成验证“不依赖个人模板”，真正伤害缺项另测 |
+| `tests/teams/overview/test_team_overview_ui.py` | 替换旧均值标签和数字断言；保留来源、按钮、无写操作、键盘可操作性和窗口不遮挡。新增未建基准/组件待更新，禁止出现旧数字兜底 |
+| `tests/teams/overview/test_team_overview_composition.py` | 保留主静态与公共图片隔离；移除强制四个成员毕业数值断言，改验新服务获得完整主库而非图鉴 |
+| `tests/teams/overview/test_team_overview_notifications.py` | 保留来源相关保存通知、账号/generation、可见范围和owner退出；换掉旧计算mock，不全局关窗或吞收尾错误 |
+| `tests/teams/overview/test_team_overview_sources.py`、`tests/teams/overview/team_overview_fixture.py` | 保留来源配置、schema/事务、固定快照和共享组队夹具；只删除均值专属孤立数据/工具，逐消费者确认后删 |
 | 队伍匹配、增强历史、`test_team_overview_component.py`、整队/混合保存测试 | 保留其有效行为；它们验证增强或来源，不因文件名含 overview 就删除 |
 
 旧均值测试删除以“被测产品语义确已退役”为依据；来源错误、账号串写、生命周期泄漏、保存事务失败等仍有效的关键测试必须修真实原因，不应改预期绕过。
@@ -520,11 +520,11 @@ W0–W4首批闭环已有源码及组件专项证据，但尚不等同于完成W
 
 | 测试组 | 关键场景 |
 | --- | --- |
-| `tests/test_team_axis_graduation_contract.py` | 140万/200万为70%、理论标尺100%；相对提升42.9%与30个百分点分开；实际等级不强制满级；零/未知/非有限、超域与大于100%的诊断；计分域或身份不匹配拒绝 |
-| `tests/test_team_axis_graduation_service.py` | 目标不读取全背包候选；固定轴/静态/实际构筑；低于目标养成仍可评价；不依赖个人毕业模板；分子更新复用分母；模型/轴/目标变更必须新基准；取消和过期回调隔离 |
-| `tests/test_team_axis_graduation_persistence.py` | 新库/旧库升级、失败回滚重试、目标/基准/评价原子保存、修订CAS、无关写入不误失效、账号隔离、导出导入、删队伍与旧增强数据不变 |
-| `tests/test_team_axis_graduation_history_ui.py`、`test_team_axis_graduation_configuration.py`、`test_team_axis_graduation_equipment_flow.py` | 未建/缺输入/组件待更新/工作中/部分覆盖/受限/过期/失败；刷新不搜理论；目标可见、显式保存与取消、三主题键盘和窗口不越界；旧简报回调不写新毕业区 |
-| `tests/test_team_axis_graduation_service_chain.py` 及各操作的正式组件边界专项 | 用隔离合成账号库与合法冻结轴通过正式EXE接口完成三类操作；核验模型/能力/哈希/覆盖、只读计算、建议整队收益；无新能力时不回退Python或旧均值 |
+| `tests/teams/graduation/test_team_axis_graduation_contract.py` | 140万/200万为70%、理论标尺100%；相对提升42.9%与30个百分点分开；实际等级不强制满级；零/未知/非有限、超域与大于100%的诊断；计分域或身份不匹配拒绝 |
+| `tests/teams/graduation/test_team_axis_graduation_service.py` | 目标不读取全背包候选；固定轴/静态/实际构筑；低于目标养成仍可评价；不依赖个人毕业模板；分子更新复用分母；模型/轴/目标变更必须新基准；取消和过期回调隔离 |
+| `tests/teams/graduation/test_team_axis_graduation_persistence.py` | 新库/旧库升级、失败回滚重试、目标/基准/评价原子保存、修订CAS、无关写入不误失效、账号隔离、导出导入、删队伍与旧增强数据不变 |
+| `tests/teams/graduation/test_team_axis_graduation_history_ui.py`、`test_team_axis_graduation_configuration.py`、`test_team_axis_graduation_equipment_flow.py` | 未建/缺输入/组件待更新/工作中/部分覆盖/受限/过期/失败；刷新不搜理论；目标可见、显式保存与取消、三主题键盘和窗口不越界；旧简报回调不写新毕业区 |
+| `tests/teams/graduation/test_team_axis_graduation_service_chain.py` 及各操作的正式组件边界专项 | 用隔离合成账号库与合法冻结轴通过正式EXE接口完成三类操作；核验模型/能力/哈希/覆盖、只读计算、建议整队收益；无新能力时不回退Python或旧均值 |
 
 独立分析仓库同时覆盖：合法逐件生成与反向重建、有限小空间穷举、压缩等价性、条件剪枝反例、暴击上下限/超额转化、辅助间接增益、阈值/触发/资源与轴可执行性、搜索取消与预算、建议预算守恒及联合收益非可加。固定 seed 的确定性检查用评价次数预算，不以性能时限固化期望答案。
 

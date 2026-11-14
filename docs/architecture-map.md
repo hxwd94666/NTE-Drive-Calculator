@@ -32,7 +32,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 | 已保存 | 本次结果已写入对应本地数据 | 若要改变游戏配装，还需要执行装配操作 |
 | 结果未知 | 操作可能已派发，但还没有足够证据确认结果 | 先核对实际状态，不盲目重复可能已经执行的游戏操作 |
 
-证据：[功能契约](features.md)、[工作模式](reference/work-modes.md)、[系统架构](architecture.md)、[外部集成](integrations.md)、[当前导航](../src/ui/navigation.py)。
+证据：[功能契约](features.md)、[工作模式](reference/work-modes.md)、[系统架构](architecture.md)、[外部集成](integrations.md)、[当前导航](../src/ui/main_window/navigation.py)。
 
 ## 工作台：自动同步、重启与关闭
 
@@ -89,7 +89,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 关闭首页自动同步不等于取消这次手动同步；切换账号、撤销模式权限和退出程序则涉及全局任务收尾。
 
-证据：[角色与面板规则](features.md)、[角色同步控制器](../src/features/official_role/sync_controller.py)、[字段保留规则](../src/domain/native_role_sync.py)。
+证据：[角色与面板规则](features.md)、[角色同步控制器](../src/features/official_role/sync_controller.py)、[字段保留规则](../src/domain/characters/native_role_sync.py)。
 
 ### 角色养成与面板 <!-- page: role-profile; type: 详情区 -->
 
@@ -146,14 +146,12 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 | 操作 | 生效时点与影响范围 | 限制与完成条件 |
 | --- | --- | --- |
-| 匹配战报 | 打开该队只读历史范围列表，后台逐项核验正式四人阵容 | 不要求当前库存，不启动采集；零伤害成员计入，缺证与故障不写成零匹配 |
-| 状态／场景筛选、加载更多 | 只改变本窗口已读取候选的展示或读取下一页 | 已读取数量不是全部历史数量；无自动选择或最高伤害推荐 |
-| 手工核验范围 | 对明确战报及原轴半开时段执行同一正式核验 | 不猜换队边界；未知或冲突不得作为完全匹配应用 |
-| 更多 → 队伍配装 | 选择来源和成员槽位后只读预览；显式保存只更新该队配置和简报 | 仅当前计算（逐成员选择稳定槽位）／当前游戏；不自动同步、装配或分析，取消不写入。头像行显示装备件数与缺项，诊断详情保留方案／快照身份，不展示完整 UID |
-| 毕业率 | 打开数学结果/历史，明确选轴与目标后才建立基准；显式选用恢复上下文，显式保存才写入 | 历史及目标资料读取不求解；新能力缺失只限制新计算；固定轴比例已按显式策略展示，实战可执行性单列未证实；有效性核对不求解；具体按钮见[队伍简报](features.md#队伍配装简报)，剩余门禁见[开发方案](roadmap/team-axis-graduation.md) |
-| 更多 → 增强记录 | 分页读取已完整提交的队伍结果及联合详情 | 预览不入历史；本队增幅相对本次 B0，当前关联变化不重算历史 |
-| 刷新简报 | 后台重读当前来源，按可见队伍优先增量填充 | 不启动个人毕业计算或伤害搜索；来源缺口不填零 |
-| 使用此战报／战报增强 | 明确确认后转到计算配置，选择原始或已启用编辑 A | 不开始分配、不保存装备；正式计算仍检查完整库存及固定队友 |
+| 单独计算 | 进入计算页并预选本队；明确确认战报配置后才替换为四人同级并开启增强 | 不立即求解，不改角色偏好或持久配装；取消不改原草稿；未满员、缺资料、忙碌或过期请求拦截，见[队伍简报](features.md#队伍配装简报) |
+| 队伍配装 | 选择来源和成员槽位后只读预览；显式保存只更新该队配置和简报 | 当前计算逐成员选择稳定槽位；当前游戏只读稳定快照；取消不写入，不自动同步或装配 |
+| 毕业率 | 打开结果/历史，明确选轴与目标后才建立基准；显式保存才写入 | 选轴复用阵容匹配，只修改毕业草稿，不进入战报增强；固定轴假设和有效性单列提示，见[队伍简报](features.md#队伍配装简报) |
+| 增强记录 | 分页读取已完整提交的队伍结果及联合详情 | 预览不入历史；本队增幅相对本次 B0，当前关联变化不重算历史 |
+| 更多 → 编辑／删除 | 编辑保存刷新该队；删除须确认 | 不删除角色、装备或战报；正式队伍 ID 不因改名变化 |
+| 自动更新 | 来源保存、方案提交通知及返回页面触发读取；毕业率回调独立更新 | 没有手动刷新按钮，不轮询游戏或自动求解；读取失败重新进入页面或打开队伍配装重试 |
 | 关闭／离页 | 取消本窗口读取并等后台 owner 收尾 | 保留原配置，旧账号或旧请求回调不回填 |
 
 行为见[阵容匹配](features.md#按阵容匹配战报)，验收边界见[剩余门禁](roadmap/team-report-matching.md)。
@@ -162,6 +160,10 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 ## 计算：开始计算、保存与约束
 
 配装求解使用计算／分析 Core 的 Rust 实现。对使用者更重要的是：一次计算固定使用发起时的库存、角色顺序、权重、锁和相关设置；运行中同步到新库存，不会偷偷改变这次结果的输入。
+
+普通配装的图纸生成与分配均消费随附分析组件；直伤／战报增强仍使用该组件的完整伤害分配作业。
+普通图纸仅复用相同盘面、形状和模式的完整缓存；组件缺能力、取消或图纸预算截断时不退回 Python 搜索。
+新旧方案比较可跨角色批量评分，但每个角色的权重、黑名单、主词条策略及每个槽位自己的来源快照仍独立冻结。
 
 | 按钮或配置 | 实际作用 | 限制与完成条件 |
 | --- | --- | --- |
@@ -179,7 +181,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 全局停止键可停止本次计算并回收对应计算进程。已保存方案不会因为取消新的求解而被覆盖；新配置需要发起新计算才能得到相应结果。
 
-证据：[分配与设置规则](features.md)、[计算页](../src/features/allocation/execute_page.py)、[分配设置](../src/features/allocation/filter_settings_dialog.py)、[策略选择传递](../src/features/scanning/workflow.py)、[Rust 策略能力限制](../src/integrations/native_allocation_wire.py)、[计算编排](../src/features/allocation/runner.py)、[保存流程](../src/features/allocation/save_workflow.py)、[计算入口](../src/app/facade.py)、[Rust 分配适配](../src/integrations/native_allocation.py)、[分析组件适配](../src/integrations/nte_analysis_core.py)。
+证据：[分配与设置规则](features.md)、[计算页](../src/features/allocation/execute_page.py)、[分配设置](../src/features/allocation/settings/filter_settings_dialog.py)、[策略选择传递](../src/features/scanning/workflow.py)、[Rust 策略能力限制](../src/integrations/allocation/native_allocation_wire.py)、[计算编排](../src/features/allocation/execution/runner.py)、[保存流程](../src/features/allocation/execution/save_workflow.py)、[计算入口](../src/app/facade.py)、[Rust 分配适配](../src/integrations/allocation/native_allocation.py)、[分析组件适配](../src/integrations/analysis_core/nte_analysis_core.py)。
 
 ### 输入方式与扫描准备 <!-- page: calculation-input; type: 功能区 -->
 
@@ -202,7 +204,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 按所选类型、品质、评估角色和预留规则准备扫描后的处理计划；“新增规则／编辑／复制／删除”修改规则草稿，不是当场锁定或弃置游戏装备。真正执行要求同次完整扫描及界面身份核对，不能把仓库视觉来源的一般浏览权限扩大成任意游戏写入权限。
 
-证据：[扫描后管理](../src/features/scanning/post_action_dialog.py)、[扫描后执行边界](features.md)。
+证据：[扫描后管理](../src/features/scanning/post_actions/post_action_dialog.py)、[扫描后执行边界](features.md)。
 
 ### 分配设置 <!-- page: allocation-settings; type: 弹窗 -->
 
@@ -213,7 +215,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 - 确认通过校验并成功保存才成为本账号设置；取消保留原值。
 - 改设置不自动重算已经显示的预览，需重新开始计算。
 
-证据：[分配设置弹窗](../src/features/allocation/filter_settings_dialog.py)、[保存设置](../src/features/scanning/controller.py)。
+证据：[分配设置弹窗](../src/features/allocation/settings/filter_settings_dialog.py)、[保存设置](../src/features/scanning/controller.py)。
 
 ### 保存结果与目标槽位 <!-- page: allocation-save; type: 操作流程 -->
 
@@ -221,7 +223,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 每个角色明确选择目标槽位，可新建或跳过。保存比较的是同一目标槽位的前后差异；整批验证失败或提交前取消时回滚。保存消费本次预览而非最新库存；被其他角色借走的装备可能使原来未锁定方案变为不完整，锁定方案拒绝借用。保存成功仍只是本地方案，不执行游戏装配。
 
-证据：[保存流程](../src/features/allocation/save_workflow.py)、[槽位与借用规则](features.md)。
+证据：[保存流程](../src/features/allocation/execution/save_workflow.py)、[槽位与借用规则](features.md)。
 
 ## 配装：本地方案与游戏执行
 
@@ -236,7 +238,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 保存方案只是保存在 Calc 中。是否已经穿到游戏角色身上，要看实际装配结果；原生装配与普通界面装配的条件分别判断。
 
-证据：[配装功能契约](features.md)、[配装页按钮](../src/features/inventory/equipment/display_view.py)、[批量删除与方案管理](../src/features/inventory/equipment/display_controller.py)、[外部写操作](integrations.md)。
+证据：[配装功能契约](features.md)、[配装页按钮](../src/features/inventory/equipment/display/display_view.py)、[批量删除与方案管理](../src/features/inventory/equipment/display/display_controller.py)、[外部写操作](integrations.md)。
 
 ### 配装槽位管理 <!-- page: equipment-slots; type: 管理入口 -->
 
@@ -244,7 +246,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 每个角色最多三个可见槽位，至少保留一个。槽位名称用于展示，改名不改变方案身份。同角色多个备选方案可引用同件装备；跨角色当前方案引用同件装备才需处理冲突。锁定槽位不能覆盖、归档或单件替换。归档或清空当前方案不等于删除方案历史，也不卸下游戏装备。
 
-证据：[槽位契约](features.md)、[配装主从页面](../src/features/inventory/equipment/master_detail_view.py)。
+证据：[槽位契约](features.md)、[配装主从页面](../src/features/inventory/equipment/display/master_detail_view.py)。
 
 ### 游戏配装与批量导入 <!-- page: equipment-game; type: 页内切换 -->
 
@@ -252,7 +254,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 游戏配装来自原生稳定快照的只读观察。显式导入才保存为本地方案，并冻结来源与评分；视觉库存不能使用该入口。批量导入先勾选角色，支持搜索和全选，再确认导入各角色的主力槽位（主力不存在时用首个可见槽位，没有槽位时新建主力）；已导入或目标锁定的方案不参与。导入需要核对目标槽位及锁定条件。观测数据缺卡带等缺项应保留不完整标识，不能把“导入了记录”当作完整可执行装配。
 
-证据：[配装页入口](../src/features/inventory/equipment/display_view.py)、[游戏导入规则](features.md)。
+证据：[配装页入口](../src/features/inventory/equipment/display/display_view.py)、[游戏导入规则](features.md)。
 
 ### 属性汇总与对比槽位 <!-- page: equipment-stats; type: 详情区 -->
 
@@ -268,7 +270,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 查看候选并比较单件替换结果。官方角色候选排序可按当前面板的直伤边际，自建角色使用基础权重；排序收益不是全部战斗机制的保证。锁定方案不能替换。修改本地方案与执行游戏装配是两步，不能把选中候选当作已穿戴。
 
-证据：[替换弹窗](../src/ui/equipment_replacement_dialog.py)、[替换契约](features.md)。
+证据：[替换弹窗](../src/ui/equipment/equipment_replacement_dialog.py)、[替换契约](features.md)。
 
 ### 装配槽位与执行预览 <!-- page: equipment-execute; type: 弹窗与流程 -->
 
@@ -276,7 +278,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 每个角色只选择一个本次要执行的槽位，再核对跨角色装备冲突。极速装配需要原生正式身份；界面自动装配需要可操作的游戏界面与输入条件。确认派发后，取消只能停止后续动作；成功依赖实际状态核对，不以进度条或指令接受替代。
 
-证据：[选择装配槽位](../src/features/inventory/equipment/slot_selection_dialog.py)、[装配规则](features.md)。
+证据：[选择装配槽位](../src/features/inventory/equipment/assembly/slot_selection_dialog.py)、[装配规则](features.md)。
 
 ## 仓库：筛选、锁定与弃置
 
@@ -299,7 +301,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 “重置”清除筛选草稿，“确认”应用草稿；筛选只控制显示范围。「状态」保留游戏事实，「管理」为待锁定、待弃置、待正常、无变更四项互斥单选，均不选表示不限；隐藏项仍计入保存。同组条件是或、不同组是且。视觉库存没有可靠原生锁／弃置状态，不应按未知值假设未锁定。筛选无结果不能直接说明账号没有装备。
 
-证据：[筛选抽屉](../src/features/inventory/warehouse/filter_drawer.py)、[筛选规则](features.md)。
+证据：[筛选抽屉](../src/features/inventory/warehouse/display/filter_drawer.py)、[筛选规则](features.md)。
 
 ### 状态保存与批量管理 <!-- page: warehouse-state; type: 操作流程 -->
 
@@ -347,7 +349,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 配套组件支持时，采集期间会自动订阅游戏的半场和重开确认，不需要额外开关。游戏里“重开当前半场”只重置该半场的当前统计归属，另一半场保留；“重开整层”重置两半场。原始逐击仍保留。楼层已知不代表半场已知，重开请求也不等于已确认；普通副本还需等待新的刷怪边界。旧组件继续使用原有可用观测。以上链路已通过离线专项验证，新增通知在游戏里的实际覆盖仍待验收。
 
-证据：[战报功能契约](features/battle-report.md)、[战报按钮](../src/features/battle_report/page.py)、[采集资源协调](../src/features/battle_report/capture/controls.py)、[分析组件适配](../src/integrations/nte_analysis_core.py)。
+证据：[战报功能契约](features/battle-report.md)、[战报按钮](../src/features/battle_report/page.py)、[采集资源协调](../src/features/battle_report/capture/controls.py)、[分析组件适配](../src/integrations/analysis_core/nte_analysis_core.py)。
 
 ### 历史战报 <!-- page: battle-history; type: 弹窗 -->
 
@@ -517,7 +519,7 @@ HUD 已独立，背包、角色、装备继续归 User，战斗、Buff 与上下
 
 单角色计算当前对象，多角色汇总所选目标。“选择角色”添加目标，“删除”移除该计算目标，不删除账号角色。分别设置当前与目标等级、突破及技能；选中多个目标不代表它们已经同步到游戏。计算后再读取本次材料和体力结果。
 
-证据：[单角色输入](../src/features/toolbox/cultivation/single_editor.py)、[多角色输入](../src/features/toolbox/cultivation/batch_page.py)、[养成规则](features/tools-and-catalog.md)。
+证据：[单角色输入](../src/features/toolbox/cultivation/single/single_editor.py)、[多角色输入](../src/features/toolbox/cultivation/batch/batch_page.py)、[养成规则](features/tools-and-catalog.md)。
 
 ### 已有材料与材料范围 <!-- page: cultivation-materials; type: 配置区; parent: cultivation -->
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.integrations.bundled_resources import bundled_config_dir
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.storage.json_store import read_json
 
 

@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
-from src.services.allocation.axis_selection import AxisAllocationSelectionService
-from src.services.allocation.axis_team_preflight import prepare_axis_team_selection
-from src.integrations.static_catalog_release import static_catalog_read_unit
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
+from src.services.allocation.axis.axis_selection import AxisAllocationSelectionService
+from src.services.allocation.axis.axis_team_preflight import prepare_axis_team_selection
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import ROOT
 from tests.allocation.axis_team_fixture import attach_native_team
 from tests.allocation.test_axis_postprocess_component import axis_facade_case, run_axis_facade

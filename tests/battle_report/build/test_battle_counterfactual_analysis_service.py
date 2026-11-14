@@ -22,11 +22,9 @@ from src.services.battle_report.inputs.axis_hits import (
 from src.services.battle_report.marginal.calculation import (
     BattleMarginalCalculationService,
 )
-from tests.battle_counterfactual_fixtures import (
-    attack_buff_rule as _attack_buff_rule,
-    build_fixture as _build,
-    evidence_fixture as _evidence,
-)
+from tests.battle_report.damage.battle_counterfactual_fixtures import attack_buff_rule as _attack_buff_rule
+from tests.battle_report.damage.battle_counterfactual_fixtures import build_fixture as _build
+from tests.battle_report.damage.battle_counterfactual_fixtures import evidence_fixture as _evidence
 
 
 class BattleCounterfactualAnalysisServiceTests(unittest.TestCase):

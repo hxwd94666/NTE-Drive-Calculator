@@ -12,7 +12,7 @@ import mss
 import mss.tools
 import cv2
 import numpy as np
-from src.integrations.operation_guard import OperationGuard, bind_stop_guard, require_operation
+from src.integrations.runtime.operation_guard import OperationGuard, bind_stop_guard, require_operation
 
 from src.utils.logger import logger
 from src.integrations.vision.recognition.image_resources import CaptureTemplateFile, immutable_template_pixels

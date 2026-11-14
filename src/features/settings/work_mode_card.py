@@ -1,15 +1,17 @@
 # 构建统一工作模式入口、逐功能检查结果与必要处理操作。
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog, set_button_text
+from src.ui.common.enum_text import ui_enum_text
 from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
-    QLabel, QPushButton, QProgressBar, QScrollArea, QVBoxLayout,
+    QPushButton, QProgressBar, QScrollArea, QVBoxLayout,
 )
 from src.app.theme import theme_color
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.version import __version__
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 
 MODE_LABELS = {"offline": "离线", "low": "低风险", "medium": "中风险", "developer": "开发"}
 MODE_DESCRIPTIONS = {
@@ -61,27 +63,27 @@ ISSUE_STATES = frozenset({"fault", "missing", "cleanup_pending"})
 WARNING_STATES = frozenset({"waiting_login", "warning"})
 
 
-def _check_state_label(item) -> str:
+def _check_state_label(item, *, text_catalog=None) -> str:
     if dict(item.facts).get("inspection_incomplete") is True:
-        return "未完成检测"
-    return STATE_LABELS[item.state.value]
+        return resolve_text_catalog(text_catalog).render("ui.settings.fact.incomplete")
+    return ui_enum_text(text_catalog, STATE_LABELS)[item.state.value]
 
 
-def _fact_value(value) -> str:
+def _fact_value(value, *, text_catalog=None) -> str:
     if value is True:
-        return "是"
+        return resolve_text_catalog(text_catalog).render("common.yes")
     if value is False:
-        return "否"
+        return resolve_text_catalog(text_catalog).render("common.no")
     if value is None:
-        return "未确认"
+        return resolve_text_catalog(text_catalog).render("ui.settings.fact.unknown")
     return str(value)
 
 
-def report_text(report) -> str:
+def report_text(report, *, text_catalog=None) -> str:
     rows = []
     # 故障优先，其余同组顺序保持；折叠卡片不替代完整可复制证据。
     for item in sorted(report.features, key=lambda item: item.state.value != "fault"):
-        row = f"{item.label}：{_check_state_label(item)}\n{item.detail}"
+        row = f"{item.label}：{_check_state_label(item, text_catalog=text_catalog)}\n{item.detail}"
         facts = dict(item.facts)
         labels = (
             ("game_running", "游戏进程"), ("core_available", "配套 Core"),
@@ -92,22 +94,28 @@ def report_text(report) -> str:
             ("projection_complete", "字段投影完整"),
             ("profile_projection_supported", "角色字段投影能力"),
         )
-        values = [f"{label}：{_fact_value(facts[key])}" for key, label in labels if key in facts]
+        values = [f"{ui_enum_text(text_catalog, label)}：{_fact_value(facts[key], text_catalog=text_catalog)}" for key, label in labels if key in facts]
         if values:
-            row += "\n检测事实：" + " · ".join(values)
+            row += "\n" + resolve_text_catalog(text_catalog).render("ui.settings.fact.heading") + " · ".join(values)
         rows.append(row)
     return "\n\n".join(rows)
 
 
-def report_summary(report) -> str:
+def report_summary(report, *, text_catalog=None) -> str:
     counts = {}
     for item in report.features:
-        label = _check_state_label(item)
-        counts[label] = counts.get(label, 0) + 1
-    return " · ".join(f"{label} {count} 项" for label, count in counts.items()) or "暂无检测结果"
+        # 语言补丁允许两个标签同名；分组仍以状态及检测完整性身份决定。
+        key = "inspection_incomplete" if dict(item.facts).get("inspection_incomplete") is True else item.state.value
+        previous, count = counts.get(key, (item, 0))
+        counts[key] = previous, count + 1
+    return " · ".join(
+        resolve_text_catalog(text_catalog).render('ui.settings.report_summary.count',
+            state=_check_state_label(item, text_catalog=text_catalog), count=count)
+        for item, count in counts.values()
+    ) or resolve_text_catalog(text_catalog).render('ui.settings.report_summary.empty')
 
 
-def _report_groups(report):
+def _report_groups(report, *, text_catalog=None):
     """按状态与共同原因归组显示；逐功能事实仍保留在完整检测文本中。"""
     sections = ([], [], [], [])
     for item in report.features:
@@ -115,7 +123,7 @@ def _report_groups(report):
             1 if item.state.value in WARNING_STATES else
             2 if item.state.value == "waiting" else 3
         )
-        key = (item.state.value, _check_state_label(item), item.detail)
+        key = (item.state.value, _check_state_label(item, text_catalog=text_catalog), item.detail)
         group = next((group for group in sections[section] if group[0] == key), None)
         if group is None:
             group = (key, [])
@@ -125,19 +133,17 @@ def _report_groups(report):
     return sections
 
 
-def prompt_offline_sync_mode(parent) -> bool:
+def prompt_offline_sync_mode(parent, *, text_catalog=None) -> bool:
     """离线请求同步只询问是否前往设置，不提升模式或续跑同步。"""
     dialog = QDialog(parent)
     dialog.setObjectName("offlineSyncModeDialog")
-    dialog.setWindowTitle("开启自动同步")
+    dialog.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.settings.prompt_offline_sync_mode.dialog'))
     dialog.setWindowModality(Qt.WindowModal)
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(20, 20, 20, 16)
     layout.setSpacing(18)
-    guidance = QLabel(
-        "状态：自动同步未开启\n"
-        "原因：当前为离线模式，不连接游戏。\n"
-        "下一步：前往设置，选择并确认可同步的工作模式，然后返回开启同步。",
+    guidance = plain_label(
+        resolve_text_catalog(text_catalog).render('ui.settings.prompt_offline_sync_mode.guidance'),
         dialog,
     )
     guidance.setObjectName("offlineSyncModeGuidance")
@@ -147,10 +153,10 @@ def prompt_offline_sync_mode(parent) -> bool:
     layout.addWidget(guidance)
     actions = QHBoxLayout()
     actions.addStretch()
-    settings_button = QPushButton("前往设置", dialog)
+    settings_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.prompt_offline_sync_mode.settings_button'), dialog)
     settings_button.clicked.connect(dialog.accept)
     actions.addWidget(settings_button)
-    cancel_button = QPushButton("取消", dialog)
+    cancel_button = TextActionButton(resolve_text_catalog(text_catalog).render('common.cancel'), dialog)
     cancel_button.setDefault(True)
     cancel_button.setFocus()
     cancel_button.clicked.connect(dialog.reject)
@@ -163,8 +169,9 @@ def prompt_offline_sync_mode(parent) -> bool:
 class ModeReportDialog(QDialog):
     """展示本次显式检测与终态；预检关闭和已确认组件处理分别解释。"""
 
-    def __init__(self, parent, controller, *, sync_action_provider=None):
+    def __init__(self, parent, controller, *, sync_action_provider=None, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._controller = controller
         self._sync_action_provider = sync_action_provider
         self._settings_target = "deployment"
@@ -174,30 +181,30 @@ class ModeReportDialog(QDialog):
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(10)
         header = QHBoxLayout()
-        self.overview = QLabel("正在检测…", self)
+        self.overview = plain_label(resolve_text_catalog(text_catalog).render('ui.settings.init.overview'), self)
         self.overview.setObjectName("modeReportOverview")
         self.overview.setWordWrap(True)
         self.overview.setStyleSheet("font-size:16px;font-weight:700")
         header.addWidget(self.overview, 1)
-        self.copy_button = QPushButton("复制检测结果", self)
+        self.copy_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.copy_button'), self)
         self.copy_button.setObjectName("modeReportCopy")
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self._copy_result)
         header.addWidget(self.copy_button)
         layout.addLayout(header)
-        self.metadata = QLabel("", self)
+        self.metadata = plain_label("", self)
         self.metadata.setObjectName("modeReportMetadata")
         self.metadata.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:11px")
         layout.addWidget(self.metadata)
-        self.status_hint = QLabel(
-            "红色为需处理项；黄色为等待登录或警告；蓝色为正常等待或待核对，具体请看各项说明。", self,
+        self.status_hint = plain_label(
+            resolve_text_catalog(text_catalog).render('ui.settings.init.status_hint'), self,
         )
         self.status_hint.setObjectName("modeReportStatusHint")
         self.status_hint.setWordWrap(True)
         self.status_hint.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px")
         self.status_hint.hide()
         layout.addWidget(self.status_hint)
-        self.label = QLabel()
+        self.label = plain_label()
         self.label.setTextFormat(Qt.PlainText)
         self.label.setWordWrap(True)
         self.label.setAlignment(Qt.AlignTop)
@@ -206,7 +213,7 @@ class ModeReportDialog(QDialog):
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setTextVisible(False)
-        self.preflight_summary = QLabel()
+        self.preflight_summary = plain_label()
         self.preflight_summary.setWordWrap(True)
         self.preflight_summary.setObjectName("syncPreflightSummary")
         self.preflight_summary.setStyleSheet(
@@ -229,7 +236,7 @@ class ModeReportDialog(QDialog):
         self.results_layout.setContentsMargins(0, 0, 0, 0)
         self.results_layout.setSpacing(10)
         content_layout.addWidget(self.results)
-        self.diagnostic_toggle = QPushButton("展开排查信息（开发/反馈用）", content)
+        self.diagnostic_toggle = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.diagnostic_toggle'), content)
         self.diagnostic_toggle.setObjectName("modeReportDiagnosticsToggle")
         self.diagnostic_toggle.setCheckable(True)
         self.diagnostic_toggle.toggled.connect(self._toggle_diagnostics)
@@ -241,14 +248,14 @@ class ModeReportDialog(QDialog):
         layout.addWidget(scroll, 1)
         footer = QHBoxLayout()
         footer.addStretch()
-        self.settings_button = QPushButton("前往环境设置")
+        self.settings_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.settings_button'))
         self._primary_action = self._open_environment_settings
         self.settings_button.clicked.connect(lambda: self._primary_action())
         footer.addWidget(self.settings_button)
-        self.close_button = QPushButton("关闭")
+        self.close_button = TextActionButton(resolve_text_catalog(text_catalog).render('common.close'))
         self.close_button.setFixedWidth(72)
         self.close_button.clicked.connect(self.reject)
-        self.retry_button = QPushButton("重新检测")
+        self.retry_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.retry_button'))
         self.retry_button.setFixedWidth(88)
         self.retry_button.clicked.connect(self._retry)
         footer.addWidget(self.retry_button)
@@ -263,7 +270,7 @@ class ModeReportDialog(QDialog):
     def _toggle_diagnostics(self, expanded):
         self.label.setVisible(expanded)
         self.diagnostic_toggle.setText(
-            "收起排查信息（开发/反馈用）" if expanded else "展开排查信息（开发/反馈用）"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.toggle_diagnostics.diagnostic_toggle') if expanded else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.init.diagnostic_toggle')
         )
 
     def _clear_results(self):
@@ -278,7 +285,7 @@ class ModeReportDialog(QDialog):
     def _add_result_section(self, title, groups, tone):
         if not groups:
             return
-        heading = QLabel(f"{title}（{sum(len(labels) for _key, labels in groups)} 项）", self.results)
+        heading = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.add_result_section.heading', title=f'{title}', value=f'{sum((len(labels) for _key, labels in groups))}'), self.results)
         heading.setStyleSheet(f"color:{theme_color(tone)};font-weight:700;font-size:13px")
         self.results_layout.addWidget(heading)
         for (state, state_label, detail), labels in groups:
@@ -296,19 +303,19 @@ class ModeReportDialog(QDialog):
             body = QVBoxLayout(row)
             body.setContentsMargins(12, 8, 12, 8)
             body.setSpacing(3)
-            label = QLabel(f"{state_label}  ·  {'、'.join(labels)}", row)
+            label = plain_label(f"{state_label}  ·  {'、'.join(labels)}", row)
             label.setWordWrap(True)
             label.setStyleSheet(f"color:{color};font-weight:700")
             body.addWidget(label)
             # 详细类型证据留在可复制的折叠报告，问题卡只展示决策所需说明。
-            explanation = QLabel(str(detail).split("\n诊断：", 1)[0], row)
+            explanation = plain_label(str(detail).split("\n诊断：", 1)[0], row)
             explanation.setWordWrap(True)
             body.addWidget(explanation)
             self.results_layout.addWidget(row)
 
     def _render_report(self, report):
         self._clear_results()
-        issues, warnings, waiting, available = _report_groups(report)
+        issues, warnings, waiting, available = _report_groups(report, text_catalog=getattr(self, 'text_catalog', None))
         problem_count = sum(len(labels) for _key, labels in issues)
         warning_count = sum(len(labels) for _key, labels in warnings)
         self.status_hint.setVisible(bool(issues or warnings or waiting))
@@ -316,25 +323,24 @@ class ModeReportDialog(QDialog):
         ready_count = sum(len(labels) for _key, labels in available)
         if problem_count:
             self.overview.setText(
-                f"需处理 {problem_count} 项 · 黄色提示 {warning_count} 项 · "
-                f"等待 {waiting_count} 项 · 已就绪 {ready_count} 项"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.overview', problem_count=f'{problem_count}', warning_count=f'{warning_count}', waiting_count=f'{waiting_count}', ready_count=f'{ready_count}')
             )
         elif warning_count:
             self.overview.setText(
-                f"黄色提示 {warning_count} 项 · 等待 {waiting_count} 项 · 已就绪 {ready_count} 项"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.overview_2', warning_count=f'{warning_count}', waiting_count=f'{waiting_count}', ready_count=f'{ready_count}')
             )
         elif waiting_count:
-            self.overview.setText(f"等待 {waiting_count} 项 · 已就绪 {ready_count} 项")
+            self.overview.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.overview_3', waiting_count=f'{waiting_count}', ready_count=f'{ready_count}'))
         else:
-            self.overview.setText(f"全部 {ready_count} 项已就绪")
-        self._add_result_section("需处理", issues, "#f85149")
-        self._add_result_section("等待登录或警告", warnings, "#d29922")
-        self._add_result_section("等待或待核对", waiting, "#58a6ff")
+            self.overview.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.overview_4', ready_count=f'{ready_count}'))
+        self._add_result_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.self'), issues, "#f85149")
+        self._add_result_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.self_2'), warnings, "#d29922")
+        self._add_result_section(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.self_3'), waiting, "#58a6ff")
         if available:
-            heading = QLabel(f"已就绪（{ready_count} 项）", self.results)
+            heading = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.heading', ready_count=f'{ready_count}'), self.results)
             heading.setStyleSheet(f"color:{theme_color('#3fb950')};font-weight:700;font-size:13px")
             self.results_layout.addWidget(heading)
-            names = QLabel("、".join(label for _key, labels in available for label in labels), self.results)
+            names = plain_label("、".join(label for _key, labels in available for label in labels), self.results)
             names.setWordWrap(True)
             self.results_layout.addWidget(names)
 
@@ -361,11 +367,11 @@ class ModeReportDialog(QDialog):
             button.deleteLater()
 
     def begin(self, mode, *, preview=False):
-        self.setWindowTitle(f"{MODE_LABELS[mode]}模式检测")
+        self.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.begin.self', value=f'{MODE_LABELS[mode]}'))
         self._settings_target = "deployment"
         self._preview = preview
         self._clear_results()
-        self.overview.setText("正在核对同步条件…" if preview else "正在检测环境…")
+        self.overview.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.begin.overview') if preview else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.begin.overview_2'))
         self.metadata.clear()
         self.status_hint.hide()
         self.diagnostic_toggle.setChecked(False)
@@ -376,8 +382,8 @@ class ModeReportDialog(QDialog):
             self.close_button.setFocus()
         self.preflight_summary.setVisible(preview)
         if preview:
-            self.preflight_summary.setText("状态：正在核对\n下一步：核对完成后确认处理或前往环境设置。")
-        self._set_primary_action("前往环境设置", self._open_environment_settings)
+            self.preflight_summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.begin.preflight_summary'))
+        self._set_primary_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.init.settings_button'), self._open_environment_settings)
         self._clear_actions()
         self.retry_button.setEnabled(False)
         self.copy_button.setEnabled(False)
@@ -387,7 +393,7 @@ class ModeReportDialog(QDialog):
                   "正在检测环境并处理配套组件…")
         closing = ("关闭窗口将保持自动同步关闭。" if preview else
                    "关闭窗口不会取消已确认的模式切换和组件处理。")
-        pending = QLabel(detail + "\n" + closing, self.results)
+        pending = plain_label(detail + "\n" + closing, self.results)
         pending.setWordWrap(True)
         self.results_layout.addWidget(pending)
         self.progress.show()
@@ -408,65 +414,65 @@ class ModeReportDialog(QDialog):
     def set_report(self, report):
         self.progress.hide()
         self._clear_actions()
-        self._set_primary_action("前往环境设置", self._open_environment_settings)
+        self._set_primary_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.init.settings_button'), self._open_environment_settings)
         self.retry_button.setEnabled(True)
-        self._set_result(report_text(report))
+        self._set_result(report_text(report, text_catalog=getattr(self, 'text_catalog', None)))
         self._render_report(report)
         available = {action for item in report.features for action in item.actions}
         if "manual_deploy" in available and not self._preview:
             self._settings_target = "deployment"
-            self._add_action("前往部署组件", self._open_environment_settings)
+            self._add_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_report.self'), self._open_environment_settings)
             self.settings_button.hide()
         elif "download_npcap" in available:
             def download():
                 self.parentWidget()._open_npcap_download()
-            self._add_action("下载 Npcap", download, close=True)
+            self._add_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_report.self_2'), download, close=True)
             self.settings_button.hide()
         elif "detect_game_path" in available:
             def detect():
                 self._controller.detect_path()
-            self._add_action("重新检测路径", detect, close=True)
+            self._add_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_report.self_3'), detect, close=True)
             self.settings_button.hide()
         if (not self._preview and self._sync_action_provider is not None
                 and report.can_offer_sync_enable):
             action = self._sync_action_provider(report)
             if action is not None:
-                self._add_action("开启自动同步", action)
+                self._add_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.prompt_offline_sync_mode.dialog'), action)
 
     def set_error(self, detail):
         self.status_hint.hide()
         self.progress.hide()
         self._clear_actions()
-        self._set_primary_action("前往环境设置", self._open_environment_settings)
+        self._set_primary_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.init.settings_button'), self._open_environment_settings)
         self.retry_button.setEnabled(True)
         self._set_result(detail)
         self._clear_results()
-        self.overview.setText("检测未完成 · 请重新检测")
+        self.overview.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_error.overview'))
         self._add_result_section(
-            "需处理", [(('fault', '故障', '环境检测中断，请查看排查信息。'), ['环境检测'])],
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render_report.self'), [(('fault', '故障', '环境检测中断，请查看排查信息。'), ['环境检测'])],
             "#f85149",
         )
         if self._preview:
             self.preflight_summary.setText(
-                "状态：检测未完成\n原因：环境检测中断。\n下一步：重新检测；仍失败请复制检测结果反馈。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_error.preflight_summary')
             )
 
     def set_sync_preflight(self, decision):
         self._settings_target = decision.target
         self._clear_actions()
         self.preflight_summary.setText(
-            ("状态：可开启同步" if decision.ready else "状态：等待处理") +
-            "\n原因：" + decision.detail +
-            ("\n下一步：自动开启同步。" if decision.ready else
-             "\n下一步：" + (decision.action_label or "处理后重新检测。"))
+            (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.preflight_summary') if decision.ready else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.preflight_summary_2')) +
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.preflight_summary_3') + decision.detail +
+            (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.preflight_summary_4') if decision.ready else
+             resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.preflight_summary_5') + (decision.action_label or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.preflight_summary_6')))
         )
         if decision.action_label:
             self._add_action(decision.action_label, self._open_environment_settings)
             self.settings_button.hide()
         elif decision.target == "mode":
-            self._set_primary_action("前往工作模式设置", self._open_environment_settings)
+            self._set_primary_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.self'), self._open_environment_settings)
         else:
-            self._set_primary_action("前往环境设置", self._open_environment_settings)
+            self._set_primary_action(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.init.settings_button'), self._open_environment_settings)
         self._copy_text += "\n\n开启同步：" + decision.detail
         self.label.setText(self._copy_text)
         if decision.ready:
@@ -479,14 +485,14 @@ class ModeReportDialog(QDialog):
         self.retry_button.setEnabled(True)
         self.preflight_summary.show()
         self.preflight_summary.setText(
-            ("状态：同步已开启" if ready else "状态：自动同步仍关闭") +
-            "\n原因：" + detail +
-            ("\n下一步：启动并进入游戏场景，等待数据就绪。" if ready else
-             "\n下一步：查看检测详情或前往环境设置后重试。")
+            (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_activation_result.preflight_summary') if ready else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_activation_result.preflight_summary_2')) +
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_sync_preflight.preflight_summary_3') + detail +
+            (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_activation_result.preflight_summary_3') if ready else
+             resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_activation_result.preflight_summary_4'))
         )
         self._clear_results()
         self._set_result(self.preflight_summary.text())
-        self.overview.setText("同步已开启" if ready else "同步仍关闭")
+        self.overview.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_activation_result.overview') if ready else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_activation_result.overview_2'))
         self.settings_button.setVisible(not ready)
 
     def _set_result(self, detail):
@@ -506,16 +512,17 @@ class ModeReportDialog(QDialog):
 class CleanupResultDialog(QDialog):
     """清理结果独立展示，不把环境连接状态当清理成功。"""
 
-    def __init__(self, parent, *, continue_upgrade: bool = False):
+    def __init__(self, parent, *, continue_upgrade: bool = False, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._continue_upgrade = continue_upgrade
         self.setObjectName("gameDirectoryCleanupDialog")
-        self.setWindowTitle("清理游戏目录")
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('settings.page.build_environment_card.equipment_plugin_stop_button'))
         self.setWindowModality(Qt.WindowModal)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 16)
         layout.setSpacing(14)
-        self.message = QLabel(self)
+        self.message = plain_label(self)
         self.message.setObjectName("gameDirectoryCleanupMessage")
         self.message.setTextFormat(Qt.PlainText)
         self.message.setWordWrap(True)
@@ -527,13 +534,13 @@ class CleanupResultDialog(QDialog):
         layout.addWidget(self.progress)
         actions = QHBoxLayout()
         actions.addStretch()
-        self.continue_button = QPushButton("继续升级引导", self)
+        self.continue_button = TextActionButton(resolve_text_catalog(text_catalog).render('ui.settings.init.continue_button'), self)
         self.continue_button.setObjectName("btnNew")
         self.continue_button.setAutoDefault(False)
         self.continue_button.clicked.connect(self.accept)
         self.continue_button.hide()
         actions.addWidget(self.continue_button)
-        close_button = QPushButton("关闭", self)
+        close_button = TextActionButton(resolve_text_catalog(text_catalog).render('common.close'), self)
         close_button.setDefault(True)
         close_button.clicked.connect(self.reject)
         actions.addWidget(close_button)
@@ -542,9 +549,7 @@ class CleanupResultDialog(QDialog):
 
     def begin(self):
         self.message.setText(
-            "状态：正在清理游戏目录\n"
-            "原因：正在结束相关服务并核对本程序管理的组件。\n"
-            "下一步：请稍候；关闭此窗口不会中断已开始的清理。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.begin.message')
         )
         self.progress.show()
         self.show()
@@ -565,25 +570,25 @@ class CleanupResultDialog(QDialog):
         else:
             status = "等待继续清理"
             next_step = "按原因处理后重试；游戏运行时请先退出游戏。"
-        self.message.setText(f"状态：{status}\n原因：{detail}\n下一步：{next_step}")
+        self.message.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.set_result.message', status=ui_enum_text(getattr(self, 'text_catalog', None), f'{status}'), detail=f'{detail}', next_step=ui_enum_text(getattr(self, 'text_catalog', None), f'{next_step}')))
         self.continue_button.setVisible(self._continue_upgrade and not pending and state != "fault")
 
 
 def build_work_mode_card(window):
     controller = window.work_mode_controller
     service = window.work_mode_service
-    card = window._card("工作模式")
+    card = window._card(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.settings.build_work_mode_card.card'))
     controls = QHBoxLayout()
     controls.setSpacing(10)
-    current_label = QLabel("当前模式：")
+    current_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.settings.build_work_mode_card.current_label'))
     controls.addWidget(current_label)
     combo = NoWheelComboBox()
-    for key, label in MODE_LABELS.items():
+    for key, label in ui_enum_text(getattr(window, 'text_catalog', None), MODE_LABELS).items():
         combo.addItem(label, key)
     combo.setCurrentIndex(combo.findData(service.settings.mode.value))
     combo.setFixedWidth(150)
     controls.addWidget(combo)
-    check = QPushButton("检测并处理")
+    check = TextActionButton(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.settings.build_work_mode_card.check'))
     check.setFixedWidth(96)
     check.clicked.connect(lambda: controller.check(show=True, retry_deployment=True))
     controls.addWidget(check)
@@ -593,13 +598,13 @@ def build_work_mode_card(window):
     mode_labels = {}
     descriptions = QVBoxLayout()
     descriptions.setSpacing(8)
-    for key, title in MODE_LABELS.items():
+    for key, title in ui_enum_text(getattr(window, 'text_catalog', None), MODE_LABELS).items():
         row = QHBoxLayout()
         row.setSpacing(8)
-        mode_label = QLabel(f"{title}：")
+        mode_label = plain_label(f"{title}：")
         mode_label.setObjectName(f"workModeDescription_{key}")
         mode_label.setFixedWidth(58)
-        detail = QLabel(MODE_DESCRIPTIONS[key])
+        detail = plain_label(ui_enum_text(getattr(window, 'text_catalog', None), MODE_DESCRIPTIONS)[key])
         detail.setWordWrap(False)
         detail.setStyleSheet(f"color:{theme_color('#c9d1d9')}")
         row.addWidget(mode_label)
@@ -620,7 +625,7 @@ def build_work_mode_card(window):
     refresh_mode_emphasis()
 
     # 逐功能状态归显式检测弹窗；隐藏标签只接收 Controller 的窄状态投影。
-    status = QLabel("正在核对当前模式…", card)
+    status = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.settings.build_work_mode_card.status'), card)
     status.hide()
     controller.attach_controls(combo, status, check)
 
@@ -642,25 +647,25 @@ def _confirmation_row(title: str, detail: str, tone: str, parent) -> QFrame:
     row = QHBoxLayout(frame)
     row.setContentsMargins(14, 11, 14, 11)
     row.setSpacing(12)
-    heading = QLabel(title, frame)
+    heading = plain_label(title, frame)
     heading.setObjectName(f"workModeConfirmation_{tone}")
     heading.setFixedWidth(76)
     tone_color = {"available": "#3fb950", "unavailable": "#8b949e", "after": "#58a6ff"}[tone]
     heading.setStyleSheet(
         f"color:{theme_color(tone_color)};font-weight:700"
     )
-    body = QLabel(detail, frame)
+    body = plain_label(detail, frame)
     body.setWordWrap(True)
     row.addWidget(heading)
     row.addWidget(body, 1)
     return frame
 
 
-def confirm_mode(parent, mode: str) -> bool:
-    copy = MODE_CONFIRMATIONS[mode]
+def confirm_mode(parent, mode: str, *, text_catalog=None) -> bool:
+    copy = ui_enum_text(text_catalog, MODE_CONFIRMATIONS)[mode]
     dialog = QDialog(parent)
     dialog.setObjectName("workModeConfirmationDialog")
-    dialog.setWindowTitle("确认切换到" + MODE_LABELS[mode] + "模式")
+    dialog.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.settings.confirm_mode.dialog') + ui_enum_text(text_catalog, MODE_LABELS)[mode] + resolve_text_catalog(text_catalog).render('ui.settings.confirm_mode.dialog_2'))
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(22, 20, 22, 18)
     layout.setSpacing(12)
@@ -674,16 +679,16 @@ def confirm_mode(parent, mode: str) -> bool:
     warning_row = QHBoxLayout(warning)
     warning_row.setContentsMargins(16, 14, 16, 14)
     warning_row.setSpacing(14)
-    icon = QLabel("⚠", warning)
+    icon = plain_label("⚠", warning)
     icon.setObjectName("workModeWarningIcon")
     icon.setStyleSheet(f"color:{theme_color('#f85149')};font-size:30px;font-weight:700")
     warning_row.addWidget(icon)
     warning_text = QVBoxLayout()
     warning_text.setSpacing(3)
-    warning_title = QLabel(copy["warning_title"], warning)
+    warning_title = plain_label(copy["warning_title"], warning)
     warning_title.setObjectName("workModeWarningTitle")
     warning_title.setStyleSheet(f"color:{theme_color('#f85149')};font-size:16px;font-weight:700")
-    warning_detail = QLabel(copy["warning_detail"], warning)
+    warning_detail = plain_label(copy["warning_detail"], warning)
     warning_detail.setObjectName("workModeWarningDetail")
     warning_detail.setWordWrap(True)
     warning_text.addWidget(warning_title)
@@ -691,11 +696,11 @@ def confirm_mode(parent, mode: str) -> bool:
     warning_row.addLayout(warning_text, 1)
     layout.addWidget(warning)
 
-    layout.addWidget(_confirmation_row("可以使用", copy["available"], "available", dialog))
-    layout.addWidget(_confirmation_row("不可使用", copy["unavailable"], "unavailable", dialog))
-    layout.addWidget(_confirmation_row("切换后", copy["after"], "after", dialog))
+    layout.addWidget(_confirmation_row(resolve_text_catalog(text_catalog).render('ui.settings.confirm_mode.caption'), copy["available"], "available", dialog))
+    layout.addWidget(_confirmation_row(resolve_text_catalog(text_catalog).render('ui.settings.confirm_mode.caption_2'), copy["unavailable"], "unavailable", dialog))
+    layout.addWidget(_confirmation_row(resolve_text_catalog(text_catalog).render('ui.settings.confirm_mode.caption_3'), copy["after"], "after", dialog))
 
-    note = QLabel(copy["note"], dialog)
+    note = plain_label(copy["note"], dialog)
     note.setObjectName("workModeConfirmationNote")
     note.setWordWrap(True)
     note.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px")
@@ -703,10 +708,10 @@ def confirm_mode(parent, mode: str) -> bool:
 
     buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=dialog)
     cancel = buttons.button(QDialogButtonBox.Cancel)
-    cancel.setText("取消")
+    set_button_text(cancel, resolve_text_catalog(text_catalog).render('common.cancel'))
     cancel.setFixedSize(88, 38)
     consent = buttons.addButton(
-        "确认切换" if mode == "offline" else "确认风险并切换",
+        resolve_text_catalog(text_catalog).render('ui.settings.confirm_mode.consent') if mode == "offline" else resolve_text_catalog(text_catalog).render('ui.settings.confirm_mode.consent_2'),
         QDialogButtonBox.AcceptRole,
     )
     consent.setObjectName("workModeConfirm" if mode == "offline" else "workModeRiskConsent")

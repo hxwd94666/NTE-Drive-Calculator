@@ -13,9 +13,10 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 from src.app.workers import ScanWorkerThread
-from src.features.scanning import incremental_workflow, file_workflow
-from src.features.scanning.file_lifecycle import ScanFileLifecycle
-from src.features.scanning.vision_worker import VisionWorkerThread
+from src.features.scanning.vision import incremental_workflow
+from src.features.scanning.files import file_workflow
+from src.features.scanning.files.file_lifecycle import ScanFileLifecycle
+from src.features.scanning.vision.vision_worker import VisionWorkerThread
 from src.integrations.vision import incremental_scan as scan
 from src.integrations.vision.recognition import batch_processor
 from src.integrations.vision.recognition.image_resources import CaptureTemplateFile
@@ -23,8 +24,8 @@ from src.integrations.vision.recognition.resources import RecognitionResourceErr
 from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from src.integrations.vision.window_capture import WindowRect
 from src.models.equipment import Tape
-from src.services.inventory.visual_scan_commit import commit_completed_vision_inventory
-from src.services.inventory.vision_commit import VisionCommitRequest
+from src.services.inventory.scanning.visual_scan_commit import commit_completed_vision_inventory
+from src.services.inventory.scanning.vision_commit import VisionCommitRequest
 from tests.vision.test_ocr_runtime import NativeOCR, model_fixture
 from tests.vision.test_recognition_resources import selected as selected, freeze_image
 

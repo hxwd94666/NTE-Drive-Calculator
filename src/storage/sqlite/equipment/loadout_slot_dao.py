@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import nullcontext
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from src.domain.equipment.loadout_plan_scores import exact_assignment_score_total
-from src.domain.equipment.loadout_equipment_identity import source_snapshots_share_equipment_uids
-from src.domain.equipment.virtual_equipment import (
+from src.domain.equipment.loadouts.loadout_plan_scores import exact_assignment_score_total
+from src.domain.equipment.loadouts.loadout_equipment_identity import source_snapshots_share_equipment_uids
+from src.domain.equipment.loadouts.virtual_equipment import (
     is_virtual_equipment_assignment,
     make_virtual_equipment_assignment,
 )
@@ -57,18 +57,27 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
             )
         return rows
 
-    def list_visible_loadout_slots(self) -> list[dict[str, Any]]:
+    def list_visible_loadout_slots(self, *, character_ids: Iterable[int] | None = None) -> list[dict[str, Any]]:
         """List every non-archived slot, including slots without a plan."""
 
-        return self._rows(
-            """
-            SELECT slot_id, character_id, slot_key, slot_name, sort_order,
-                   current_plan_id, is_archived, created_at_utc, updated_at_utc
-            FROM role_loadout_slot
-            WHERE is_archived = 0
-            ORDER BY character_id, sort_order, slot_id
-            """
-        )
+        identifiers = (None if character_ids is None else
+                       sorted({_integer(key, "character_id", minimum=1) for key in character_ids}))
+        if identifiers == []:
+            return []
+        batches = [None] if identifiers is None else [identifiers[i:i + 400] for i in range(0, len(identifiers), 400)]
+        rows = []
+        for batch in batches:
+            condition = "" if batch is None else " AND character_id IN (" + ",".join("?" for _ in batch) + ")"
+            rows.extend(self._rows(
+                f"""
+                SELECT slot_id, character_id, slot_key, slot_name, sort_order,
+                       current_plan_id, is_archived, created_at_utc, updated_at_utc
+                FROM role_loadout_slot
+                WHERE is_archived = 0{condition}
+                ORDER BY character_id, sort_order, slot_id
+                """, batch or ()))
+        # 分块仅限制参数数目；仍按原公开顺序返回，空槽也参与唯一默认槽位判断。
+        return sorted(rows, key=lambda row: (row["character_id"], row["sort_order"], row["slot_id"]))
 
     def list_visible_loadout_slots_with_plans(self) -> list[dict[str, Any]]:
         """Batch current plans while retaining empty visible slots."""

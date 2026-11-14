@@ -1,11 +1,12 @@
 # 在后台执行显式组件更新，界面只解释前置条件和已确认的操作结果。
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QMessageBox
 
-from src.integrations.native_capture_process import native_game_pid
-from src.integrations.operation_guard import bind_execution_guard
+from src.integrations.game_runtime.native_capture_process import native_game_pid
+from src.integrations.runtime.operation_guard import bind_execution_guard
 
 
 class _UpdateWorker(QThread):
@@ -27,8 +28,9 @@ class _UpdateWorker(QThread):
 class NativePluginUpdateController(QObject):
     changed = Signal()
 
-    def __init__(self, *, context, policy, session, loader, generation, maintenance, parent):
+    def __init__(self, *, context, policy, session, loader, generation, maintenance, parent, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.context, self.policy, self.session = context, policy, session
         self.loader, self.generation = loader, generation
         self.worker = None
@@ -75,11 +77,10 @@ class NativePluginUpdateController(QObject):
             if not directory.is_absolute():
                 raise RuntimeError('游戏组件目录尚未确认。')
         except Exception as error:
-            QMessageBox.warning(owner, '更新本方插件', str(error))
+            QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), str(error))
             return
-        if QMessageBox.question(owner, '更新本方插件',
-            'Calc 和游戏可以保持打开。\n将暂时暂停同步、HUD 和性能显示，更新后按当前开关重新连接。'
-            '\n战报录制或游戏写操作进行中时不会强行更新；D3D 宿主变化仍需退出游戏。',
+        if QMessageBox.question(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'),
+            plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox_2')),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         if self._closing or self.running or self.context is not context or self.generation() != expected:
@@ -95,14 +96,14 @@ class NativePluginUpdateController(QObject):
                 raise RuntimeError('游戏进程或组件目录已改变，请重新发起更新。')
         except Exception as error:
             if not self._closing and self.generation() == expected:
-                QMessageBox.warning(owner, '更新本方插件', str(error))
+                QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), str(error))
             return
         worker = _UpdateWorker(None, self)
         try:
             self.maintenance.begin()
         except Exception as error:
             worker.deleteLater()
-            QMessageBox.warning(owner, '更新本方插件', str(error))
+            QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), str(error))
             return
 
         def work():
@@ -148,10 +149,10 @@ class NativePluginUpdateController(QObject):
             detail = str(result)
             if self.maintenance.uncertain:
                 detail += '\n更新或登记未确认，相关原生功能保持暂停；不要重复更新，请核对恢复。'
-            QMessageBox.warning(self.parent(), '更新本方插件', detail)
+            QMessageBox.warning(self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), detail)
         else:
-            QMessageBox.information(self.parent(), '更新本方插件', result.detail +
-                                    '\n已恢复功能调度，正在按当前开关重新连接；各功能就绪请查看对应状态。')
+            QMessageBox.information(self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), plain_tooltip(result.detail +
+                                    resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.result.qmessagebox')))
 
     def _finished(self):
         worker = self.worker

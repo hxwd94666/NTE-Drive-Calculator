@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.integrations.battle_analysis.page_wire import decode_derived_snapshot
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.domain.battle_report.targets.encounter import BattleInferredEncounter
 from src.services.battle_report.analysis.native_page import BattleNativePageService
 from src.services.battle_report.analysis.native_page import persist_native_snapshot

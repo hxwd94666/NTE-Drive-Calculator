@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,7 +15,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
@@ -69,8 +69,10 @@ class CombatMechanicsCatalogPage(QWidget):
         game_ui_asset_root: str | Path,
         open_catalog_link: CatalogNavigator,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("combatMechanicsCatalogPage")
         self.setStyleSheet(themed_style(
             "QWidget#combatMechanicsCatalogPage{background:#0d1117;}"
@@ -117,11 +119,11 @@ class CombatMechanicsCatalogPage(QWidget):
         heading = QHBoxLayout()
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
-        self.gallery_title = QLabel("战斗机制图鉴", control)
+        self.gallery_title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_static_catalog_domain_pages.caption_5'), control)
         self.gallery_title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:21px;font-weight:900;"
         ))
-        self.gallery_subtitle = QLabel("用中文公式解释伤害如何计算", control)
+        self.gallery_subtitle = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery_page.gallery_subtitle'), control)
         self.gallery_subtitle.setStyleSheet(themed_style(
             "color:#8b949e;font-size:12px;font-weight:700;"
         ))
@@ -132,12 +134,12 @@ class CombatMechanicsCatalogPage(QWidget):
         self.search = QLineEdit(control)
         self.search.setObjectName("mechanicsSearch")
         self.search.setClearButtonEnabled(True)
-        self.search.setPlaceholderText("搜索公式或中文名词")
+        self.search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery_page.search'))
         self.search.setMaximumWidth(360)
         self.search.setFixedHeight(36)
         self.search.textChanged.connect(self._schedule_refresh)
         heading.addWidget(self.search, 1)
-        self.result_count = QLabel("0 项", control)
+        self.result_count = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_result_pane.page_label'), control)
         self.result_count.setStyleSheet(themed_style(
             "color:#8b949e;font-size:12px;font-weight:800;"
         ))
@@ -247,11 +249,11 @@ class CombatMechanicsCatalogPage(QWidget):
 
     def _refresh_gallery(self) -> None:
         self._cards = self._service.browse(self._family_key, self.search.text())
-        self.result_count.setText(f"{len(self._cards)} 项")
+        self.result_count.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_gallery.result_count', value=f'{len(self._cards)}'))
         self._card_widgets = []
         _clear_layout(self.gallery_grid)
         if not self._cards:
-            empty = QLabel("没有匹配的伤害公式。", self.gallery_host)
+            empty = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_gallery.empty'), self.gallery_host)
             empty.setWordWrap(True)
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(themed_style(
@@ -261,7 +263,7 @@ class CombatMechanicsCatalogPage(QWidget):
             self._columns = 1
             return
         for card in self._cards:
-            widget = MechanicsGalleryCard(card, self.gallery_host)
+            widget = MechanicsGalleryCard(card, self.gallery_host, text_catalog=getattr(self, 'text_catalog', None))
             widget.activated.connect(self.open_record)
             self._card_widgets.append(widget)
         self._reflow_cards(force=True)
@@ -311,7 +313,7 @@ class CombatMechanicsCatalogPage(QWidget):
         if detail.card_kind == "effect":
             panel = MechanicsEffectPanel(detail, self.open_link, self.detail_host)
         else:
-            panel = MechanicsFormulaPanel(detail, self.open_link, self.detail_host)
+            panel = MechanicsFormulaPanel(detail, self.open_link, self.detail_host, text_catalog=getattr(self, 'text_catalog', None))
         self.detail_layout.addWidget(panel)
         self.detail_layout.addStretch(1)
 
@@ -327,22 +329,22 @@ class CombatMechanicsCatalogPage(QWidget):
         layout.setSpacing(7)
         top = QHBoxLayout()
         family = FAMILY_BY_KEY[detail.family_key]
-        eyebrow = QLabel(f"{family.glyph}  {family.title}", hero)
+        eyebrow = plain_label(f"{family.glyph}  {family.title}", hero)
         eyebrow.setStyleSheet(themed_style(
             f"color:{family.accent};font-size:11px;font-weight:900;letter-spacing:1px;"
         ))
         top.addWidget(eyebrow)
         if detail.status:
-            top.addWidget(status_pill(detail.status, hero))
+            top.addWidget(status_pill(detail.status, hero, text_catalog=getattr(self, 'text_catalog', None)))
         top.addStretch(1)
         layout.addLayout(top)
-        title = QLabel(detail.title, hero)
+        title = plain_label(detail.title, hero)
         title.setWordWrap(True)
         title.setStyleSheet(themed_style(
             "color:#f0f6fc;font-size:23px;font-weight:900;"
         ))
         layout.addWidget(title)
-        subtitle = QLabel(detail.subtitle, hero)
+        subtitle = plain_label(detail.subtitle, hero)
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(themed_style(
             "color:#c9d1d9;font-size:13px;font-weight:650;"
@@ -393,7 +395,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self.family_scroll.setVisible(not narrow)
         self.family_combo.setVisible(narrow)
         self.gallery_subtitle.setVisible(not narrow)
-        self.search.setPlaceholderText("搜索公式" if narrow else "搜索公式或中文名词")
+        self.search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.resizeevent.search') if narrow else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery_page.search'))
         QTimer.singleShot(0, self._reflow_cards)
 
     def dispose(self) -> None:
@@ -407,6 +409,7 @@ def build_combat_mechanics_catalog_page(
     open_catalog_link: CatalogNavigator,
     terminology_service: StaticCatalogTerminologyService | None = None,
     parent: QWidget | None = None,
+    text_catalog=None,
 ) -> CombatMechanicsCatalogPage:
     """Build the single public combat-mechanics catalog entry."""
     return CombatMechanicsCatalogPage(
@@ -417,6 +420,7 @@ def build_combat_mechanics_catalog_page(
         game_ui_asset_root=game_ui_asset_root,
         open_catalog_link=open_catalog_link,
         parent=parent,
+        text_catalog=text_catalog,
     )
 
 

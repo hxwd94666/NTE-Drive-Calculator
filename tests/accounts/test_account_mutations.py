@@ -239,7 +239,8 @@ def test_delete_rejects_index_path_alias_instead_of_deleting_another_account(tmp
 
 @pytest.mark.parametrize("action", ["create-failure", "delete-cleanup"])
 def test_dialog_reports_uncommitted_creation_and_committed_cleanup_separately(tmp_path, monkeypatch, action):
-    from auto_sync_ui_fixture import application, dispose
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
     from PySide6.QtWidgets import QComboBox, QDialog, QInputDialog, QMessageBox, QPushButton, QWidget
 
     app = application()

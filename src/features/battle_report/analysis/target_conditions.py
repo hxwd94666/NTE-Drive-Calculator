@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
@@ -10,7 +12,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QGridLayout,
     QGroupBox,
-    QLabel,
     QListWidget,
     QListWidgetItem,
     QStackedWidget,
@@ -22,7 +23,7 @@ from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.services.battle_report.targets.profile_snapshot import (
     battle_target_profile_snapshots,
 )
-from src.ui.widgets import NoWheelComboBox
+from src.ui.common.widgets import NoWheelComboBox
 from .feast_conditions import FeastConditionMixin
 
 
@@ -35,21 +36,22 @@ _DAMAGE_TYPES = (
 class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
     preset_changed = Signal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__("目标与外部环境", parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._catalog: dict[str, Any] = {}
         self._loading = False
         self._feast_option_combos: dict[str, NoWheelComboBox] = {}
         root = QVBoxLayout(self)
         top = QGridLayout()
-        top.addWidget(QLabel("战斗环境"), 0, 0)
+        top.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption')), 0, 0)
         self.environment_combo = NoWheelComboBox()
-        self.environment_combo.addItem("大世界", "open_world")
-        self.environment_combo.addItem("材料 / 养成副本", "clone")
-        self.environment_combo.addItem("轨外之境", "outer_realm")
-        self.environment_combo.addItem("争锋赏宴", "feast")
+        self.environment_combo.addItem(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_combo'), "open_world")
+        self.environment_combo.addItem(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_combo_2'), "clone")
+        self.environment_combo.addItem(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_combo_3'), "outer_realm")
+        self.environment_combo.addItem(resolve_text_catalog(text_catalog).render('ui.battle_report.init.environment_combo_4'), "feast")
         top.addWidget(self.environment_combo, 0, 1)
-        top.addWidget(QLabel("魔女赐福"), 0, 2)
+        top.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.battle_report.init.caption_2')), 0, 2)
         self.witch_combo = NoWheelComboBox()
         top.addWidget(self.witch_combo, 0, 3)
         root.addLayout(top)
@@ -59,7 +61,7 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         self._build_clone_page()
         self._build_outer_realm_page()
         self._build_feast_page()
-        self.summary_label = QLabel()
+        self.summary_label = plain_label()
         self.summary_label.setWordWrap(True)
         root.addWidget(self.summary_label)
         self.environment_combo.currentIndexChanged.connect(self._environment_changed)
@@ -69,17 +71,17 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         page = QWidget()
         layout = QGridLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel("对象（可多选）"), 0, 0)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_open_world_page.caption')), 0, 0)
         self.open_world_list = QListWidget()
         self.open_world_list.setSelectionMode(
             QAbstractItemView.SelectionMode.NoSelection
         )
         self.open_world_list.setMinimumHeight(120)
         layout.addWidget(self.open_world_list, 1, 0, 1, 4)
-        layout.addWidget(QLabel("主要展示对象"), 2, 0)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_open_world_page.caption_2')), 2, 0)
         self.open_world_primary = NoWheelComboBox()
         layout.addWidget(self.open_world_primary, 2, 1, 1, 3)
-        layout.addWidget(QLabel("世界等级 / 属性档"), 3, 0)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_open_world_page.caption_3')), 3, 0)
         self.open_world_variant = NoWheelComboBox()
         layout.addWidget(self.open_world_variant, 3, 1, 1, 3)
         self.open_world_list.itemChanged.connect(
@@ -95,19 +97,19 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         page = QWidget()
         layout = QGridLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel("副本类目"), 0, 0)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_clone_page.caption')), 0, 0)
         self.clone_category_combo = NoWheelComboBox()
         layout.addWidget(self.clone_category_combo, 0, 1)
-        layout.addWidget(QLabel("副本"), 0, 2)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_clone_page.caption_2')), 0, 2)
         self.clone_activity_combo = NoWheelComboBox()
         layout.addWidget(self.clone_activity_combo, 0, 3)
-        layout.addWidget(QLabel("难度"), 1, 0)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_feast_page.caption_2')), 1, 0)
         self.clone_difficulty_combo = NoWheelComboBox()
         layout.addWidget(self.clone_difficulty_combo, 1, 1)
-        layout.addWidget(QLabel("主要展示对象"), 1, 2)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_open_world_page.caption_2')), 1, 2)
         self.clone_primary_combo = NoWheelComboBox()
         layout.addWidget(self.clone_primary_combo, 1, 3)
-        self.clone_targets_label = QLabel()
+        self.clone_targets_label = plain_label()
         self.clone_targets_label.setWordWrap(True)
         layout.addWidget(self.clone_targets_label, 2, 0, 1, 4)
         self.clone_category_combo.currentIndexChanged.connect(
@@ -126,19 +128,19 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         page = QWidget()
         layout = QGridLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel("环境版本"), 0, 0)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_outer_realm_page.caption')), 0, 0)
         self.outer_config_combo = NoWheelComboBox()
         layout.addWidget(self.outer_config_combo, 0, 1)
-        layout.addWidget(QLabel("层数"), 0, 2)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_outer_realm_page.caption_2')), 0, 2)
         self.outer_floor_combo = NoWheelComboBox()
         layout.addWidget(self.outer_floor_combo, 0, 3)
-        layout.addWidget(QLabel("分区"), 0, 4)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_outer_realm_page.caption_3')), 0, 4)
         self.outer_half_combo = NoWheelComboBox()
         layout.addWidget(self.outer_half_combo, 0, 5)
-        layout.addWidget(QLabel("主要展示对象"), 1, 0)
+        layout.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build_open_world_page.caption_2')), 1, 0)
         self.outer_primary_combo = NoWheelComboBox()
         layout.addWidget(self.outer_primary_combo, 1, 1, 1, 5)
-        self.outer_targets_label = QLabel()
+        self.outer_targets_label = plain_label()
         self.outer_targets_label.setWordWrap(True)
         layout.addWidget(self.outer_targets_label, 2, 0, 1, 6)
         self.outer_config_combo.currentIndexChanged.connect(self._outer_config_changed)
@@ -173,7 +175,7 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         for stage in catalog.get("feast") or ():
             self.feast_stage_combo.addItem(stage["name_zh"], stage)
         self.witch_combo.clear()
-        self.witch_combo.addItem("无", None)
+        self.witch_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('teams.loadout.no_issues'), None)
         for buff in catalog.get("witch_buffs") or ():
             self.witch_combo.addItem(buff["name_zh"], buff)
         self._loading = False
@@ -355,7 +357,7 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         previous = self.outer_floor_combo.currentData()
         self.outer_floor_combo.clear()
         for level in config.get("levels") or ():
-            label = f"第 {level['level_id']} 层"
+            label = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.battle_report.analysis.target_conditions.outer_config_changed.text', value=f"{level['level_id']}")
             if level.get("name_zh"):
                 label += f" · {level['name_zh']}"
             self.outer_floor_combo.addItem(label, level)
@@ -384,7 +386,7 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         for difficulty in activity.get("difficulties") or ():
             level = int(difficulty.get("difficulty_level") or 0)
             team_level = int(difficulty.get("team_level") or 0)
-            label = f"难度 {level or int(difficulty['difficulty_ordinal']) + 1}"
+            label = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.battle_report.analysis.target_conditions.clone_activity_changed.text', value=f"{level or int(difficulty['difficulty_ordinal']) + 1}")
             if team_level:
                 label += f"（推荐队伍 Lv.{team_level}）"
             self.clone_difficulty_combo.addItem(label, difficulty)
@@ -413,8 +415,8 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
                 "target_id",
             )
         self.clone_targets_label.setText(
-            "本难度对象：" + "、".join(target["name_zh"] for target in targets)
-            if targets else "本难度没有可用的刷怪模板；可继续人工补充目标参数。"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.clone_difficulty_changed.clone_targets_label_2') + "、".join(target["name_zh"] for target in targets)
+            if targets else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.clone_difficulty_changed.clone_targets_label')
         )
         self._emit_preset()
 
@@ -449,7 +451,7 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         buff = config.get("season_buff") or {}
         if buff:
             targets_text += f"\n赛季 Buff：{buff['buff_name_zh']}——{buff['description_zh']}"
-        self.outer_targets_label.setText(targets_text)
+        self.outer_targets_label.setText(ui_enum_text(getattr(self, 'text_catalog', None), targets_text))
         self._emit_preset()
 
 
@@ -688,10 +690,9 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         preset = self.current_preset()
         selected_count = len(preset.get("selected_target_ids") or ())
         if selected_count == 0:
-            self.summary_label.setText("请选择至少一个对象；保存前不会参与逐击重放。")
+            self.summary_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.emit_preset.summary_label'))
         else:
             self.summary_label.setText(
-                f"已选 {selected_count} 个对象；逐击将按 targetId 与血量映射各自属性。"
-                "主要目标只用于默认展示。"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.emit_preset.summary_label_2', selected_count=f'{selected_count}')
             )
         self.preset_changed.emit(preset)

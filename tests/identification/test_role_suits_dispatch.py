@@ -6,11 +6,13 @@ from unittest.mock import patch
 import pytest
 
 from src.integrations.inventory.warehouse_state_writer import WarehouseStateWriter
-from src.domain.equipment.management_settings import MatchingScope
-from src.integrations.nte_core_protocol import NteCoreRpcError
+from src.domain.equipment.eligibility.management_settings import MatchingScope
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
 from src.services.identification.matching_settings import MatchingSettingsService
-from src.services.inventory.warehouse_state_management import (
-    WarehouseStateManagementError, WarehouseStateManagementPlan, WarehouseStateManagementService,
+from src.services.inventory.management.warehouse_state_management import (
+    WarehouseStateManagementError,
+    WarehouseStateManagementPlan,
+    WarehouseStateManagementService,
 )
 from src.services.scanning.state_sync import GamepadStateSyncService
 from src.storage.sqlite.user_data_dao import UserDataDao

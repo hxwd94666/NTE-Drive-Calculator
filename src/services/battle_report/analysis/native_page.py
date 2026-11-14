@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 from concurrent.futures import CancelledError
+from contextlib import nullcontext
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 from src.integrations.battle_analysis.page_wire import decode_page, decode_derived_snapshot
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.analysis.progress import report_battle_analysis_progress
 from src.services.battle_report.analysis.progress import BattlePageOverallProgress
 from src.services.battle_report.analysis.page_cache import (
     BattleNativePageCache, file_identity, page_cache_key,
 )
+from src.observability.stage_timings import timed, timed_call, timed_context
 
 
 _PROGRESS_MESSAGES = {
@@ -46,23 +48,40 @@ class BattleNativePageService:
         self._context_is_current = context_is_current
         self._page_cache = BattleNativePageCache()
 
+    def _database_read_lease(self):
+        from src.storage.sqlite.user_data_dao import UserDataDao
+        database = Path(self._dependencies.user_database_path)
+        return UserDataDao.external_read_lease(database) if database.is_file() else nullcontext()
+
+    def _axis_resource_session(self, checkpoint):
+        # 一次固定轴评价的前验、求值、后验共用活pin与worker，事务和每次事实摘要仍独立。
+        session = getattr(type(self._client), 'verified_session', None)
+        if session is None or self._dependencies.static_database_path is None:
+            return nullcontext()
+        return session(self._client, extra_paths=(Path(self._dependencies.static_database_path).resolve(),
+                       self._semantics_path), checkpoint=checkpoint)
+
     def load_editor_facts(self, battle_record_id):
         from src.integrations.battle_analysis.editor_facts import load_editor_facts
-        return load_editor_facts(self._client, self._dependencies, self._context_is_current, battle_record_id)
+        with self._database_read_lease():
+            return load_editor_facts(self._client, self._dependencies, self._context_is_current, battle_record_id)
 
     def freeze_axis_evaluation(self, request, *, anchor_mode, selected_character_id,
                                baseline_equipment_by_character, candidates, checkpoint=None):
         from src.services.battle_report.analysis.axis_evaluation import freeze_axis_evaluation
-        return freeze_axis_evaluation(self._client, self._dependencies, self._semantics_path,
-            self._context_is_current, request, anchor_mode=anchor_mode, selected_character_id=selected_character_id,
-            baseline_equipment_by_character=baseline_equipment_by_character, candidates=candidates, checkpoint=checkpoint)
+        with self._database_read_lease(), self._axis_resource_session(checkpoint):
+            return freeze_axis_evaluation(self._client, self._dependencies, self._semantics_path,
+                self._context_is_current, request, anchor_mode=anchor_mode, selected_character_id=selected_character_id,
+                baseline_equipment_by_character=baseline_equipment_by_character, candidates=candidates, checkpoint=checkpoint)
 
     def evaluate_axis(self, frozen, *, checkpoint=None):
         from src.services.battle_report.analysis.axis_evaluation import evaluate_frozen_axis
-        return evaluate_frozen_axis(self._client, self._dependencies, self._semantics_path,
-                                    self._context_is_current, frozen, checkpoint=checkpoint)
+        with self._database_read_lease(), self._axis_resource_session(checkpoint):
+            return evaluate_frozen_axis(self._client, self._dependencies, self._semantics_path,
+                                       self._context_is_current, frozen, checkpoint=checkpoint)
 
-    def load(self, request, *, progress_callback=None):
+    @timed('battle_page.total')
+    def load(self, request, *, progress_callback=None, timings=None):
         if self._client is None or not self._client.supports_battle_page:
             raise NativeAnalysisError('战报页面需要支持数据库直读的分析组件，请部署配套版本后重试')
         if (request.detail_level == 'composition'
@@ -75,12 +94,23 @@ class BattleNativePageService:
                 and Path(request.static_database_path).resolve()
                 != Path(dependencies.static_database_path).resolve()):
             raise ValueError('战报请求静态数据上下文已失效')
+        # 独立只读进程必须由本次页面任务保有 WAL 连接寿命，不依赖其他窗口碰巧开着库。
+        with timed_context(timings, 'battle_page.database_lease', self._database_read_lease()):
+            paths = (Path(dependencies.static_database_path).resolve(), self._semantics_path)
+            # 组件、静态和机制文件只在本次完整页面请求中拒写固定；账号代次仍每次检查。
+            session = getattr(type(self._client), "verified_session", None)
+            with timed_context(timings, 'battle_page.resource_lease', session(self._client, extra_paths=paths) if session else nullcontext()) as resources:
+                return self._load_frozen(request, progress_callback=progress_callback, timings=timings, resources=resources)
+
+    def _load_frozen(self, request, *, progress_callback, timings, resources=None):
+        dependencies = self._dependencies
         cache_enabled = getattr(self._client, 'supports_battle_page_identity', False) is True
         frozen_files = (Path(dependencies.static_database_path).resolve(), self._semantics_path)
         if cache_enabled:
             frozen_files += (Path(self._client.executable).resolve(),)
         def identities():
-            return tuple(file_identity(path) for path in frozen_files)
+            return timed_call(timings, 'battle_page.resource_check',
+                              lambda: resources.identities(frozen_files) if resources is not None else tuple(file_identity(path) for path in frozen_files))
         try:
             frozen_identity = identities()
         except FileNotFoundError:
@@ -136,7 +166,8 @@ class BattleNativePageService:
         overview_key = None
         self._page_cache.select_record(request.battle_record_id)
         if cache_enabled:
-            input_digest = self._client.load_battle_page_identity(payload, checkpoint=checkpoint)
+            input_digest = timed_call(timings, 'battle_page.identity_before',
+                self._client.load_battle_page_identity, payload, checkpoint=checkpoint)
             checkpoint()
             cache_key = page_cache_key(
                 payload, input_digest=input_digest, files=frozen_identity,
@@ -151,21 +182,24 @@ class BattleNativePageService:
                     )
                 overview_key = detail_key('overview')
                 # 倾陷结果包含同范围概览，可复用为概览；反向和逐击结果均不复用。
-                raw = self._page_cache.get(detail_key('composition'))
+                raw = timed_call(timings, 'battle_page.cache_decode', self._page_cache.get, detail_key('composition'))
             if raw is None:
-                raw = self._page_cache.get(cache_key)
+                raw = timed_call(timings, 'battle_page.cache_decode', self._page_cache.get, cache_key)
             checkpoint()
         cache_hit = raw is not None
+        if timings is not None:
+            timings.note('battle_page.cache', cache_hit_count=int(cache_hit), cache_miss_count=int(not cache_hit))
         if cache_hit:
             report_battle_analysis_progress(publish, phase='cache', message='正在读取已完成结果…')
         else:
-            raw = self._client.load_battle_page(
+            raw = timed_call(timings, 'battle_page.component', self._client.load_battle_page,
                 payload, checkpoint=checkpoint,
                 progress_callback=native_progress if progress_callback is not None else None,
             )
             checkpoint()
             if cache_enabled:
-                after_digest = self._client.load_battle_page_identity(payload, checkpoint=checkpoint)
+                after_digest = timed_call(timings, 'battle_page.identity_after',
+                    self._client.load_battle_page_identity, payload, checkpoint=checkpoint)
                 checkpoint()
                 if after_digest != input_digest:
                     raise CancelledError
@@ -173,18 +207,19 @@ class BattleNativePageService:
         report_battle_analysis_progress(
             publish, phase='decode', message='正在整理页面结果…',
         )
-        result = decode_page(raw)
+        result = timed_call(timings, 'battle_page.project', decode_page, raw)
         checkpoint()
         # 解码并核对派生身份后才保存；命中缓存不重复写，缓存交付前仍复核账号和文件。
-        snapshot = decode_derived_snapshot(raw.get('derived_snapshot'),
+        snapshot = timed_call(timings, 'battle_page.derived_decode', decode_derived_snapshot, raw.get('derived_snapshot'),
             battle_record_id=request.battle_record_id, dataset_version=self._client.dataset_version)
         if snapshot is not None and not cache_hit:
-            persist_native_snapshot(snapshot, dependencies=dependencies, checkpoint=checkpoint)
+            timed_call(timings, 'battle_page.derived_save', persist_native_snapshot,
+                       snapshot, dependencies=dependencies, checkpoint=checkpoint)
         checkpoint()
         if cache_key is not None and not cache_hit:
             if request.detail_level == 'composition' and overview_key is not None:
                 self._page_cache.discard(overview_key)
-            self._page_cache.put(cache_key, raw)
+            timed_call(timings, 'battle_page.cache_encode', self._page_cache.put, cache_key, raw)
         checkpoint()
         report_battle_analysis_progress(publish, phase='complete', message='战报计算完成')
         checkpoint()
@@ -193,7 +228,7 @@ class BattleNativePageService:
 
 def persist_native_snapshot(snapshot, *, dependencies, checkpoint):
     # 数据库与日志依赖仅在确有派生快照时载入，归包不增加首次页面加载开销。
-    from src.integrations.nte_analysis_core import NativeAnalysisCancelled
+    from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled
     from src.observability import OperationContext
     from src.observability.operation import log_event, safe_exception
     from src.storage.sqlite.user_data_dao import UserDataDao

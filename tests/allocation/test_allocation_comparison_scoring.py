@@ -1,14 +1,19 @@
 # 验证配装变动按本次冻结权重比较且不覆盖历史评分。
 from copy import deepcopy
+from concurrent.futures import CancelledError
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 from src.optimizer.scoring import ScoringEngine
-from src.services.allocation.comparison_scoring import (
-    FrozenComparisonScorer, comparison_display_item, comparison_notice, persist_comparison_diff,
+from src.services.allocation.results.comparison_scoring import (
+    FrozenComparisonScorer,
+    comparison_display_item,
+    comparison_notice,
+    persist_comparison_diff,
 )
-from src.services.equipment.weighted_loadout_comparison_service import (
+from src.services.equipment.loadouts.weighted_loadout_comparison_service import (
     freeze_role_loadout_comparisons,
     select_frozen_comparison,
 )
@@ -206,3 +211,122 @@ def test_missing_historical_display_score_is_not_replaced_by_live_weights():
     assert "comparison_score_unavailable" not in raw
     known = comparison_display_item({**raw, "score": 0}, {"changed": True})
     assert "comparison_score_unavailable" not in known
+
+
+@pytest.mark.parametrize("zeros", [(), ("攻击力",)])
+def test_batch_old_scores_match_single_and_preserve_unknown_without_mutating_input(zeros):
+    basis = scorer(main_weights={"暴击率%": .5}, zero_weight_stats=zeros)
+    entries = [(item(kind, quality), main) for kind in ("module", "core")
+               for quality in ("orange", "purple", "blue") for main in (None, 10.0)]
+    entries += [(item(property_id="unknown"), None), ({"virtual": True}, None)]
+    before = deepcopy(entries)
+    expected = []
+    for raw, value in entries:
+        try:
+            expected.append(basis.score_inventory_item(raw, main_value=value))
+        except (ValueError, TypeError, KeyError):
+            expected.append(None)
+    client = basis.engine._native_scores._client()
+    with patch.object(client, "score_equipment", wraps=client.score_equipment) as dispatch:
+        assert basis.score_inventory_items(entries) == expected
+        dispatch.assert_called_once()
+    assert entries == before
+    assert expected[-2:] == [None, 0.0]
+
+
+def test_batch_cancellation_and_component_failure_are_not_hidden_as_unknown():
+    basis = scorer()
+    client = basis.engine._native_scores._client()
+
+    def cancel():
+        raise CancelledError()
+
+    with patch.object(client, "score_equipment", wraps=client.score_equipment) as dispatch:
+        with pytest.raises(CancelledError):
+            basis.score_inventory_items([(item(), None)], checkpoint=cancel)
+        dispatch.assert_not_called()
+    error = RuntimeError("component failure")
+    with patch.object(basis.engine, "prepare_scores", side_effect=error):
+        with pytest.raises(RuntimeError) as caught:
+            basis.score_inventory_items([(item(), None)])
+    assert caught.value is error
+
+
+def test_role_without_saved_slots_does_not_prepare_metadata_or_score():
+    empty = SimpleNamespace(list_loadout_slots=lambda _: [])
+    no_score = SimpleNamespace(metadata=lambda: pytest.fail("无槽位无需准备评分"))
+    assert freeze_role_loadout_comparisons(empty, StaticDao(), 1003, no_score) == ()
+
+
+def test_cross_role_batch_preserves_blacklists_main_values_unknowns_and_profile_identity():
+    from src.services.allocation.results.comparison_scoring import (
+        freeze_comparison_scorers, score_comparison_batches,
+    )
+    specs = [dict(character_id=1003 + i, weights={"攻击力": 1, "暴击率%": i / 2},
+                  main_weights={"暴击率%": 1 - i / 3},
+                  zero_weight_stats=("攻击力",) if i == 1 else ()) for i in range(3)]
+    engine = ScoringEngine(roles_db={})
+    client = engine._native_scores._client()
+    entries = [(item(kind, quality), main) for kind in ("module", "core")
+               for quality in ("orange", "purple", "blue") for main in (None, 10.0)]
+    entries += [(item(property_id="unknown"), None), ({"virtual": True}, None)]
+    expected = [FrozenComparisonScorer.from_engine(
+        engine, **spec, attributes=ATTRIBUTES, dataset_id="fixture",
+    ).score_inventory_items(entries) for spec in specs]
+    before = deepcopy(entries)
+    with patch.object(client, "score_equipment", wraps=client.score_equipment) as dispatch:
+        scorers = freeze_comparison_scorers(engine, specs, attributes=ATTRIBUTES, dataset_id="fixture")
+        actual = score_comparison_batches([(basis, entries) for basis in scorers])
+    assert actual == expected
+    assert dispatch.call_count == 2  # profile/metadata 与旧件矩阵各一次。
+    assert len({id(basis.engine) for basis in scorers}) == 1
+    assert entries == before
+    assert all(row[-2:] == [None, 0.0] for row in actual)
+    assert actual[0] != actual[1]
+
+
+def test_comparison_batch_collects_only_selected_source_uids_once():
+    from src.services.allocation.results.comparison_scoring import freeze_comparison_scorers
+    from src.services.equipment.loadouts.weighted_loadout_comparison_service import freeze_loadout_comparison_batches
+    engine = ScoringEngine(roles_db={})
+    specs = [dict(character_id=1003 + i, weights={"攻击力": 1.0 - i / 2}, main_weights=None)
+             for i in range(2)]
+    scorers = freeze_comparison_scorers(engine, specs, attributes=ATTRIBUTES, dataset_id="fixture")
+    dao = UserDao()
+    slots = [deepcopy(dao.slots), deepcopy(dao.slots)]
+    slots[1][0]["slot_id"] = 10
+    slots[1][0]["current_plan"]["assignments"][0]["uid_serial"] = 11
+    calls = []
+
+    def inventory(source_id, *, uids):
+        calls.append((source_id, set(uids)))
+        return [dict(item(), uid_serial=serial) for serial, _slot in uids]
+
+    dao.list_inventory_items = inventory
+    before = deepcopy(slots)
+    result = freeze_loadout_comparison_batches(dao, StaticDao(), list(zip(scorers, slots)))
+    assert calls == [(7, {(10, 1), (11, 1)})]
+    assert [rows[0].slot_id for rows in result] == [9, 10]
+    assert result[0][0].old_items[0]["score"] == scorers[0].score_inventory_item(item())
+    assert result[1][0].old_items[0]["score"] == scorers[1].score_inventory_item(item())
+    assert slots == before
+
+
+def test_comparison_matrix_chunks_large_inputs_without_losing_tail_or_swallowing_cancel():
+    from src.services.allocation.results.comparison_scoring import score_comparison_batches
+    basis = scorer()
+    entries = [(item(), None)] * 4201
+    client = basis.engine._native_scores._client()
+    expected = basis.score_inventory_item(item())
+    with patch.object(client, "score_equipment", wraps=client.score_equipment) as dispatch:
+        values, = score_comparison_batches([(basis, entries)])
+    assert len(values) == 4201 and values == [expected] * 4201
+    assert dispatch.call_count == 2
+
+    def cancelled():
+        raise CancelledError("revoked")
+
+    with patch.object(client, "score_equipment", wraps=client.score_equipment) as dispatch:
+        with pytest.raises(CancelledError):
+            score_comparison_batches([(basis, entries)], checkpoint=cancelled)
+        dispatch.assert_not_called()

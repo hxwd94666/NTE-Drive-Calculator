@@ -12,7 +12,7 @@ from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, Ba
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.domain.battle_report.replay.models import BattleSkillDamageEvidence
 from src.services.battle_report.characters.awakening import SHINKU_RAGE_DAMAGE_IDS, SHINKU_RAGE_REQUIREMENT
-from src.services.official_role.awakening import active_awaken_effects
+from src.services.official_role.panel.awakening import active_awaken_effects
 from src.services.battle_report.timeline.clock import ACTIVE_TIME_MODE, projected_range_duration_us
 
 

@@ -5,11 +5,13 @@ import threading
 
 import pytest
 
-from src.integrations.nte_core_protocol import NteCoreProcessError, NteCoreTimeoutError
+from src.integrations.native_core.nte_core_protocol import NteCoreProcessError, NteCoreTimeoutError
 from src.observability import OperationContext
 from src.services.battle_report.capture.polling import poll_battle_until_stopped
 from src.services.battle_report.capture.service import BattleCaptureService
-from tests.test_battle_capture_axis_service import _Core, _Writer, _wait_until
+from tests.battle_report.capture.test_battle_capture_axis_service import _Core
+from tests.battle_report.capture.test_battle_capture_axis_service import _Writer
+from tests.battle_report.capture.test_battle_capture_axis_service import _wait_until
 
 
 def service_for(core):

@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.storage.sqlite.user_data_dao import UserDataDao
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import ROOT, create_axis_catalog_case
 from tests.allocation.axis_team_fixture import attach_native_team

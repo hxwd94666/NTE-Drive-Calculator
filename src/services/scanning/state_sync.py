@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from typing import Any
 
-from src.domain.post_actions import summarize_state_changes
+from src.domain.inventory.post_actions import summarize_state_changes
 from src.utils.logger import logger
 
 

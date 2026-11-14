@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
-from src.integrations.mod_loader import (
+from src.integrations.components.mod_loader import (
     MOD_LOADER_STOP_TIMEOUT_MS,
     ModLoaderRuntime,
     ModLoaderRuntimeError,
@@ -15,11 +15,11 @@ from src.integrations.mod_loader import (
     game_launcher_candidates,
     game_launcher_executable,
 )
-from src.integrations.launcher_process import LauncherProcessProbeError, selected_launcher_running
-from src.integrations.operation_guard import require_operation
-from src.integrations.legacy_game_proxy import remove_legacy_game_proxy
-from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, HOT_PLUGIN_LAYOUTS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS, TRAINING_DEPLOYMENT_PATHS
+from src.integrations.game_runtime.launcher_process import LauncherProcessProbeError, selected_launcher_running
+from src.integrations.runtime.operation_guard import require_operation
+from src.integrations.components.legacy_game_proxy import remove_legacy_game_proxy
+from src.integrations.components.game_component_bundle import inspect_game_component_bundle
+from src.integrations.components.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, HOT_PLUGIN_LAYOUTS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS, TRAINING_DEPLOYMENT_PATHS
 from src.integrations.components.loader_workspace import (
     native_loader_payload_relative, inspect_native_loader_workspace, prepare_native_loader_workspace,
 )

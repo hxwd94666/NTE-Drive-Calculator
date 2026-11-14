@@ -65,21 +65,25 @@ class WorldBonusSettings:
 
     yaodao_attack_add: float = 20.0
     quantao_crit_damage: float = 0.04
+    kaijia_defense_add: float = 30.0
 
     def validate(self) -> None:
-        values = (self.yaodao_attack_add, self.quantao_crit_damage)
+        values = (self.yaodao_attack_add, self.quantao_crit_damage, self.kaijia_defense_add)
         if not all(math.isfinite(float(value)) for value in values):
             raise ValueError("家具加成必须是有限数值。")
         if not 0.0 <= float(self.yaodao_attack_add) <= 20.0:
             raise ValueError("妖刀攻击力加成必须在 0 到 20 之间。")
         if not 0.0 <= float(self.quantao_crit_damage) <= 0.04:
             raise ValueError("拳套暴击伤害加成必须在 0% 到 4% 之间。")
+        if not 0.0 <= float(self.kaijia_defense_add) <= 30.0:
+            raise ValueError("铠甲防御力加成必须在 0 到 30 之间。")
 
     def to_payload(self) -> dict[str, float]:
         self.validate()
         return {
             "yaodao_attack_add": float(self.yaodao_attack_add),
             "quantao_crit_damage": float(self.quantao_crit_damage),
+            "kaijia_defense_add": float(self.kaijia_defense_add),
         }
 
     @classmethod
@@ -92,6 +96,7 @@ class WorldBonusSettings:
             quantao_crit_damage=float(
                 raw.get("quantao_crit_damage", cls.quantao_crit_damage)
             ),
+            kaijia_defense_add=float(raw.get("kaijia_defense_add", cls.kaijia_defense_add)),
         )
         settings.validate()
         return settings
@@ -107,7 +112,11 @@ def world_bonus_property_stats(
         if isinstance(value, WorldBonusSettings)
         else WorldBonusSettings.from_payload(value)
     )
-    return {
+    values = {
         "AtkAdd": float(settings.yaodao_attack_add),
         "CritDamageBase": float(settings.quantao_crit_damage),
     }
+    # 当前账号入口已补齐三项默认；旧战报的两字段冻结副本不追加未知防御。
+    if not isinstance(value, Mapping) or "kaijia_defense_add" in value:
+        values["DefAdd"] = float(settings.kaijia_defense_add)
+    return values

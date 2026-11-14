@@ -16,7 +16,7 @@ from src.app.workers import FullVisualScanParseWorkerThread
 from src.features.scanning.hotkey_actions import on_hotkey_stop
 from src.integrations.vision.recognition.ocr import backend_runtime
 from tests.vision.test_ocr_runtime import model_fixture
-from src.features.scanning.vision_worker import VisionWorkerThread
+from src.features.scanning.vision.vision_worker import VisionWorkerThread
 from src.integrations.vision.recognition import identification_parser, screenshot_parser
 from src.integrations.vision.recognition import batch_processor
 from src.services.identification.tasks import IdentificationImageRequest, IdentificationImageJob, parse_identification_images
@@ -49,7 +49,7 @@ class OcrCancellationTests(unittest.TestCase):
         worker.error.connect(errors.append)
         worker.canceled.connect(canceled.append)
         worker.request_cancel()
-        with patch('src.features.scanning.vision_worker.BatchProcessor') as processor:
+        with patch('src.features.scanning.vision.vision_worker.BatchProcessor') as processor:
             worker.run()
         processor.assert_not_called()
         self.assertEqual([0], canceled)
@@ -67,7 +67,7 @@ class OcrCancellationTests(unittest.TestCase):
             if kwargs['cancel_check']():
                 raise CancelledError()
             raise AssertionError('expected cancellation')
-        with patch('src.features.scanning.vision_worker.load_recognition_resources', return_value=Mock()), patch('src.features.scanning.vision_worker.BatchProcessor', side_effect=construct):
+        with patch('src.features.scanning.vision.vision_worker.load_recognition_resources', return_value=Mock()), patch('src.features.scanning.vision.vision_worker.BatchProcessor', side_effect=construct):
             worker.start()
             try:
                 self.assertTrue(entered.wait(3))

@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import create_axis_catalog_case, ROOT
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.analysis.load import BattleReportAnalysisLoadRequest
 from src.services.battle_report.analysis.native_page import BattleNativePageService
 
@@ -25,6 +25,16 @@ def case_owner(case):
     service = BattleNativePageService(client=client, dependencies=case["dependencies"],
         semantics_path=ROOT / "config/gameplay_effect_semantics.json", context_is_current=lambda _: True)
     return service, client
+
+
+def test_page_load_keeps_read_lifetime_without_an_outer_database_owner(tmp_path):
+    case = create_axis_catalog_case(tmp_path, core_suit_id="Suit1")
+    service, _ = case_owner(case)
+    request = BattleReportAnalysisLoadRequest(case["battle_record_id"])
+    first = service.load(request)
+    second = service.load(request)
+    assert first.analysis is not None and first.analysis.hits
+    assert first.analysis == second.analysis and first.analysis is not second.analysis
 
 
 def freeze(service, case, candidates):

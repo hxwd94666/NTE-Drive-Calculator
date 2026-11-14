@@ -13,13 +13,26 @@ def digest(value: Any) -> str:
                                      separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def semantic_digest(evidence: dict) -> str:
+    # Buff的source_file_id是一次构建的局部外键，排序增项即可漂移；资产路径、全部字段和来源行哈希仍逐字核对。
+    from copy import deepcopy
+    normalized = deepcopy(evidence)
+    for row in normalized["buffs"]:
+        row.pop("source_file_id", None)
+    return digest(normalized)
+
+
 def _rows(connection, sql, args=()):
-    return [dict(row) for row in connection.execute(sql, args)]
+    cursor = connection.cursor()
+    cursor.row_factory = sqlite3.Row
+    try:
+        return [dict(row) for row in cursor.execute(sql, args)]
+    finally:
+        cursor.close()
 
 
 def effect_evidence(connection: sqlite3.Connection, suit_id: str, required_count: int) -> dict:
     """冻结本条效果、修改包或Buff族及曲线；真实源行哈希保留在证据内。"""
-    connection.row_factory = sqlite3.Row
     effects = _rows(connection, "SELECT e.*, s.name_zh FROM equipment_suit_effect e "
                     "JOIN equipment_suit s USING(suit_id) WHERE e.suit_id=? AND e.required_count=?",
                     (suit_id, required_count))
@@ -134,7 +147,8 @@ def project_review(evidence: dict, review: dict) -> tuple[dict, list[dict]]:
     effect = evidence["effect"]
     if (review["suit_id"], review["required_count"]) != (effect["suit_id"], effect["required_count"]):
         raise ValueError("审查套装身份不匹配")
-    if digest(evidence) != review["evidence_sha256"]:
+    if (digest(evidence) != review["evidence_sha256"]
+            and semantic_digest(evidence) != review.get("evidence_semantic_sha256")):
         raise ValueError("套装来源已经变化，需重新审查")
     classification = review["classification"]
     if classification not in {"permanent_only", "mixed", "conditional_only"}:

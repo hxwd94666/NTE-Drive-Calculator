@@ -1,6 +1,7 @@
 # 持有分配Worker、冻结请求、取消令牌与预览保存状态，线程执行留在runner。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Callable
 from pathlib import Path
 import threading
@@ -10,15 +11,19 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QPushButton
 
 from src.app.workers import WorkerThread
-from src.domain.static_catalog import StaticCatalogRelease
-from src.integrations.global_hotkeys import GlobalHotkeyManager
-from src.services.allocation.filter_settings import AllocationFilterSettings
-from src.services.allocation.locks import AllocationLockSnapshot
-from src.features.allocation.runner import (
-    _allocation_context_identity, _confirm_unsaved_allocation_before_recompute,
-    _on_done, _on_exec_error, _run_allocation, _start_allocation_worker,
+from src.domain.catalog.static_catalog import StaticCatalogRelease
+from src.integrations.runtime.global_hotkeys import GlobalHotkeyManager
+from src.services.allocation.inputs.filter_settings import AllocationFilterSettings
+from src.services.allocation.inputs.locks import AllocationLockSnapshot
+from src.features.allocation.execution.runner import (
+    _allocation_context_identity,
+    _confirm_unsaved_allocation_before_recompute,
+    _on_done,
+    _on_exec_error,
+    _run_allocation,
+    _start_allocation_worker,
 )
-from src.features.allocation.save_workflow import save_allocation
+from src.features.allocation.execution.save_workflow import save_allocation
 
 
 class AllocationController(QObject):
@@ -37,8 +42,10 @@ class AllocationController(QObject):
         refresh_roles: Callable[[], None],
         refresh_equipment: Callable[[], None],
         hotkey_manager: GlobalHotkeyManager,
+        text_catalog=None,
     ) -> None:
         super().__init__(dialog_parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.app_context = app_context
         self.dialog_parent = dialog_parent
         self._equipment_presentation = equipment_presentation
@@ -78,6 +85,7 @@ class AllocationController(QObject):
         self._pending_allocation_context_identity: tuple[int | None, str | None, Path] | None = None
         self._run_sequence = 0
         self._pending_run_id: int | None = None
+        self._pending_timings = None
         self._pending_filter_settings = AllocationFilterSettings()
         self._pending_blueprint_combo_limit = 2000
         self._allocation_custom_weapons: dict[str, Any] = {}
@@ -94,6 +102,8 @@ class AllocationController(QObject):
 
     def begin_close(self) -> None:
         self._closing = True
+        if self._pending_timings is not None:
+            self._pending_timings.close()
         self.cancel()
 
     def _on_worker_finished(self) -> None:
@@ -172,6 +182,8 @@ class AllocationController(QObject):
     def clear_preview(self) -> None:
         """Discard a displayed calculation without changing persisted plans or inputs."""
 
+        if self._pending_timings is not None:
+            self._pending_timings.close()
         self.final_plan = {}
         self._allocation_frozen_comparisons = {}
         self.allocation_plan_diff = {}
@@ -183,8 +195,13 @@ class AllocationController(QObject):
         self._selected_locked_role_names = frozenset()
         self._allocation_custom_weapons = {}
         self._equipment_presentation.clear()
+        if self.btn_save is not None:
+            self.btn_save.setEnabled(False)
 
     def reset_account_state(self) -> None:
+        if self._pending_timings is not None:
+            self._pending_timings.close()
+        self._pending_timings = None
         self.final_plan = {}
         self._allocation_frozen_comparisons = {}
         self.allocation_plan_diff = {}
@@ -220,12 +237,16 @@ class AllocationController(QObject):
             locked_role_names=self._selected_locked_role_names,
         )
         self._equipment_presentation.render(plan)
+        # 清空预览会禁用保存按钮；重新计算并渲染出有效结果后必须恢复，
+        # 否则用户只能重启页面才能保存（clear_preview 不负责恢复）。
+        if self.btn_save is not None:
+            self.btn_save.setEnabled(bool(plan))
 
     def _save_alloc(self, show_message: bool = True) -> bool:
         self.allocation_plan_diff = dict(
             self._equipment_presentation.allocation_plan_diff or {}
         )
-        return bool(save_allocation(self, show_message=show_message, on_saved=self.plans_saved.emit))
+        return bool(save_allocation(self, show_message=show_message, on_saved=self.plans_saved.emit, text_catalog=getattr(self, 'text_catalog', None)))
 
     def _save_ui_preferences(self) -> None:
         self._save_preferences_callback()

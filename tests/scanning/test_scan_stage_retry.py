@@ -14,12 +14,13 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget, QMessageBox, Q
 
 from src.app.workers import FullVisualScanParseWorkerThread
 from src.features.allocation.execute_page import _build_run_button
-from src.features.scanning import file_workflow, workflow
+from src.features.scanning.files import file_workflow
+from src.features.scanning import workflow
 from src.features.scanning.controller import ScanningController
 from src.features.scanning.dependencies import ScanningDependencies, scanning_dependencies_are_current
-from src.features.scanning.file_lifecycle import ScanFileLifecycle
-from src.features.scanning.manual_recovery import ManualRecoverySession
-from src.features.scanning.vision_commit_controller import VisionCommitController
+from src.features.scanning.files.file_lifecycle import ScanFileLifecycle
+from src.features.scanning.vision.manual_recovery import ManualRecoverySession
+from src.features.scanning.vision.vision_commit_controller import VisionCommitController
 from src.integrations.vision import capture_files as files
 from src.integrations.vision.recognition import batch_processor
 from src.integrations.vision.recognition.duplicate_filter import RecoverableParseError
@@ -91,6 +92,7 @@ def scene(tmp_path, selected, monkeypatch):
     deps = ScanningDependencies("scan-fixture", 1, root, selected[0], database,
         selected[1], tmp_path, selected[0], selected[0] / "templates")
     owner = Owner()
+    owner.team_calculation = Mock()
     owner.dialog_parent = owner
     owner.app_context = SimpleNamespace(generation=1, account=SimpleNamespace(
         active_account_id=deps.account_id, user_database_path=database))
@@ -540,7 +542,7 @@ def test_stage_resume_preserves_original_driver_through_saved_request(scene, mon
 
 @pytest.mark.parametrize("driver", [None, "", "unverified-fixture"])
 def test_unknown_stage_driver_is_not_filled_with_mouse(scene, driver):
-    from src.features.scanning.vision_worker import VisionWorkerThread
+    from src.features.scanning.vision.vision_worker import VisionWorkerThread
     stats = dict(scene.stats, capture_driver=driver)
     file_workflow.remember_capture_recovery(scene.owner, stats, scene.deps)
     assert scene.owner._capture_recovery is None

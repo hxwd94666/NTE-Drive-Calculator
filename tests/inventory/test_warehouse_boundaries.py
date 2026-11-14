@@ -13,7 +13,7 @@ from src.integrations.inventory.warehouse_state_writer import (
     WarehouseStateWriteError,
     WarehouseStateWriter,
 )
-from src.services.inventory.warehouse_inventory_service import WarehouseInventoryService
+from src.services.inventory.browsing.warehouse_inventory_service import WarehouseInventoryService
 
 
 class WarehouseBoundaryTests(unittest.TestCase):
@@ -138,9 +138,9 @@ class WarehouseBoundaryTests(unittest.TestCase):
         }
         violations = []
         for relative in (
-            "src/features/inventory/warehouse/cards.py",
+            "src/features/inventory/warehouse/display/cards.py",
             "src/features/inventory/warehouse/controller.py",
-            "src/features/inventory/warehouse/presenter.py",
+            "src/features/inventory/warehouse/display/presenter.py",
         ):
             path = Path(relative)
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)

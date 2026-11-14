@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 class WarehouseStateManagementTests(unittest.TestCase):
     def test_reviewed_preview_target_reaches_uid_plan_writer_and_confirmed_snapshot(self):
-        from src.services.inventory.warehouse_state_management import WarehouseStateManagementService
+        from src.services.inventory.management.warehouse_state_management import WarehouseStateManagementService
 
         class Dao:
             snapshot_id = 7
@@ -68,7 +68,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertEqual(1, result.summary["discard_set_count"])
 
     def test_manual_plan_uses_pinned_snapshot_and_omits_unchanged_target(self):
-        from src.services.inventory.warehouse_state_management import WarehouseStateManagementService
+        from src.services.inventory.management.warehouse_state_management import WarehouseStateManagementService
 
         rows = [
             {"kind": "module", "uid_slot": 1, "uid_serial": 10, "locked": False, "discarded": False},
@@ -107,7 +107,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertEqual("discarded", plan.changes[0]["target_state"])
 
     def test_apply_waits_through_intermediate_snapshot_until_changes_match(self):
-        from src.services.inventory.warehouse_state_management import (
+        from src.services.inventory.management.warehouse_state_management import (
             WarehouseStateManagementPlan,
             WarehouseStateManagementService,
         )
@@ -233,7 +233,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         )
 
     def test_apply_preserves_dispatched_result_when_snapshot_confirmation_times_out(self):
-        from src.services.inventory.warehouse_state_management import (
+        from src.services.inventory.management.warehouse_state_management import (
             WarehouseStateManagementPlan,
             WarehouseStateManagementService,
         )
@@ -315,7 +315,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertEqual("discarded", result.changes[0]["target_state"])
 
     def test_one_key_management_projects_submitted_state_without_a_snapshot(self):
-        from src.services.inventory.warehouse_state_management import (
+        from src.services.inventory.management.warehouse_state_management import (
             WarehouseStateManagementPlan,
             WarehouseStateManagementService,
         )
@@ -390,7 +390,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertFalse(dao.projected[0][1][0]["locked"])
 
     def test_one_key_management_reports_observed_inventory_reduction(self):
-        from src.services.inventory.warehouse_state_management import (
+        from src.services.inventory.management.warehouse_state_management import (
             WarehouseStateManagementPlan,
             WarehouseStateManagementService,
         )
@@ -433,7 +433,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertTrue(result.inventory_reduction_observed)
 
     def test_one_key_management_replaces_inventory_when_one_packet_covers_all_targets(self):
-        from src.services.inventory.warehouse_state_management import (
+        from src.services.inventory.management.warehouse_state_management import (
             WarehouseStateManagementPlan,
             WarehouseStateManagementService,
         )
@@ -494,7 +494,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertEqual("nte_core", dao.imported[0][1])
 
     def test_state_rpc_timeout_keeps_guard_for_late_local_state_delta(self):
-        from src.services.inventory.warehouse_state_management import (
+        from src.services.inventory.management.warehouse_state_management import (
             WarehouseStateManagementPlan,
             WarehouseStateManagementService,
         )

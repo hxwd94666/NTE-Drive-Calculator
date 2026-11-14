@@ -292,7 +292,7 @@ class AccountSettingsService:
             # 仓库管理由独立 Service 保存，但仍位于账号 UI 分组。普通偏好读写须保全
             # 这个显式字段；缺失时不补空值，以免抢先阻断旧扫描配置的一次拆分迁移。
             if "warehouse_management_config" in value:
-                from src.domain.equipment.management_settings import normalize_warehouse_config
+                from src.domain.equipment.eligibility.management_settings import normalize_warehouse_config
                 normalized["warehouse_management_config"] = normalize_warehouse_config(
                     value["warehouse_management_config"])
             for name in (

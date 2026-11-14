@@ -158,7 +158,7 @@ DAO 内逐条有界投影和连接内有界匹配缓存，查询、计数、分�
 | SQLite | `src/storage/sqlite/progression/cultivation_history_dao.py`；追加迁移、条件更新、分页、确切集合事务删除 |
 | 业务 | `src/services/progression/history_service.py`、`history_adapters.py`；账号、保存绑定、兼容校验、快照与重试 |
 | 页面 owner | `src/features/toolbox/cultivation/` 的历史 Controller、绑定与草稿适配；修订、取消和迟到结果 |
-| 组合根 | `src/ui/toolbox_composition.py` 注入窄服务；账号切换关闭旧 owner 后重建 |
+| 组合根 | `src/ui/composition/toolbox_composition.py` 注入窄服务；账号切换关闭旧 owner 后重建 |
 
 历史使用账号独立表，记录不可复用 ID、模式、修订、首次/末次 UTC 计算时间、格式、配置/结果、列表摘要与必要索引。
 不建立静态角色/库存快照/物品归档的级联删除关系。generation 只作运行期门禁，不持久化为未来加载身份。

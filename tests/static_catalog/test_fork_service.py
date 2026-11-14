@@ -6,7 +6,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 from pathlib import Path
-from tests.static_release_fixture import distribution_manifest
+from tests.game_data.static_release_fixture import distribution_manifest
 from typing import Any
 
 from src.services.static_catalog.forks.service import (

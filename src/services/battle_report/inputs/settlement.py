@@ -1,8 +1,14 @@
 # 从冻结首击或结算兜底选择计算输入与家具加成，保留原始证据和字段来源。
 from copy import deepcopy
+from src.domain.characters.furniture import FURNITURE_FIELDS, native_furniture_values
+from src.domain.localization.catalog import localized_text
+from src.integrations.preferences.locale_files import enum_text
 
 from src.services.battle_report.inputs.scopes import select_scope_builds, team_character_ids, validate_first_hit
 from src.storage.sqlite.user_data_dao import UserDataError
+
+
+_SCOPE_LABELS = {"combat": "本场", "upper": "上半场", "lower": "下半场"}
 
 
 def complete_native_build(service, dao, original, record, observed_ids, operation_id):
@@ -113,40 +119,41 @@ def complete_native_build(service, dao, original, record, observed_ids, operatio
         operation_id, result, account_generation=service._dependencies.generation)
 
 
-def settlement_warning(build):
+def settlement_warning(build, *, text_catalog=None):
     fallback = build.get("settlement_fallback") or {}
     unresolved = build.get("unresolved_character_ids") or []
     messages = []
-    labels = {"combat": "本场", "upper": "上半场", "lower": "下半场"}
+    labels = enum_text(text_catalog, _SCOPE_LABELS)
     incomplete = [labels.get(scope, scope) for scope, row in (build.get("native_scope_validation") or {}).items()
                   if row.get("state") != "ready"]
     if incomplete:
-        messages.append("、".join(incomplete) + "首击快照不齐，已保留现有证据")
+        messages.append(localized_text(
+            text_catalog, "battle_report.settlement.warning.incomplete_scopes",
+            "{scopes}首击快照不齐，已保留现有证据", scopes="、".join(incomplete)))
     if fallback:
-        messages.append(f"{len(fallback)} 名角色的首击计算输入缺失，已使用结算时数据库配置补齐并标记来源")
+        messages.append(localized_text(
+            text_catalog, "battle_report.settlement.warning.fallback_characters",
+            "{count} 名角色的首击计算输入缺失，已使用结算时数据库配置补齐并标记来源",
+            count=len(fallback)))
     if unresolved:
-        messages.append(f"{len(unresolved)} 名角色仍缺少可计算输入，其他角色与原始逐击已保留")
+        messages.append(localized_text(
+            text_catalog, "battle_report.settlement.warning.unresolved_characters",
+            "{count} 名角色仍缺少可计算输入，其他角色与原始逐击已保留", count=len(unresolved)))
     if str(build.get("calculation_unavailable_reason") or "").startswith("native_cross_half_"):
-        messages.append("上下半场存在不同配置，分半场原始证据已保留，统一计算副本不可用")
+        messages.append(localized_text(
+            text_catalog, "battle_report.settlement.warning.cross_half_conflict",
+            "上下半场存在不同配置，分半场原始证据已保留，统一计算副本不可用"))
     return "；".join(messages) + "。" if messages else None
 
 
 def native_world_bonus(snapshot, fallback):
-    # 正式家具表：SF_0011 对应 yaodao_0..9，SF_0012 对应 quantao_0..9；
-    # 等级 1..10 分别映射攻击 +2..20、暴伤 +0.004..0.04；未知或冲突保留兜底。
-    rules = {"SF_0011": ("yaodao_attack_add", 2.0), "SF_0012": ("quantao_crit_damage", 0.004)}
     rows = snapshot.get("domains", {}).get("environment", {}).get("records") or []
-    values = dict(fallback)
-    evidence = {"rule_version": "special_furniture_v1", "fields": {},
+    observed = native_furniture_values(rows)
+    values = {**fallback, **observed}
+    evidence = {"rule_version": "special_furniture_v2", "fields": {},
                 "environment_records": deepcopy(rows), "witch_effect_state": "unverified"}
-    for furniture_id, (field, multiplier) in rules.items():
-        matches = [row for row in rows if row.get("kind") == "furniture_raw" and row.get("FurnitureID") == furniture_id]
-        source = "account_setting_fallback"
-        if len(matches) == 1:
-            row = matches[0]
-            level, active = row.get("Level"), row.get("bIsActivated")
-            if type(active) is bool and type(level) is int and 0 <= level <= 10:
-                values[field] = round(level * multiplier, 6) if active else 0.0
-                source = "native_furniture_level"
-        evidence["fields"][field] = {"source": source, "value": values[field], "furniture_id": furniture_id}
+    for furniture_id, (field, _property, _levels) in FURNITURE_FIELDS.items():
+        if field in values:
+            evidence["fields"][field] = {"source": "native_furniture_level" if field in observed else "account_setting_fallback",
+                                         "value": values[field], "furniture_id": furniture_id}
     return values, evidence

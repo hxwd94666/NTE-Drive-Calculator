@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from src.integrations.bundled_resources import bundled_ocr_model_dir
+from src.integrations.runtime.bundled_resources import bundled_ocr_model_dir
 from src.integrations.vision.recognition.ocr.backend_support import OcrBackendSupport, load_backend_support, load_packaged_backend_support
 
 

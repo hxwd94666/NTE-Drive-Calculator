@@ -8,8 +8,8 @@ from unittest.mock import Mock
 import pytest
 
 from tests.battle_report.analysis.axis_evaluation_fixture import wire_request, wire_response
-from src.integrations.axis_allocation_postprocess import postprocess_battle_axis
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.allocation.axis_allocation_postprocess import postprocess_battle_axis
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 
 
 NTE_TEST_TIER = "core"

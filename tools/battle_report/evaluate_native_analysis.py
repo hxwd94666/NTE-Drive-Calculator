@@ -237,7 +237,7 @@ def _load_analysis(database: Path, static_database: Path, account: str,
 def _evaluate_case(record: Mapping[str, Any], mode: str, frozen_database: Path,
                    static_database: Path, account: str, executable: Path,
                    dataset_version: str, scratch: Path) -> dict[str, Any]:
-    from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+    from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 
     record_id = int(record["record_id"])
     result: dict[str, Any] = {

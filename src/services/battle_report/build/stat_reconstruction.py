@@ -13,7 +13,7 @@ from src.services.characters.character_shape_bonus_service import (
 from src.services.battle_report.persistence import (
     BattleReportPersistenceDependencies,
 )
-from src.services.official_role.attributes import calculate_official_role_combat_stat_components, calculate_official_role_combat_stat_sources
+from src.services.official_role.panel.attributes import calculate_official_role_combat_stat_components, calculate_official_role_combat_stat_sources
 from src.services.official_role.page import load_official_role_detail
 
 
@@ -69,6 +69,8 @@ class BattleBuildStatReconstructionService:
                             "CritDamageBase", 0.0
                         ),
                     }
+                    if "DefAdd" in frozen_world_bonus:
+                        detail["world_bonus"]["kaijia_defense_add"] = frozen_world_bonus["DefAdd"]
                 profile = dict(character.get("profile") or {})
                 static_shape_fields = character_shape_profile_fields(
                     detail.get("shape_bonus")

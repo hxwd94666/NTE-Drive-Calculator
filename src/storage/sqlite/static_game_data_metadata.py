@@ -1,7 +1,7 @@
 # 静态游戏数据库版本与摘要表清单。
 """规范化静态库的权威版本与摘要表清单；只描述发行结构，不执行迁移。"""
 
-SCHEMA_VERSION = 44
+SCHEMA_VERSION = 45
 MINIMUM_SUPPORTED_SCHEMA_VERSION = 31
 
 SUMMARY_TABLES = (
@@ -52,6 +52,8 @@ SUMMARY_TABLES = (
     "equipment_shape",
     "equipment_suit",
     "equipment_suit_effect",
+    "equipment_suit_effect_review",
+    "equipment_suit_permanent_property",
     "equipment_item",
     "equipment_plan",
     "character_weight_recommendation",

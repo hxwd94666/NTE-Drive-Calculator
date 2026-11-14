@@ -1,0 +1,784 @@
+# 管理角色选择器的偏好编辑、排序和配置持久化。
+"""Role priority selector and per-role equipment preference dialog."""
+
+from __future__ import annotations
+
+from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
+import json
+from pathlib import Path
+
+from src.storage.json_store import write_json
+from src.app.window_geometry import fit_dialog_to_available_screen
+
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIntValidator
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLayout,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QLineEdit,
+    QWidget,
+)
+
+from src.ui.common.widgets import SearchableComboBox, match_pinyin
+from src.domain.equipment.scoring.crit_threshold import persistable_stat_priority_config
+from src.domain.equipment.scoring.grade_limits import GRADE_LADDER
+from src.features.allocation.selection.priority_groups import (
+    cycle_priority_link,
+    links_to_priority_groups,
+    load_priority_selection,
+    relink_forward_drop,
+    normalize_priority_links,
+    shift_crossed_priority_boundaries,
+)
+from src.solver.set_effects import FOUR_PIECE, NO_EFFECT, SET_EFFECT_MODES, TWO_PIECE, normalize_set_effect_mode
+from src.features.allocation.selection.role_selector_help import (
+    SET_EFFECT_HELP,
+    STAT_PRIORITY_HELP,
+)
+
+
+_ROLE_DEFAULT_POLICY = "no-default-stat-selection-v2"
+
+
+def resolve_priority_choice(values: list[str], raw_text: str | None, current_data=None) -> str:
+    """Resolve a searchable combo selection without confusing prefix-like stats."""
+
+    if current_data is not None and str(current_data) in values:
+        return str(current_data)
+    raw = str(raw_text or "").strip()
+    if raw in values:
+        return raw
+    return next((value for value in values if match_pinyin(value, raw)), raw)
+
+
+def resolve_optional_priority_choice(
+    values: list[str],
+    raw_text: str | None,
+) -> str:
+    """Resolve an optional combo while preserving an explicit clear action."""
+
+    raw = str(raw_text or "").strip()
+    if not raw:
+        return ""
+    return resolve_priority_choice(values, raw)
+
+
+def temporary_priority_config_path(path: Path) -> Path:
+    return path.with_name(f"{path.stem}.temp{path.suffix}")
+
+
+class RoleSelectorPreferencesMixin:
+    def _selected_substat_priority(self, name: str) -> list[str]:
+        """Resolve the editor value while preserving an explicit empty override."""
+
+        current = self.stat_priority_configs.get(name)
+        if isinstance(current, dict) and "stats" in current:
+            values = current.get("stats") or []
+        elif name in self.stat_priority_override_roles:
+            values = []
+        else:
+            values = self._default_substat_priority(name)
+        return [stat for stat in list(values) if stat in self.drive_sub_stats]
+
+    def _manage_role_preferences(self, name):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.dlg', name=f'{name}'))
+        dlg.setObjectName("rolePreferenceDialog")
+        dlg.setMinimumSize(500, 320)
+        # 只收紧本弹窗的组内留白；主题色和全局页面尺寸不变。
+        dlg.setStyleSheet((self._style_sheet or "") +
+            "\nQDialog#rolePreferenceDialog QGroupBox{padding:12px;padding-top:26px}")
+        root = QVBoxLayout(dlg)
+        root.setSpacing(8)
+        content = QWidget(dlg)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.setSizeConstraint(QLayout.SetMinimumSize)
+
+        role_data = self.all_roles.get(name, {})
+        current_set = self.custom_sets.get(name) or role_data.get("default_set", self.all_sets[0] if self.all_sets else "")
+        default_weapon = self._default_weapon_for_role(name)
+        set_box = QGroupBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.set_box'))
+        set_layout = QVBoxLayout(set_box)
+        set_layout.setContentsMargins(8, 8, 8, 8)
+        set_layout.setSpacing(5)
+        set_row = QHBoxLayout()
+        set_row.setSpacing(8)
+        set_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.caption')))
+        set_combo = SearchableComboBox()
+        self._fill_search_combo(set_combo, self.all_sets, current_set)
+        set_row.addWidget(set_combo, 1)
+        set_layout.addLayout(set_row)
+        weapon_row = QHBoxLayout()
+        weapon_row.setSpacing(8)
+        weapon_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.caption_2')))
+        weapon_combo = SearchableComboBox()
+        weapon_names = sorted(self.weapons_db.keys())
+        self._fill_search_combo(
+            weapon_combo,
+            weapon_names,
+            self.custom_weapons.get(name, "") or default_weapon,
+        )
+        if weapon_combo.lineEdit() is not None:
+            weapon_combo.lineEdit().setClearButtonEnabled(True)
+        weapon_row.addWidget(weapon_combo, 1)
+        set_layout.addLayout(weapon_row)
+        layout.addWidget(set_box)
+
+        template_box = QGroupBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.template_box'))
+        template_layout = QVBoxLayout(template_box)
+        template_layout.setContentsMargins(8, 6, 8, 6)
+        template_layout.setSpacing(5)
+
+        selected_main_stats = list(
+            self.tape_main_filters.get(name, [])
+            if name in self.tape_main_filter_override_roles
+            else self._default_tape_main_filter(name)
+        )
+        main_box = self._build_multi_select_row(
+            "卡带主词条：",
+            self.tape_main_stats,
+            selected_main_stats,
+            "、",
+            empty_text=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.main_box'),
+        )
+        template_layout.addWidget(main_box)
+
+        current_stat_cfg = (
+            self.stat_priority_configs.get(name, {})
+            if isinstance(self.stat_priority_configs.get(name, {}), dict)
+            else {}
+        )
+        selected_stats = self._selected_substat_priority(name)
+        stat_box = self._build_multi_select_row(
+            "卡带/驱动副词条：",
+            self.drive_sub_stats,
+            selected_stats,
+            " > ",
+            empty_text=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.main_box'),
+        )
+        stat_layout = stat_box.layout()
+        selected_blacklist = [
+            stat
+            for stat in list(current_stat_cfg.get("blacklist", []) or [])
+            if stat in self.drive_sub_stats
+        ]
+        stat_layout.addWidget(
+            self._build_multi_select_row(
+                "副词条黑名单：",
+                self.drive_sub_stats,
+                selected_blacklist,
+                "、",
+                empty_text=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.main_box'),
+            )
+        )
+        help_btn = QPushButton("?")
+        help_btn.setObjectName("btnHelp")
+        help_btn.setFixedSize(24, 24)
+        help_btn.clicked.connect(lambda: self._show_help("词条自选说明", STAT_PRIORITY_HELP))
+
+        stat_options = QGridLayout()
+        stat_options.setContentsMargins(0, 4, 0, 0)
+        stat_options.setHorizontalSpacing(10)
+        stat_options.setVerticalSpacing(8)
+        soft_main_filter = QCheckBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.soft_main_filter'))
+        soft_main_filter.setChecked(bool(current_stat_cfg.get("soft_main_filter", False)))
+        soft_main_filter.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.soft_main_filter_2')))
+        stat_equal = QCheckBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.stat_equal'))
+        stat_equal.setChecked(bool(current_stat_cfg.get("equal_priority", False)))
+        blacklist_zero_weight = QCheckBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.blacklist_zero_weight'))
+        blacklist_zero_weight.setChecked(
+            bool(current_stat_cfg.get("blacklist_zero_weight", False))
+        )
+        ignore_grade_limit = QCheckBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.ignore_grade_limit'))
+        ignore_grade_limit.setChecked(bool(current_stat_cfg.get("ignore_grade_limit", False)))
+        grade_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.grade_label'))
+        grade_combo = QComboBox()
+        grade_combo.setFixedWidth(84)
+        for grade in GRADE_LADDER:
+            grade_combo.addItem(grade, grade)
+        current_min_grade = str(current_stat_cfg.get("min_grade_limit") or "A").upper()
+        grade_index = grade_combo.findData(current_min_grade)
+        grade_combo.setCurrentIndex(grade_index if grade_index >= 0 else grade_combo.findData("A"))
+        grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+        # 两行共用等宽列，随窗口均匀展开；等级是一组控件，不用文字空格定位。
+        for column, option in enumerate((soft_main_filter, stat_equal, blacklist_zero_weight)):
+            stat_options.setColumnStretch(column, 1)
+            stat_options.addWidget(option, 0, column)
+        stat_options.addWidget(ignore_grade_limit, 1, 0)
+        grade_row = QHBoxLayout()
+        grade_row.setSpacing(10)
+        grade_row.addWidget(grade_label)
+        grade_row.addWidget(grade_combo)
+        grade_row.addWidget(help_btn)
+        grade_row.addStretch(1)
+        stat_options.addLayout(grade_row, 1, 1, 1, 2)
+        stat_layout.addLayout(stat_options)
+
+        crit_threshold_label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.crit_threshold_label'))
+        crit_threshold_help = QPushButton("?")
+        crit_threshold_help.setObjectName("btnHelp")
+        crit_threshold_help.setFixedSize(24, 24)
+        crit_threshold_help.clicked.connect(
+            lambda: self._show_help(
+                "暴击率最小值",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render(
+                    'ui.allocation.manage_role_preferences.crit_threshold_help'
+                ),
+            )
+        )
+        crit_threshold_edit = QLineEdit()
+        crit_threshold_edit.setMinimumWidth(70)
+        crit_threshold_edit.setValidator(QIntValidator(0, 100, crit_threshold_edit))
+        raw_threshold = current_stat_cfg.get("crit_threshold", current_stat_cfg.get("crit_min_threshold"))
+        if raw_threshold is not None:
+            try:
+                crit_threshold_edit.setText(f"{float(raw_threshold):g}")
+            except (TypeError, ValueError):
+                pass
+        def sync_grade_combo_enabled(checked=False):
+            grade_combo.setEnabled(not ignore_grade_limit.isChecked())
+
+        ignore_grade_limit.toggled.connect(sync_grade_combo_enabled)
+        template_layout.addWidget(stat_box)
+        layout.addWidget(template_box)
+
+        effect_box = QGroupBox(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.effect_box'))
+        effect_layout = QVBoxLayout(effect_box)
+        effect_layout.setContentsMargins(8, 8, 8, 8)
+        effect_layout.setSpacing(5)
+        effect_row = QHBoxLayout()
+        effect_row.setSpacing(8)
+        effect_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.caption_3')))
+        effect_combo = QComboBox()
+        effect_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.effect_combo'), FOUR_PIECE)
+        effect_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.effect_combo_2'), TWO_PIECE)
+        effect_combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.effect_combo_3'), NO_EFFECT)
+        current_effect = normalize_set_effect_mode(self.set_effect_modes.get(name))
+        effect_index = effect_combo.findData(current_effect)
+        effect_combo.setCurrentIndex(effect_index if effect_index >= 0 else 0)
+        effect_row.addWidget(effect_combo, 1)
+        effect_help_btn = QPushButton("?")
+        effect_help_btn.setObjectName("btnHelp")
+        effect_help_btn.clicked.connect(lambda: self._show_help("套装效果说明", SET_EFFECT_HELP))
+        effect_row.addWidget(effect_help_btn)
+        effect_layout.addLayout(effect_row)
+        crit_row = QHBoxLayout()
+        crit_row.setSpacing(8)
+        crit_row.addWidget(crit_threshold_label)
+        crit_row.addWidget(crit_threshold_edit, 1)
+        crit_row.addWidget(plain_label("%"))
+        crit_row.addWidget(crit_threshold_help)
+        crit_row.addSpacing(12)
+        crit_row.addWidget(plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.caption_4')))
+        crit_cap_edit = QLineEdit()
+        crit_cap_edit.setMinimumWidth(70)
+        automatic_cap = self._automatic_crit_rate_cap(
+            name,
+            self.custom_weapons.get(name, "") or default_weapon
+        )
+        configured_cap = self.crit_rate_caps.get(name)
+        cap_source = self.crit_rate_cap_sources.get(name)
+        current_cap = automatic_cap if cap_source == "automatic" else configured_cap
+        if current_cap is None:
+            current_cap = automatic_cap
+        if current_cap is not None:
+            crit_cap_edit.setText(f"{float(current_cap):g}")
+        crit_cap_edit.setPlaceholderText(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.crit_cap_edit') if current_cap is None else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.crit_cap_edit_2')
+        )
+
+        cap_text_edited = False
+        weapon_changed = False
+        cap_context_changed = False
+
+        def apply_context_cap(*_args):
+            nonlocal cap_text_edited, cap_context_changed
+            cap_context_changed = True
+            # 只投影当前弹窗草稿，不提前写选择器；套装切换不改账号实际弧盘来源。
+            resolved_set = resolve_priority_choice(self.all_sets, set_combo.currentText())
+            cap = self._automatic_crit_rate_cap(
+                name, resolve_optional_priority_choice(weapon_names, weapon_combo.currentText()),
+                set_name=resolved_set or role_data.get("default_set", ""),
+                set_effect_mode=effect_combo.currentData(), explicit_weapon=weapon_changed,
+            )
+            if cap is not None:
+                crit_cap_edit.setText(f"{float(cap):g}")
+            else:
+                crit_cap_edit.clear()
+            crit_cap_edit.setPlaceholderText(
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.crit_cap_edit') if cap is None else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.manage_role_preferences.crit_cap_edit_2')
+            )
+            cap_text_edited = False
+
+        def apply_weapon_cap(*_args):
+            nonlocal weapon_changed
+            weapon_changed = True
+            apply_context_cap()
+
+        def mark_cap_text_edited(_text):
+            nonlocal cap_text_edited
+            cap_text_edited = True
+
+        weapon_combo.currentTextChanged.connect(apply_weapon_cap)
+        weapon_combo.activated.connect(
+            lambda _index: apply_weapon_cap(weapon_combo.currentText())
+        )
+        weapon_combo.completer().activated[str].connect(apply_weapon_cap)
+        set_combo.currentTextChanged.connect(apply_context_cap)
+        set_combo.activated.connect(apply_context_cap)
+        set_combo.completer().activated[str].connect(apply_context_cap)
+        effect_combo.currentIndexChanged.connect(apply_context_cap)
+        effect_combo.activated.connect(apply_context_cap)
+        crit_cap_edit.textEdited.connect(mark_cap_text_edited)
+        crit_row.addWidget(crit_cap_edit, 1)
+        crit_row.addWidget(plain_label("%"))
+        crit_cap_help = QPushButton("?")
+        crit_cap_help.setObjectName("btnHelp")
+        crit_cap_help.setFixedSize(24, 24)
+        crit_cap_help.clicked.connect(
+            lambda: self._show_help(
+                "暴击率上限",
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render(
+                    'ui.allocation.manage_role_preferences.crit_cap_help'
+                ),
+            )
+        )
+        crit_row.addWidget(crit_cap_help)
+        effect_layout.addLayout(crit_row)
+        layout.addWidget(effect_box)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        # 整页共用一个滚动视口，三份摘要保持完整；确定/取消独立留在固定底部。
+        scroll = QScrollArea(dlg)
+        scroll.setObjectName("rolePreferenceScroll")
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+        root.addWidget(buttons)
+        dlg.ensurePolished()
+        layout.activate()
+        margins = root.contentsMargins()
+        # 按当前字体收窄约四个汉字，仍以内容最小宽度兜底，避免高 DPI 下遮挡。
+        preferred_width = 720 - dlg.fontMetrics().horizontalAdvance("四个汉字")
+        width = max(preferred_width, content.minimumSizeHint().width()+margins.left()+margins.right())
+        body_height = max(content.minimumSizeHint().height(), layout.totalHeightForWidth(width-margins.left()-margins.right()))
+        # 摘要只增加所需高度，不撑宽窗口；超出工作区的内容由外层滚动承接。
+        height = body_height+buttons.sizeHint().height()+root.spacing()+margins.top()+margins.bottom()
+        fit_dialog_to_available_screen(dlg, QSize(width, max(dlg.minimumHeight(), height)))
+
+        if dlg.exec() == QDialog.Accepted:
+            set_value = set_combo.currentText().strip()
+            resolved_set = resolve_priority_choice(self.all_sets, set_value)
+            self._set_custom_set(name, resolved_set)
+            weapon_value = weapon_combo.currentText().strip()
+            resolved_weapon = resolve_optional_priority_choice(
+                weapon_names,
+                weapon_value,
+            )
+            selected_weapon = resolved_weapon if resolved_weapon in weapon_names else ""
+            if weapon_changed:
+                self._set_custom_weapon(name, selected_weapon)
+            self._set_tape_main_filter(name, selected_main_stats)
+            self._set_stat_priority_config(
+                name,
+                selected_stats,
+                selected_blacklist,
+                stat_equal.isChecked(),
+                ignore_grade_limit.isChecked(),
+                grade_combo.currentData(),
+                crit_threshold_edit.text().strip(),
+                blacklist_zero_weight=blacklist_zero_weight.isChecked(),
+                soft_main_filter=soft_main_filter.isChecked(),
+            )
+            self._set_set_effect_mode(name, effect_combo.currentData())
+            # 最后一次操作拥有上限：切换套装/模式/弧盘恢复自动，之后手填仍以手填为准。
+            if cap_text_edited:
+                self._set_crit_rate_cap(name, crit_cap_edit.text().strip())
+            elif cap_context_changed or self.crit_rate_cap_sources.get(name) != "manual":
+                self._set_automatic_crit_rate_cap(name, self._effective_weapon_for_role(name))
+            self._render_grid(self.search.text())
+
+    def reset_selection(self):
+        self.save_temporary_priority_config()
+        self.selected.clear()
+        self.priority_links.clear()
+        self.custom_sets.clear()
+        self.custom_weapons.clear()
+        self.crit_rate_caps.clear()
+        self.crit_rate_cap_sources.clear()
+        self.tape_main_filters.clear()
+        self.tape_main_filter_override_roles.clear()
+        self.stat_priority_configs.clear()
+        self.stat_priority_override_roles.clear()
+        self.set_effect_modes.clear()
+        self._render_grid(self.search.text())
+
+    def _toggle(self, name):
+        if name in self.selected:
+            index = self.selected.index(name)
+            self.selected.remove(name)
+            if self.priority_links:
+                if index < len(self.priority_links):
+                    self.priority_links.pop(index)
+                elif index - 1 >= 0:
+                    self.priority_links.pop(index - 1)
+        else:
+            if self.selected:
+                self.priority_links.append(">")
+            self.selected.append(name)
+        self.priority_links = normalize_priority_links(self.selected, self.priority_links)
+        self._render_grid(self.search.text())
+        self.orderChanged.emit()
+
+    def _move_selected(self, index, delta):
+        new_index = index + delta
+        self._reorder_selected(index, new_index)
+
+    def _drop_selected_on(self, index, target_index):
+        if index == target_index:
+            return
+        if (
+            index < 0
+            or target_index < 0
+            or index >= len(self.selected)
+            or target_index >= len(self.selected)
+        ):
+            return
+        if index < target_index:
+            self.selected, self.priority_links = relink_forward_drop(
+                self.selected,
+                self.priority_links,
+                index,
+                target_index,
+            )
+            self._render_grid(self.search.text())
+            self.orderChanged.emit()
+            return
+        insert_index = target_index - 1 if index < target_index else target_index
+        self._reorder_selected(index, insert_index)
+
+    def _reorder_selected(self, index, new_index):
+        if index < 0 or new_index < 0 or index >= len(self.selected) or new_index >= len(self.selected):
+            return
+        self.priority_links = normalize_priority_links(self.selected, self.priority_links)
+        shift_crossed_priority_boundaries(self.priority_links, index, new_index)
+        role = self.selected.pop(index)
+        self.selected.insert(new_index, role)
+        self.priority_links = normalize_priority_links(self.selected, self.priority_links)
+        self._render_grid(self.search.text())
+        self.orderChanged.emit()
+
+    def _cycle_priority_link(self, index):
+        self.priority_links = normalize_priority_links(self.selected, self.priority_links)
+        cycle_priority_link(self.priority_links, index)
+        self._render_grid(self.search.text())
+        self.orderChanged.emit()
+
+    def get_selected(self):
+        return list(self.selected)
+
+    def get_priority_groups(self):
+        return links_to_priority_groups(self.selected, self.priority_links)
+
+    def get_custom_sets(self, roles=None):
+        return {
+            name: self.custom_sets.get(name)
+            for name in (self.selected if roles is None else roles)
+            if self.custom_sets.get(name)
+        }
+
+    def get_tape_main_filter_overrides(self):
+        return {
+            name: list(self.tape_main_filters.get(name, []))
+            for name in self.selected
+            if self.tape_main_filters.get(name)
+        }
+
+    def get_crit_rate_cap_overrides(self):
+        return {
+            name: float(self.crit_rate_caps.get(name))
+            for name in self.selected
+            if self.crit_rate_cap_sources.get(name) == "manual"
+            and float(self.crit_rate_caps.get(name, 0.0)) > 0.0
+        }
+
+    def get_crit_priority_mode_overrides(self):
+        return {
+            name: dict(self.stat_priority_configs.get(name))
+            for name in self.selected
+            if self.stat_priority_configs.get(name)
+        }
+
+    def get_tape_main_filters(self, roles=None):
+        filters = {}
+        for name in (self.selected if roles is None else roles):
+            effective = (
+                self.tape_main_filters.get(name, [])
+                if name in self.tape_main_filter_override_roles
+                else self._default_tape_main_filter(name)
+            )
+            if effective:
+                filters[name] = list(effective)
+        return filters
+
+    def get_custom_weapons(self, roles=None):
+        return {
+            name: weapon
+            for name in (self.selected if roles is None else roles)
+            if (weapon := self._effective_weapon_for_role(name))
+        }
+
+    def get_crit_rate_caps(self, roles=None):
+        caps = {}
+        for name in (self.selected if roles is None else roles):
+            configured_cap = self.crit_rate_caps.get(name)
+            cap_source = self.crit_rate_cap_sources.get(name)
+            if cap_source == "automatic":
+                cap = self._automatic_crit_rate_cap(name, self._effective_weapon_for_role(name))
+            elif configured_cap is not None:
+                cap = configured_cap
+            else:
+                cap = self._automatic_crit_rate_cap(name, self._effective_weapon_for_role(name))
+            automatic = cap_source == "automatic" or configured_cap is None
+            if automatic and cap is None:
+                # Preserve an unknown automatic source in the frozen request;
+                # absence means the player explicitly disabled the cap with 0.
+                caps[name] = None
+                continue
+            if cap is not None and (float(cap) > 0.0 or automatic):
+                # 界面预算已扣预期套装；求解器按最终候选加套装，自动上限还原后避免扣两次。
+                caps[name] = float(cap) + (self._active_suit_crit_rate(name) if automatic else 0.0)
+        return caps
+
+    def get_crit_priority_modes(self, roles=None):
+        configs = {}
+        for name in (self.selected if roles is None else roles):
+            default = self._default_substat_priority(name)
+            effective = self.stat_priority_configs.get(name)
+            if effective:
+                configs[name] = dict(effective)
+            elif name not in self.stat_priority_override_roles and default:
+                configs[name] = {"stats": list(default)}
+        return configs
+
+    def get_set_effect_modes(self, roles=None):
+        return {
+            name: normalize_set_effect_mode(self.set_effect_modes.get(name))
+            for name in (self.selected if roles is None else roles)
+            if normalize_set_effect_mode(self.set_effect_modes.get(name)) != FOUR_PIECE
+        }
+
+    def save_priority_config(self, show_message: bool = True):
+        self._write_priority_config(self._priority_save_path())
+        if show_message:
+            QMessageBox.information(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.show_allocation_save_success.dialog'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.save_priority_config.qmessagebox')))
+
+    def save_temporary_priority_config(self):
+        self._write_priority_config(temporary_priority_config_path(self._priority_save_path()))
+
+    def _write_priority_config(self, path: Path):
+        data = {
+            "role_default_policy": _ROLE_DEFAULT_POLICY,
+            "default_mag_character_ids": sorted(self.default_mag_character_ids),
+            "priority_list": self.selected,
+            "priority_groups": self.get_priority_groups(),
+            "priority_links": normalize_priority_links(self.selected, self.priority_links),
+            "custom_sets": self.get_custom_sets(),
+            "custom_set_overrides": self.get_custom_sets(),
+            "custom_weapons": self.get_custom_weapons(),
+            # 旧文件保存全部生效默认值；该标记才代表用户主动选择同名弧盘。
+            "custom_weapon_selections": sorted(
+                name for name in self.selected if name in self.custom_weapons
+            ),
+            "crit_rate_caps": {
+                name: float(self.crit_rate_caps[name])
+                for name in self.selected
+                if name in self.crit_rate_caps
+            },
+            "crit_rate_cap_sources": {
+                name: self.crit_rate_cap_sources[name]
+                for name in self.selected
+                if self.crit_rate_cap_sources.get(name) in {"automatic", "manual"}
+            },
+            "tape_main_filters": {
+                name: list(self.tape_main_filters[name])
+                for name in self.selected
+                if name in self.tape_main_filters
+            },
+            "tape_main_filter_override_roles": sorted(
+                name
+                for name in self.selected
+                if name in self.tape_main_filter_override_roles
+            ),
+            "stat_priority_configs": self.get_crit_priority_mode_overrides(),
+            "stat_priority_override_roles": sorted(
+                name
+                for name in self.selected
+                if name in self.stat_priority_override_roles
+            ),
+            "set_effect_modes": self.get_set_effect_modes(),
+        }
+        write_json(path, data, indent=2)
+
+    def load_priority_config(self):
+        path = self._priority_load_path()
+        if self._load_priority_config_from(path):
+            self._priority_draft_path = path
+
+    def load_startup_priority_config(self):
+        path = self._priority_config_path().resolve()
+        if path != self._priority_catalog_path:
+            self.prepare_priority_account()
+        # 仅已应用当前账号角色目录的启动入口可解除读取门禁；坏包仍不恢复保存。
+        self._priority_catalog_path = path
+        temp_path = temporary_priority_config_path(path)
+        if self._load_priority_config_from(temp_path if temp_path.exists() else path):
+            self._priority_draft_path = path
+
+    def restore_temporary_priority_config(self):
+        path = self._priority_load_path()
+        if self._load_priority_config_from(temporary_priority_config_path(path)):
+            self._priority_draft_path = path
+
+    def _load_priority_config_from(self, path: Path):
+        # 调用方已冻结本次路径；同步读取/准备阶段不改旧草稿，也不派发 UI 回调。
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            prepared = self._prepare_priority_config(data)
+        except FileNotFoundError:
+            return True
+        except Exception as exc:
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.load_priority_config_from.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.load_priority_config_from.qmessagebox_2', exc=f'{exc}')))
+            return False
+        # 所有角色关联及偏好转换均完成后一次应用，半份坏包不会清空旧选择。
+        for field, value in prepared.items():
+            setattr(self, field, value)
+        self._render_grid(self.search.text())
+        return True
+
+    def _prepare_priority_config(self, data: dict) -> dict:
+        if not isinstance(data, dict):
+            raise ValueError("优先级配置必须是 JSON 对象")
+        # 非字符串角色关联若延迟到控件呈现才报错，仍会留下已替换的半份草稿。
+        for field in ("custom_sets", "custom_set_overrides", "custom_weapons"):
+            mapping = data.get(field, {})
+            if isinstance(mapping, dict) and any(
+                role in self.all_roles and value and not isinstance(value, str)
+                for role, value in mapping.items()
+            ):
+                raise ValueError(f"{field} 中的角色关联必须是名称字符串")
+        prepared = {}
+        prepared["selected"], prepared["priority_links"] = load_priority_selection(data, self.all_roles)
+        prepared["custom_sets"] = self._load_custom_set_overrides(data, selected=prepared["selected"])
+        raw_weapon_selections = data.get("custom_weapon_selections")
+        # 无显式标记时，旧文件的默认弧盘名称不升级为手动选择。
+        explicit_weapon_roles = (
+            {role for role in raw_weapon_selections if isinstance(role, str)}
+            if isinstance(raw_weapon_selections, list)
+            else None
+        )
+        prepared["custom_weapons"] = {
+            role: weapon
+            for role, weapon in data.get("custom_weapons", {}).items()
+            if role in self.all_roles and weapon and (not self.weapons_db or weapon in self.weapons_db)
+            and (
+                role in explicit_weapon_roles
+                if explicit_weapon_roles is not None
+                else weapon != self._default_weapon_for_role(role)
+            )
+        }
+        prepared["crit_rate_caps"] = {}
+        prepared["crit_rate_cap_sources"] = {}
+        raw_cap_sources = data.get("crit_rate_cap_sources", {})
+        for role, value in data.get("crit_rate_caps", {}).items():
+            if role not in self.all_roles:
+                continue
+            try:
+                cap = round(min(max(float(value), 0.0), 100.0), 4)
+            except (TypeError, ValueError):
+                continue
+            source = raw_cap_sources.get(role) if isinstance(raw_cap_sources, dict) else None
+            if source not in {"automatic", "manual"}:
+                automatic_cap = self._automatic_crit_rate_cap(
+                    role, str(prepared["custom_weapons"].get(role) or self._default_weapon_for_role(role))
+                )
+                source = (
+                    "automatic"
+                    if automatic_cap is not None and abs(cap - automatic_cap) < 0.0001
+                    else "manual"
+                )
+            prepared["crit_rate_caps"][role] = cap
+            prepared["crit_rate_cap_sources"][role] = source
+        raw_filters = data.get("tape_main_filters", {})
+        prepared["tape_main_filters"] = {}
+        prepared["tape_main_filter_override_roles"] = {
+            role
+            for role in data.get("tape_main_filter_override_roles", [])
+            if role in self.all_roles
+        }
+        for role, values in raw_filters.items():
+            if role not in self.all_roles or not isinstance(values, list):
+                continue
+            filtered = [value for value in values if value in self.tape_main_stats]
+            prepared["tape_main_filters"][role] = filtered
+            prepared["tape_main_filter_override_roles"].add(role)
+        prepared["stat_priority_configs"] = {}
+        prepared["stat_priority_override_roles"] = {
+            role
+            for role in data.get("stat_priority_override_roles", [])
+            if role in self.all_roles
+        }
+        allowed_stats = set(self.drive_sub_stats)
+        for role, cfg_item in data.get("stat_priority_configs", {}).items():
+            if role not in self.all_roles or not isinstance(cfg_item, dict):
+                continue
+            cfg = persistable_stat_priority_config(cfg_item, allowed_stats=allowed_stats)
+            if cfg:
+                prepared["stat_priority_configs"][role] = cfg
+                prepared["stat_priority_override_roles"].add(role)
+        prepared["set_effect_modes"] = {}
+        for role, mode in data.get("set_effect_modes", {}).items():
+            normalized = normalize_set_effect_mode(mode)
+            if role in self.all_roles and normalized in SET_EFFECT_MODES and normalized != FOUR_PIECE:
+                prepared["set_effect_modes"][role] = normalized
+        return prepared
+
+    def _load_custom_set_overrides(self, data: dict, *, selected=None) -> dict[str, str]:
+        if isinstance(data.get("custom_set_overrides"), dict):
+            source = data.get("custom_set_overrides", {})
+            return {
+                role: set_name
+                for role, set_name in source.items()
+                if role in self.all_roles and set_name
+            }
+
+        legacy = data.get("custom_sets", {})
+        if not isinstance(legacy, dict):
+            return {}
+        selected = set(self.selected if selected is None else selected)
+        legacy_roles = {role for role, set_name in legacy.items() if role in self.all_roles and set_name}
+        if selected and selected.issubset(legacy_roles):
+            return {}
+        return {
+            role: set_name
+            for role, set_name in legacy.items()
+            if role in self.all_roles and set_name
+        }

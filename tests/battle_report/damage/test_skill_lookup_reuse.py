@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 
 from src.services.battle_report.damage.skill_evidence import BattleSkillDamageEvidenceService
-from src.services.damage_calculation_service import reaction_tier_for_character_level
+from src.services.damage.damage_calculation_service import reaction_tier_for_character_level
 from tests.battle_report.damage.test_skill_evidence import _hit
 
 

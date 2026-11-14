@@ -1,6 +1,8 @@
 # 游戏资料库空幕与驱动独立卡片页面。
 """Player-facing release catalog with an optional frozen inventory projection."""
 from __future__ import annotations
+from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
@@ -26,7 +28,7 @@ from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
-from src.ui.equipment_presentation import EquipmentPresentation
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
 _STATUS_CATALOG = build_warehouse_filter_catalog(())
 _STATUS_LABELS = {option.value: option.label for option in _STATUS_CATALOG.statuses}
 _QUALITY_COLORS = {"ORANGE": "#f2cc60", "PURPLE": "#bc8cff", "BLUE": "#58a6ff"}
@@ -34,8 +36,9 @@ _QUALITY_ORDER = {key: index for index, key in enumerate(_QUALITY_COLORS)}
 _ATTRIBUTE_ICON_KEYS = {"AtkAdd": "attack", "AtkUp": "attack", "CritBase": "crit_rate",
                         "CritDamageBase": "crit_damage", "DefIgnore": "def_ignore", "UnbalIntensityBase": "inclination_strength"}
 class ShapeGlyph(QWidget):
-    def __init__(self, shape: ShapeRecord, parent: QWidget | None = None) -> None:
+    def __init__(self, shape: ShapeRecord, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.shape = shape
         self.setMinimumSize(88, 88)
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt override
@@ -43,7 +46,7 @@ class ShapeGlyph(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         if not self.shape.cells:
             painter.setPen(QColor(theme_color("#8b949e")))
-            painter.drawText(self.rect(), Qt.AlignCenter, "形状暂缺")
+            painter.drawText(self.rect(), Qt.AlignCenter, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.paintevent.painter'))
             return
         xs, ys = zip(*self.shape.cells, strict=True)
         size = min(self.width(), self.height()) / 5
@@ -57,8 +60,9 @@ class ShapeGlyph(QWidget):
                 size - 3, size - 3, 4, 4,
             )
 class CurvePlot(QLabel):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setMinimumHeight(140)
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet(themed_style(
@@ -67,7 +71,7 @@ class CurvePlot(QLabel):
         ))
     def set_curve(self, curve: AttributeCurve | None) -> None:
         if curve is None or not curve.points:
-            self.setText("当前没有可展示的强化曲线")
+            self.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.set_curve.self'))
             return
         values = [point[1] for point in curve.points]
         low, high = min(values), max(values)
@@ -90,12 +94,12 @@ def _card(parent: QWidget, title: str) -> tuple[QFrame, QVBoxLayout]:
     ))
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(16, 14, 16, 14)
-    title_label = QLabel(title, frame)
+    title_label = plain_label(title, frame)
     title_label.setStyleSheet(themed_style("color:#f0f6fc;font-size:15px;font-weight:900"))
     layout.addWidget(title_label)
     return frame, layout
 def _text(text: str, parent: QWidget, *, muted: bool = False) -> QLabel:
-    label = QLabel(text, parent)
+    label = plain_label(text, parent)
     label.setWordWrap(True)
     label.setStyleSheet(themed_style(f"color:{'#8b949e' if muted else '#c9d1d9'};font-size:11px"))
     return label
@@ -148,8 +152,9 @@ class ExpandableCard(QFrame):
 class EquipmentGalleryCard(QFrame):
     activated = Signal(str)
     def __init__(self, record: EquipmentRecord, *, owned_count: int | None, shape_name: str, presentation: EquipmentPresentation,
-                 asset_catalog: GameUiAssetCatalog, quality_name: str, parent: QWidget) -> None:
+                 asset_catalog: GameUiAssetCatalog, quality_name: str, parent: QWidget, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.record = record
         tone = _QUALITY_COLORS.get(record.quality, "#8b949e")
         self.setObjectName("equipmentArchiveItemCard")
@@ -164,15 +169,15 @@ class EquipmentGalleryCard(QFrame):
             card_variant="inventory", item_icon_path=icon_path,
         ))
         line = (
-            f"{quality_name}空幕 · 最高 Lv.{record.max_level} · {record.sub_count} 条副属性"
+            resolve_text_catalog(text_catalog).render('frontend.static_catalog.domain_pages.equipment.page.init.text', quality_name=f'{quality_name}', max_level=f'{record.max_level}', sub_count=f'{record.sub_count}')
             if record.kind == "core"
-            else f"{quality_name}驱动 · {record.area} 格 · {shape_name}"
+            else resolve_text_catalog(text_catalog).render('frontend.static_catalog.domain_pages.equipment.page.init.text_2', quality_name=f'{quality_name}', area=f'{record.area}', shape_name=f'{shape_name}')
         )
         layout.addWidget(_text(line, self, muted=True))
         ownership = (
-            "库存暂不可用"
+            resolve_text_catalog(text_catalog).render('ui.static_catalog.refresh_cards.result_count')
             if owned_count is None
-            else "未拥有" if owned_count == 0 else f"已拥有 {owned_count} 件"
+            else resolve_text_catalog(text_catalog).render('frontend.static_catalog.domain_pages.equipment.page.init.text_3') if owned_count == 0 else resolve_text_catalog(text_catalog).render('frontend.static_catalog.domain_pages.equipment.page.init.text_4', owned_count=f'{owned_count}')
         )
         layout.addWidget(_text(ownership, self))
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt override
@@ -181,8 +186,9 @@ class EquipmentGalleryCard(QFrame):
         super().mouseReleaseEvent(event)
 class EquipmentDetailView(QScrollArea):
     def __init__(self, *, controller: EquipmentCatalogPageController, asset_catalog: GameUiAssetCatalog,
-                 presentation: EquipmentPresentation, parent: QWidget) -> None:
+                 presentation: EquipmentPresentation, parent: QWidget, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._controller = controller
         self._asset_catalog = asset_catalog
         self._presentation = presentation
@@ -202,9 +208,9 @@ class EquipmentDetailView(QScrollArea):
     def clear_account_projection(self) -> None:
         """Remove all detail widgets that may contain a prior account instance."""
         self._reset()
-        panel, panel_layout = _card(self.host, "当前账号库存")
+        panel, panel_layout = _card(self.host, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.clear_account_projection.panel_panel_layout'))
         panel_layout.addWidget(_text(
-            "库存暂不可用，请刷新后再查看。",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.clear_account_projection.caption'),
             panel,
             muted=True,
         ))
@@ -227,36 +233,36 @@ class EquipmentDetailView(QScrollArea):
         row = QHBoxLayout(hero)
         row.setContentsMargins(16, 12, 16, 12)
         icon_path = self._asset_catalog.inventory_item_icon(record.kind, record.item_id)
-        image = QLabel(hero)
+        image = plain_label(hero)
         image.setFixedSize(120, 120)
         pixmap = QPixmap(str(icon_path or ""))
         if not pixmap.isNull():
             image.setPixmap(pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         row.addWidget(image)
         copy = QVBoxLayout()
-        title = QLabel(record.name, hero)
+        title = plain_label(record.name, hero)
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:22px;font-weight:900"))
         copy.addWidget(title)
         kind = "空幕 / 卡带" if record.kind == "core" else "驱动"
-        copy.addWidget(_text(f"{kind}  ·  {quality_label}  ·  最高 Lv.{record.max_level}", hero))
-        description = f"套装归属  {record.suit_name}" if record.kind == "core" else f"{self._controller.shape_name(record.shape_id)}  ·  占用 {record.area} 格"
+        copy.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_equipment.caption', kind=ui_enum_text(getattr(self, 'text_catalog', None), f'{kind}'), quality_label=f'{quality_label}', max_level=f'{record.max_level}'), hero))
+        description = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.static_catalog.domain_pages.equipment.page.show_equipment.text', suit_name=f'{record.suit_name}') if record.kind == "core" else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.static_catalog.domain_pages.equipment.page.show_equipment.text_2', value=f'{self._controller.shape_name(record.shape_id)}', area=f'{record.area}')
         copy.addWidget(_text(description, hero, muted=True))
         row.addLayout(copy, 1)
         self.layout.addWidget(hero)
-        strength, strength_layout = _card(self.host, "等级 / 强化曲线")
+        strength, strength_layout = _card(self.host, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_equipment.strength_strength_layout'))
         strength_layout.addWidget(_text(
-            f"强化上限 Lv.{record.max_level}  ·  基础属性 {record.main_count} 条  ·  随机副属性 {record.sub_count} 条",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_equipment.caption_2', max_level=f'{record.max_level}', main_count=f'{record.main_count}', sub_count=f'{record.sub_count}'),
             strength,
         ))
-        self._add_strength_experience(strength, strength_layout, experience)
+        self._add_strength_experience(strength, strength_layout, experience, text_catalog=getattr(self, 'text_catalog', None))
         selector = QComboBox(strength)
         for curve in curves:
             icon_path = self._asset_catalog.attribute_icon(_ATTRIBUTE_ICON_KEYS.get(curve.property_id, ""))
             selector.addItem(QIcon(str(icon_path)) if icon_path else QIcon(), curve.label, curve)
         strength_layout.addWidget(selector)
-        plot = CurvePlot(strength)
+        plot = CurvePlot(strength, text_catalog=getattr(self, 'text_catalog', None))
         strength_layout.addWidget(plot)
-        value = QLabel(strength)
+        value = plain_label(strength)
         value.setStyleSheet(themed_style("color:#58a6ff;font-size:13px;font-weight:900"))
         strength_layout.addWidget(value)
         def select_curve(index: int) -> None:
@@ -264,15 +270,15 @@ class EquipmentDetailView(QScrollArea):
             plot.set_curve(curve)
             if isinstance(curve, AttributeCurve):
                 number = CurvePlot.number(curve.max_value, curve.show_percent)
-                value.setText(f"满级 {curve.label}  {number}{'%' if curve.show_percent else ''}")
+                value.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.select_curve.value', label=f'{curve.label}', number=f'{number}', value=f"{('%' if curve.show_percent else '')}"))
             else:
-                value.setText("当前装备没有可展示的强化曲线")
+                value.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.select_curve.value_2'))
         selector.currentIndexChanged.connect(select_curve)
         select_curve(selector.currentIndex())
         self.layout.addWidget(strength)
         rules = ExpandableCard("词条生成规则", f"{record.main_count} 条基础属性 · 最多 {record.sub_count} 条副属性", self.host)
         rules.body_layout.addWidget(_text(
-            "属性候选会随装备类别、驱动面积和品质变化；上方可切换每一条正式强化曲线。", rules.body,
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_equipment.caption_3'), rules.body,
         ))
         self.layout.addWidget(rules)
         self._add_owned_instances(record)
@@ -286,9 +292,10 @@ class EquipmentDetailView(QScrollArea):
         strength: QFrame,
         layout: QVBoxLayout,
         experience: StrengthExperience | None,
+        *, text_catalog=None,
     ) -> None:
         if experience is None:
-            layout.addWidget(_text("强化经验暂未提供。", strength, muted=True))
+            layout.addWidget(_text(resolve_text_catalog(text_catalog).render('ui.static_catalog.add_strength_experience.caption'), strength, muted=True))
             return
         summary = ExpandableCard(
             "强化经验",
@@ -302,7 +309,7 @@ class EquipmentDetailView(QScrollArea):
             running_total += segment_exp
             first_level, last_level = segment[0][0], segment[-1][0]
             summary.body_layout.addWidget(_text(
-                f"Lv.{first_level}–{last_level}  需要 {segment_exp:,}  ·  累计 {running_total:,}",
+                resolve_text_catalog(text_catalog).render('ui.static_catalog.add_strength_experience.caption_2', first_level=f'{first_level}', last_level=f'{last_level}', segment_exp=f'{segment_exp:,}', running_total=f'{running_total:,}'),
                 summary.body,
             ))
         layout.addWidget(summary)
@@ -310,13 +317,13 @@ class EquipmentDetailView(QScrollArea):
         projection = self._controller.inventory
         items = self._controller.owned_for(record)
         if projection is None:
-            panel, panel_layout = _card(self.host, "我的同款")
-            panel_layout.addWidget(_text("当前账号库存暂不可用，请刷新后再查看。", panel, muted=True))
+            panel, panel_layout = _card(self.host, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_owned_instances.panel_panel_layout'))
+            panel_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_owned_instances.caption'), panel, muted=True))
             self.layout.addWidget(panel)
             return
         expanded = ExpandableCard("我的同款", f"稳定仓库中有 {len(items)} 件", self.host)
         if not items:
-            expanded.body_layout.addWidget(_text("当前稳定仓库没有这件装备。", expanded.body, muted=True))
+            expanded.body_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_owned_instances.caption_2'), expanded.body, muted=True))
         for number, item in enumerate(items, 1):
             main_name, main_value = item.main_stats[0] if item.main_stats else ("", None)
             card = self._presentation.equipment_card(
@@ -329,27 +336,26 @@ class EquipmentDetailView(QScrollArea):
             card.setObjectName("ownedEquipmentInstance")
             expanded.body_layout.addWidget(card)
             if not item.state_known:
-                status = "名称暂未提供"
+                status = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.card.card')
             else:
-                tags = [_STATUS_LABELS["locked"]] if item.locked else []
+                tags = [ui_enum_text(getattr(self, 'text_catalog', None), _STATUS_LABELS)["locked"]] if item.locked else []
                 if item.equipped_name:
-                    tags.append(f"{_STATUS_LABELS['equipped']}：{item.equipped_name}")
-                status = " · ".join(tags) or _STATUS_LABELS["other"]
+                    tags.append(f"{ui_enum_text(getattr(self, 'text_catalog', None), _STATUS_LABELS)['equipped']}：{item.equipped_name}")
+                status = " · ".join(tags) or ui_enum_text(getattr(self, 'text_catalog', None), _STATUS_LABELS)["other"]
             expanded.body_layout.addWidget(_text(status, expanded.body, muted=True))
         self.layout.addWidget(expanded)
     def show_suit(self, suit: SuitRecord) -> None:
         self._reset()
         hero, hero_layout = _card(self.host, suit.name)
         hero_layout.addWidget(_text(
-            f"空幕套装  ·  解锁 {len(suit.required_shape_ids)} 种驱动形状  ·  "
-            f"{self._owned_summary(self._controller.owned_count(suit_id=suit.suit_id), '空幕')}", hero,
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_suit.caption', value=f'{len(suit.required_shape_ids)}', value_2=f"{self._owned_summary(self._controller.owned_count(suit_id=suit.suit_id), '空幕')}"), hero,
         ))
         self.layout.addWidget(hero)
         self._add_suit_sections(suit)
         self._add_graduations(suit.suit_id)
         self.layout.addStretch(1)
     def _add_suit_sections(self, suit: SuitRecord) -> None:
-        shapes, shapes_layout = _card(self.host, "可搭载驱动形状")
+        shapes, shapes_layout = _card(self.host, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_suit_sections.shapes_shapes_layout'))
         shape_row = QHBoxLayout()
         for shape_id in suit.required_shape_ids:
             shape = self._controller.shape(shape_id)
@@ -357,15 +363,15 @@ class EquipmentDetailView(QScrollArea):
             tile.setStyleSheet(themed_style("background:#0d1117;border:1px solid #30363d;border-radius:10px"))
             tile_layout = QVBoxLayout(tile)
             if shape is not None:
-                tile_layout.addWidget(ShapeGlyph(shape, tile))
-                tile_layout.addWidget(_text(f"{shape.name} · {shape.area} 格", tile, muted=True))
+                tile_layout.addWidget(ShapeGlyph(shape, tile, text_catalog=getattr(self, 'text_catalog', None)))
+                tile_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_suit_sections.caption', name=f'{shape.name}', area=f'{shape.area}'), tile, muted=True))
             else:
-                tile_layout.addWidget(_text("形状关系暂缺", tile, muted=True))
+                tile_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_suit_sections.caption_2'), tile, muted=True))
             shape_row.addWidget(tile)
         shape_row.addStretch(1)
         shapes_layout.addLayout(shape_row)
         self.layout.addWidget(shapes)
-        effects, effects_layout = _card(self.host, "套装效果")
+        effects, effects_layout = _card(self.host, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_suit_sections.effects_effects_layout'))
         for effect in suit.effects:
             summary = effect.description.split("。", 1)[0]
             if len(summary) > 34:
@@ -376,11 +382,11 @@ class EquipmentDetailView(QScrollArea):
                 label, percent = self._controller.property_info(property_id)
                 value = modifier_value * 100 if percent else modifier_value
                 panel.body_layout.addWidget(_text(
-                    f"固定加成  {label} +{value:g}{'%' if percent else ''}", panel.body, muted=True,
+                    resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_suit_sections.caption_3', label=f'{label}', value=f'{value:g}', value_2=f"{('%' if percent else '')}"), panel.body, muted=True,
                 ))
             if effect.has_conditional_effect:
                 panel.body_layout.addWidget(_text(
-                    "条件、持续与叠层规则已按当前可读说明在本卡内展示。",
+                    resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_suit_sections.caption_4'),
                     panel.body,
                     muted=True,
                 ))
@@ -390,26 +396,26 @@ class EquipmentDetailView(QScrollArea):
         links = self._controller.graduations(suit_id)
         related = ExpandableCard("推荐角色", f"{len(links)} 份毕业模板采用该套装", self.host)
         if not links:
-            related.body_layout.addWidget(_text("当前没有关联的毕业模板。", related.body, muted=True))
+            related.body_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_graduations.caption'), related.body, muted=True))
         for link in links:
             label = self._controller.property_info(link.main_property_id)[0]
             related.body_layout.addWidget(_text(
-                f"{link.character_name}  ·  推荐主属性 {label}  ·  驱动总面积 {link.drive_area}", related.body,
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_graduations.caption_2', character_name=f'{link.character_name}', label=f'{label}', drive_area=f'{link.drive_area}'), related.body,
             ))
         self.layout.addWidget(related)
     def show_shape(self, shape: ShapeRecord) -> None:
         self._reset()
         hero, hero_layout = _card(self.host, shape.name)
         row = QHBoxLayout()
-        row.addWidget(ShapeGlyph(shape, hero))
+        row.addWidget(ShapeGlyph(shape, hero, text_catalog=getattr(self, 'text_catalog', None)))
         row.addWidget(_text(
-            f"占用 {shape.area} 格  ·  {self._owned_summary(self._controller.owned_count(shape_id=shape.shape_id), '该形状驱动')}",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_shape.caption', area=f'{shape.area}', value=f"{self._owned_summary(self._controller.owned_count(shape_id=shape.shape_id), '该形状驱动')}"),
             hero,
         ), 1)
         hero_layout.addLayout(row)
         self.layout.addWidget(hero)
         suits = tuple(suit for suit in self._controller.archive.suits if shape.shape_id in suit.required_shape_ids)
-        relation, relation_layout = _card(self.host, "支持该形状的空幕套装")
+        relation, relation_layout = _card(self.host, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_shape.relation_relation_layout'))
         for suit in sorted(suits, key=lambda value: official_suit_number(value.suit_id)):
             relation_layout.addWidget(_text(suit.name, relation))
         self.layout.addWidget(relation)
@@ -424,8 +430,9 @@ class EquipmentCatalogPage(QWidget):
     """Independent player archive; account inventory is an injected projection."""
     def __init__(self, *, controller: EquipmentCatalogPageController, asset_catalog: GameUiAssetCatalog,
                  presentation: EquipmentPresentation,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._controller = controller
         self._asset_catalog = asset_catalog
         self._presentation = presentation
@@ -437,6 +444,7 @@ class EquipmentCatalogPage(QWidget):
         self.detail = EquipmentDetailView(
             controller=controller, asset_catalog=asset_catalog,
             presentation=presentation, parent=self,
+            text_catalog=text_catalog,
         )
         self.stack.addWidget(self.gallery)
         self.stack.addWidget(self.detail)
@@ -469,9 +477,9 @@ class EquipmentCatalogPage(QWidget):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(6, 4, 8, 10)
-        hero, hero_layout = _card(page, "空幕与驱动")
+        hero, hero_layout = _card(page, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_static_catalog_domain_pages.caption_3'))
         hero_layout.addWidget(_text(
-            "浏览正式装备图鉴、强化曲线与套装搭配；接入当前账号后还可查看自己实际拥有的装备。", hero, muted=True,
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.caption'), hero, muted=True,
         ))
         categories = QHBoxLayout()
         self.category_group = QButtonGroup(page)
@@ -500,21 +508,21 @@ class EquipmentCatalogPage(QWidget):
         layout.addWidget(hero)
         filters = QHBoxLayout()
         self.search = QLineEdit(page)
-        self.search.setPlaceholderText("搜索空幕、套装或驱动形状")
+        self.search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.search_2'))
         self.search.textChanged.connect(self._refresh_cards)
         filters.addWidget(self.search, 1)
         self.quality = QComboBox(page)
-        self.quality.addItem("全部品质", "all")
+        self.quality.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.quality'), "all")
         for key in _QUALITY_COLORS:
             self.quality.addItem(self._controller.quality_name(key), key)
         self.quality.currentIndexChanged.connect(self._refresh_cards)
         filters.addWidget(self.quality)
         self.ownership = QComboBox(page)
-        self.ownership.addItem("全部图鉴", "all")
-        self.ownership.addItem("只看已拥有", "owned")
+        self.ownership.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.ownership'), "all")
+        self.ownership.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery.ownership_2'), "owned")
         self.ownership.currentIndexChanged.connect(self._refresh_cards)
         filters.addWidget(self.ownership)
-        self.result_count = QLabel(page)
+        self.result_count = plain_label(page)
         filters.addWidget(self.result_count)
         layout.addLayout(filters)
         scroll = QScrollArea(page)
@@ -560,6 +568,7 @@ class EquipmentCatalogPage(QWidget):
                     asset_catalog=self._asset_catalog,
                     quality_name=self._controller.quality_name(record.quality),
                     parent=self.card_host,
+                    text_catalog=getattr(self, 'text_catalog', None),
                 )
                 card.activated.connect(self.open_equipment)
                 cards.append(card)
@@ -576,9 +585,9 @@ class EquipmentCatalogPage(QWidget):
                     continue
                 cards.append(self._shape_card(shape, owned))
         self.result_count.setText(
-            "库存暂不可用"
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_cards.result_count')
             if owned_only and self._controller.inventory is None
-            else f"{len(cards)} 项"
+            else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_cards.result_count_2', value=f'{len(cards)}')
         )
         columns = 3 if self.width() >= 1050 else 2 if self.width() >= 650 else 1
         for index, card in enumerate(cards):
@@ -589,14 +598,14 @@ class EquipmentCatalogPage(QWidget):
         card = QFrame(self.card_host)
         card.setStyleSheet(themed_style("background:#161b22;border:1px solid #30363d;border-radius:14px"))
         layout = QVBoxLayout(card)
-        title = QLabel(suit.name, card)
+        title = plain_label(suit.name, card)
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:16px;font-weight:900"))
         layout.addWidget(title)
         layout.addWidget(_text(
-            f"解锁 {len(suit.required_shape_ids)} 种驱动形状  ·  {self._ownership_text(owned)}",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.suit_card.caption', value=f'{len(suit.required_shape_ids)}', value_2=f'{self._ownership_text(owned)}'),
             card, muted=True,
         ))
-        button = QPushButton("查看套装效果", card)
+        button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.suit_card.button'), card)
         button.setObjectName("btnAction")
         button.clicked.connect(lambda _checked=False: self.open_suit(suit.suit_id))
         layout.addWidget(button)
@@ -605,12 +614,12 @@ class EquipmentCatalogPage(QWidget):
         card = QFrame(self.card_host)
         card.setStyleSheet(themed_style("background:#161b22;border:1px solid #30363d;border-radius:14px"))
         layout = QVBoxLayout(card)
-        layout.addWidget(ShapeGlyph(shape, card))
+        layout.addWidget(ShapeGlyph(shape, card, text_catalog=getattr(self, 'text_catalog', None)))
         layout.addWidget(_text(
-            f"{shape.name} · {shape.area} 格 · {self._ownership_text(owned)}",
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.shape_card.caption', name=f'{shape.name}', area=f'{shape.area}', value=f'{self._ownership_text(owned)}'),
             card, muted=True,
         ))
-        button = QPushButton("查看支持套装", card)
+        button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.shape_card.button'), card)
         button.setObjectName("btnAction")
         button.clicked.connect(lambda _checked=False: self.open_shape(shape.shape_id))
         layout.addWidget(button)
@@ -668,6 +677,7 @@ def build_equipment_catalog_page(
     presentation: EquipmentPresentation,
     terminology_service: StaticCatalogTerminologyService | None = None,
     parent: QWidget | None = None,
+    text_catalog=None,
 ) -> EquipmentCatalogPage:
     return EquipmentCatalogPage(
         controller=EquipmentCatalogPageController(
@@ -677,4 +687,5 @@ def build_equipment_catalog_page(
         asset_catalog=GameUiAssetCatalog(game_ui_asset_root),
         presentation=presentation,
         parent=parent,
+        text_catalog=text_catalog,
     )

@@ -1,10 +1,12 @@
 # 复用评分字段视图，不拥有账号持久化、任务或扫描／仓库的业务执行。
+from src.ui.common.text_catalog import TextActionButton, add_plain_form_row, plain_label, resolve_text_catalog, set_button_text
+from src.ui.common.enum_text import ui_enum_text
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -12,8 +14,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from src.app.theme import themed_style
-from src.domain.post_actions import GRADE_ORDER, DEFAULT_EXCLUDED_SET_NAMES, DEFAULT_EXCLUDED_SHAPE_IDS
-from src.ui.widgets import NoWheelComboBox
+from src.app.window_geometry import fit_dialog_to_available_screen
+from src.domain.inventory.post_actions import GRADE_ORDER, DEFAULT_EXCLUDED_SET_NAMES, DEFAULT_EXCLUDED_SHAPE_IDS
+from src.ui.common.widgets import NoWheelComboBox
 from src.ui.equipment_management.scope_dialogs import RoleScopeDialog, TypeRangeDialog, type_range_summary
 
 ROLE_SCOPE_OPTIONS = (("所有角色", "all"), ("所选角色", "selected"))
@@ -32,18 +35,52 @@ def _set_combo_data(combo: NoWheelComboBox, value: object) -> None:
             return
 
 
-def _combo(options, value: object, width: int = 130) -> NoWheelComboBox:
+def _combo(options, value: object, width: int = 130, *, text_catalog=None) -> NoWheelComboBox:
     combo = NoWheelComboBox()
     for label, data in options:
-        combo.addItem(label, data)
+        combo.addItem(ui_enum_text(text_catalog, label), data)
     _set_combo_data(combo, value)
     combo.setMaximumWidth(width)
     return combo
 
 
 class ScoringFields:
+    def _state_policy_row(self, control, label):
+        text = self.catalog.render
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addWidget(control)
+        row.setFocusProxy(control)
+        help_button = QPushButton("?", row)
+        help_button.setObjectName("btnHelp")
+        help_button.setFixedWidth(24)
+        help_button.setAccessibleName(text('management.scoring.state_policy.accessible', label=label))
+        help_button.setToolTip(text('management.scoring.state_policy.body'))
+        help_button.clicked.connect(self._show_state_policy_help)
+        layout.addWidget(help_button)
+        layout.addStretch()
+        return row
+
+    def _show_state_policy_help(self):
+        text = self.catalog.render
+        message = QMessageBox(self)
+        message.setWindowTitle(text('management.scoring.state_policy.title'))
+        message.setIcon(QMessageBox.Information)
+        message.setTextFormat(Qt.PlainText)
+        message.setText(text('management.scoring.state_policy.body'))
+        message.setStandardButtons(QMessageBox.Ok)
+        set_button_text(message.button(QMessageBox.Ok), text('common.confirm'))
+        message.adjustSize()
+        fit_dialog_to_available_screen(message)
+        try:
+            message.exec()
+        finally:
+            message.deleteLater()
+
     def _style_toggle_button(self, button: QPushButton, checked: bool) -> None:
-        button.setText("开启中" if checked else "关闭中")
+        button.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.style_toggle_button.button') if checked else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.style_toggle_button.button_2'))
         if checked:
             button.setStyleSheet(
                 "QPushButton{background:#238636;color:#fff;border:1px solid #2ea043;"
@@ -73,8 +110,8 @@ class ScoringFields:
         root.setSpacing(12)
         modules = QHBoxLayout()
         modules.setSpacing(14)
-        modules.addWidget(self._build_module_panel("discard", "弃置模块", "最高评分低于等于"), 1)
-        modules.addWidget(self._build_module_panel("lock", "锁定模块", "最高评分高于等于"), 1)
+        modules.addWidget(self._build_module_panel("discard", resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_scoring_page.self'), resolve_text_catalog(getattr(self, "text_catalog", None)).render("ui.scope.discard_threshold")), 1)
+        modules.addWidget(self._build_module_panel("lock", resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_scoring_page.self_2'), resolve_text_catalog(getattr(self, "text_catalog", None)).render("ui.scope.lock_threshold")), 1)
         root.addLayout(modules, 1)
         if self._show_server_region_option:
             root.addLayout(self._scoring_footer)
@@ -84,7 +121,7 @@ class ScoringFields:
         return self.catalog.render("scan.management.help." + key)
 
     def _show_module_help(self, key: str, title: str) -> None:
-        QMessageBox.information(self, f"{title}说明", self._module_help_text(key))
+        QMessageBox.information(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.show_module_help.qmessagebox', title=f'{title}'), self._module_help_text(key))
 
     def _build_module_panel(self, key: str, title: str, grade_label: str) -> QWidget:
         module = self.config[key]
@@ -97,7 +134,7 @@ class ScoringFields:
         outer.setContentsMargins(14, 12, 14, 14)
         outer.setSpacing(10)
         header = QHBoxLayout()
-        title_label = QLabel(title)
+        title_label = plain_label(title)
         title_label.setStyleSheet("font-size:14px;font-weight:700;color:#58a6ff")
         help_button = QPushButton("?")
         help_button.setObjectName("btnHelp")
@@ -111,8 +148,8 @@ class ScoringFields:
         outer.addLayout(header)
 
         form = QFormLayout()
-        grade_combo = _combo([(grade, grade) for grade in GRADE_ORDER], module.get("grade"), 100)
-        threshold_mode = _combo((("评级", "grade"), ("自定义", "percent")), module.get("threshold_mode", "grade"), 92)
+        grade_combo = _combo([(grade, grade) for grade in GRADE_ORDER], module.get("grade"), 100, text_catalog=getattr(self, 'text_catalog', None))
+        threshold_mode = _combo((("评级", "grade"), ("自定义", "percent")), module.get("threshold_mode", "grade"), 92, text_catalog=getattr(self, 'text_catalog', None))
         threshold_percent = QDoubleSpinBox()
         threshold_percent.setRange(1.0, 100.0)
         threshold_percent.setDecimals(1)
@@ -120,14 +157,12 @@ class ScoringFields:
         threshold_percent.setSuffix("%")
         threshold_percent.setFixedWidth(82)
         threshold_help_text = self.catalog.render("scan.management.grade_help")
-        threshold_mode.setToolTip(threshold_help_text)
-        threshold_percent.setToolTip(threshold_mode.toolTip())
         threshold_percent.setValue(float(module.get("threshold_percent", 50.0)))
-        role_scope = _combo(ROLE_SCOPE_OPTIONS, module.get("role_scope"), 110)
-        quality_scope = _combo(QUALITY_SCOPE_OPTIONS, module.get("quality_scope"), 130)
-        type_scope = _combo(TYPE_SCOPE_OPTIONS, module.get("type_scope"), 130)
-        on_locked = _combo(STATE_ACTION_OPTIONS, module.get("on_locked"), 130)
-        on_discarded = _combo(STATE_ACTION_OPTIONS, module.get("on_discarded"), 130)
+        role_scope = _combo(ROLE_SCOPE_OPTIONS, module.get("role_scope"), 110, text_catalog=getattr(self, 'text_catalog', None))
+        quality_scope = _combo(QUALITY_SCOPE_OPTIONS, module.get("quality_scope"), 130, text_catalog=getattr(self, 'text_catalog', None))
+        type_scope = _combo(TYPE_SCOPE_OPTIONS, module.get("type_scope"), 130, text_catalog=getattr(self, 'text_catalog', None))
+        on_locked = _combo(STATE_ACTION_OPTIONS, module.get("on_locked"), 130, text_catalog=getattr(self, 'text_catalog', None))
+        on_discarded = _combo(STATE_ACTION_OPTIONS, module.get("on_discarded"), 130, text_catalog=getattr(self, 'text_catalog', None))
         self._range_values[key] = {
             "shape_ids": self._selected_or_default(module.get("shape_ids"), self._default_shape_ids()),
             "set_names": self._selected_or_default(module.get("set_names"), self._default_set_names()),
@@ -136,10 +171,10 @@ class ScoringFields:
         type_range_layout = QHBoxLayout(type_range_row)
         type_range_layout.setContentsMargins(0, 0, 0, 0)
         type_range_layout.setSpacing(8)
-        type_range_summary = QLabel()
+        type_range_summary = plain_label()
         type_range_summary.setWordWrap(False)
         type_range_summary.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
-        type_range_button = QPushButton("选择")
+        type_range_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.table_4'))
         type_range_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         type_range_button.setStyleSheet(
             "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
@@ -155,8 +190,8 @@ class ScoringFields:
         role_scope_layout = QHBoxLayout(role_scope_row)
         role_scope_layout.setContentsMargins(0, 0, 0, 0)
         role_scope_layout.setSpacing(8)
-        role_scope_summary = QLabel()
-        role_scope_button = QPushButton("选择")
+        role_scope_summary = plain_label()
+        role_scope_button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.build.table_4'))
         role_scope_button.setStyleSheet(
             "QPushButton{background:#1f6feb;color:#fff;border:1px solid #388bfd;"
             "border-radius:6px;padding:3px 10px;font-weight:700;}"
@@ -180,17 +215,21 @@ class ScoringFields:
         threshold_help_button.setFixedWidth(24)
         threshold_help_button.setToolTip(threshold_help_text)
         threshold_help_button.clicked.connect(
-            lambda: QMessageBox.information(self, "评分等级说明", threshold_help_text)
+            lambda: QMessageBox.information(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_module_panel.qmessagebox'), threshold_help_text)
         )
         threshold_layout.addWidget(threshold_help_button)
         threshold_layout.addStretch()
         form.addRow(grade_label, threshold_row)
-        form.addRow("角色范围", role_scope_row)
-        form.addRow("品质范围", quality_scope)
-        form.addRow("处理类别", type_scope)
-        form.addRow("类型范围", type_range_row)
-        form.addRow("遇到锁定", on_locked)
-        form.addRow("遇到弃置", on_discarded)
+        add_plain_form_row(form, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_module_panel.form'), role_scope_row)
+        add_plain_form_row(form, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.advanced'), quality_scope)
+        add_plain_form_row(form, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_module_panel.form_2'), type_scope)
+        add_plain_form_row(form, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.build_ui.advanced_2'), type_range_row)
+        for control, label_key in (
+            (on_locked, 'ui.equipment_management.build_module_panel.form_3'),
+            (on_discarded, 'ui.equipment_management.build_module_panel.form_4'),
+        ):
+            label = self.catalog.render(label_key)
+            add_plain_form_row(form, label, self._state_policy_row(control, label))
         outer.addLayout(form)
         self._widgets[key] = {
             "enabled": enabled,
@@ -239,7 +278,7 @@ class ScoringFields:
             return
         uses_selected = combo.currentData() == "selected"
         count = len(self._selected_character_ids[key])
-        summary.setText(f"已选{count}名" if uses_selected else "")
+        summary.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.update_role_scope_summary.summary', count=f'{count}') if uses_selected else "")
         summary.setStyleSheet("color:#58a6ff" if count else "color:#f85149")
         button.setVisible(uses_selected)
 
@@ -249,8 +288,9 @@ class ScoringFields:
             self._role_options,
             self._selected_character_ids[key],
             scored_roles=getattr(self, "_role_selection_data", ()),
+            text_catalog=getattr(self, 'text_catalog', None),
         )
-        dialog.setWindowTitle("选择弃置评估角色" if key == "discard" else "选择锁定评估角色")
+        dialog.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.open_role_scope_dialog.dialog') if key == "discard" else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment_management.open_role_scope_dialog.dialog_2'))
         if dialog.exec() != QDialog.Accepted:
             return
         self._selected_character_ids[key] = dialog.selected_character_ids()
@@ -291,6 +331,7 @@ class ScoringFields:
             values["shape_ids"],
             values["set_names"],
             type_scope=self._widgets[key]["type_scope"].currentData(),
+            text_catalog=getattr(self, 'text_catalog', None),
         )
         if dialog.exec() != QDialog.Accepted:
             return

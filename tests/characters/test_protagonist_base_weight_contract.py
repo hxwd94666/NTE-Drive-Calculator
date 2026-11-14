@@ -6,16 +6,16 @@ from unittest.mock import patch
 
 import pytest
 
-from src.domain.recommended_weights import base_weight_character_id, workshop_weight_source_ids
+from src.domain.characters.recommended_weights import base_weight_character_id, workshop_weight_source_ids
 from src.optimizer.scoring import ScoringEngine
-from src.services.allocation.comparison_scoring import FrozenComparisonScorer
+from src.services.allocation.results.comparison_scoring import FrozenComparisonScorer
 from src.services.characters.character_weight_service import (
     ensure_account_character_weights, reset_account_character_weights,
     resolve_character_base_weights, save_account_character_weights,
 )
-from src.services.official_role.base_equipment_scoring import score_official_role_equipment
+from src.services.official_role.equipment.base_equipment_scoring import score_official_role_equipment
 from src.services.official_role.page import load_official_role_detail
-from src.services.official_role.marginal_scoring import calculate_official_role_final_weights
+from src.services.official_role.equipment.marginal_scoring import calculate_official_role_final_weights
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 

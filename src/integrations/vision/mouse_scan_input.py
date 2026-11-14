@@ -8,7 +8,7 @@ import random
 import time
 from dataclasses import dataclass
 from typing import Callable, Protocol
-from src.integrations.operation_guard import GuardedGuiInput, OperationGuard, require_operation
+from src.integrations.runtime.operation_guard import GuardedGuiInput, OperationGuard, require_operation
 
 
 def _round_half_up(value: float) -> int:

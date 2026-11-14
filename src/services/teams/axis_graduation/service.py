@@ -6,19 +6,19 @@ import hashlib
 import json
 from pathlib import Path
 
-from src.domain.teams.axis_graduation_inputs import CurrentBuild
-from src.domain.teams.axis_graduation_record import SavedAxisHistory
-from src.domain.teams.axis_graduation_snapshot import FrozenAxisContextSnapshot, freeze_axis_context_snapshot
-from src.domain.teams.axis_graduation_reference import FrozenBenchmarkReference, freeze_benchmark_reference
-from src.domain.teams.axis_graduation_rules import TheoryEquipmentRules
-from src.domain.teams.axis_graduation_target import GraduationTarget
+from src.domain.teams.graduation.axis_graduation_inputs import CurrentBuild
+from src.domain.teams.graduation.axis_graduation_record import SavedAxisHistory
+from src.domain.teams.graduation.axis_graduation_snapshot import FrozenAxisContextSnapshot, freeze_axis_context_snapshot
+from src.domain.teams.graduation.axis_graduation_reference import FrozenBenchmarkReference, freeze_benchmark_reference
+from src.domain.teams.graduation.axis_graduation_rules import TheoryEquipmentRules
+from src.domain.teams.graduation.axis_graduation_target import GraduationTarget
 from src.domain.teams.report_matching import ReportRange
-from src.domain.equipment.plan_changes import SavedPlansChanged
-from src.integrations.analysis_core_release import create_bundled_analysis_client
-from src.integrations.bundled_resources import bundled_config_dir
-from src.integrations.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError, REQUEST_SCHEMA
-from src.integrations.team_axis_graduation import FIXED_AXIS_RATIO_POLICY, BATCH_KIND, MAX_WIRE_BYTES, validate_request, validate_response
-from src.integrations.team_axis_graduation_archive import archive_axis_result, validate_saved_axis_result
+from src.domain.equipment.loadouts.plan_changes import SavedPlansChanged
+from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
+from src.integrations.runtime.bundled_resources import bundled_config_dir
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError, REQUEST_SCHEMA
+from src.integrations.battle_analysis.graduation.team_axis_graduation import FIXED_AXIS_RATIO_POLICY, BATCH_KIND, MAX_WIRE_BYTES, validate_request, validate_response
+from src.integrations.battle_analysis.graduation.team_axis_graduation_archive import archive_axis_result, validate_saved_axis_result
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.teams.axis_graduation.requests import (
     actual_component_input, build_advice_request, build_benchmark_request, build_current_request, build_equipment_advice_request,

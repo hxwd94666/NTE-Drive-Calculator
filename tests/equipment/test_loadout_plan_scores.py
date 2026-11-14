@@ -1,7 +1,7 @@
 # 验证配装方案评分的读取与兼容规则。
 """Verify persisted loadout totals are rebuilt from concrete slots."""
 
-from src.domain.equipment.loadout_plan_scores import exact_assignment_score_total
+from src.domain.equipment.loadouts.loadout_plan_scores import exact_assignment_score_total
 
 
 # 冻结分数、槽位身份或来源桥接属于长期核心行为，不因归包漏出 core。

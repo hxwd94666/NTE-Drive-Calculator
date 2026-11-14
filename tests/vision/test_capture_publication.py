@@ -13,8 +13,10 @@ from src.integrations.vision import capture_files as files
 from src.integrations.vision.mouse_inventory_scan import MouseInventoryScanner
 from src.models.equipment import Tape
 from src.scanner.gamepad_controller import GamepadScanner
-from src.services.inventory.vision_commit import (
-    VisionCommitRequest, commit_vision_result, retry_vision_publication,
+from src.services.inventory.scanning.vision_commit import (
+    VisionCommitRequest,
+    commit_vision_result,
+    retry_vision_publication,
 )
 from src.services.recognition.resources import RecognitionResourceError
 from src.services.scanning.pipeline import run_streaming_scan_parse
@@ -146,7 +148,7 @@ def test_second_image_move_failure_preserves_saved_db_and_reports_precise_file_s
 
 
 def test_cancel_after_sql_keeps_saved_fact_and_returns_pending_files(tmp_path, selected, monkeypatch):
-    from src.services.inventory import vision_commit as service
+    from src.services.inventory.scanning import vision_commit as service
     root, stage, request, previous = prepare(tmp_path, selected)
     token = Event()
     original = service.commit_completed_vision_inventory
@@ -270,7 +272,7 @@ def test_changed_backup_parent_never_moves_or_deletes_matching_external_leaf(tmp
 
 @pytest.mark.parametrize("fault", ["publication", "projection", "lease_exit"])
 def test_post_sql_exception_always_returns_saved_fact(tmp_path, selected, monkeypatch, fault):
-    from src.services.inventory import vision_commit as service
+    from src.services.inventory.scanning import vision_commit as service
     root, stage, request, previous = prepare(tmp_path, selected)
     def fail(*args, **kwargs):
         raise OSError("injected post-commit failure")

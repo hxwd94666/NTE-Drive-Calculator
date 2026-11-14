@@ -88,7 +88,7 @@ class ProtagonistWeightDefaultTests(unittest.TestCase):
         payload = {"code": 200, "data": [{"itemId": "1046", "name": "零",
                     "weightConfig": {"weights": [{"name": "环合强度", "value": 1.0,
                                                    "main_value": 0.8}]}}]}
-        with patch("src.integrations.workshop_weight_http.fetch_workshop_payload",
+        with patch("src.integrations.official_role.workshop_weight_http.fetch_workshop_payload",
                    return_value=json.dumps(payload).encode()) as fetched:
             WorkshopWeightTemplateService(self.template).refresh(known_character_ids=(1051,))
         fetched.assert_called_once()
@@ -103,7 +103,7 @@ class ProtagonistWeightDefaultTests(unittest.TestCase):
         payload = {"code": 200, "data": [{"itemId": "1051", "weightConfig": {
             "weights": [{"name": "环合强度", "value": 9.0}],
         }}]}
-        with patch("src.integrations.workshop_weight_http.fetch_workshop_payload",
+        with patch("src.integrations.official_role.workshop_weight_http.fetch_workshop_payload",
                    return_value=json.dumps(payload).encode()) as fetched:
             WorkshopWeightTemplateService(self.template).refresh(known_character_ids=(1051,))
         fetched.assert_called_once()

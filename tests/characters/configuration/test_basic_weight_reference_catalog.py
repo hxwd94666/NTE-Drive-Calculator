@@ -6,7 +6,7 @@ from pathlib import Path
 from src.app.context import AccountContext, AppContext, ApplicationPaths
 from src.features.configuration.controller import BasicWeightController
 from src.features.configuration.dependencies import freeze_basic_weight_dependencies
-from src.integrations.role_catalog_release import resolve_role_catalog
+from src.integrations.static_catalog.role_catalog_release import resolve_role_catalog
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 NTE_TEST_TIER = "core"

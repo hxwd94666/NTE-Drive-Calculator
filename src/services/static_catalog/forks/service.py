@@ -10,6 +10,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
+from src.domain.localization.catalog import localized_text
+from src.integrations.preferences.locale_files import enum_text
 from src.services.static_catalog.forks.progression_models import ForkExperienceMaterial, project_fork_experience_materials
 from src.storage.sqlite.catalog.static_catalog_fork_queries import StaticCatalogForkDao
 
@@ -295,9 +297,9 @@ def _trace(row: Mapping[str, Any], *, prefix: str = "") -> CatalogSourceTrace:
     )
 
 
-def _display_number(value: float | None, *, percent: bool) -> str:
+def _display_number(value: float | None, *, percent: bool, text_catalog=None) -> str:
     if value is None:
-        return "未保留"
+        return enum_text(text_catalog, "未保留")
     if percent:
         return f"{value * 100:g}%"
     return f"{value:g}"
@@ -347,7 +349,7 @@ class StaticCatalogForkService:
     def close(self) -> None:
         self._queries.close()
 
-    def metadata(self) -> ForkCatalogMetadata:
+    def metadata(self, *, text_catalog=None) -> ForkCatalogMetadata:
         raw = self._queries.fork_catalog_metadata()
         dataset = raw.get("dataset") or {}
         capabilities = raw.get("capabilities") or {}
@@ -357,16 +359,11 @@ class StaticCatalogForkService:
         payload_count = int(capabilities.get("preserved_source_payloads") or 0)
         notes: list[str] = []
         if not has_skill_tables:
-            notes.append(
-                "schema v30 没有弧盘独立技能表；可展示的技能等级为混频 1–5 级描述、参数与 Buff。"
-            )
+            notes.append(enum_text(text_catalog, "schema v30 没有弧盘独立技能表；可展示的技能等级为混频 1–5 级描述、参数与 Buff。"))
         if payload_count == 0:
-            notes.append(
-                "source_row 只保留行键与 SHA-256，原始 payload 已在发行库省略。"
-            )
-        notes.append(
-            "combat_effect_definition / combat_effect_buff_link 是 importer 生成的项目投影，不冒充独立官方字段。"
-        )
+            notes.append(enum_text(text_catalog, "source_row 只保留行键与 SHA-256，原始 payload 已在发行库省略。"))
+        notes.append(enum_text(
+            text_catalog, "combat_effect_definition / combat_effect_buff_link 是 importer 生成的项目投影，不冒充独立官方字段。"))
         return ForkCatalogMetadata(
             dataset_id=str(dataset.get("dataset_id") or ""),
             schema_version=int(dataset.get("schema_version") or 0),
@@ -457,7 +454,7 @@ class StaticCatalogForkService:
         )
 
     @staticmethod
-    def _modifier(row: Mapping[str, Any]) -> ForkModifier | None:
+    def _modifier(row: Mapping[str, Any], *, text_catalog=None) -> ForkModifier | None:
         property_id = row.get("property_id")
         value = row.get("value")
         if property_id is None or value is None:
@@ -471,14 +468,12 @@ class StaticCatalogForkService:
             property_id=str(property_id),
             property_name_zh=row.get("property_name_zh"),
             raw_value=raw_value,
-            display_value=_display_number(
-                raw_value, percent=bool(row.get("show_percent"))
-            ),
+            display_value=_display_number(raw_value, percent=bool(row.get("show_percent")), text_catalog=text_catalog),
             operation=str(row.get("operation") or ""),
             sort_key=int(row["sort_key"]) if row.get("sort_key") is not None else None,
         )
 
-    def _growth(self, fork_id: str) -> tuple[ForkGrowthLevel, ...]:
+    def _growth(self, fork_id: str, *, text_catalog=None) -> tuple[ForkGrowthLevel, ...]:
         grouped: dict[int, list[Mapping[str, Any]]] = {}
         for row in self._queries.list_fork_growth_rows(fork_id):
             grouped.setdefault(int(row["level"]), []).append(row)
@@ -493,13 +488,13 @@ class StaticCatalogForkService:
                 conditions=tuple(conditions if isinstance(conditions, list) else [conditions]),
                 modifiers=tuple(
                     modifier for row in rows
-                    if (modifier := self._modifier(row)) is not None
+                    if (modifier := self._modifier(row, text_catalog=text_catalog)) is not None
                 ),
                 source=_trace(first),
             ))
         return tuple(result)
 
-    def _breakthroughs(self, fork_id: str) -> tuple[ForkBreakthrough, ...]:
+    def _breakthroughs(self, fork_id: str, *, text_catalog=None) -> tuple[ForkBreakthrough, ...]:
         grouped: dict[int, list[Mapping[str, Any]]] = {}
         for row in self._queries.list_fork_breakthrough_rows(fork_id):
             grouped.setdefault(int(row["stage"]), []).append(row)
@@ -518,7 +513,7 @@ class StaticCatalogForkService:
                 conditions=tuple(conditions if isinstance(conditions, list) else [conditions]),
                 modifiers=tuple(
                     modifier for row in rows
-                    if (modifier := self._modifier(row)) is not None
+                    if (modifier := self._modifier(row, text_catalog=text_catalog)) is not None
                 ),
                 source=_trace(first),
             ))
@@ -527,18 +522,19 @@ class StaticCatalogForkService:
     @staticmethod
     def _critical_states(
         growth: tuple[ForkGrowthLevel, ...],
-        breakthroughs: tuple[ForkBreakthrough, ...],
+        breakthroughs: tuple[ForkBreakthrough, ...], *, text_catalog=None,
     ) -> tuple[ForkCriticalLevelState, ...]:
         growth_by_level = {row.level: row for row in growth}
         breakthrough_by_stage = {row.stage: row for row in breakthroughs}
         stage_by_cap = {row.max_fork_level: row.stage for row in breakthroughs}
         states: list[ForkCriticalLevelState] = []
+        state_before, state_after = enum_text(text_catalog, "突破前"), enum_text(text_catalog, "突破后")
         for level in (20, 30, 40, 50, 60, 70):
             growth_row = growth_by_level.get(level)
             pre_stage = stage_by_cap.get(level)
             if growth_row is None or pre_stage is None:
                 continue
-            for state, stage in (("突破前", pre_stage), ("突破后", pre_stage + 1)):
+            for state, stage in ((state_before, pre_stage), (state_after, pre_stage + 1)):
                 breakthrough = breakthrough_by_stage.get(stage)
                 if breakthrough is not None:
                     states.append(ForkCriticalLevelState(
@@ -550,7 +546,7 @@ class StaticCatalogForkService:
                     ))
         return tuple(states)
 
-    def _refinements(self, fork_id: str) -> tuple[ForkRefinementLevel, ...]:
+    def _refinements(self, fork_id: str, *, text_catalog=None) -> tuple[ForkRefinementLevel, ...]:
         parameters: dict[int, list[ForkRefinementParameter]] = {}
         for row in self._queries.list_fork_refinement_parameters(fork_id):
             level = int(row["star_level"])
@@ -560,7 +556,7 @@ class StaticCatalogForkService:
                 name_id=str(row["name_id"]),
                 is_percent=bool(row["is_percent"]),
                 raw_value=value,
-                display_value=_display_number(value, percent=bool(row["is_percent"])),
+                display_value=_display_number(value, percent=bool(row["is_percent"]), text_catalog=text_catalog),
                 source=_trace(row),
             ))
         levels: list[ForkRefinementLevel] = []
@@ -663,7 +659,7 @@ class StaticCatalogForkService:
             ))
         return tuple(result)
 
-    def get_fork(self, fork_id: str) -> ForkCatalogDetail | None:
+    def get_fork(self, fork_id: str, *, text_catalog=None) -> ForkCatalogDetail | None:
         row = self._queries.get_fork_catalog_item(str(fork_id))
         if row is None:
             return None
@@ -675,20 +671,21 @@ class StaticCatalogForkService:
             item.get("relation_kind") == "cultivation_recommendation"
             for item in relations_rows
         )
-        growth = self._growth(str(fork_id))
+        growth = self._growth(str(fork_id), text_catalog=text_catalog)
         material_query = getattr(self._queries, "list_fork_exp_materials", None)
         experience_materials = project_fork_experience_materials(
             material_query() if callable(material_query) else []
         )
-        breakthroughs = self._breakthroughs(str(fork_id))
-        refinements = self._refinements(str(fork_id))
+        breakthroughs = self._breakthroughs(str(fork_id), text_catalog=text_catalog)
+        refinements = self._refinements(str(fork_id), text_catalog=text_catalog)
         buffs = self._buffs(str(fork_id))
+        unknown_character = enum_text(text_catalog, "未知角色")
         relations = [
             CatalogRelation(
                 kind="character",
                 target_id=str(item.get("character_id") or ""),
                 label=(
-                    f"{item.get('name_zh') or '未知角色'} "
+                    f"{item.get('name_zh') or unknown_character} "
                     f"({item.get('character_id')}) · {item.get('relation_kind')}"
                 ),
                 copy_value=str(item.get("character_id") or ""),
@@ -700,7 +697,10 @@ class StaticCatalogForkService:
             relations.append(CatalogRelation(
                 kind="buff",
                 target_id=buff.asset_path,
-                label=f"混频 {buff.refinement_level} · {buff.definition_id or buff.asset_path}",
+                label=localized_text(
+                    text_catalog, "static_catalog.fork_service.relation.buff", "混频 {level} · {definition}",
+                    level=buff.refinement_level, definition=buff.definition_id or buff.asset_path,
+                ),
                 copy_value=buff.asset_path,
                 origin=CatalogOrigin.PROJECT_PROJECTION,
                 available=buff.target_available,
@@ -771,14 +771,14 @@ class StaticCatalogForkService:
         resources = tuple(dict.fromkeys(resource_values))
         relations = list(dict.fromkeys(relations))
         audit_notes = [
-            "等级面板展示的是官方 modify pack 行；不从中文描述推测额外数值。",
-            "临界等级的“突破前/后”是等级行与官方突破阶段行的派生组合，原始库没有独立面板行。",
-            "弧盘根 Buff 可精确关联 Buff/GE 资产；只有资产路径精确匹配时才返回 GA，不从描述文字猜技能。",
+            enum_text(text_catalog, "等级面板展示的是官方 modify pack 行；不从中文描述推测额外数值。"),
+            enum_text(text_catalog, "临界等级的“突破前/后”是等级行与官方突破阶段行的派生组合，原始库没有独立面板行。"),
+            enum_text(text_catalog, "弧盘根 Buff 可精确关联 Buff/GE 资产；只有资产路径精确匹配时才返回 GA，不从描述文字猜技能。"),
         ]
         if not ability_rows:
-            audit_notes.append("schema v30 未保留该弧盘到 GA 的结构化精确关系。")
+            audit_notes.append(enum_text(text_catalog, "schema v30 未保留该弧盘到 GA 的结构化精确关系。"))
         if not relations_rows:
-            audit_notes.append("该弧盘没有独占角色 ID 或养成推荐关系，角色归属保持未解析。")
+            audit_notes.append(enum_text(text_catalog, "该弧盘没有独占角色 ID 或养成推荐关系，角色归属保持未解析。"))
         return ForkCatalogDetail(
             summary=self._summary(summary_row),
             name_text_table=row.get("name_text_table"),
@@ -792,7 +792,7 @@ class StaticCatalogForkService:
             growth_levels=growth,
             experience_materials=experience_materials,
             breakthroughs=breakthroughs,
-            critical_level_states=self._critical_states(growth, breakthroughs),
+            critical_level_states=self._critical_states(growth, breakthroughs, text_catalog=text_catalog),
             refinement_levels=refinements,
             buff_definitions=buffs,
             source=_trace(row),

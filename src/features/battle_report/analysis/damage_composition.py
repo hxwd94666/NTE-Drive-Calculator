@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPaintEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -97,8 +98,10 @@ class BattleDamageCompositionPanel(QWidget):
         *,
         game_ui_asset_root=None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._asset_catalog = (
             None
             if game_ui_asset_root is None
@@ -158,7 +161,7 @@ class BattleDamageCompositionPanel(QWidget):
             else self._asset_catalog.character_icon(role.character_id)
         )
         if icon_path is not None:
-            icon = QLabel()
+            icon = plain_label()
             icon.setFixedSize(36, 36)
             icon.setPixmap(
                 QPixmap(str(icon_path)).scaled(
@@ -169,13 +172,12 @@ class BattleDamageCompositionPanel(QWidget):
                 )
             )
             header.addWidget(icon)
-        name = QLabel(role.character_name)
+        name = plain_label(role.character_name)
         name.setStyleSheet(themed_style("font-size:14px;font-weight:700;color:#f0f6fc"))
         header.addWidget(name)
         header.addStretch()
-        total = QLabel(
-            f"总伤害  {_format_damage(role.total_damage)}  ·  "
-            f"{role.share_percent:.1f}% 总伤害"
+        total = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.role_card.total', value=f'{_format_damage(role.total_damage)}', share_percent=f'{role.share_percent:.1f}')
         )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
@@ -187,7 +189,7 @@ class BattleDamageCompositionPanel(QWidget):
     def _system_card(self, composition: BattleDamageComposition) -> QFrame:
         card, layout = self._card_shell()
         header = QHBoxLayout()
-        badge = QLabel("系统 / 环境")
+        badge = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.system_card.badge'))
         badge.setAlignment(Qt.AlignCenter)
         badge.setFixedSize(84, 30)
         badge.setStyleSheet(
@@ -197,13 +199,12 @@ class BattleDamageCompositionPanel(QWidget):
             )
         )
         header.addWidget(badge)
-        description = QLabel("已识别机制，但没有角色伤害所有者")
+        description = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.system_card.description'))
         description.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(description)
         header.addStretch()
-        total = QLabel(
-            f"{_format_damage(composition.system_total_damage)}  ·  "
-            f"{composition.system_share_percent:.1f}% 时段伤害"
+        total = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.system_card.total', value=f'{_format_damage(composition.system_total_damage)}', system_share_percent=f'{composition.system_share_percent:.1f}')
         )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
@@ -212,7 +213,7 @@ class BattleDamageCompositionPanel(QWidget):
         layout.addWidget(
             self._rows_scroll(
                 composition.system_entries,
-                empty_text="当前范围内没有系统或环境伤害",
+                empty_text=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.system_card.self'),
             )
         )
         return card
@@ -220,7 +221,7 @@ class BattleDamageCompositionPanel(QWidget):
     def _unattributed_card(self, composition: BattleDamageComposition) -> QFrame:
         card, layout = self._card_shell()
         header = QHBoxLayout()
-        badge = QLabel("未归因")
+        badge = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.unattributed_card.badge'))
         badge.setAlignment(Qt.AlignCenter)
         badge.setFixedSize(62, 30)
         badge.setStyleSheet(
@@ -230,19 +231,18 @@ class BattleDamageCompositionPanel(QWidget):
             )
         )
         header.addWidget(badge)
-        description = QLabel(
-            "倾陷逐角色公式尚未加载"
+        description = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.unattributed_card.description')
             if composition.pending_topple_attribution
-            else "倾陷缺少明确目标或公式证据"
+            else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.unattributed_card.description_2')
             if composition.unresolved_topple_attribution
-            else "完整、正常归属的战报这里应为 0"
+            else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.unattributed_card.description_3')
         )
         description.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(description)
         header.addStretch()
-        total = QLabel(
-            f"{_format_damage(composition.other_total_damage)}  ·  "
-            f"{composition.other_share_percent:.1f}% 时段伤害"
+        total = plain_label(
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.unattributed_card.total', value=f'{_format_damage(composition.other_total_damage)}', other_share_percent=f'{composition.other_share_percent:.1f}')
         )
         total.setStyleSheet(themed_style("font-size:12px;color:#8b949e"))
         header.addWidget(total)
@@ -251,7 +251,7 @@ class BattleDamageCompositionPanel(QWidget):
         layout.addWidget(
             self._rows_scroll(
                 composition.other_entries,
-                empty_text="当前范围内没有未归因伤害",
+                empty_text=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.unattributed_card.self'),
             )
         )
         return card
@@ -334,7 +334,7 @@ class BattleDamageCompositionPanel(QWidget):
             for entry in entries:
                 rows.addWidget(self._damage_row(entry))
         else:
-            placeholder = QLabel(empty_text or "暂无伤害数据")
+            placeholder = plain_label(empty_text or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.rows_scroll.placeholder'))
             placeholder.setFixedHeight(_DAMAGE_ROW_HEIGHT)
             placeholder.setStyleSheet(themed_style("color:#6e7681;font-size:11px"))
             rows.addWidget(placeholder)
@@ -360,18 +360,18 @@ class BattleDamageCompositionPanel(QWidget):
         label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         label.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
         layout.addWidget(label, 1)
-        damage = QLabel(_format_damage(entry.damage))
+        damage = plain_label(_format_damage(entry.damage))
         damage.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         damage.setFixedWidth(_DAMAGE_VALUE_WIDTH)
         damage.setStyleSheet(themed_style("font-size:11px;color:#c9d1d9"))
         layout.addWidget(damage)
-        share = QLabel(f"{entry.share_percent:.1f}%")
+        share = plain_label(f"{entry.share_percent:.1f}%")
 
         share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         share.setFixedWidth(_DAMAGE_SHARE_WIDTH)
         share.setStyleSheet(themed_style("font-size:11px;color:#8b949e"))
         layout.addWidget(share)
-        total_share = QLabel(f"{entry.total_share_percent:.1f}%")
+        total_share = plain_label(f"{entry.total_share_percent:.1f}%")
 
         total_share.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         total_share.setFixedWidth(_DAMAGE_TOTAL_SHARE_WIDTH)

@@ -3,7 +3,7 @@ from copy import deepcopy
 import json
 
 from src.storage.sqlite.user_data_dao import UserDataDao
-from tests.test_native_battle_team_continuity import observed_team
+from tests.battle_report.native.test_native_battle_team_continuity import observed_team
 
 
 def attach_native_team(case, ids=(1072, 1003, 1004, 1008)):
@@ -28,8 +28,8 @@ def attach_native_team(case, ids=(1072, 1003, 1004, 1008)):
 
 def attach_fixed_builds(case, *, game_locked=False, ids=(1072, 1003, 1004, 1008)):
     """用发行模板生成独立真实UID的合成装备，复用正式养成与属性投影冻结四人A。"""
-    from src.integrations.static_catalog_release import static_catalog_read_unit
-    from src.domain.equipment.equipment_normalizer import calculate_drive_main_stats
+    from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+    from src.domain.equipment.properties.equipment_normalizer import calculate_drive_main_stats
     from src.services.battle_report.persistence import BattleReportPersistenceService
     from src.observability import OperationContext
     deps = case["dependencies"]

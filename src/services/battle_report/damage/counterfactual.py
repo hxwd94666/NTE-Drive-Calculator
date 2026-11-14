@@ -42,9 +42,7 @@ from src.services.battle_report.damage.counterfactual_target import (
     resistance_ratio,
     target_resistance_delta,
 )
-from src.services.damage_calculation_service import (
-    calculate_weave_strength_multiplier,
-)
+from src.services.damage.damage_calculation_service import calculate_weave_strength_multiplier
 
 
 _PENETRATION_PROPERTY = {

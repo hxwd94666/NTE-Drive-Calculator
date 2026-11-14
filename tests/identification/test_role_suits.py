@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 
 from src.models.equipment import Drive, Tape
-from src.domain.equipment.management_settings import MatchingScope
+from src.domain.equipment.eligibility.management_settings import MatchingScope
 from src.optimizer.scoring import ScoringEngine
 from src.services.identification.equipment_service import EquipmentIdentificationService
 from src.services.identification.matching_context import build_equipment_match_context
@@ -99,7 +99,7 @@ def test_settings_isolated_noop_and_conflict_preserve_current_value(tmp_path):
 
 @pytest.mark.parametrize("failure", ["write", "cancel"])
 def test_management_pair_commit_rolls_back_both_settings(tmp_path, monkeypatch, failure):
-    from src.domain.post_actions import default_post_action_config
+    from src.domain.inventory.post_actions import default_post_action_config
     database = tmp_path / "atomic.sqlite3"
     with UserDataDao(database, account_id="fixture") as dao:
         dao.replace_application_setting_copy("ui", {"other_preference": "keep"})
@@ -126,7 +126,7 @@ def test_management_pair_commit_rolls_back_both_settings(tmp_path, monkeypatch, 
 
 
 def test_management_can_save_rules_without_changing_suits_or_other_preferences(tmp_path):
-    from src.domain.post_actions import default_post_action_config
+    from src.domain.inventory.post_actions import default_post_action_config
     database = tmp_path / "unchanged.sqlite3"
     with UserDataDao(database, account_id="fixture") as dao:
         dao.replace_application_setting_copy("ui", {"other_preference": "keep"})
@@ -260,7 +260,7 @@ def test_ambiguous_logical_identity_does_not_guess_target(monkeypatch):
 
 
 def test_missing_old_role_blocks_all_scope_not_selected_valid_role():
-    from src.domain.post_actions import default_post_action_config, evaluate_target_state_for_item
+    from src.domain.inventory.post_actions import default_post_action_config, evaluate_target_state_for_item
 
     catalog = Catalog()
     context = build_equipment_match_context(catalog, {"version": 1, "extra_suits": {"999999": ["B"]}})
@@ -282,8 +282,8 @@ def test_missing_old_role_blocks_all_scope_not_selected_valid_role():
 
 
 def test_management_uses_same_matches_and_keeps_unmatched_separate_from_failures():
-    from src.domain.equipment.matching import EquipmentMatchContext
-    from src.domain.post_actions import default_post_action_config, evaluate_target_state_for_item
+    from src.domain.equipment.eligibility.matching import EquipmentMatchContext
+    from src.domain.inventory.post_actions import default_post_action_config, evaluate_target_state_for_item
 
     catalog = Catalog()
     scoring = ScoringEngine("config", roles_db=catalog.roles_db)
@@ -312,8 +312,8 @@ def test_management_uses_same_matches_and_keeps_unmatched_separate_from_failures
 
 
 def test_explicit_rule_can_apply_even_when_matching_evaluation_failed():
-    from src.domain.equipment.matching import EquipmentMatchContext
-    from src.domain.post_actions import default_post_action_config, evaluate_target_state_for_item
+    from src.domain.equipment.eligibility.matching import EquipmentMatchContext
+    from src.domain.inventory.post_actions import default_post_action_config, evaluate_target_state_for_item
 
     config = default_post_action_config()
     config["preserve_rules"] = [{"name": "明确弃置", "action": "discard", "item_type": "tape",
@@ -326,8 +326,8 @@ def test_explicit_rule_can_apply_even_when_matching_evaluation_failed():
 
 def test_invalid_selected_scope_does_not_block_other_module_or_explicit_rule():
     from unittest.mock import patch
-    from src.domain.post_actions import default_post_action_config
-    from src.services.inventory.post_action_evaluation import PostActionEvaluator
+    from src.domain.inventory.post_actions import default_post_action_config
+    from src.services.inventory.scanning.post_action_evaluation import PostActionEvaluator
 
     catalog = Catalog()
     context = build_equipment_match_context(catalog, {"version": 1, "extra_suits": {"1001": ["B"]}})
@@ -352,8 +352,8 @@ def test_invalid_selected_scope_does_not_block_other_module_or_explicit_rule():
 
 def test_bad_scores_are_not_zero_and_evaluation_failure_does_not_block_independent_rules():
     from unittest.mock import patch
-    from src.domain.post_actions import default_post_action_config, build_state_changes
-    from src.services.inventory.post_action_evaluation import PostActionEvaluator
+    from src.domain.inventory.post_actions import default_post_action_config, build_state_changes
+    from src.services.inventory.scanning.post_action_evaluation import PostActionEvaluator
 
     catalog = Catalog()
     context = build_equipment_match_context(catalog)

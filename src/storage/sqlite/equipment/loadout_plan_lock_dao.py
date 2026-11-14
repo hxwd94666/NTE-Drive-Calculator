@@ -7,8 +7,8 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from src.domain.equipment.loadout_equipment_identity import source_snapshots_share_equipment_uids
-from src.domain.equipment.virtual_equipment import is_virtual_equipment_assignment
+from src.domain.equipment.loadouts.loadout_equipment_identity import source_snapshots_share_equipment_uids
+from src.domain.equipment.loadouts.virtual_equipment import is_virtual_equipment_assignment
 
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
 from src.storage.sqlite.user_data_support import UserDataError, UserDataValidationError, _integer, _utc_now
@@ -120,15 +120,26 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
     def list_allocation_locked_loadout_plans(self) -> list[dict[str, Any]]:
         """Return every current slot plan reserving equipment for calculation."""
 
-        plans: list[dict[str, Any]] = []
-        for plan in self.list_loadout_plans():
-            if (
-                plan.get("allocation_locked")
-                and self._is_role_loadout_plan(plan)
-                and self.is_current_loadout_slot_plan(int(plan["plan_id"]))
-            ):
-                plans.append(plan)
-        return plans
+        # 只从当前槽位的正式锁定方案读正文；历史方案可能有几十万条，
+        # 不能先把全部 assignment JSON 水合到 Python 再筛选。当前槽位
+        # 是锁身份的正式来源，旧 is_active 字段不参与这个判断。
+        rows = self._rows(
+            """
+            SELECT plan.plan_id, plan.name, plan.character_id, plan.slot_id,
+                   plan.source_snapshot_id, plan.status, plan.score,
+                   plan.payload_json, plan.is_active, plan.allocation_locked,
+                   plan.created_at_utc, plan.updated_at_utc
+            FROM role_loadout_slot AS slot
+            JOIN loadout_plan AS plan ON plan.plan_id = slot.current_plan_id
+            WHERE slot.is_archived = 0
+              AND plan.allocation_locked = 1
+            ORDER BY plan.updated_at_utc DESC, plan.plan_id DESC
+            """
+        )
+        return [
+            plan for plan in self._decode_loadout_plan_rows(rows)
+            if self._is_role_loadout_plan(plan)
+        ]
 
     def list_allocation_locked_equipment_owners(self) -> list[dict[str, Any]]:
         """Return physical equipment occupied by every active locked plan."""
@@ -144,6 +155,10 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
             WHERE plan.allocation_locked = 1
               AND slot.is_archived = 0
               AND item.uid_slot > 0
+              AND item.plan_id IN (
+                  SELECT current_plan_id FROM role_loadout_slot
+                  WHERE is_archived = 0 AND current_plan_id IS NOT NULL
+              )
             ORDER BY plan.updated_at_utc DESC, plan.plan_id DESC, item.ordinal
             """
         )

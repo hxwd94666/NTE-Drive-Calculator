@@ -8,12 +8,13 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Callable
 
+from src.domain.localization.catalog import TextCatalog, localized_text
 from src.domain.progression.materials import allocate_owned, lower_tier_ids
 from src.domain.progression.stamina import (
     FarmingStage,
     project_identification_level,
 )
-from src.domain.role_name_order import role_name_sort_key
+from src.domain.names.role_name_order import role_name_sort_key
 
 from src.services.progression.character_requirements import (
     CharacterLevelMaterialProjection,
@@ -28,6 +29,7 @@ from src.services.progression.fork_requirements import (
     project_fork_level_requirements,
 )
 from src.services.progression.stamina_planner import (
+    StaminaPlanningSession,
     calculate_stamina_result,
     normalize_owned_quantities,
     stamina_material_ids,
@@ -53,7 +55,8 @@ from src.storage.sqlite.catalog.static_catalog_character_queries import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
-from src.services.official_role.native_profiles import load_template_growth_defaults, project_native_role_profile
+from src.services.official_role.profile_data.native_profiles import load_template_growth_defaults, project_native_role_profile
+from src.integrations.preferences.locale_files import enum_text
 
 
 from src.services.progression.models import (
@@ -170,7 +173,9 @@ class CultivationPlannerService:
         finally:
             service.close()
 
-    def load_seed(self, character_id: int) -> CultivationSeed:
+    def load_seed(
+        self, character_id: int, *, text_catalog: TextCatalog | None = None,
+    ) -> CultivationSeed:
         """Combine static skill limits with the current account's saved role-page state."""
 
         detail = self._load_detail(character_id)
@@ -180,7 +185,7 @@ class CultivationPlannerService:
         skills = tuple(
             CultivationSkill(
                 skill_id=skill.skill_id,
-                category=_skill_category(skill),
+                category=_skill_category(skill, text_catalog=text_catalog),
                 name=skill.name_zh or skill.skill_id,
                 current_level=_skill_level(level_by_skill.get(skill.skill_id), skill),
                 maximum_level=_skill_maximum_level(skill),
@@ -212,7 +217,9 @@ class CultivationPlannerService:
             profile = None
         return self._fork_seed(fork_id, profile)
 
-    def calculate(self, request: CultivationRequest) -> CultivationPlan:
+    def calculate(
+        self, request: CultivationRequest, *, text_catalog: TextCatalog | None = None,
+    ) -> CultivationPlan:
         """Merge requested character and skill upgrades into a single material list."""
 
         detail = self._load_detail(request.character_id)
@@ -268,9 +275,21 @@ class CultivationPlannerService:
             ] = []
             level_requirements = (*level_projection.experience_books, *level_projection.additional_costs)
             if level_requirements:
-                sections.append(("角色升级", level_requirements, None))
+                sections.append((
+                    localized_text(
+                        text_catalog, "progression.planner.section.character_level", "角色升级",
+                    ),
+                    level_requirements,
+                    None,
+                ))
             if breakthrough_requirements:
-                sections.append(("角色突破", breakthrough_requirements, None))
+                sections.append((
+                    localized_text(
+                        text_catalog, "progression.planner.section.character_breakthrough", "角色突破",
+                    ),
+                    breakthrough_requirements,
+                    None,
+                ))
             gaps = list(level_projection.gaps)
             by_skill = {skill.skill_id: skill for skill in detail.skills}
             for target in (request.skills if request.include_skills else ()):
@@ -296,7 +315,14 @@ class CultivationPlannerService:
                 gaps.extend(projection.gaps)
                 if projection.requirements:
                     sections.append((
-                        f"{_skill_category(skill)} · {skill.name_zh or skill.skill_id}",
+                        localized_text(
+                            text_catalog,
+                            "progression.planner.section.skill",
+                            "{category} · {name}",
+                            category=enum_text(text_catalog, _skill_category(
+                                skill, text_catalog=text_catalog)),
+                            name=skill.name_zh or skill.skill_id,
+                        ),
                         projection.requirements,
                         None,
                     ))
@@ -304,7 +330,9 @@ class CultivationPlannerService:
             fork_experience_overflow = 0
             fork_included_stages: tuple[int, ...] = ()
             if request.fork is not None:
-                fork_sections, fork_projection = self._fork_sections(request.fork)
+                fork_sections, fork_projection = self._fork_sections(
+                    request.fork, text_catalog=text_catalog,
+                )
                 sections.extend(fork_sections)
                 gaps.extend(fork_projection.gaps)
                 fork_required_experience = fork_projection.required_experience
@@ -387,6 +415,7 @@ class CultivationPlannerService:
 
         stages = self.load_farming_stages() if farming_stages is None else farming_stages
         normalized_owned = normalize_owned_quantities(owned_quantities)
+        session = StaminaPlanningSession()
         total = calculate_stamina_result(
             plan.totals,
             normalized_owned,
@@ -394,6 +423,7 @@ class CultivationPlannerService:
             hunter_level=hunter_level,
             effective_identification_level=effective_identification_level,
             material_gaps=tuple(gap.reason_code for gap in plan.gaps),
+            session=session,
         )
         available = dict(normalized_owned)
         section_results: list[CultivationSectionStamina] = []
@@ -410,15 +440,18 @@ class CultivationPlannerService:
                     stages,
                     hunter_level=hunter_level,
                     effective_identification_level=effective_identification_level,
+                    session=session,
                 ),
             ))
         return CultivationStaminaPlan(
             total, tuple(section_results), stamina_material_ids(stages, materials=plan.totals)
         )
 
-    def prepare(self, request: CultivationRequest) -> CultivationPreparedTarget:
+    def prepare(
+        self, request: CultivationRequest, *, text_catalog: TextCatalog | None = None,
+    ) -> CultivationPreparedTarget:
         """只准备需求、可上合输入和副本分类，不运行体力求解。"""
-        plan = self.calculate(request)
+        plan = self.calculate(request, text_catalog=text_catalog)
         stages = self.load_farming_stages()
         return CultivationPreparedTarget(
             request, plan, stages, stamina_material_ids(stages, materials=plan.totals)
@@ -492,6 +525,8 @@ class CultivationPlannerService:
     def _fork_sections(
         self,
         target: CultivationForkTarget,
+        *,
+        text_catalog: TextCatalog | None = None,
     ) -> tuple[
         list[tuple[str, tuple[CharacterMaterialRequirement, ...], str | None]],
         ForkLevelMaterialProjection,
@@ -525,11 +560,19 @@ class CultivationPlannerService:
         )
         if projection.required_experience:
             sections.append((
-                f"弧盘 · {detail.summary.name_zh} · 升级",
+                localized_text(
+                    text_catalog,
+                    "progression.planner.section.fork_upgrade",
+                    "弧盘 · {fork_name} · 升级",
+                    fork_name=detail.summary.name_zh,
+                ),
                 upgrade_requirements,
-                (
-                    f"升级经验 {projection.required_experience:,}；"
-                    f"材料溢出经验 {projection.experience_overflow:,}。"
+                localized_text(
+                    text_catalog,
+                    "progression.planner.fork_upgrade.description",
+                    "升级经验 {required_experience}；材料溢出经验 {experience_overflow}。",
+                    required_experience=f"{projection.required_experience:,}",
+                    experience_overflow=f"{projection.experience_overflow:,}",
                 ),
             ))
         breakthrough_requirements = (
@@ -538,7 +581,12 @@ class CultivationPlannerService:
         )
         if breakthrough_requirements:
             sections.append((
-                f"弧盘 · {detail.summary.name_zh} · 突破",
+                localized_text(
+                    text_catalog,
+                    "progression.planner.section.fork_breakthrough",
+                    "弧盘 · {fork_name} · 突破",
+                    fork_name=detail.summary.name_zh,
+                ),
                 breakthrough_requirements,
                 None,
             ))
@@ -692,7 +740,9 @@ def _skill_maximum_level(skill: CharacterSkill) -> int:
     return min(10, max(level.level for level in skill.levels) + 1)
 
 
-def _skill_category(skill: CharacterSkill) -> str:
+def _skill_category(
+    skill: CharacterSkill, *, text_catalog: TextCatalog | None = None,
+) -> str:
     tag = str(skill.gameplay_tag or "")
     identities = (tag, skill.skill_id)
     if any(identity.endswith("Melee") for identity in identities):
@@ -703,7 +753,9 @@ def _skill_category(skill: CharacterSkill) -> str:
         return "E"
     if skill.skill_id.endswith("_QTE"):
         return "QTE"
-    return "技能"
+    return localized_text(
+        text_catalog, "progression.planner.skill_category.unknown", "技能",
+    )
 
 
 def _canonical_fork_item_id(item_id: str) -> str:

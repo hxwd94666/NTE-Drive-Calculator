@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from src.app.constants import APP_VERSION, WORKSHOP_WEIGHT_CONFIGS_API
-from src.domain.recommended_weights import parse_workshop_recommendations, workshop_weight_source_ids
+from src.domain.characters.recommended_weights import parse_workshop_recommendations, workshop_weight_source_ids
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.utils.logger import logger
 
@@ -219,7 +219,7 @@ class WorkshopWeightTemplateService:
     ) -> WorkshopWeightRefreshResult:
         _check_refresh_cancelled(cancel_token)
         # QtNetwork 只在后台真正请求时加载；总截止覆盖 DNS、响应头和持续分块响应。
-        from src.integrations.workshop_weight_http import fetch_workshop_payload
+        from src.integrations.official_role.workshop_weight_http import fetch_workshop_payload
         raw_payload = fetch_workshop_payload(
             self._endpoint, timeout_seconds=self._timeout_seconds,
             cancel_check=cancel_token.is_set if cancel_token is not None else lambda: False,

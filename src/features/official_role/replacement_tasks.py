@@ -1,6 +1,7 @@
 # 复用页面读取与提交通道拥有单次替换，撤权只丢投递而不伪造已提交回滚。
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from concurrent.futures import CancelledError
 from contextlib import contextmanager
 from threading import Event, RLock
@@ -16,8 +17,9 @@ from src.features.official_role.dependencies import OfficialRoleDependencies
 class ReplacementTaskOwner(QObject):
     """只拥有这次选择；既有 lanes 负责物理线程，输入和取消 gate 不含控件。"""
 
-    def __init__(self, parent, *, app_context=None, is_current=lambda: True):
+    def __init__(self, parent, *, app_context=None, is_current=lambda: True, text_catalog=None):
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.dependencies = (OfficialRoleDependencies.from_app_context(app_context)
                              if app_context is not None else None)
         self._app_context = app_context
@@ -92,7 +94,7 @@ class ReplacementTaskOwner(QObject):
         """保留模态bool交互，但exec只泵Qt事件，SHA/query在已有PageTaskLane。"""
         result, errors = [], []
         progress = QProgressDialog("正在准备替换候选…", "取消", 0, 0, self.parent())
-        progress.setWindowTitle("替换优化")
+        progress.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.open_official_saved_plan_optimizer.qmessagebox'))
         progress.setWindowModality(Qt.WindowModal)
         progress.setAutoClose(False)
         progress.canceled.connect(self.cancel)

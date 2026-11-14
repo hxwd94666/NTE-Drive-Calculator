@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from stat import S_ISREG
 
-from src.integrations.bundled_resources import bundled_game_ui_asset_root
+from src.integrations.runtime.bundled_resources import bundled_game_ui_asset_root
 
 
 def _asset_root(value: str | Path | None) -> Path:

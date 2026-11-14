@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from src.features.inventory.warehouse.read_controller import refresh_warehouse_if_ready
+from src.features.inventory.warehouse.draft_actions import has_warehouse_draft
 
 from collections.abc import Callable
 from queue import Empty, SimpleQueue
@@ -45,7 +47,7 @@ def show_warehouse_state_progress(
         0,
         window,
     )
-    dialog.setWindowTitle("仓库状态修改进度")
+    dialog.setWindowTitle(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.inventory.show_warehouse_state_progress.dialog'))
     dialog.setWindowModality(Qt.WindowModality.WindowModal)
     dialog.setCancelButton(None)
     dialog.setAutoClose(False)
@@ -79,6 +81,8 @@ def set_warehouse_management_busy(
     hint: str = "",
 ) -> None:
     window._warehouse_management_busy = busy
+    if hasattr(window, "warehouse_clear_btn"):
+        window.warehouse_clear_btn.setEnabled(not busy and has_warehouse_draft(window))
     if hasattr(window, "warehouse_manage_btn"):
         window.warehouse_manage_btn.setEnabled(not busy)
     if hasattr(window, "warehouse_save_btn"):
@@ -107,10 +111,13 @@ def update_warehouse_save_state(window: Any) -> None:
     )
     # 净差异归零只改变保存数量，不结束本轮预览身份；后续人工改动仍须核对智能见证。
     # 证据仅由重新生成、输入失效、账号切换或正式快照替换的 owner 撤销。
+    if hasattr(window, "warehouse_clear_btn"):
+        window.warehouse_clear_btn.setEnabled(
+            not getattr(window, "_warehouse_management_busy", False) and has_warehouse_draft(window))
     if hasattr(window, "warehouse_save_btn"):
         window.warehouse_save_btn.setEnabled(not getattr(window, "_warehouse_management_busy", False))
         window.warehouse_save_btn.setText(
-            f"保存 ({pending_count})" if pending_count else "保存"
+            resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.inventory.update_warehouse_save_state.warehouse_save_btn', pending_count=f'{pending_count}') if pending_count else resolve_text_catalog(getattr(window, 'text_catalog', None)).render('common.save')
         )
     refresh_warehouse_if_ready(window)
 

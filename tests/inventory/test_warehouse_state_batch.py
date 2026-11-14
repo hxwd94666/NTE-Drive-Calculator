@@ -5,9 +5,9 @@ import unittest
 from contextlib import contextmanager
 from unittest.mock import patch
 
-from src.integrations.nte_core import NteCoreClient
-from src.integrations.nte_core_equipment import STATE_BATCH_CAPABILITY, state_batch_params
-from src.integrations.nte_core_protocol import NteCoreRpcError
+from src.integrations.native_core.nte_core import NteCoreClient
+from src.integrations.native_core.nte_core_equipment import STATE_BATCH_CAPABILITY, state_batch_params
+from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
 from src.integrations.inventory.warehouse_state_writer import WarehouseStateWriter
 
 
@@ -112,7 +112,7 @@ class WarehouseStateBatchTests(unittest.TestCase):
         from types import SimpleNamespace
         from src.services.native_session.session import NativeGameSession
         from src.services.inventory.sync.capture_wait import InventorySyncCancelled
-        from tests.test_native_equipment_session import EquipmentCore
+        from tests.native_session.test_native_equipment_session import EquipmentCore
 
         core = EquipmentCore()
         core.hello_result["capabilities"].append(STATE_BATCH_CAPABILITY)
@@ -140,7 +140,7 @@ class WarehouseStateBatchTests(unittest.TestCase):
 
     def test_batch_ack_does_not_replace_backpack_confirmation(self):
         from types import SimpleNamespace
-        from src.services.inventory.warehouse_state_management import WarehouseStateManagementPlan, WarehouseStateManagementService
+        from src.services.inventory.management.warehouse_state_management import WarehouseStateManagementPlan, WarehouseStateManagementService
 
         class Dao:
             snapshot_id = 7

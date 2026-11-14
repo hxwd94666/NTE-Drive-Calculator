@@ -7,11 +7,11 @@ from concurrent.futures import CancelledError
 from time import monotonic
 from typing import Any, Callable
 
-from src.integrations.nte_core import NteCoreClient
-from src.integrations.nte_core_protocol import NteCoreError, NteCoreRpcError, NteCoreTimeoutError, NteCoreProtocolError
-from src.integrations.native_inventory_snapshot import NativeSnapshotPending, read_native_projection
-from src.integrations.native_snapshot_baseline import NativeSnapshotBaseline
-from src.integrations.native_raw_snapshot import read_native_raw_domain
+from src.integrations.native_core.nte_core import NteCoreClient
+from src.integrations.native_core.nte_core_protocol import NteCoreError, NteCoreRpcError, NteCoreTimeoutError, NteCoreProtocolError
+from src.integrations.native_core.snapshots.native_inventory_snapshot import NativeSnapshotPending, read_native_projection
+from src.integrations.native_core.snapshots.native_snapshot_baseline import NativeSnapshotBaseline
+from src.integrations.native_core.snapshots.native_raw_snapshot import read_native_raw_domain
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 from src.services.native_session.inventory import require_current_sync_revision
 from src.services.native_session.inspection import _inspect_snapshot
@@ -20,8 +20,8 @@ from src.services.native_session.quick_wheel import exchange_quick_wheel
 from src.services.native_session.performance_control import configure_performance, read_performance_status, control_performance_trace
 from src.services.native_session.maintenance import plugin_maintenance, reserve_plugin_maintenance
 from src.observability import OperationContext, log_event
-from src.integrations.native_transport_diagnostics import (
-    RuntimeCostLog, snapshot_refresh_diagnostic, archive_failed, archive_unavailable,
+from src.integrations.native_core.native_transport_diagnostics import (
+    RuntimeCostLog, SnapshotReadLog, archive_failed, archive_unavailable,
 )
 
 
@@ -48,6 +48,7 @@ class NativeGameSession:
         self._performance_owner = None
         self._performance_trace_active = False
         self._runtime_cost_log = RuntimeCostLog()
+        self._snapshot_read_log = SnapshotReadLog()
         self._connected_context: object = None
         self._client: NteCoreClient | None = None
         self._lock = RLock()
@@ -123,6 +124,7 @@ class NativeGameSession:
                 raise
             self._client = client
             self._runtime_cost_log = RuntimeCostLog()
+            self._snapshot_read_log = SnapshotReadLog()
             self._baseline = NativeSnapshotBaseline()
             client.add_event_handler("event.native.diagnostics.error", archive_failed)
             self._connected_context = context
@@ -185,11 +187,12 @@ class NativeGameSession:
             if self._lease is not None:
                 raise NativeSnapshotPending("正在采集原生战报，结束后再刷新背包或角色状态。")
             self._refresh_active = token
+            read_log = self._snapshot_read_log
         try:
             result = client.call("native.snapshot.refresh", params, timeout=NATIVE_REFRESH_TIMEOUT_SECONDS,
                                  check_cancelled=check)
             check()
-            snapshot_refresh_diagnostic(result, params, (monotonic() - started) * 1000)
+            read_log.refresh(result, params, (monotonic() - started) * 1000)
             return result
         except (InventorySyncCancelled, CancelledError, PermissionError, NteCoreTimeoutError):
             # 刷新持有连接时禁止战报争用；取消只终止本次刷新。
@@ -248,6 +251,7 @@ class NativeGameSession:
             self._check_projection(client, check)
             self._require_projection_capability(client, domain)
             baseline = self._baseline
+            read_log = self._snapshot_read_log
             timings, counts = {}, {}
             completed = False
             failure_code = None
@@ -275,7 +279,7 @@ class NativeGameSession:
                     cached = baseline.get(domain, call("native.snapshot.status", {}))
                     if cached is not None and cached["projection"] is not None:
                         return cached["projection"]
-                from src.integrations.native_inline_snapshot import INLINE_RAW_CAPABILITY, InlineSnapshotPages
+                from src.integrations.native_core.snapshots.native_inline_snapshot import INLINE_RAW_CAPABILITY, InlineSnapshotPages
                 inline = (InlineSnapshotPages(call, domain) if tracked and INLINE_RAW_CAPABILITY in
                           (client.hello_result or {}).get("capabilities", ()) else None)
                 projection = read_native_projection(inline.call if inline else call, current, domain=domain)
@@ -315,17 +319,16 @@ class NativeGameSession:
                 raise
 
             finally:
-                if "refresh" in counts:
-                    log_event("INFO", "native_sync.projection_read", "原生同步读取分段耗时",
-                              OperationContext.create("native_sync"), domain=domain, completed=completed,
-                              duration_ms=round((monotonic() - started) * 1000, 2),
-                              failure_code=failure_code, failure_stage=failure_stage,
-                              stage_duration_ms={key: round(value, 2) for key, value in timings.items()},
-                              stage_call_count=counts)
+                if "refresh" in counts or failure_code is not None:
+                    read_log.projection(domain, completed=completed,
+                        duration_ms=round((monotonic() - started) * 1000, 2),
+                        failure_code=failure_code, failure_stage=failure_stage,
+                        stage_duration_ms={key: round(value, 2) for key, value in timings.items()},
+                        stage_call_count=counts)
 
     def read_all_items(self, client, check):
-        from src.domain.all_item_snapshot import ALL_ITEMS_CAPABILITY
-        from src.integrations.native_all_item_snapshot import read_all_item_snapshot
+        from src.domain.inventory.all_item_snapshot import ALL_ITEMS_CAPABILITY
+        from src.integrations.native_core.snapshots.native_all_item_snapshot import read_all_item_snapshot
         current = lambda: self._check_projection(client, check)
         with self._snapshot_scope(current):
             current()
@@ -337,6 +340,10 @@ class NativeGameSession:
                     return self._refresh_snapshot(client, params, current)
                 return client.call(method, params, check_cancelled=current)
             return read_all_item_snapshot(call, current)
+
+    def read_furniture_snapshot(self, client, check):
+        from src.services.native_session.furniture import read_furniture_snapshot
+        return read_furniture_snapshot(self, client, check)
 
     def read_character_profiles(self, *, check=None):
         with self._lock:
@@ -685,7 +692,7 @@ class NativeBattleLease:
         return {"state": "scoped", "scopes": published} if changed else None
 
     def _read_battle_snapshot(self, stop_requested, *, references=None, require_current=False):
-        from src.integrations.native_battle_snapshot import freeze_native_battle_snapshot, read_first_hit_snapshot
+        from src.integrations.native_core.snapshots.native_battle_snapshot import freeze_native_battle_snapshot, read_first_hit_snapshot
         started = False
         stop_deadline = None
         def check():

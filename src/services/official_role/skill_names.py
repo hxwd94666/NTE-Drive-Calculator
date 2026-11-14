@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from src.integrations.bundled_resources import bundled_config_dir
+from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
 

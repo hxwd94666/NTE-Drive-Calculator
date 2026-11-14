@@ -15,15 +15,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.features.static_catalog.dependencies import build_static_catalog_domain_pages, build_static_catalog_providers
-from src.integrations.role_catalog_release import read_role_catalog
-from src.integrations.static_catalog_release import StaticCatalogReleaseError
+from src.integrations.static_catalog.role_catalog_release import read_role_catalog
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseError
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.services.static_catalog.characters.service import StaticCatalogCharacterService
 from src.services.static_catalog.characters.release_metadata import CharacterReleaseMetadataService
 from src.services.static_catalog.common.terminology import StaticCatalogTerminologyService
 from src.services.static_catalog.service import StaticCatalogService
 from src.storage.sqlite.catalog.static_catalog_character_queries import StaticCatalogCharacterQueries
-from src.ui.equipment_presentation import EquipmentPresentation
+from src.ui.equipment.equipment_presentation import EquipmentPresentation
 from tools.game_data.static_database_build_support import StaticDatabaseError
 from tools.game_data.static_database_progression_imports import ProgressionImportMixin
 

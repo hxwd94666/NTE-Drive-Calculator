@@ -13,7 +13,7 @@ from src.domain.battle_report.counterfactual.quantification import BattleDamageQ
 from src.features.battle_report.page import BattleReportPage
 from src.features.battle_report.marginal.page import BattleMarginalPage
 from src.integrations.battle_analysis.page_wire import decode_page
-from src.integrations.nte_analysis_core import NativeAnalysisError
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.build.counterfactual import BattleBuildCounterfactualService
 from src.services.battle_report.build.timeline_projection import BattleBuildTimelineProjectionService
 from tests.battle_report.marginal.test_benefits import _snapshot

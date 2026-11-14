@@ -14,8 +14,8 @@ from src.integrations.vision.recognition.ocr import model_resources as models
 from src.integrations.vision.recognition import identification_parser, screenshot_parser, batch_processor
 from src.integrations.vision.recognition.ocr.ocr_engine import OCREngine
 from src.services.identification import tasks
-from src.services.inventory import vision_snapshot
-from src.services.inventory.visual_scan_commit import commit_completed_vision_inventory
+from src.services.inventory.scanning import vision_snapshot
+from src.services.inventory.scanning.visual_scan_commit import commit_completed_vision_inventory
 from src.services.recognition.resources import RecognitionResourceError
 from src.services.scanning.pipeline import ScanParseCoordinator
 from src.storage.sqlite.user_data_dao import UserDataDao
@@ -221,7 +221,7 @@ def test_packaged_dictionary_required_single_and_bound_to_recognizer(tmp_path, m
 
 def test_actual_offline_worker_stops_first_decoder_drift_without_completed_signal(selected, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QApplication
-    from src.features.scanning.vision_worker import VisionWorkerThread
+    from src.features.scanning.vision.vision_worker import VisionWorkerThread
     app = QApplication.instance() or QApplication([])
     shots = tmp_path / 'shots'
     shots.mkdir()

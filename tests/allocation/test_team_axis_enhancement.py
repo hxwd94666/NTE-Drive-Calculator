@@ -8,11 +8,11 @@ import pytest
 
 from src.domain.teams.models import Team, TeamDraft
 from src.domain.battle_report.history.records import BattleReportHistoryEntry
-from src.services.allocation.axis_selection import AxisAllocationChoices, AxisAllocationSelection
-from src.services.allocation.team_axis_selection import TeamAxisBinding, TeamAxisSelection, validate_team_group, verify_team_selection
-from src.services.allocation.team_enhancement import execute_team_enhancement
+from src.services.allocation.axis.axis_selection import AxisAllocationChoices, AxisAllocationSelection
+from src.services.allocation.axis.team_axis_selection import TeamAxisBinding, TeamAxisSelection, validate_team_group, verify_team_selection
+from src.services.allocation.axis.team_enhancement import execute_team_enhancement
 from src.storage.sqlite.user_data_dao import UserDataDao
-from team_report_fixture import MatchingFixture
+from tests.teams.matching.team_report_fixture import MatchingFixture
 from src.domain.teams.report_matching import ReportCandidate, ReportRange
 
 
@@ -36,14 +36,16 @@ def choices():
 
 
 def test_team_cards_show_names_members_and_independent_report_fields():
-    from auto_sync_ui_fixture import application, dispose
-    from src.features.allocation.team_axis_dialog import TeamAxisDialog
+    from tests.support.auto_sync_ui_fixture import application
+    from tests.support.auto_sync_ui_fixture import dispose
+    from src.features.allocation.team_axis.team_axis_dialog import TeamAxisDialog
     application()
     dialog = TeamAxisDialog(service=None, matching_service=MatchingFixture(), teams=teams(), choices=choices())
     try:
         dialog.show()
         a, b, overlap, third = dialog._rows
-        assert a["check"].text() == "常用第一队"
+        assert a["card"].title.text() == "常用第一队"
+        assert "常用第一队" in a["check"].accessibleName()
         assert [button.text() for button in a["slots"].buttons] == [f"角色{i}" for i in range(1, 5)]
         a["check"].click()
         assert not overlap["check"].isEnabled() and "角色1" in overlap["reason"].text()
@@ -62,7 +64,7 @@ def test_team_cards_show_names_members_and_independent_report_fields():
 
 
 def selection_for_database(tmp_path):
-    from src.integrations.static_catalog_release import static_catalog_read_unit
+    from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
     static_path = Path(__file__).resolve().parents[2] / "data/game_static.sqlite3"
     with static_catalog_read_unit(static_path) as unit:
         dataset = unit.release.dataset_id
@@ -105,7 +107,7 @@ def test_changed_team_revision_invalidates_configuration(tmp_path):
 
 
 def test_baseline_merges_within_team_ranks_not_global_damage_share(tmp_path):
-    from src.services.allocation.team_enhancement import ranked_team_baseline
+    from src.services.allocation.axis.team_enhancement import ranked_team_baseline
     _, selection = selection_for_database(tmp_path)
     axes = tuple((replace(binding.axis, selected_team_character_ids=binding.team.character_ids,
                           damage_priority_groups=tuple((cid,) for cid in binding.team.character_ids),
@@ -122,7 +124,7 @@ def test_baseline_merges_within_team_ranks_not_global_damage_share(tmp_path):
 
 
 def test_missing_rank_evidence_falls_back_without_fabricating_damage(tmp_path):
-    from src.services.allocation.team_enhancement import ranked_team_baseline
+    from src.services.allocation.axis.team_enhancement import ranked_team_baseline
     _, selection = selection_for_database(tmp_path)
     axes = tuple((replace(binding.axis, rank_baseline=True), binding.roles) for binding in selection.teams)
     order, groups, _ = ranked_team_baseline(axes, list(selection.roles))
@@ -161,8 +163,8 @@ def joint_wire():
 
 
 def test_two_report_wire_and_display_use_equal_relative_gain_with_tradeoff():
-    from src.integrations.team_axis_response import decode_team_facts
-    from src.features.allocation.damage_result_summary import damage_optimization_presentation
+    from src.integrations.battle_analysis.team_axis_response import decode_team_facts
+    from src.features.allocation.results.damage_result_summary import damage_optimization_presentation
     request, result = joint_wire()
     facts, reports = decode_team_facts(result, request)
     assert facts["candidates"][0]["candidate_value"] == pytest.approx(1.03)

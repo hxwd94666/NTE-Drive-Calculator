@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Sequence
 import math
 from pathlib import Path
@@ -77,8 +78,10 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         parent: QWidget | None = None,
         *,
         game_ui_asset_root: str | Path | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._analysis: BattleAnalysisSnapshot | None = None
         self._time_mode: BattleTimelineTimeMode = ELAPSED_TIME_MODE
         self._zoom_factor = 1.0
@@ -163,7 +166,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         analysis = self._visible_analysis()
         if analysis is None or not analysis.timeline_hits:
             painter.setPen(QColor(theme_color("#8b949e")))
-            painter.drawText(self.rect(), Qt.AlignCenter, "当前战报没有可展示的正式逐击轴")
+            painter.drawText(self.rect(), Qt.AlignCenter, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.paintevent.painter_2'))
             return
 
         plot_left = float(LABEL_WIDTH)
@@ -264,8 +267,8 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
         if self._analysis is None or self._is_in_sticky_label(event.pos().x()):
             return
         menu = QMenu(self)
-        set_start = menu.addAction("设为分析开始")
-        set_end = menu.addAction("设为分析结束")
+        set_start = menu.addAction(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.contextmenuevent.set_start'))
+        set_end = menu.addAction(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.contextmenuevent.set_end'))
         selected = menu.exec(event.globalPos())
         if selected is None:
             return

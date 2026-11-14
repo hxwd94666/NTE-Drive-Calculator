@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
+from src.ui.common.enum_text import ui_enum_text
+from src.domain.localization.catalog import localized_text
 import re
 from dataclasses import dataclass
 
@@ -60,10 +63,15 @@ def _plain(value: str | None) -> str:
     return " ".join(text.replace("</>", "").split())
 
 
-def _passive_unlock_text(passive: CharacterPassive) -> str:
+def _passive_unlock_text(passive: CharacterPassive, *, text_catalog=None) -> str:
     if passive.unlock_stage is None:
-        return "解锁条件未提供"
-    return f"突破 {passive.unlock_stage} 解锁"
+        return ui_enum_text(text_catalog, "解锁条件未提供")
+    return localized_text(
+        text_catalog,
+        "static_catalog.skills.passive.unlock_stage",
+        "突破 {stage} 解锁",
+        stage=passive.unlock_stage,
+    )
 
 
 def _number(value: float) -> str:
@@ -88,12 +96,14 @@ def build_action_cards(
     combat_links: tuple[CombatLink, ...],
     *,
     terminology: StaticCatalogTerminologyService | None = None,
+    text_catalog=None,
 ) -> tuple[CharacterActionCard, ...]:
     """Project only the official A/E/Q/QTE order, plus a formal G action."""
 
     cards = [
         _skill_card(detail.character.character_id,
-                    _PRIMARY_ORDER.get(skill.ability_index, "OTHER"), skill, terminology)
+                    _PRIMARY_ORDER.get(skill.ability_index, "OTHER"), skill, terminology,
+                    text_catalog=text_catalog)
         for skill in sorted(detail.skills, key=lambda item: (item.ability_index, item.skill_id))
     ]
     active_links = tuple(
@@ -108,7 +118,7 @@ def build_action_cards(
             skill.skill_id: skill.name_zh
             for skill in detail.skills if skill.name_zh
         }
-        name = _extra_action_name(g_link, skill_names, terminology)
+        name = _extra_action_name(g_link, skill_names, terminology, text_catalog=text_catalog)
         if name is not None:
             cards.append(CharacterActionCard(
                 character_id=detail.character.character_id,
@@ -127,7 +137,8 @@ def build_action_cards(
                 terminology,
                 entity_kind="gameplay_ability",
                 stable_id=passive.ability_id,
-                identity_label="被动技能",
+                identity_label=ui_enum_text(text_catalog, "被动技能"),
+                text_catalog=text_catalog,
             ).display_name,
             skill=None,
             ability_id=passive.ability_id,
@@ -143,6 +154,8 @@ def _skill_card(
     slot: str,
     skill: CharacterSkill,
     terminology: StaticCatalogTerminologyService | None,
+    *,
+    text_catalog=None,
 ) -> CharacterActionCard:
     return CharacterActionCard(
         character_id=character_id,
@@ -151,7 +164,8 @@ def _skill_card(
             terminology,
             entity_kind="gameplay_ability",
             stable_id=skill.skill_id,
-            identity_label="技能",
+            identity_label=ui_enum_text(text_catalog, "技能"),
+            text_catalog=text_catalog,
         ).display_name,
         skill=skill,
         ability_id=skill.skill_id,
@@ -164,6 +178,8 @@ def _extra_action_name(
     link: CombatLink,
     skill_names: dict[str, str | None],
     terminology: StaticCatalogTerminologyService | None,
+    *,
+    text_catalog=None,
 ) -> str | None:
     name = link.ability_name_zh or skill_names.get(
         link.ability_id or ""
@@ -171,7 +187,8 @@ def _extra_action_name(
         terminology,
         entity_kind="gameplay_ability",
         stable_id=link.ability_id or "",
-        identity_label="技能",
+        identity_label=ui_enum_text(text_catalog, "技能"),
+        text_catalog=text_catalog,
     ).display_name
     return (
         name
@@ -215,7 +232,9 @@ def _fill_template(template: str, values: tuple[float, ...]) -> str:
     return _PLACEHOLDER.sub(replace, template)
 
 
-def _multiplier_lines(skill: CharacterSkill, level: int) -> tuple[tuple[str, str], ...]:
+def _multiplier_lines(
+    skill: CharacterSkill, level: int, *, text_catalog=None,
+) -> tuple[tuple[str, str], ...]:
     items = {item.damage_id: item for item in skill.damage_items}
     lines: list[tuple[str, str]] = []
     used: set[str] = set()
@@ -236,9 +255,14 @@ def _multiplier_lines(skill: CharacterSkill, level: int) -> tuple[tuple[str, str
         values = tuple(result[1] for _effect_id, result in projected)
         bases = tuple(dict.fromkeys(result[0] for _effect_id, result in projected))
         template = _plain(hint.value_description_zh) or "{0}%"
-        label = _plain(hint.description_zh) or f"倍率段 {len(lines) + 1}"
+        label = _plain(hint.description_zh) or localized_text(
+            text_catalog,
+            "static_catalog.skills.multiplier.segment",
+            "倍率段 {index}",
+            index=len(lines) + 1,
+        )
         if bases != ("攻击",):
-            label += " · " + "/".join(bases)
+            label += " · " + "/".join(ui_enum_text(text_catalog, bases))
         lines.append((label, _fill_template(template, values)))
         used.update(effect_id for effect_id, _result in projected)
     for item in skill.damage_items:
@@ -249,7 +273,13 @@ def _multiplier_lines(skill: CharacterSkill, level: int) -> tuple[tuple[str, str
             continue
         basis, value = result
         lines.append((
-            f"附加伤害倍率 {len(lines) + 1} · {basis}",
+            localized_text(
+                text_catalog,
+                "static_catalog.skills.multiplier.additional",
+                "附加伤害倍率 {index} · {basis}",
+                index=len(lines) + 1,
+                basis=ui_enum_text(text_catalog, basis),
+            ),
             f"{_number(value * 100)}%",
         ))
     return tuple(lines)
@@ -260,13 +290,14 @@ class _SkillRowHeader(QFrame):
 
     activated = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("characterSkillHeader")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAccessibleName("展开或收起技能详情")
-        self.setToolTip("点击整行展开或收起")
+        self.setAccessibleName(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.self_2'))
+        self.setToolTip('')
         self.setStyleSheet(themed_style(
             "QFrame#characterSkillHeader{background:transparent;border:none;"
             "border-radius:8px;}"
@@ -298,8 +329,9 @@ class SkillActionCard(QFrame):
 
     expanded = Signal(object)
 
-    def __init__(self, action: CharacterActionCard, parent: QWidget | None = None) -> None:
+    def __init__(self, action: CharacterActionCard, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.action = action
         self.setProperty("skillActionCard", True)
         self.setStyleSheet(themed_style(
@@ -309,19 +341,19 @@ class SkillActionCard(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 8, 12, 8)
         root.setSpacing(7)
-        self.heading = _SkillRowHeader(self)
+        self.heading = _SkillRowHeader(self, text_catalog=text_catalog)
         self.heading.activated.connect(self._toggle_from_row)
         heading = QHBoxLayout(self.heading)
         heading.setContentsMargins(0, 0, 0, 0)
         heading.setSpacing(10)
-        slot = QLabel(_SLOT_LABELS.get(action.slot, action.slot), self)
+        slot = plain_label(ui_enum_text(text_catalog, _SLOT_LABELS).get(action.slot, action.slot), self)
         slot.setObjectName("characterSkillSlot")
         slot.setMinimumWidth(78)
         slot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         slot.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:13px;font-weight:900"
         ))
-        name = QLabel(action.title, self)
+        name = plain_label(action.title, self)
         name.setObjectName("characterSkillTitle")
         name.setWordWrap(True)
         name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -340,13 +372,15 @@ class SkillActionCard(QFrame):
         else:
             self.level.hide()
             status = (
-                _passive_unlock_text(action.passive)
+                _passive_unlock_text(
+                    action.passive, text_catalog=getattr(self, 'text_catalog', None),
+                )
                 if action.passive is not None else "等级未提供"
             )
-            unavailable = QLabel(status, self)
+            unavailable = plain_label(ui_enum_text(getattr(self, 'text_catalog', None), status), self)
             unavailable.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
             heading.addWidget(unavailable)
-        self.toggle = QLabel(self._toggle_text(False), self)
+        self.toggle = plain_label(self._toggle_text(False), self)
         self.toggle.setObjectName("characterSkillToggle")
         self.toggle.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.toggle.setStyleSheet(themed_style(
@@ -394,8 +428,19 @@ class SkillActionCard(QFrame):
         self.set_expanded(not self._expanded)
 
     def _toggle_text(self, expanded: bool) -> str:
-        noun = "说明" if self.action.passive is not None else "倍率"
-        return f"{'收起' if expanded else '查看'}{noun}  {'▴' if expanded else '▾'}"
+        passive = self.action.passive is not None
+        catalog = getattr(self, 'text_catalog', None)
+        if expanded:
+            key = "static_catalog.skills.toggle.collapse_description" if passive else (
+                "static_catalog.skills.toggle.collapse_multiplier"
+            )
+            fallback = "收起说明  ▴" if passive else "收起倍率  ▴"
+        else:
+            key = "static_catalog.skills.toggle.view_description" if passive else (
+                "static_catalog.skills.toggle.view_multiplier"
+            )
+            fallback = "查看说明  ▾" if passive else "查看倍率  ▾"
+        return localized_text(catalog, key, fallback)
 
     def _render_drawer(self) -> None:
         self._clear(self.drawer_layout)
@@ -405,30 +450,30 @@ class SkillActionCard(QFrame):
             self._render_passive(self.action.passive)
             return
         if skill is None or level is None:
-            self.drawer_layout.addWidget(self._muted("当前正式数据未提供可分级倍率"))
+            self.drawer_layout.addWidget(self._muted(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_drawer.self')))
             return
-        title = QLabel(f"当前等级倍率 · Lv.{level}", self.drawer)
+        title = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_drawer.title', level=f'{level}'), self.drawer)
         title.setObjectName("characterSkillMultiplierTitle")
         title.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:14px;font-weight:900"
         ))
         self.drawer_layout.addWidget(title)
-        lines = _multiplier_lines(skill, level)
+        lines = _multiplier_lines(skill, level, text_catalog=getattr(self, 'text_catalog', None))
         if not lines:
-            self.drawer_layout.addWidget(self._muted("当前正式数据未提供倍率明细"))
+            self.drawer_layout.addWidget(self._muted(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_drawer.self_2')))
             return
         for label_text, value_text in lines:
             row = QWidget(self.drawer)
             layout = QHBoxLayout(row)
             layout.setContentsMargins(0, 4, 0, 4)
             layout.setSpacing(14)
-            label = QLabel(label_text, row)
+            label = plain_label(label_text, row)
             label.setObjectName("characterSkillMultiplierLabel")
             label.setWordWrap(True)
             label.setStyleSheet(themed_style(
                 "color:#c9d1d9;font-size:13px;line-height:1.45"
             ))
-            value = QLabel(value_text, row)
+            value = plain_label(value_text, row)
             value.setObjectName("characterSkillMultiplierValue")
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             value.setStyleSheet(themed_style(
@@ -439,7 +484,10 @@ class SkillActionCard(QFrame):
             self.drawer_layout.addWidget(row)
 
     def _render_passive(self, passive: CharacterPassive) -> None:
-        title = QLabel(_passive_unlock_text(passive), self.drawer)
+        title = plain_label(
+            _passive_unlock_text(passive, text_catalog=getattr(self, 'text_catalog', None)),
+            self.drawer,
+        )
         title.setStyleSheet(themed_style(
             "color:#58a6ff;font-size:14px;font-weight:900"
         ))
@@ -453,7 +501,7 @@ class SkillActionCard(QFrame):
             text = _plain(item.description_zh or item.short_description_zh)
             if not text:
                 continue
-            label = QLabel(text, self.drawer)
+            label = plain_label(text, self.drawer)
             label.setObjectName("characterPassiveDescription")
             label.setWordWrap(True)
             label.setStyleSheet(themed_style(
@@ -462,10 +510,10 @@ class SkillActionCard(QFrame):
             self.drawer_layout.addWidget(label)
             rendered = True
         if not rendered:
-            self.drawer_layout.addWidget(self._muted("当前正式数据未提供被动说明"))
+            self.drawer_layout.addWidget(self._muted(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.render_passive.self')))
 
     def _muted(self, text: str) -> QLabel:
-        label = QLabel(text, self.drawer)
+        label = plain_label(text, self.drawer)
         label.setWordWrap(True)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:12px"))
         return label
@@ -488,8 +536,10 @@ class CharacterSkillView(QWidget):
         *,
         terminology: StaticCatalogTerminologyService | None = None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         del terminology
         self._cards: list[SkillActionCard] = []
         root = QVBoxLayout(self)
@@ -508,7 +558,7 @@ class CharacterSkillView(QWidget):
         self._clear(self.rows)
         self._cards = []
         for action in actions:
-            card = SkillActionCard(action, self)
+            card = SkillActionCard(action, self, text_catalog=getattr(self, 'text_catalog', None))
             card.expanded.connect(self._keep_single_drawer)
             self._cards.append(card)
             self.rows.addWidget(card)
@@ -537,26 +587,28 @@ class CharacterSkillTrainingView(QWidget):
         *,
         terminology: StaticCatalogTerminologyService | None = None,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._terminology = terminology
         self._actions: tuple[CharacterActionCard, ...] = ()
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 12)
         root.setSpacing(8)
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("技能", self))
+        controls.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.official_role.build_skill_group.group'), self))
         self.skill = QComboBox(self)
         self.skill.setObjectName("characterTrainingSkill")
         self.start = QComboBox(self)
         self.end = QComboBox(self)
         controls.addWidget(self.skill, 1)
-        controls.addWidget(QLabel("等级", self))
+        controls.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.caption_2'), self))
         controls.addWidget(self.start)
-        controls.addWidget(QLabel("→", self))
+        controls.addWidget(plain_label("→", self))
         controls.addWidget(self.end)
         root.addLayout(controls)
-        self.result = QLabel("选择技能和等级后显示正式材料合计。", self)
+        self.result = plain_label(resolve_text_catalog(text_catalog).render('ui.static_catalog.init.result'), self)
         self.result.setObjectName("skillProgressionResult")
         self.result.setWordWrap(True)
         self.result.setStyleSheet(themed_style(
@@ -583,7 +635,7 @@ class CharacterSkillTrainingView(QWidget):
         self.skill.clear()
         for action in self._actions:
             self.skill.addItem(
-                f"{_SLOT_LABELS.get(action.slot, action.slot)} · {action.title}",
+                f"{ui_enum_text(getattr(self, 'text_catalog', None), _SLOT_LABELS).get(action.slot, action.slot)} · {action.title}",
                 action.ability_id,
             )
         self.skill.blockSignals(False)
@@ -614,8 +666,8 @@ class CharacterSkillTrainingView(QWidget):
         self._clear(self.costs)
         action = self._active_action()
         if action is None or action.skill is None or not self.start.count():
-            self.costs.addWidget(self._muted("当前正式数据未提供技能养成记录"))
-            self._set_summary("当前正式数据未提供技能养成记录。", available=False)
+            self.costs.addWidget(self._muted(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_costs.self_2')))
+            self._set_summary(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_costs.self'), available=False)
             return
         start = int(self.start.currentData())
         end = int(self.end.currentData())
@@ -631,21 +683,31 @@ class CharacterSkillTrainingView(QWidget):
                     self._terminology,
                     entity_kind="item",
                     stable_id=item.item_id,
-                    identity_label=f"合计项 {index}",
+                    identity_label=localized_text(
+                        getattr(self, 'text_catalog', None),
+                        "static_catalog.skills.training.total_item",
+                        "合计项 {index}",
+                        index=index,
+                    ),
                     context="progression_cost",
+                    text_catalog=getattr(self, 'text_catalog', None),
                 )
                 for index, item in enumerate(projection.requirements, start=1)
             )
-            summary = "所选区间合计 · " + "、".join(
+            summary = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.static_catalog.domain_pages.characters.skills.refresh_costs.text') + "、".join(
                 f"{term.display_name} × {item.required_quantity:,}"
                 for item, term in zip(projection.requirements, terms)
             )
             if projection.gaps:
-                summary += "\n部分正式数量尚未提供，以上仅为已知合计。"
+                summary += localized_text(
+                    getattr(self, 'text_catalog', None),
+                    "static_catalog.skills.training.gaps",
+                    "\n部分正式数量尚未提供，以上仅为已知合计。",
+                )
         elif start >= end:
-            summary = "目标等级需要高于当前等级。"
+            summary = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.static_catalog.domain_pages.characters.skills.refresh_costs.text_2')
         else:
-            summary = "所选区间没有正式消耗。"
+            summary = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.static_catalog.domain_pages.characters.skills.refresh_costs.text_3')
         self._set_summary(
             summary,
             available=projection.status == MaterialSummaryStatus.COMPLETE,
@@ -655,13 +717,13 @@ class CharacterSkillTrainingView(QWidget):
             if start <= level.level < end
         }
         if not rows:
-            self.costs.addWidget(self._muted("所选区间没有正式消耗"))
+            self.costs.addWidget(self._muted(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_costs.self_3')))
             return
         for cost_level in range(start, end):
             level = rows.get(cost_level)
             if level is None:
                 self.costs.addWidget(self._muted(
-                    f"升至 Lv.{cost_level + 1} · 消耗暂未提供"
+                    resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_costs.self_4', value=f'{cost_level + 1}')
                 ))
                 continue
             projections = tuple(
@@ -669,18 +731,26 @@ class CharacterSkillTrainingView(QWidget):
                     self._terminology,
                     entity_kind="item",
                     stable_id=item.item_id,
-                    identity_label=f"消耗项 {index}",
+                    identity_label=localized_text(
+                        getattr(self, 'text_catalog', None),
+                        "static_catalog.skills.training.cost_item",
+                        "消耗项 {index}",
+                        index=index,
+                    ),
                     context="progression_cost",
+                    text_catalog=getattr(self, 'text_catalog', None),
                 )
                 for index, item in enumerate(level.costs, start=1)
             )
             text = "、".join(
                 f"{projection.display_name} × " + (
-                    _number(item.quantity) if not item.hidden_amount else "数量未提供"
+                    _number(item.quantity) if not item.hidden_amount else ui_enum_text(
+                        getattr(self, 'text_catalog', None), "数量未提供",
+                    )
                 )
                 for item, projection in zip(level.costs, projections)
             ) or "消耗暂未提供"
-            label = QLabel(f"升至 Lv.{cost_level + 1}    {text}", self)
+            label = plain_label(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.refresh_costs.label', value=f'{cost_level + 1}', text=ui_enum_text(getattr(self, 'text_catalog', None), f'{text}')), self)
             label.setWordWrap(True)
             label.setStyleSheet(themed_style(
                 "color:#c9d1d9;border-bottom:1px solid #30363d;padding:6px 2px"
@@ -699,7 +769,7 @@ class CharacterSkillTrainingView(QWidget):
         ))
 
     def _muted(self, text: str) -> QLabel:
-        label = QLabel(text, self)
+        label = plain_label(text, self)
         label.setWordWrap(True)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:10px"))
         return label

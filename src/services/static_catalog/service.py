@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from src.domain.static_catalog import (
+from src.domain.catalog.static_catalog import (
     GLOBAL_DOMAIN_KEY,
     CatalogDetail,
     CatalogPage,
@@ -14,7 +14,7 @@ from src.domain.static_catalog import (
     StaticCatalogProvider,
     StaticCatalogRequest,
 )
-from src.integrations.static_catalog_release import StaticCatalogReleaseReader
+from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader
 
 
 class StaticCatalogServiceError(RuntimeError):

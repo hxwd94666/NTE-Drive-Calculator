@@ -80,7 +80,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     suite = unittest.defaultTestLoader.loadTestsFromNames([
         'tests.battle_report.build.test_battle_counterfactual_analysis_service',
-        'tests.test_battle_overkill_analysis_service',
+        'tests.battle_report.analysis.test_battle_overkill_analysis_service',
         'tests.battle_report.targets.test_vital_analysis',
     ])
     with patch.object(BattleCounterfactualAnalysisService, 'analyze', side_effect=analyze):

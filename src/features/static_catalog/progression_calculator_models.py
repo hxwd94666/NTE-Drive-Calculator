@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import TextCatalog, localized_text
+from src.ui.common.enum_text import ui_enum_text
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import logging
 from typing import Any, Callable
 
@@ -50,6 +53,7 @@ class ProgressionMaterialInput:
     text_table: str | None
     text_key: str | None
     resolved_locale: str | None
+    text_catalog: TextCatalog | None = field(default=None, compare=False, repr=False)
 
     @property
     def planning_quantity(self) -> int:
@@ -62,26 +66,40 @@ class ProgressionMaterialInput:
     @property
     def requirement_text(self) -> str:
         if self.required_quantity is not None:
-            return f"需要 {self.required_quantity}"
+            return localized_text(
+                self.text_catalog,
+                "static_catalog.progression_calculator_models.material.requirement.exact",
+                "需要 {quantity}",
+                quantity=self.required_quantity,
+            )
         if self.known_quantity > 0:
-            return f"完整需求量不可用 · 已知至少 {self.known_quantity}"
-        return "需求量不可用"
+            return localized_text(
+                self.text_catalog,
+                "static_catalog.progression_calculator_models.material.requirement.partial",
+                "完整需求量不可用 · 已知至少 {quantity}",
+                quantity=self.known_quantity,
+            )
+        return localized_text(
+            self.text_catalog,
+            "static_catalog.progression_calculator_models.material.requirement.unavailable",
+            "需求量不可用",
+        )
 
     @property
     def more_info(self) -> tuple[tuple[str, str], ...]:
         rows: list[tuple[str, str]] = []
         requested = "、".join(self.requested_ids)
         if requested:
-            rows.append(("请求材料 ID", requested))
+            rows.append((ui_enum_text(self.text_catalog, "请求材料 ID"), requested))
         if self.canonical_id and (
             len(self.requested_ids) > 1
             or self.canonical_id not in self.requested_ids
         ):
-            rows.append(("规范材料 ID", self.canonical_id))
+            rows.append((ui_enum_text(self.text_catalog, "规范材料 ID"), self.canonical_id))
         if self.text_table and self.text_key:
-            rows.append(("本地化索引", f"{self.text_table} / {self.text_key}"))
+            rows.append((ui_enum_text(self.text_catalog, "本地化索引"), f"{self.text_table} / {self.text_key}"))
         if self.resolved_locale:
-            rows.append(("本地化语言", self.resolved_locale))
+            rows.append((ui_enum_text(self.text_catalog, "本地化语言"), self.resolved_locale))
         return tuple(rows)
 
 
@@ -97,6 +115,7 @@ class ProgressionCalculatorSession:
     materials: tuple[ProgressionMaterialInput, ...]
     upstream_status: StaminaPlanStatus
     upstream_gaps: tuple[ProgressionUpstreamGap, ...]
+    text_catalog: TextCatalog | None = field(default=None, compare=False, repr=False)
 
     @property
     def more_info(self) -> tuple[tuple[str, str], ...]:
@@ -109,7 +128,15 @@ class ProgressionCalculatorSession:
                 values.append(gap.item_id)
             if gap.raw_value:
                 values.append(gap.raw_value)
-            rows.append((f"上游未完整项 {index}", " · ".join(values)))
+            rows.append((
+                localized_text(
+                    self.text_catalog,
+                    "static_catalog.progression_calculator_models.session.upstream_gap",
+                    "上游未完整项 {index}",
+                    index=index,
+                ),
+                " · ".join(values),
+            ))
         return tuple(rows)
 
 
@@ -135,6 +162,8 @@ class ProgressionCalculationInput:
 def deliver_progression_outcome(
     callback: Callable[[ProgressionCalculatorOutcome], None],
     outcome: ProgressionCalculatorOutcome,
+    *,
+    text_catalog: TextCatalog | None = None,
 ) -> str | None:
     """Keep page callback failures from escaping a Qt signal handler."""
 
@@ -148,7 +177,11 @@ def deliver_progression_outcome(
                 "error_type": type(exc).__name__,
             },
         )
-        return CALLBACK_ERROR_TEXT
+        return localized_text(
+            text_catalog,
+            "static_catalog.progression_calculator_models.callback.failed",
+            CALLBACK_ERROR_TEXT,
+        )
     return None
 
 
@@ -173,7 +206,9 @@ class ProgressionCalculatorOrchestrator:
         *,
         service: ProgressionStaminaService,
         terminology_service: StaticCatalogTerminologyService,
+        text_catalog=None,
     ) -> None:
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._service = service
         self._terminology = terminology_service
 
@@ -291,10 +326,23 @@ class ProgressionCalculatorOrchestrator:
             entity_id=entity_id,
             owner_id=character_id,
             skill_id=skill_id if kind == "skill" else None,
-            title="技能养成" if kind == "skill" else "角色等级养成",
+            title=(
+                localized_text(
+                    self.text_catalog,
+                    "static_catalog.progression_calculator_models.title.skill",
+                    "技能养成",
+                )
+                if kind == "skill" else
+                localized_text(
+                    self.text_catalog,
+                    "static_catalog.progression_calculator_models.title.character_level",
+                    "角色等级养成",
+                )
+            ),
             materials=materials,
             upstream_status=status,
             upstream_gaps=gaps,
+            text_catalog=self.text_catalog,
         )
 
     def _prepare_fork(
@@ -323,10 +371,15 @@ class ProgressionCalculatorOrchestrator:
             entity_id=request.fork_id,
             owner_id=request.fork_id,
             skill_id=None,
-            title="弧盘养成",
+            title=localized_text(
+                self.text_catalog,
+                "static_catalog.progression_calculator_models.title.fork",
+                "弧盘养成",
+            ),
             materials=materials,
             upstream_status=status,
             upstream_gaps=gaps,
+            text_catalog=self.text_catalog,
         )
 
     def _materials(
@@ -358,7 +411,11 @@ class ProgressionCalculatorOrchestrator:
             if entry is None:
                 aggregated[canonical] = _MaterialAggregate(
                     requested_ids=[item_id],
-                    display_name=term.display_name or UNKNOWN_NAME,
+                    display_name=term.display_name or localized_text(
+                        self.text_catalog,
+                        "static_catalog.progression_calculator_models.material.unknown_name",
+                        UNKNOWN_NAME,
+                    ),
                     canonical_id=canonical,
                     required_quantity=required or 0,
                     known_quantity=known,
@@ -386,6 +443,7 @@ class ProgressionCalculatorOrchestrator:
                 text_table=entry.text_table,
                 text_key=entry.text_key,
                 resolved_locale=entry.resolved_locale,
+                text_catalog=self.text_catalog,
             )
             for canonical, entry in sorted(aggregated.items())
         )

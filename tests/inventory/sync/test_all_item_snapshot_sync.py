@@ -5,15 +5,15 @@ from unittest.mock import patch
 
 import pytest
 
-from src.domain.all_item_snapshot import ALL_ITEMS_CAPABILITY
-from src.integrations.native_inventory_snapshot import NativeSnapshotPending
+from src.domain.inventory.all_item_snapshot import ALL_ITEMS_CAPABILITY
+from src.integrations.native_core.snapshots.native_inventory_snapshot import NativeSnapshotPending
 from src.observability import OperationContext
 from src.services.inventory.sync.runtime import store_all_item_snapshot
 from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 from src.services.native_session.session import NativeGameSession
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError
-from tests.test_native_all_item_snapshot import AllItemSource
-from tests.test_native_change_sync import ChangeCore
+from tests.native_session.test_native_all_item_snapshot import AllItemSource
+from tests.native_session.test_native_change_sync import ChangeCore
 
 
 class MixedCore(ChangeCore):

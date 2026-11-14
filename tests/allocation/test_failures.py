@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.app.facade import NTEAppFacade
-from src.domain.stat_catalog import StatCatalog
+from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.models.equipment import Drive
 from src.domain.allocation.failures import explain_allocation_failures, allocation_failure_text
 from src.solver.orchestrator import NTEPipelineOrchestrator

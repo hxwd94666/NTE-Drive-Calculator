@@ -4,23 +4,35 @@ from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from src.domain.name_search import match_pinyin
+from src.domain.names.name_search import match_pinyin
+from src.domain.allocation.damage_display import team_gain_ratio
 from src.features.teams.team_card import TeamCard
 from src.domain.teams.overview import SourceMode
-from src.ui.text_catalog import plain_tooltip, resolve_text_catalog
+from src.ui.common.text_catalog import ElidedTextLabel, plain_tooltip, resolve_text_catalog
 from src.domain.teams.enhancement_presentation import team_enhancement_presentation
+
+
+class TeamDevelopmentNotice(QWidget):
+    """队伍专属单行提示；窄窗省略但保留完整提示，不挤掉账号操作。"""
+    def __init__(self, parent=None, *, catalog=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 0, 0, 0)
+        self.label = ElidedTextLabel(resolve_text_catalog(catalog).render('teams.page.development_notice'), self)
+        self.label.setObjectName('statusBadge')
+        self.label.setProperty('tone', 'error')
+        self.label.setWordWrap(False)
+        layout.addWidget(self.label)
 
 
 class TeamPage(QWidget):
     create_requested = Signal()
-    refresh_requested = Signal()
     edit_requested = Signal(str)
     delete_requested = Signal(str)
-    match_requested = Signal(str)
-    enhancement_requested = Signal(str)
     loadouts_requested = Signal(str)
     enhancement_details_requested = Signal(str)
     graduation_requested = Signal(str)
+    calculation_requested = Signal(str)
 
     def __init__(self, parent=None, *, catalog=None):
         super().__init__(parent)
@@ -41,26 +53,21 @@ class TeamPage(QWidget):
         self._heading = QWidget()
         header = QHBoxLayout(self._heading)
         header.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("我的队伍")
+        title = QLabel(self.text("teams.page.heading"))
         title.setStyleSheet("font-size:20px;font-weight:700")
         header.addWidget(title)
         header.addStretch()
-        refresh = QPushButton("刷新")
-        refresh.setToolTip("更新配装与已保存结果，不开始计算")
-        refresh.setAccessibleName("刷新当前账号队伍简报")
-        refresh.clicked.connect(self.refresh_requested.emit)
         self._header_actions = QWidget()
         buttons = QHBoxLayout(self._header_actions)
         buttons.setContentsMargins(0, 0, 0, 0)
         buttons.setSpacing(8)
-        buttons.addWidget(refresh)
-        create = QPushButton("＋ 新建队伍")
+        create = QPushButton(self.text("teams.page.create"))
         create.setObjectName("btnNew")
         create.clicked.connect(self.create_requested.emit)
         buttons.addWidget(create)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索队伍名称或成员（支持拼音）…")
-        self.search.setAccessibleName("搜索队伍")
+        self.search.setPlaceholderText(self.text("teams.page.search"))
+        self.search.setAccessibleName(self.text("teams.page.search_accessible"))
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._filter)
         self.status = QLabel()
@@ -81,7 +88,7 @@ class TeamPage(QWidget):
         self.cards_layout.addStretch()
         scroll.setWidget(self.content)
         root.addWidget(scroll, 1)
-        self.empty = QLabel("还没有队伍，点击右上角「新建队伍」开始配置。")
+        self.empty = QLabel(self.text("teams.page.empty"))
         self.empty.setWordWrap(True)
         self.cards_layout.insertWidget(0, self.empty)
 
@@ -125,8 +132,8 @@ class TeamPage(QWidget):
         self._cards.clear()
         self._card_keys.clear()
         self._overview_labels.clear()
-        actions = dict(edit=self.edit_requested, delete=self.delete_requested, match=self.match_requested,
-                       enhancement=self.enhancement_requested, graduation=self.graduation_requested,
+        actions = dict(edit=self.edit_requested, delete=self.delete_requested, graduation=self.graduation_requested,
+                       calculate=self.calculation_requested,
                        loadouts=self.loadouts_requested,
                        enhancement_details=self.enhancement_details_requested)
         for team in self._teams:
@@ -135,7 +142,7 @@ class TeamPage(QWidget):
             self._cards.append((card, card.names))
             self._card_keys[card] = team.team_id
             self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
-        self.status.setText(f"{len(self._teams)} 支队伍")
+        self.status.setText(self.text("teams.page.count", count=len(self._teams)))
         self._filter()
 
     def role_presentations(self):
@@ -146,18 +153,26 @@ class TeamPage(QWidget):
             return
         labels = self._overview_labels[overview.team.team_id]
         gaps = tuple(dict.fromkeys((*overview.issues, *(issue for member in overview.members for issue in member.issues))))
-        source = self.text("teams.loadout.source_calc" if overview.source.mode == SourceMode.CALC else "teams.loadout.source_game")
-        labels["source"].setText(self.text("teams.loadout.overview", source=source, ready=overview.ready_count)
-                                 + (self.text("teams.loadout.overview_gap") if gaps else ""))
+        source = self.text("teams.card.source_calc_short" if overview.source.mode == SourceMode.CALC else "teams.card.source_game_short")
+        labels["source"].setText(self.text("teams.loadout.overview", source=source, ready=overview.ready_count))
         labels["source"].setToolTip(plain_tooltip("；".join(gaps) + "\n" + self.text("teams.loadout.overview_hint")))
         saved = overview.latest_enhancement
         if saved is None:
-            labels["enhancement"].setText("增强：暂无已保存结果")
+            labels["enhancement"].setText(self.text("teams.card.enhancement_empty"))
+            labels["enhancement"].setToolTip(plain_tooltip(self.text("teams.card.history_hint")))
         else:
             shown = team_enhancement_presentation(saved.payload)
-            labels["enhancement"].setText("增强：" + shown.headline + " · " + shown.coverage)
-            labels["enhancement"].setToolTip("\n".join((shown.source, shown.search, "；".join(saved.association),
-                                                       "在更多 → 增强记录中查看详情。")))
+            if saved.payload["result_kind"] == "baseline":
+                headline = self.text("teams.card.enhancement_baseline")
+            else:
+                gain = team_gain_ratio(saved.payload["baseline_value"], saved.payload["candidate_value"])
+                key = ("teams.card.enhancement_zero" if gain == 0 else
+                       "teams.card.enhancement_tiny_gain" if 0 < gain < .00005 else
+                       "teams.card.enhancement_tiny_loss" if -.00005 < gain < 0 else None)
+                headline = self.text(key) if key else self.text("teams.card.enhancement_value", gain=f"{gain:+.2%}")
+            labels["enhancement"].setText(headline)
+            labels["enhancement"].setToolTip(plain_tooltip("\n".join((shown.headline, shown.coverage,
+                shown.source, shown.search, "；".join(saved.association), self.text("teams.card.history_hint")))))
 
     def visible_team_ids(self):
         return tuple(self._card_keys[card] for card, _ in self._cards if not card.visibleRegion().isEmpty())
@@ -165,25 +180,31 @@ class TeamPage(QWidget):
     def show_overview_error(self, team_id, message):
         labels = self._overview_labels.get(team_id)
         if labels:
-            labels["source"].setText("简报待刷新 · " + message)
-            labels["source"].setToolTip("本次读取未完成，原结果可能已过期。点击刷新重试。\n" + message)
-
-    def show_match_counts(self, team, counts):
-        if team not in self._teams:
-            return
-        matched, read = counts
-        self._overview_labels[team.team_id]["matches"].show()
-        self._overview_labels[team.team_id]["matches"].setText(
-            f"已找到 {matched} 个匹配范围 · 已读取 {read} 个" if matched is not None
-            else f"匹配数量未确认 · 已读取 {read} 个范围")
+            labels["source"].setText(self.text("teams.card.source_unverified"))
+            labels["source"].setToolTip(plain_tooltip(self.text("teams.card.read_retry", reason=message)))
+            # 同一批简报同时读取增强记录，读取失败不能把上轮增强当作本轮已核对。
+            labels["enhancement"].setText(self.text("teams.card.enhancement_unverified"))
+            labels["enhancement"].setToolTip(plain_tooltip(self.text("teams.card.read_retry", reason=message)))
 
     def show_axis_graduation(self, team, display):
         if team in self._teams:
-            self._overview_labels[team.team_id]["axis_graduation"].setText(
-                display.headline)
+            status = display.summary_status
+            if display.ratio_percent is None:
+                key = "teams.card.graduation_unset" if status == "unset" else "teams.card.graduation_unknown"
+                headline = self.text(key)
+            else:
+                suffix_key = {
+                    "benchmark_stale": "teams.card.graduation_rebuild",
+                    "current_stale": "teams.card.graduation_stale",
+                    "component_pending": "teams.card.graduation_component",
+                    "validity_unverified": "teams.card.graduation_unverified",
+                }.get(status, "teams.card.graduation_historical" if display.historical else "teams.card.graduation_fixed")
+                headline = self.text("teams.card.graduation_value", percent=f"{display.ratio_percent:.2f}",
+                                     state=self.text(suffix_key))
+            self._overview_labels[team.team_id]["axis_graduation"].setText(headline)
             self._overview_labels[team.team_id]["axis_graduation"].setToolTip(
-                "\n".join((display.headline, display.damage, display.scope,
-                             "固定轴假设；实战可执行性未证实。详情见毕业率。")))
+                plain_tooltip("\n".join((display.headline, display.damage, display.scope,
+                             self.text("teams.card.graduation_hint")))))
 
     def _filter(self):
         query = self.search.text().strip()
@@ -193,4 +214,4 @@ class TeamPage(QWidget):
             card.setVisible(visible)
             count += int(visible)
         self.empty.setVisible(count == 0)
-        self.empty.setText("没有匹配的队伍" if self._teams else "还没有队伍，点击右上角「新建队伍」开始配置。")
+        self.empty.setText(self.text("teams.page.no_match") if self._teams else self.text("teams.page.empty"))

@@ -285,6 +285,57 @@ CPU/GPU 与发行包矩阵分别记录，复用适用证据，不因本次文档
 
 这些改进只在发现真实需要时落地，不为凑“额外优化”制造改动；第 7.2 至 7.4 节则是明确要求的正式交付，不作为可选小项省略。
 
+### 7.6 剩余 Python 计算与前端语言补丁缺口
+
+计算链核对更新至 2026-11-14；后面的语言缺口清单仍保留 2026-11-11 的审查边界，不表示全页翻译完成。计算审查区分桌面主路径、实际页面纯计算与独立离线入口；数据库、冻结请求、进程调度、缓存和控件排版不因为含加减法就属于待搬 Rust 的公式。
+
+#### 已走 Rust 的主路径
+
+| 链路 | 真实入口与边界 |
+| --- | --- |
+| 桌面角色优先分配 | `src/app/facade.py` 注入 `create_allocation_executor` → `src/integrations/allocation/native_allocation.py`；核对正式组件能力，不静默回退 Python 分配 |
+| 桌面普通配装图纸 | `src/app/facade.py` 注入 `create_blueprint_executor` → 随附组件的 `allocation_blueprints_v1`；复用完整有界几何缓存，预算截断或缺能力不回退 Python 搜索 |
+| 驱动/卡带基础分、最大权重及评级 | `src/optimizer/scoring.py` → `src/integrations/scoring/equipment_score_backend.py::NativeEquipmentScorer` → 公共 Rust 批量评分；Python 门面不是另一套评分公式 |
+| 伤害后处理及其图纸 | 组合根的 `execute_damage_job`、`DeferredDamageBlueprints` → 原生分析组件；不能因 `dfs_puzzle.py` 仍存在就认定桌面这条链仍用 Python 拼图 |
+| 战报固定轴重放、参照搜索与队伍固定轴比例 | 独立分析组件；`axis_graduation_presentation.py` 消费返回的 `ratio_percent`，只格式化和投影，不在 Python 重算队伍毕业比例。与角色页直伤毕业率不是同一公式 |
+
+#### 仍在 Python 或非 Rust 数值栈中的计算
+
+| 优先顺序 | 实际消费者 | 剩余计算与位置 |
+| --- | --- | --- |
+| 1：公式一致性 | 角色页直伤、配装收益、动态边际权重 | 正式 runtime 角色页已接 `RoleDamageCalculator` → analysis `direct_damage_v1`，按批求未取整乘区；纯值构建与离线差分保留原参考。其他 DOT、环合等 Python 公式不由此冒称迁移；能力/生命周期见 [分析组件](../integrations.md#11-nte-analysis-core) |
+| 1：重复求值成本 | 角色页最终权重/装备评分上下文 | 边际扰动、毕业模板、同角色去件和弧盘两侧沿正式组件合批；首次与草稿变化复用既有后台读取任务，界面只消费完整冻结数值，快速编辑仅应用最新回执。最终权重投影保留 Python 编排，基础评分仍由公共 Rust 核执行；当前行为见 [页面响应性](../features.md#页面响应性与后台任务) |
+| 1：角色页基准 | 角色页空幕直伤毕业率 | `src/services/official_role/equipment/graduation.py::graduation_rate` 在同满养成下计算实际/模板伤害之比；模板投影和词条选择保留 Python 编排，伤害候选与分母已经批量接入正式组件。不要与队伍固定轴比例合并或替换语义 |
+| 2：养成规划 | 工具单/多角色材料与最低体力 | `materials.py` 的经验 DP 已有界增量复用，单/多角色同批相同体力请求及产出准备已复用；`allocate_owned`、`_craft_up` 与 `stamina.py` 的整数模型/搜索仍保留。MILP 仍用 NumPy/SciPy/HiGHS；两阶段目标不变，模型矩阵进一步复用或迁移另按阶段热点判断 |
+| 2：倒带 | 三种策略的形状缺口、重复份数和定价 | 固定库存的拥有数量已改为 DAO geometry 聚合窄读取；形状缺口、双组归一化、交集排序、边际分配和定价仍用原 Python 规则。库存水合优化不等于求解核迁移，也不改变冻结评分/来源或鼠标执行 |
+| 3：公共面板 | 角色有效面板、装备属性合计 | `src/domain/official_role/advancement.py` 的成长/弧盘投影；`src/domain/equipment/properties/official_stats.py::calculate_official_equipment_stats`、`equipment_normalizer.py::calculate_drive_main_stats`，以及角色 panel 属性聚合仍为 Python。单次轻量投影不必机械变成进程往返 |
+| 单列评估 | 非桌面主路径的旧程序化分配 | `src/services/allocation/execution/legacy_adapter.py` → `src/optimizer/allocation_kernel.py`、角色优先/同级组预留匹配；`src/features/weighted_allocation/runner.py` 的独立程序化入口仍能走 Python，不是桌面主分配的自动兜底 |
+| 单列评估 | 未注入图纸执行器的离线求解 | `src/solver/orchestrator.py`、`src/solver/dfs_puzzle.py` 的 Python 拼图/组合仍保留。先盘点明确消费者，再决定迁移或删除，不以保留文件数量衡量完成率 |
+
+`native/counterfactual-core` 的 C++20 实验实现及测试不证明 Rust 迁移完成，也不当作当前生产消费者。正式 runtime 角色直伤/边际已复用独立分析组件并成套交付，评分、来源身份、取消与缺机制语义保持；不把纯值参考、其他伤害种类或 Python 编排一并宣称迁移完成。养成、倒带及离线入口的职责继续按上表分别判断。已交付的后台数值消费与同请求共享边界见 [分析组件](../integrations.md#11-nte-analysis-core)，不在 Calc 内新增另一套 Rust 工程。
+
+#### 确认会显示在前端、但尚未完整接入补丁的文本
+
+| 页面/场景 | 确认缺口及消费位置 |
+| --- | --- |
+| 战报分析进度 | `src/features/battle_report/analysis/progress.py::show_for/update_progress`：固定进度描述、兜底句与“本阶段”格式仍直接显示；`src/services/battle_report/analysis/progress.py` 的展示 message 也需一起改为结构化码/参数 |
+| 推断角色事实 | `analysis/inferred_facts.py::render_facts`：外层标题可翻译，但逐角色的“角色/置信度”仍硬编码 |
+| 战报按需能力提示 | `analysis/view.py::_render_time_presentation`：可翻译外壳中注入“公式按需加载/未生成时间轴/未生成生命轴/Buff 按需加载”等中文兜底参数 |
+| 战报阶段目标 | `analysis/feast_conditions.py`：下拉选项中的“名称暂未提供”在变量里硬编码；正式游戏名称本身不列为 UI 补丁缺口 |
+| 采集来源对照 | `capture/comparison_panel.py::_render_source`：时钟未知提示、时钟/阶段映射及 state.message/error 直接上屏，须区分枚举、错误码与原始诊断 |
+| 逐击公式与证据 | `hits/formula_overview.py`、`hits/inspection_widget.py`：未取得、公式片段、证据阶段及动态说明存在拼接/兜底中文；部分文本不在直接控件常量扫描中 |
+| 战报面板对照 | `marginal/character_panel.py`：表头“（本系）”及“静态面板/动态面板”直接写入表格 |
+| 战报历史 | `history/dialog.py::_scene_label`：推断/已确认后缀、未知场景与层数格式；时间戳和数值本身不算翻译缺口 |
+| 队伍轴伤毕业结果与历史 | `src/domain/teams/graduation/axis_graduation_presentation.py`：标题、来源、目标、建议、状态说明及字段标签为中文 DTO；`axis_graduation_dialog.py` 与队伍页直接显示。不能因位于 Domain 就排除它们 |
+| 角色页直伤毕业说明 | `src/services/official_role/equipment/graduation.py::graduation_tooltip`：整段基准/缺项说明由 Service 拼接后作为前端悬浮说明展示 |
+| 倒带校验与推荐说明 | `src/domain/rewind/dual_target.py` 的校验异常仍直接显示，含旧“提升组/冲分组”词；`src/services/rewind/recommendation.py` 的 notice、reason、目标描述也需结构化；本次新增存储错误已用稳定码和目录展示 |
+| 角色图鉴卡片/详情 | `src/features/static_catalog/domain_pages/characters/card.py`、`profile.py`：局部变量中的“上线/预计上线”未走目录，缺日期提示的外壳翻译不覆盖该前缀 |
+| 配置编辑缺静态信息 | `src/features/configuration/editing/form.py`：静态资源缺项提示直接作为 label 内容 |
+
+这不是“只补 JSON key”即可完成的清单。优先将跨层展示 DTO 和错误改为稳定 key/命名参数，由显式注入的冻结 `TextCatalog` 在展示端渲染；再覆盖硬编码的内部后缀、兜底和表格单元格。不要翻译正式游戏 ID、角色/槽位用户名称、日志事件码、协议字段或识别词库；已经过 `ui_enum_text` 的有限静态映射不重复登记。补齐后验证缺 key 中文回退、参数一致、长译文、控件可达和翻译不改变业务 ID。
+
+本次显示控件/同函数变量追踪得到 **151 处候选调用、80 个文件**，只作复核索引，不是确认缺口数或完成率；日志调用已排除，跨层 DTO、动态错误和表格内容还需按真实链路核对。算术 AST 候选包含序号、格式化及校验，亦不计为“未迁移核”数量。本节列出已追到可见消费者的确定问题，不把仓库全部中文常量都算作漏翻译。
+
 ## 8. 实施顺序与模型分工
 
 | 阶段 | 工作 | 阶段出口 |

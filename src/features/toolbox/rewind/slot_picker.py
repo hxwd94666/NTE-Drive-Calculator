@@ -1,22 +1,24 @@
 # 用明确槽位身份选择倒带推荐的角色方案。
+from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (
-    QButtonGroup, QDialog, QDialogButtonBox, QLabel, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
+    QButtonGroup, QDialog, QDialogButtonBox, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.theme import current_style_sheet
-from src.domain.allocation_rating import loadout_total_grade
+from src.domain.equipment.scoring.allocation_rating import loadout_total_grade
 
 
 class RewindSlotPicker(QDialog):
-    def __init__(self, parent, role, selected_reference):
+    def __init__(self, parent, role, selected_reference, *, text_catalog=None):
         super().__init__(parent)
-        self.setWindowTitle(f"选择 {role.name} 的配装槽位")
+        self.text_catalog = resolve_text_catalog(text_catalog)
+        self.setWindowTitle(resolve_text_catalog(text_catalog).render('ui.toolbox.init.self_3', name=f'{role.name}'))
         self.setStyleSheet(current_style_sheet())
         self._references = {}
         root = QVBoxLayout(self)
-        root.addWidget(QLabel("倒带推荐只分析选中的这份配装。"))
+        root.addWidget(plain_label(resolve_text_catalog(text_catalog).render('ui.toolbox.init.caption_5')))
         self.group = QButtonGroup(self)
         body = QWidget()
         rows = QVBoxLayout(body)
@@ -30,7 +32,7 @@ class RewindSlotPicker(QDialog):
             self.group.addButton(option, index)
             self._references[index] = slot.reference
             rows.addWidget(option)
-            detail = QLabel(slot.reason)
+            detail = plain_label(slot.reason)
             detail.setWordWrap(True)
             rows.addWidget(detail)
         rows.addStretch()

@@ -1,0 +1,111 @@
+# 验证代理 DLL 与备用 Loader 的互斥加载 contract。
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from src.integrations.components.mod_loader import (
+    ModLoaderRuntimeError,
+    _managed_stop_event_name,
+    game_launcher_candidates,
+    game_launcher_executable,
+    packaged_mod_loader,
+)
+
+
+class ModPluginLoadingServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.launcher = self.root / 'NTELauncher.exe'
+        self.launcher.write_bytes(b'launcher')
+        self.game = self.root / 'Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe'
+        self.game.parent.mkdir(parents=True)
+        self.game.write_bytes(b'game')
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_packaged_loader_accepts_a_user_replacement_without_hash_pin(self) -> None:
+        loader = (
+            self.root
+            / "third_party"
+            / "mod-loader"
+            / "bin"
+            / "nte-mod-loader.exe"
+        )
+        loader.parent.mkdir(parents=True)
+        loader.write_bytes(b"loader")
+
+        self.assertEqual(packaged_mod_loader(self.root), loader.resolve())
+
+    def test_managed_stop_event_matches_upstream_control_contract(self) -> None:
+        self.assertEqual(
+            _managed_stop_event_name(
+                process_id=0x1234,
+                session_suffix=0xABCDEF,
+            ),
+            "Local\\NTE-DPS-TOOL-ModLoader-0000123400abcdef",
+        )
+
+    def test_launcher_is_resolved_from_the_selected_game_installation(self) -> None:
+        self.assertEqual(
+            game_launcher_executable(self.game),
+            self.launcher.resolve(),
+        )
+
+    def test_launcher_candidates_include_secondary_entry_in_same_installation(self) -> None:
+        secondary = self.root / 'NTELauncher' / 'NTEGlobalLauncher.exe'
+        secondary.parent.mkdir()
+        secondary.write_bytes(b'launcher')
+        self.assertEqual(
+            game_launcher_candidates(self.game),
+            (self.launcher.resolve(), secondary.resolve()),
+        )
+
+    def test_tw_launcher_resolution_accepts_root_and_tw_subdirectory(self) -> None:
+        for folder_name in ('Neverness To Everness', '异环', '異環'):
+            for launcher_directory in ('', 'NTETW'):
+                with self.subTest(folder=folder_name, directory=launcher_directory):
+                    install = self.root / folder_name / (launcher_directory or 'root')
+                    game = install / 'Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe'
+                    game.parent.mkdir(parents=True)
+                    game.write_bytes(b'game')
+                    launcher = install / launcher_directory / 'NTETWLauncher.exe'
+                    launcher.parent.mkdir(parents=True, exist_ok=True)
+                    launcher.write_bytes(b'launcher')
+                    self.assertEqual(game_launcher_candidates(game), (launcher.resolve(),))
+                    self.assertEqual(game_launcher_executable(game), launcher.resolve())
+
+    def test_tw_launcher_candidates_include_both_entries_for_process_checks(self) -> None:
+        self.launcher.unlink()
+        primary = self.root / 'NTETWLauncher.exe'
+        secondary = self.root / 'NTETW/NTETWLauncher.exe'
+        primary.write_bytes(b'launcher')
+        secondary.parent.mkdir()
+        secondary.write_bytes(b'launcher')
+        self.assertEqual(
+            game_launcher_candidates(self.game),
+            (primary.resolve(), secondary.resolve()),
+        )
+
+    def test_tw_launcher_resolution_does_not_search_another_installation(self) -> None:
+        self.launcher.unlink()
+        unrelated = self.root / 'other/NTETWLauncher.exe'
+        unrelated.parent.mkdir()
+        unrelated.write_bytes(b'launcher')
+        with self.assertRaisesRegex(ModLoaderRuntimeError, '未找到官方启动器'):
+            game_launcher_executable(self.game)
+
+    def test_launcher_resolution_rejects_a_nonstandard_game_layout(self) -> None:
+        unrelated_game = self.root / "other" / "HTGame.exe"
+        unrelated_game.parent.mkdir()
+        unrelated_game.write_bytes(b"game")
+
+        with self.assertRaisesRegex(ModLoaderRuntimeError, "官方 Client 目录结构"):
+            game_launcher_executable(unrelated_game)
+
+
+if __name__ == "__main__":
+    unittest.main()

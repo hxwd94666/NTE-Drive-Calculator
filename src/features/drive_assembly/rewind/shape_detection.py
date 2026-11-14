@@ -9,7 +9,7 @@ from collections.abc import Sequence
 import cv2
 import numpy as np
 
-from src.domain.drive_layout import SHAPE_FOOTPRINTS
+from src.domain.equipment.geometry.drive_layout import SHAPE_FOOTPRINTS
 
 
 _SHAPE_NAMES = tuple(SHAPE_FOOTPRINTS)

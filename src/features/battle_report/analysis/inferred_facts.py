@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Sequence
 
 from PySide6.QtWidgets import QLabel
@@ -11,8 +12,9 @@ from src.domain.battle_report.build.inputs import BattleInferredCharacterFact
 
 
 class BattleInferredFactLabel(QLabel):
-    def __init__(self) -> None:
+    def __init__(self, *, text_catalog=None) -> None:
         super().__init__()
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self.setWordWrap(True)
         self.hide()
 
@@ -24,7 +26,7 @@ class BattleInferredFactLabel(QLabel):
             self.clear_facts()
             return
         self.setText(
-            "推断事实（默认用于本场计算，不改写觉醒选择）："
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_facts.self')
             + "；".join(
                 f"角色 {fact.character_id} · {fact.fact_value} · "
                 f"{fact.source_gameplay_effect_id} · 置信度{fact.confidence}"

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from tests.static_release_fixture import distribution_manifest
+from tests.game_data.static_release_fixture import distribution_manifest
 
 from src.services.static_catalog.characters.service import StaticCatalogCharacterService
 from src.storage.sqlite.catalog.static_catalog_character_queries import (

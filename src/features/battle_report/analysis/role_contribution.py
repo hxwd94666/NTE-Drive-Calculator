@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Sequence
 
 from PySide6.QtCore import QRectF, QSize, Qt
@@ -84,13 +85,15 @@ class BattleRoleShareBar(QWidget):
         share_percent: float,
         color: QColor,
         parent: QWidget | None = None,
+        text_catalog=None,
     ) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._share_percent = max(0.0, min(100.0, float(share_percent)))
         self._color = QColor(color)
         self.setMinimumWidth(104)
         self.setFixedHeight(28)
-        self.setToolTip(f"该角色占选定时段总伤害的 {self._share_percent:.2f}%")
+        self.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.init.self_2', share_percent=f'{self._share_percent:.2f}')))
 
     def sizeHint(self) -> QSize:
         return QSize(126, 28)
@@ -126,8 +129,9 @@ class BattleRoleShareBar(QWidget):
 class BattleRoleDamagePieWidget(QWidget):
     """Draw a donut and matching legend from the selected-range role totals."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, text_catalog=None) -> None:
         super().__init__(parent)
+        self.text_catalog = resolve_text_catalog(text_catalog)
         self._roles: tuple[BattleRangeRoleSummary, ...] = ()
         self.setMinimumSize(290, 220)
 
@@ -149,7 +153,7 @@ class BattleRoleDamagePieWidget(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         if not self._roles or sum(max(0.0, row.damage) for row in self._roles) <= 0:
             painter.setPen(QColor(theme_color("#8b949e")))
-            painter.drawText(self.rect(), Qt.AlignCenter, "当前时段没有角色伤害")
+            painter.drawText(self.rect(), Qt.AlignCenter, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.paintevent.painter'))
             return
 
         width = self.width()
@@ -185,7 +189,7 @@ class BattleRoleDamagePieWidget(QWidget):
         painter.setPen(Qt.NoPen)
         painter.setBrush(card_background)
         painter.drawEllipse(hole_rect)
-        title_text = "角色有效伤害"
+        title_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.battle_report.analysis.role_contribution.paintevent.text')
         value_text = _number(total_damage)
         title_rect, value_rect = _donut_center_text_rects(hole_rect)
         base_font = painter.font()
@@ -252,6 +256,7 @@ def render_counterfactual_roles(
     pie: BattleRoleDamagePieWidget,
     roles: Sequence[BattleBuildRoleCounterfactual],
     predicted_total: float | None,
+    *, text_catalog=None,
 ) -> None:
     """仅展示候选、已量化或原轴回退，并逐行标明；不把启发式估算提升为完整结果。"""
 
@@ -277,9 +282,9 @@ def render_counterfactual_roles(
         damage_label = (
             _number(damage)
             if role.candidate_damage is not None
-            else f"已量化 {_number(damage)}"
+            else resolve_text_catalog(text_catalog).render('frontend.battle_report.analysis.role_contribution.render_counterfactual_roles.text', value=f'{_number(damage)}')
             if role.known_projection_damage is not None
-            else f"原轴 {_number(damage)}"
+            else resolve_text_catalog(text_catalog).render('frontend.battle_report.analysis.role_contribution.render_counterfactual_roles.text_2', value=f'{_number(damage)}')
         )
         gain = (
             role.gain_percent
@@ -294,6 +299,7 @@ def render_counterfactual_roles(
             BattleRoleShareBar(
                 share_percent=share,
                 color=role_contribution_color(row_index),
+                text_catalog=text_catalog,
             ),
         )
         table.setItem(

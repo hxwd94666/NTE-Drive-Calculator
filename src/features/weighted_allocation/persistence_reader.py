@@ -4,8 +4,8 @@ from pathlib import Path
 
 from src.domain.allocation.inputs import StaticDatasetReference
 from src.domain.allocation.slot_binding import WeightedSlotBinding
-from src.services.allocation.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION
-from src.services.allocation.slot_binding import freeze_slot_selection
+from src.services.allocation.inputs.context_builder import ALLOCATION_CONTEXT_SOLVER_VERSION
+from src.services.allocation.inputs.slot_binding import freeze_slot_selection
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 

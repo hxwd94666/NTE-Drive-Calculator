@@ -9,11 +9,11 @@ import pytest
 from tests.allocation.test_axis_postprocess_component import axis_facade_case, run_axis_facade
 from tests.allocation.axis_team_fixture import attach_native_team, attach_fixed_builds
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import create_axis_catalog_case
-from src.integrations.static_catalog_release import static_catalog_read_unit
-from src.services.allocation.axis_selection import AxisAllocationSelectionService
-from src.services.allocation.inventory import SqliteAllocationInventory
+from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
+from src.services.allocation.axis.axis_selection import AxisAllocationSelectionService
+from src.services.allocation.inputs.inventory import SqliteAllocationInventory
 from src.services.official_role.page import load_official_role_detail
-from src.services.official_role.attributes import calculate_official_role_combat_stat_components
+from src.services.official_role.panel.attributes import calculate_official_role_combat_stat_components
 from src.storage.sqlite.user_data_dao import UserDataDao
 
 
@@ -56,7 +56,7 @@ def test_two_real_report_jobs_use_one_inventory_and_preserve_two_objectives(tmp_
     first["selection"] = tuple(axes)
     captured = []
     sent_budgets = []
-    import src.integrations.damage_allocation_job as job
+    import src.integrations.allocation.damage_allocation_job as job
     decode = job._decode
 
     def capture(*args, **kwargs):
@@ -84,10 +84,10 @@ def test_two_real_report_jobs_use_one_inventory_and_preserve_two_objectives(tmp_
     assert len(uids) == len(set(uids))
     assert all(plan["damage_optimization"]["status"] == "completed" for plan in plans.values()), {
         role: plan["damage_optimization"] for role, plan in plans.items()}
-    from src.services.allocation.locks import build_allocation_lock_snapshot
-    from src.services.allocation.plan_save import save_allocation_plans, legacy_plan_tape_main_values
-    from src.services.allocation.postprocess_facts import allocation_role_state_from_plan
-    from src.services.allocation.direct_postprocess import optimization_payload
+    from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+    from src.services.allocation.results.plan_save import save_allocation_plans, legacy_plan_tape_main_values
+    from src.services.allocation.results.postprocess_facts import allocation_role_state_from_plan
+    from src.services.allocation.direct.direct_postprocess import optimization_payload
     with UserDataDao(first["dependencies"].user_database_path) as dao:
         locks = build_allocation_lock_snapshot(dao, inventory_snapshot_id=first["source_snapshot_id"])
     with static_catalog_read_unit(first["dependencies"].static_database_path) as unit:
@@ -113,7 +113,7 @@ def test_two_real_report_jobs_use_one_inventory_and_preserve_two_objectives(tmp_
     assert saved["payload"]["damage_optimization"]["baseline_priority"]["policy"] == "within_team_damage_rank_v1"
 
     # 旧组件没有双队能力时保留八人/所选成员的共同 B0，不伪造联合收益。
-    from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+    from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
     client.supports_battle_axis_joint_teams = False
     with patch.object(NteAnalysisCoreClient, "from_executable", return_value=client):
         baseline_plans, _ = run_axis_facade(first, budget={"max_evaluations": 2, "max_rounds": 1})
@@ -123,7 +123,7 @@ def test_two_real_report_jobs_use_one_inventory_and_preserve_two_objectives(tmp_
 
 def test_eight_members_use_ranked_current_inventory_baseline(tmp_path):
     from src.domain.teams.models import TeamDraft
-    from src.services.allocation.team_axis_selection import select_team_axes
+    from src.services.allocation.axis.team_axis_selection import select_team_axes
     first, second, first_ids, second_ids = two_team_case(tmp_path)
     with static_catalog_read_unit(first["dependencies"].static_database_path) as unit, UserDataDao(first["dependencies"].user_database_path) as dao:
         from src.services.official_role.page import load_official_role_index
@@ -167,9 +167,9 @@ def test_eight_members_use_ranked_current_inventory_baseline(tmp_path):
             [plan["assigned_tape"], *plan["assigned_set_drives"], *plan["assigned_extra_drives"]]]
     assert len(uids) == len(set(uids))
     # 两队增强的轻量记录与八人成员方案一起提交；一队子集不能冒充联合作业完成。
-    from team_enhancement_fixture import enhancement_rows
-    from src.services.allocation.locks import build_allocation_lock_snapshot
-    from src.services.allocation.plan_save import save_allocation_plans
+    from tests.teams.enhancement.team_enhancement_fixture import enhancement_rows
+    from src.services.allocation.inputs.locks import build_allocation_lock_snapshot
+    from src.services.allocation.results.plan_save import save_allocation_plans
     pairs = tuple((name, key) for binding in first["selection"].teams
                   for name, key in zip(binding.roles, binding.team.character_ids))
     rows = enhancement_rows(plans, pairs, snapshot)

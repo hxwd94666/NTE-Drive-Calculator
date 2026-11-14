@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 from src.services.battle_report.build.edit_projection import apply_battle_build_edit
 from src.services.battle_report.build.profile_normalization import normalize_inferred_battle_build
 from src.services.battle_report.build.stat_reconstruction import BattleBuildStatReconstructionService
