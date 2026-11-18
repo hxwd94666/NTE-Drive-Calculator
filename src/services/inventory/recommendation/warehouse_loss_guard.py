@@ -46,7 +46,7 @@ def plan_losses(before, after, *, text_catalog=None):
 
 @timed("witness.establish")
 def freeze_loss_witnesses(execute, request, before, profiles, checkpoint, cancelled, summarize,
-                          *, profile_executor=None, timings=None):
+                          *, solve_profile=None, timings=None):
     witnesses=[]
     def add(key, pinned, baseline=None):
         checkpoint()
@@ -71,7 +71,7 @@ def freeze_loss_witnesses(execute, request, before, profiles, checkpoint, cancel
     for context, baseline in profiles:
         def evaluate_profile(removed,context=context):
             checkpoint()
-            return run_profile_removal(context,removed,cancelled,executor=profile_executor, timings=timings)
+            return run_profile_removal(context, removed, cancelled, solve=solve_profile)
         witnesses.append(LossWitness('profile:'+str(context.profile_id),baseline,evaluate_profile))
     return witnesses
 

@@ -34,19 +34,22 @@ def _summary(run):
     return result
 
 
-def _run(context, cancelled, excluded=(), executor=None, timings=None):
-    # 旧档案的通用属性约束尚非 allocation_v2 能力；不丢弃约束来强行走快路径。
-    supported = (executor is not None and context.allocation_strategy == 'role_priority'
-                 and all(not role.property_limits and role.crit_threshold is None for role in context.roles))
-    if not supported:
-        return timed_call(timings, "witness.profile_python", run_legacy_allocation, context,
-            excluded_uids=excluded, cancel_check=cancelled)
+class ProfileConstraintsUnavailable(RuntimeError):
+    """当前组件没有该档案所需的正式约束协议。"""
+
+
+def run_profile_allocation(context, cancelled, excluded=(), *, executor, blueprint_executor, timings=None):
+    # 旧档案约束不能省略，否则移除前后得分并不证明原方案仍可达到。
+    if (context.allocation_strategy != 'role_priority'
+            or any(role.property_limits or role.crit_threshold is not None for role in context.roles)):
+        raise ProfileConstraintsUnavailable()
     def execute(request, scorer):
         frozen = replace(request, roles_db={r: {**data, 'crit_source_known': False}
                                           for r, data in request.roles_db.items()})
         return executor(frozen, scorer)
     return timed_call(timings, "witness.profile_native", run_legacy_allocation, context,
-            excluded_uids=excluded, cancel_check=cancelled, kernel_executor=execute)
+            excluded_uids=excluded, cancel_check=cancelled, kernel_executor=execute,
+            blueprint_executor=blueprint_executor)
 
 
 def materialize_profile_contexts(user, data, scoring_path, snapshot_id, checkpoint, *, timings=None,
@@ -73,8 +76,8 @@ def materialize_profile_contexts(user, data, scoring_path, snapshot_id, checkpoi
 
 
 @timed("witness.profiles")
-def freeze_profile_witnesses(inputs, checkpoint, cancelled, *, executor=None, excluded_uids=frozenset(),
-                             timings=None, text_catalog=None):
+def freeze_profile_witnesses(inputs, checkpoint, cancelled, *, solve, excluded_uids=frozenset(),
+                             text_catalog=None):
     """搜索只消费冻结 context；不再回读账号或把历史版本变成当前约束。"""
     witnesses, issues = [], list(inputs.profile_issues)
     for context in inputs.profile_contexts:
@@ -83,7 +86,7 @@ def freeze_profile_witnesses(inputs, checkpoint, cancelled, *, executor=None, ex
             if excluded_uids:
                 context = replace(context, candidates=tuple(c for c in context.candidates if
                     f"nte-{'module' if c.kind == 'module' else 'core'}-{c.uid_slot}-{c.uid_serial}" not in excluded_uids))
-            before = _summary(_run(context, cancelled, executor=executor, timings=timings))
+            before = _summary(solve(context, cancelled))
             if any(not row['valid'] for row in before.values()):
                 issues.append(_text(
                     text_catalog, "issue.character_invalid",
@@ -91,6 +94,10 @@ def freeze_profile_witnesses(inputs, checkpoint, cancelled, *, executor=None, ex
             witnesses.append((context, before))
         except (CancelledError, TimeoutError):
             raise
+        except ProfileConstraintsUnavailable:
+            issues.append(_text(
+                text_catalog, "issue.constraints_unavailable",
+                "分析组件暂不支持部分已保存配装的约束，本次无法验证相关弃置建议。"))
         except Exception:
             issues.append(_text(
                 text_catalog, "issue.profile_failed",
@@ -103,14 +110,14 @@ def witness_uids(witnesses):
                      if row['valid'] for uid in row['uids'])
 
 
-def verify_profile_removal(witnesses, removed, checkpoint, cancelled):
+def verify_profile_removal(witnesses, removed, checkpoint, cancelled, *, solve):
     if not removed:
         return []
     regressions = []
     for context, before in witnesses:
         checkpoint()
         # 上游规范化身份包含 kind；到正式 Context 的排除接口只投影当前已核对候选的 UID。
-        after = run_profile_removal(context,removed,cancelled)
+        after = run_profile_removal(context, removed, cancelled, solve=solve)
         for character_id, prior in before.items():
             current = after.get(character_id, {})
             if prior['valid'] and (not current.get('valid') or current.get('score', 0) + 1e-7 < prior['score']
@@ -119,7 +126,7 @@ def verify_profile_removal(witnesses, removed, checkpoint, cancelled):
     return regressions
 
 
-def run_profile_removal(context, removed, cancelled, *, executor=None, timings=None):
+def run_profile_removal(context, removed, cancelled, *, solve):
     excluded = {c.uid for c in context.candidates
                 if f"nte-{'module' if c.kind == 'module' else 'core'}-{c.uid_slot}-{c.uid_serial}" in removed}
-    return _summary(_run(context, cancelled, excluded, executor, timings=timings))
+    return _summary(solve(context, cancelled, excluded))

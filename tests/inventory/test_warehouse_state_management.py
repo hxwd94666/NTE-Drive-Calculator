@@ -29,6 +29,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
             def list_inventory_items_with_runtime_state(self, snapshot_id):
                 return self.list_inventory_items(snapshot_id)
 
+            def list_allocation_locked_equipment_owners(self):
+                return []
+
         dao = Dao()
 
         class Sync:
@@ -66,6 +69,7 @@ class WarehouseStateManagementTests(unittest.TestCase):
         self.assertTrue(result.verified)
         self.assertEqual(8, result.after_snapshot_id)
         self.assertEqual(1, result.summary["discard_set_count"])
+        self.assertEqual(["discarded"], [change["target_state"] for change in result.reported_changes])
 
     def test_manual_plan_uses_pinned_snapshot_and_omits_unchanged_target(self):
         from src.services.inventory.management.warehouse_state_management import WarehouseStateManagementService
@@ -92,6 +96,9 @@ class WarehouseStateManagementTests(unittest.TestCase):
 
             def list_inventory_items_with_runtime_state(self, snapshot_id):
                 return self.list_inventory_items(snapshot_id)
+
+            def list_allocation_locked_equipment_owners(self):
+                return []
 
         dao = Dao()
         service = WarehouseStateManagementService("unused.sqlite3", object(), dao_factory=lambda _path: dao)

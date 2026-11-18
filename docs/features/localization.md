@@ -10,6 +10,8 @@
 
 装配结果回看入口已移除；`assembly.status.last_result` 与 `assembly.status.no_result` 仅作为旧语言补丁兼容 key 保留，不再有展示调用方。
 队伍选择卡不再展示成员数量；`teams.selection.members_count` 在发行中文与长译文示例中仅作为旧补丁兼容 key 保留，不再由选队界面渲染。
+战报增强配装结果已移除未保存提示。`auto.ui.equipment.equipment_result_rendering.render_results.e5dcc16f`
+在发行中文目录与长译文示例中仅供旧语言补丁兼容。
 
 ## 操作与生效
 

@@ -92,6 +92,8 @@ class BlueprintPage:
         return scroll
 
     def refresh(self) -> None:
+        if self._controller is not None:
+            self._controller.cancel()
         content_layout, status = self._require_widgets()
         self._clear_content(content_layout)
         status.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.blueprints.refresh.status'))
@@ -107,13 +109,16 @@ class BlueprintPage:
         worker.error.connect(
             lambda error: self._render_error(error, controller)
         )
-        worker.finished.connect(self._release_worker)
+        worker.finished.connect(lambda: self._release_worker(worker))
         worker.start()
 
     def filter(self, text: str) -> None:
         self._draw(text)
 
     def reset_account_state(self) -> None:
+        if self._controller is not None:
+            self._controller.cancel()
+            self._controller = None
         self._data = {}
         if self._content_layout is not None:
             self._clear_content(self._content_layout)
@@ -125,7 +130,7 @@ class BlueprintPage:
         error: str,
         controller: BlueprintController,
     ) -> None:
-        if controller.accepts(
+        if controller is self._controller and controller.accepts(
             BlueprintDependencies.from_app_context(self._app_context)
         ):
             _, status = self._require_widgets()
@@ -136,7 +141,7 @@ class BlueprintPage:
         data: dict[str, dict],
         controller: BlueprintController,
     ) -> None:
-        if not controller.accepts(
+        if controller is not self._controller or not controller.accepts(
             BlueprintDependencies.from_app_context(self._app_context)
         ):
             return
@@ -271,5 +276,7 @@ class BlueprintPage:
             if item.widget():
                 item.widget().deleteLater()
 
-    def _release_worker(self) -> None:
-        self._worker = None
+    def _release_worker(self, worker: WorkerThread) -> None:
+        if self._worker is worker:
+            self._worker = None
+        worker.deleteLater()

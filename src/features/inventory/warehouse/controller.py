@@ -9,6 +9,9 @@ from src.observability.stage_timings import StageTimings, timed_call
 
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from src.features.input_operation_entry import request_input_entry, show_sync_required
+from collections.abc import Mapping
+from concurrent.futures import CancelledError
+from threading import Event
 from typing import Any
 from src.ui.common.paint_timings import begin_gui_timing
 
@@ -25,7 +28,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
-from src.app.workers import WorkerThread
 from src.domain.inventory.warehouse_filter import WarehouseFilterSpec
 from src.features.inventory.warehouse.display.cards import (
     WarehouseCardDelegate,
@@ -206,6 +208,7 @@ def _page_warehouse(self):
     self.warehouse_source_notice.hide()
     layout.addWidget(self.warehouse_source_notice)
     self.warehouse_hint = plain_label(_ui_text('warehouse.page.page_warehouse.warehouse_hint'))
+    self.warehouse_hint.setWordWrap(True)
     self.warehouse_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     self.warehouse_hint.setStyleSheet(themed_style("color:#8b949e;padding:8px"))
     layout.addWidget(self.warehouse_hint)
@@ -340,11 +343,20 @@ def _on_warehouse_selection_changed(self, *_args):
             button.setEnabled(state_available)
 
 
+def _clear_manually_resolved_conflicts(host, uids):
+    owner = host.warehouse_read_controller
+    if owner.conflicts:
+        owner.conflicts = [row for row in owner.conflicts if row["uid"] not in uids]
+        refresh_conflict_summary(host)
+
+
 def _set_warehouse_selected_state(
     self: Any,
     target_state: str,
 ) -> None:
     """Stage the requested state for all selected virtual cards locally."""
+    if getattr(self, "_warehouse_management_busy", False):
+        return
     if not request_input_entry(self, "native_equipment", "仓库锁定与弃置"):
         return
     if target_state not in {"normal", "locked", "discarded"}:
@@ -379,18 +391,12 @@ def _set_warehouse_selected_state(
         return
     self._warehouse_pending_state_changes = pending
     self._warehouse_all_items = [
-        warehouse_item_with_state(
-            item,
-            pending.get(
-                str(item.get("uid")),
-                "discarded" if item.get("discarded") else "locked" if item.get("locked") else "normal",
-            ),
-            text_catalog=getattr(self, 'text_catalog', None),
-        )
+        warehouse_item_with_state(item, target_state, text_catalog=getattr(self, 'text_catalog', None))
         if str(item.get("uid")) in changed_uids
         else item
         for item in self._warehouse_all_items
     ]
+    _clear_manually_resolved_conflicts(self, changed_uids)
     timings.since("state_edit", "gui.state_edit")
     self._apply_warehouse_filters(timings=timings)
     self._on_warehouse_selection_changed()
@@ -404,6 +410,8 @@ def _toggle_warehouse_item_state(
     target_state: str,
 ) -> None:
     """Stage a single card's lock/discard icon action without changing game state yet."""
+    if getattr(self, "_warehouse_management_busy", False):
+        return
     if not request_input_entry(self, "native_equipment", "仓库锁定与弃置"):
         return
     item = (
@@ -436,6 +444,7 @@ def _toggle_warehouse_item_state(
                                            text_catalog=getattr(self, 'text_catalog', None)) if str(source.get("uid")) == uid else source
         for source in self._warehouse_all_items
     ]
+    _clear_manually_resolved_conflicts(self, {uid})
     timings.since("state_edit", "gui.state_edit")
     self._apply_warehouse_filters(timings=timings)
     self._update_warehouse_save_state()
@@ -459,67 +468,95 @@ def _save_warehouse_state_changes(self):
             self, _ui_text('warehouse.page.save_warehouse_state_changes.qmessagebox_2'), plain_tooltip(_ui_text('warehouse.page.save_warehouse_state_changes.qmessagebox.body_2'))
         )
         return
-    active_worker = getattr(self, "_warehouse_state_worker", None)
-    if active_worker is not None and active_worker.isRunning():
-        return
     sync_service = getattr(self, "_inventory_sync_service", None)
     if sync_service is None or not sync_service.is_running:
         show_sync_required(self, "保存仓库状态")
         return
-    timings = _new_warehouse_timings(self)
     owner = self.warehouse_read_controller
+    if owner.closed or owner.state_save_lane.is_running() or getattr(self, "_warehouse_management_busy", False):
+        return
+    timings = _new_warehouse_timings(self)
     if owner.state_timings is not None:
         owner.state_timings.close()
     owner.state_timings = timings
+    context = self.app_context
+    account, generation = context.account, context.generation
+    cancel = owner.state_save_cancel = Event()
+    sync_token = getattr(self, "_inventory_sync_state_token", None)
+
+    def owns_page():
+        return (not cancel.is_set() and not owner.closed and context.generation == generation
+                and context.account == account)
+
+    def is_current():
+        return (owns_page() and self._inventory_sync_service is sync_service
+                and getattr(self, "_inventory_sync_state_token", None) is sync_token)
+
+    def accept_delivery():
+        if is_current():
+            return True
+        if owns_page():
+            # 同账号重启同步时释放旧操作占用，保留由用户决定是否重试的草稿。
+            close_warehouse_state_progress(self)
+            self._set_warehouse_management_busy(False)
+            timings.finish("save_cancelled", outcome="cancelled")
+        return False
+
+    def check_current():
+        if not is_current():
+            raise CancelledError()
+
+    def failed(error):
+        if accept_delivery():
+            timings.finish("save_failed", outcome="failed")
+            self._on_warehouse_state_error(error)
+
     service = WarehouseStateManagementService(
-        self.app_context.account.user_database_path,
+        account.user_database_path,
         sync_service,
         input_guard=self.warehouse_read_controller.recommendation_guard,
-        operation_context=timings.context, timings=timings,
+        operation_context=timings.context, timings=timings, check_current=check_current,
     )
-    self._warehouse_state_service = service
     self._set_warehouse_management_busy(True, self.text_catalog.render('warehouse.management.check_targets'))
     timings.mark("save.plan.queued")
-    worker = WorkerThread(
-        target=lambda: _warehouse_timed_worker(timings, "save.plan",
+    owner.state_save_lane.submit(
+        lambda: _warehouse_timed_worker(timings, "save.plan",
             lambda: service.plan_manual_changes(snapshot_id, pending)),
-        parent=self,
+        lambda plan: self._on_warehouse_manual_plan_ready(plan, service, accept_delivery, failed),
+        failed, failed,
     )
-    self._warehouse_state_worker = worker
-    worker.result_ready.connect(self._on_warehouse_manual_plan_ready)
-    worker.error.connect(lambda _error: timings.finish("save_failed", outcome="failed")
-        if self.warehouse_read_controller.state_timings is timings else None)
-    worker.error.connect(self._on_warehouse_state_error)
-    worker.start()
 
 
-def _on_warehouse_manual_plan_ready(self, plan):
-    timings = self.warehouse_read_controller.state_timings
+def _on_warehouse_manual_plan_ready(self, plan, service, is_current, failed):
+    if not is_current():
+        return
+    owner = self.warehouse_read_controller
+    timings = owner.state_timings
     if timings is not None:
         timings.since("save.plan.ready", "plan.delivery_wait")
         timings.flush("plan_received")
     _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
-    self._set_warehouse_management_busy(False)
     if not plan.changes:
         if timings is not None:
             timings.finish("plan_empty")
         self._warehouse_pending_state_changes = {}
+        self._set_warehouse_management_busy(False)
         self._update_warehouse_save_state()
         QMessageBox.information(self, _ui_text('warehouse.page.on_warehouse_manual_plan_ready.qmessagebox'), plain_tooltip(self.text_catalog.render('warehouse.management.already_current')))
         return
-    counts = {"discarded": 0, "locked": 0, "normal": 0}
-    for change in plan.changes:
-        counts[change["target_state"]] += 1
+    counts = _warehouse_target_counts(plan.changes)
     if timings is not None:
         timings.mark("user_confirmation")
-    message = self.text_catalog.render('warehouse.management.confirm_save', count=len(plan.changes),
-        discard=counts['discarded'], lock=counts['locked'], normal=counts['normal'])
-    if (
-        QMessageBox.question(
-            self, _ui_text('warehouse.page.on_warehouse_manual_plan_ready.qmessagebox_2'), message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel
-        )
-        != QMessageBox.Yes
-    ):
+    message = (_ui_text('warehouse.management.confirm_save_without_counts') if counts is None else
+               _ui_text('warehouse.management.confirm_save', count=len(plan.changes), **counts))
+    answer = QMessageBox.question(
+        self, _ui_text('warehouse.page.on_warehouse_manual_plan_ready.qmessagebox_2'),
+        message, QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
+    )
+    if not is_current():
+        return
+    if answer != QMessageBox.Yes:
+        self._set_warehouse_management_busy(False)
         if timings is not None:
             timings.since("user_confirmation", "gui.user_confirmation")
             timings.finish("save_cancelled", outcome="cancelled")
@@ -527,31 +564,24 @@ def _on_warehouse_manual_plan_ready(self, plan):
     if timings is not None:
         timings.since("user_confirmation", "gui.user_confirmation")
         timings.mark("save.apply.queued")
-    service = self._warehouse_state_service
     self._set_warehouse_management_busy(True, "正在保存弃置/锁定状态到游戏…")
     progress_callback = show_warehouse_state_progress(
         self,
         change_count=len(plan.changes),
     )
-    worker = WorkerThread(
-        target=lambda: _warehouse_timed_worker(timings, "save.apply", lambda: service.apply(
+    owner.state_save_lane.submit(
+        lambda: _warehouse_timed_worker(timings, "save.apply", lambda: service.apply(
             plan, progress_callback=progress_callback)),
-        parent=self,
+        lambda result: self._on_warehouse_state_applied(result, is_current=is_current),
+        failed, failed,
     )
-    self._warehouse_state_worker = worker
-    worker.result_ready.connect(self._on_warehouse_state_applied)
-    worker.error.connect(lambda _error: timings.finish("save_failed", outcome="failed")
-        if self.warehouse_read_controller.state_timings is timings else None)
-    worker.error.connect(self._on_warehouse_state_error)
-    worker.start()
 
 
 def _open_warehouse_state_manager(self):
     """仓库独立编辑器只生成草稿，游戏写入始终由仓库右上角保存入口拥有。"""
     if not request_input_entry(self, "native_equipment", "仓库状态管理"):
         return
-    active = getattr(self, "_warehouse_state_worker", None)
-    if active is not None and active.isRunning():
+    if self.warehouse_read_controller.state_save_lane.is_running() or getattr(self, "_warehouse_management_busy", False):
         return
     if getattr(self, "_warehouse_source", "") != "nte_core":
         QMessageBox.information(self, self.text_catalog.render('warehouse.management.title'),
@@ -560,7 +590,22 @@ def _open_warehouse_state_manager(self):
     self.warehouse_management_controller.open()
 
 
-def _on_warehouse_state_applied(self, result):
+def _warehouse_target_counts(changes):
+    if not isinstance(changes, (list, tuple)):
+        return None
+    keys = {"discarded": "discard", "locked": "lock", "normal": "normal"}
+    counts = dict.fromkeys(keys.values(), 0)
+    for change in changes:
+        target = change.get("target_state") if isinstance(change, Mapping) else None
+        if not isinstance(target, str) or target not in keys:
+            return None
+        counts[keys[target]] += 1
+    return counts
+
+
+def _on_warehouse_state_applied(self, result, *, is_current=lambda: True):
+    if not is_current():
+        return
     timings = self.warehouse_read_controller.state_timings
     if timings is not None:
         timings.since("save.apply.ready", "save.delivery_wait")
@@ -569,7 +614,6 @@ def _on_warehouse_state_applied(self, result):
     close_warehouse_state_progress(self)
     # 结果弹窗会运行嵌套事件循环；完成后验判断前仍由状态操作拥有面板。
     self._set_warehouse_management_busy(True)
-    summary = result.summary
     after_snapshot_id = getattr(result, "after_snapshot_id", None)
     has_new_snapshot = (
         isinstance(after_snapshot_id, int)
@@ -595,9 +639,11 @@ def _on_warehouse_state_applied(self, result):
             else item
             for item in getattr(self, "_warehouse_all_items", [])
         ]
-    result_message = (
-        localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.warehouse.controller.on_warehouse_state_applied.fed9c6854', '弃置/锁定操作结果：弃置 {value} 件，锁定 {value_2} 件，取消弃置 {value_3} 件，取消锁定 {value_4} 件。', value=f"{summary['discard_set_count']}", value_2=f"{summary['lock_set_count']}", value_3=f"{summary['discard_clear_count']}", value_4=f"{summary['lock_clear_count']}")
-    )
+    counts = _warehouse_target_counts(getattr(result, "reported_changes", None))
+    result_message = ""
+    if counts is not None:
+        key = 'warehouse.management.result.confirmed_counts' if result.verified else 'warehouse.management.result.submitted_counts'
+        result_message = _ui_text(key, **counts)
     if getattr(result, "inventory_reduction_observed", False):
         result_message += (
             "\n\n检测到库存减少；如游戏内未分解库存，请在工作台点击“重启同步”，等待完整背包读取完成。"
@@ -609,7 +655,7 @@ def _on_warehouse_state_applied(self, result):
         timed_call(timings, "gui.result_prompt", QMessageBox.information,
             self,
             _ui_text('warehouse.page.on_warehouse_state_applied.qmessagebox'),
-            result_message,
+            result_message.lstrip(),
         )
     else:
         if not getattr(result, "verified", False):
@@ -619,8 +665,10 @@ def _on_warehouse_state_applied(self, result):
         timed_call(timings, "gui.result_prompt", QMessageBox.warning,
             self,
             _ui_text('warehouse.page.on_warehouse_state_applied.qmessagebox.state') if getattr(result, "inventory_reduction_observed", False) else _ui_text('warehouse.page.on_warehouse_state_applied.qmessagebox.state_2'),
-            result_message,
+            result_message.lstrip(),
         )
+    if not is_current():
+        return
     self._warehouse_pending_state_changes = {}
     self.warehouse_read_controller.manual_targets = {}
     self.warehouse_read_controller.recommendation_targets = {}

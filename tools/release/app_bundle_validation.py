@@ -45,6 +45,7 @@ def validate_analysis_component(binary: Path, manifest_path: Path) -> None:
     if (not isinstance(manifest, dict) or manifest.get("engine") != "nte-analysis-core"
             or manifest.get("engine_version") != ENGINE_VERSION or manifest.get("sha256") != digest
             or not isinstance(capabilities, list) or "battle_page_v1" not in capabilities
+            or "weighted_allocation_v1" not in capabilities
             or not {"main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1", "analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"}.issubset(capabilities)):
         raise RuntimeError("独立分析组件缺少战报、分配、Rust 图纸或队伍预检能力或哈希不匹配")
 

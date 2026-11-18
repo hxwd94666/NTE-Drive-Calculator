@@ -20,6 +20,7 @@ from typing import Any
 
 from src.domain.inventory.post_actions import summarize_state_changes
 from src.domain.equipment.eligibility.management_settings import MatchingScope
+from src.domain.equipment.warehouse.warehouse_decisions import discard_is_protected
 from src.integrations.inventory.warehouse_state_writer import (
     LiveInventorySync,
     WarehouseStateWriteError,
@@ -41,6 +42,7 @@ class WarehouseStateManagementPlan:
     filter_summary: dict[str, int]
     command_projection_allowed: bool = False
     matching_identity: str = ""
+    reviewed_targets: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,7 @@ class WarehouseStateManagementResult:
     dispatch_rpc_duration_ms: float = 0.0
     dispatch_retry_count: int = 0
     confirmation_duration_ms: float = 0.0
+    reported_changes: tuple[dict[str, Any], ...] | None = None
 
 
 def _compat_uid(row: Mapping[str, Any]) -> str:
@@ -96,9 +99,11 @@ class WarehouseStateManagementService:
         input_guard=None,
         matching_scope=MatchingScope.WAREHOUSE,
         timings=None,
+        check_current: Callable[[], None] | None = None,
     ) -> None:
         self.timings = timings
         self.input_guard = input_guard
+        self.check_current = check_current
         self.matching_scope = MatchingScope(matching_scope)
         self.database_path = Path(database_path)
         self.sync_service = sync_service
@@ -137,6 +142,8 @@ class WarehouseStateManagementService:
         snapshot_id: int,
         targets: Mapping[str, str],
     ) -> WarehouseStateManagementPlan:
+        if self.check_current is not None:
+            self.check_current()
         if not isinstance(snapshot_id, int) or snapshot_id <= 0:
             raise WarehouseStateManagementError("没有可保存的稳定背包快照")
         if self.input_guard is not None:
@@ -150,6 +157,9 @@ class WarehouseStateManagementService:
             if user_dao.current_inventory_snapshot_id() != snapshot_id:
                 raise WarehouseStateManagementError("游戏背包已更新，请等待仓库自动刷新后重新编辑")
             rows = user_dao.list_inventory_items_with_runtime_state(snapshot_id)
+            self._require_discard_allowed(user_dao, (
+                row for row in rows if targets.get(_compat_uid(row)) == "discarded" and _current_state(row) != "discarded"
+            ))
         by_uid = {_compat_uid(row): row for row in rows}
         changes: list[dict[str, Any]] = []
         for uid, target_state in targets.items():
@@ -171,7 +181,17 @@ class WarehouseStateManagementService:
             changes=tuple(changes),
             filter_summary={},
             command_projection_allowed=True,
+            reviewed_targets=True,
         )
+
+    @staticmethod
+    def _require_discard_allowed(user_dao, rows):
+        rows = tuple(rows)
+        if not rows:
+            return
+        locked = {_compat_uid(row) for row in user_dao.list_allocation_locked_equipment_owners()}
+        if any(discard_is_protected(row, locked_plan=_compat_uid(row) in locked) for row in rows):
+            raise WarehouseStateManagementError("有待弃置装备正在使用或被锁定配装保留，请调整仓库草稿。")
 
     def apply(
         self,
@@ -229,10 +249,12 @@ class WarehouseStateManagementService:
             raise WarehouseStateManagementError(str(exc)) from exc
 
         check_current = None
-        if plan.matching_identity or self.input_guard is not None:
+        if self.check_current is not None or plan.matching_identity or self.input_guard is not None:
             settings = MatchingSettingsService(self.database_path, scope=self.matching_scope)
             def check_current(*, full=False):
                 try:
+                    if self.check_current is not None:
+                        self.check_current()
                     if plan.matching_identity:
                         settings.require_identity(plan.matching_identity)
                     if self.input_guard is not None:
@@ -284,6 +306,7 @@ class WarehouseStateManagementService:
             total_changes = len(plan.changes)
             prepared_changes: list[tuple[Mapping[str, Any], str, Mapping[str, int]]] = []
             dispatch_metrics = None
+            reported_changes = None
             try:
                 for change in plan.changes:
                     equipment = dict(change["equipment"])
@@ -295,6 +318,11 @@ class WarehouseStateManagementService:
                     applied_change["uid"] = str(applied_change.get("uid") or _compat_uid(row))
                     applied_changes.append(applied_change)
                 if prepared_changes:
+                    if plan.reviewed_targets:
+                        self._require_discard_allowed(user_dao, (
+                            row for row, target, _ in prepared_changes
+                            if target == "discarded" and _current_state(row) != "discarded"
+                        ))
                     self._report_progress(
                         progress_callback,
                         localized_text(None, 'auto.services.inventory.management.warehouse_state_management.apply.ff45e8a5f', '正在连续提交 {total_changes} 件装备状态…', total_changes=f'{total_changes}'),
@@ -321,6 +349,11 @@ class WarehouseStateManagementService:
                             applied_changes = self._accepted_changes(current_rows, dispatch_metrics.accepted_operations)
                             if not applied_changes:
                                 raise WarehouseStateManagementError(dispatch_metrics.stopped_reason)
+                        # 展示使用已接受的实际变更。读数无效时仍继续原有后验确认和收尾。
+                        try:
+                            reported_changes = tuple(self._accepted_changes(current_rows, dispatch_metrics.accepted_operations))
+                        except (AttributeError, KeyError, TypeError, ValueError):
+                            pass
                     except WarehouseStateWriteError as exc:
                         raise WarehouseStateManagementError(str(exc)) from exc
                 if plan.command_projection_allowed and applied_changes:
@@ -328,6 +361,8 @@ class WarehouseStateManagementService:
                         user_dao, "apply_inventory_command_state_projection", None,
                     )
                     if callable(projector):
+                        if self.check_current is not None:
+                            self.check_current()
                         projector(
                             plan.snapshot_id,
                             self._command_state_projection(current_rows, applied_changes),
@@ -422,6 +457,7 @@ class WarehouseStateManagementService:
             dispatch_rpc_duration_ms=dispatch_metrics.rpc_duration_ms,
             dispatch_retry_count=dispatch_metrics.retry_count,
             confirmation_duration_ms=confirmation_duration_ms,
+            reported_changes=reported_changes,
         )
 
     @staticmethod
@@ -574,6 +610,8 @@ class WarehouseStateManagementService:
         with self.dao_factory(self.database_path) as user_dao:
             if user_dao.current_inventory_snapshot_id() != plan.snapshot_id:
                 return None
+            if self.check_current is not None:
+                self.check_current()
             return int(user_dao.import_inventory_snapshot(packet, source="nte_core"))
 
     @staticmethod

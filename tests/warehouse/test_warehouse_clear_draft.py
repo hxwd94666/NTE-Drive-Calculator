@@ -101,7 +101,7 @@ def test_confirmation_cancel_or_changed_context_preserves_drafts(host, monkeypat
 @pytest.mark.parametrize("busy", ["state", "management"])
 def test_inflight_operation_does_not_prompt_or_clear(host, monkeypatch, busy):
     if busy == "state":
-        host._warehouse_state_worker = SimpleNamespace(isRunning=lambda: True)
+        host.warehouse_read_controller.state_save_lane = SimpleNamespace(is_running=lambda: True)
     else:
         host.warehouse_management_controller.is_running = lambda: True
     confirm = Mock()

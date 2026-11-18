@@ -75,7 +75,7 @@ def freeze_warehouse_calculation_inputs(database, static_database, config_dir, *
         raise
 
 
-def warehouse_orchestrator(inputs, static_database, config_dir, cancel_check, *, timings=None):
+def warehouse_orchestrator(inputs, static_database, config_dir, cancel_check, *, blueprint_executor=None, timings=None):
     with static_catalog_read_unit(static_database) as unit:
         if (unit.release.dataset_id, unit.release.sha256) != (inputs.static_dataset_id, inputs.static_sha256):
             raise ValueError("仓库建议的配装、权重、资料或规则已变化，请重新生成建议")
@@ -85,7 +85,8 @@ def warehouse_orchestrator(inputs, static_database, config_dir, cancel_check, *,
         shapes_db={key: DriveShape(**value) for key, value in data['shapes'].items()},
         board_matrices=data['boards'], fork_ids_by_name=data['fork_ids'], config_dir=config_dir,
         static_database_path=Path(static_database), timings=timings,
-        blueprint_executor=create_bundled_blueprint_executor(static_database, cancel_check=cancel_check))
+        blueprint_executor=(blueprint_executor if blueprint_executor is not None else
+                            create_bundled_blueprint_executor(static_database, cancel_check=cancel_check)))
 
 
 def warehouse_scoring(inputs, static_database, config_dir, cancel_check):

@@ -94,7 +94,7 @@ def test_failed_profile_preparation_is_still_incomplete_not_silently_skipped(acc
     monkeypatch.setattr(profiles, 'build_allocation_context', failed)
     inputs = freeze(path, include_profiles=True)
     assert inputs.profiles_frozen and inputs.profile_issues
-    witnesses, issues = profiles.freeze_profile_witnesses(inputs, lambda: None, lambda: False)
+    witnesses, issues = profiles.freeze_profile_witnesses(inputs, lambda: None, lambda: False, solve=failed)
     assert witnesses == []
     assert issues == list(inputs.profile_issues)
     monkeypatch.setattr(profiles, 'build_allocation_context', lambda *a, **k: (_ for _ in ()).throw(CancelledError()))
@@ -138,7 +138,7 @@ def test_partial_current_inventory_and_mismatched_static_identity_are_rejected(a
         freeze(path)
 
 
-def test_frozen_profile_removal_keeps_original_context_and_constraints(account, monkeypatch):
+def test_frozen_profile_removal_keeps_original_context_and_constraints(account):
     path, _, _, _ = account
     with UserDataDao(path) as user:
         user.create_optimization_profile('constraints', allocation_strategy='role_priority',
@@ -149,8 +149,8 @@ def test_frozen_profile_removal_keeps_original_context_and_constraints(account, 
     def run(context, cancelled, **kwargs):
         seen.append(context)
         return SimpleNamespace(role_keys=(), plans={})
-    monkeypatch.setattr(profiles, '_run', run)
-    profiles.freeze_profile_witnesses(inputs, lambda: None, lambda: False, excluded_uids=frozenset({'nte-module-23-13'}))
+    profiles.freeze_profile_witnesses(inputs, lambda: None, lambda: False, solve=run,
+                                      excluded_uids=frozenset({'nte-module-23-13'}))
     assert seen[0].candidates == ()
     assert seen[0].roles == prior.roles
     assert inputs.profile_contexts[0].candidates == prior.candidates and prior.candidates

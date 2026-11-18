@@ -83,6 +83,21 @@ def _coverage_note(value) -> str:
     return fixed_coverage_note(value)
 
 
+def _coverage_terms(text_catalog) -> str:
+    return localized_text(
+        text_catalog, "allocation.damage.detail.coverage_terms",
+        "量化包括可用现有模型重算的伤害，以及已证实不受换装影响的伤害。"
+        "估算指根据战报证据和已知机制推算的伤害。",
+    )
+
+
+def _coverage_details(text_catalog) -> str:
+    return "\n".join((_coverage_terms(text_catalog), localized_text(
+        text_catalog, "allocation.damage.detail.coverage_scope",
+        "覆盖率按原战报伤害量计算，不是命中次数或预测准确率；未计入部分的换装收益未知。",
+    )))
+
+
 def _text(catalog, key: str, fallback: str) -> str:
     if catalog is None:
         return fallback
@@ -138,8 +153,11 @@ def _damage_presentation(value, *, text_catalog=None) -> DamageOptimizationPrese
         pending_reason = value.get("reason")
         reason = (_explain_reason(str(pending_reason), text_catalog=text_catalog) if pending_reason
                   else localized_text(text_catalog, "allocation.damage.reason.optimization_incomplete", "伤害优化尚未完成。"))
+        details = _text(text_catalog, "allocation.damage.note.baseline_saved", "保留本次角色优先生成的合法配装；未宣称伤害提升，可直接保存，无需重新计算。")
+        if coverage_note:
+            details += "\n" + _coverage_details(text_catalog)
         return DamageOptimizationPresentation(_text(text_catalog, "allocation.damage.headline.baseline_saved", "基础配装｜可保存") + coverage_brief, " ".join(filter(None, (reason, coverage_note))),
-            _text(text_catalog, "allocation.damage.note.baseline_saved", "保留本次角色优先生成的合法配装；未宣称伤害提升，可直接保存，无需重新计算。"))
+            details)
     event_scope = value.get("scope") or {}
     excluded = event_scope.get("excluded_unscoped_event_count", 0) if isinstance(event_scope, Mapping) else 0
     warning = (localized_text(text_catalog, "allocation.damage.warning.unscoped_events_excluded",
@@ -213,8 +231,7 @@ def _damage_presentation(value, *, text_catalog=None) -> DamageOptimizationPrese
             "口径：同一批可计分伤害的全队目标，包含明确标注的机制估算；其余伤害未参与装备比较。各角色显示同一值，请勿相加。")
     details = [scope, localized_text(text_catalog, "allocation.damage.detail.search_line", "搜索：{search}不保证全局最优。", search=search)]
     if coverage_note:
-        details.append(localized_text(text_catalog, "allocation.damage.detail.coverage_scope",
-            "覆盖率按原战报伤害量计算，不是命中次数或预测准确率；未计入部分的换装收益未知。"))
+        details.append(_coverage_details(text_catalog))
     if blueprint_limited:
         details.append(localized_text(text_catalog, "allocation.damage.detail.blueprint_budget",
             "图纸枚举达到预算，仅搜索本次已生成并验证的布局；当前合法结果仍可保存。"))
@@ -244,6 +261,7 @@ def _joint_team_presentation(value, *, text_catalog=None):
             localized_text(text_catalog, "allocation.damage.team.note_normalization_invalid", "归一化记录异常，请重新计算。"), "")
     lines = []
     ratios = []
+    has_coverage = False
     for index, report in enumerate(reports, 1):
         if (not isinstance(report, Mapping) or not isinstance(report.get("baseline"), Mapping)
                 or not isinstance(report.get("selected_result"), Mapping)):
@@ -260,6 +278,7 @@ def _joint_team_presentation(value, *, text_catalog=None):
                 localized_text(text_catalog, "allocation.damage.team.note_gain_out_of_range", "战报增幅超出可展示范围。"), "")
         ratios.append(ratio)
         coverage = _coverage_note(report.get("selected_result", {}).get("coverage"))
+        has_coverage = has_coverage or bool(coverage)
         lines.append(localized_text(text_catalog, "allocation.damage.team.line",
             "队伍 {index} · 战报 #{record_id}：计分部分 {ratio}。",
             index=index, record_id=report.get('battle_record_id'), ratio=f"{ratio:+.2%}") + coverage)
@@ -269,8 +288,10 @@ def _joint_team_presentation(value, *, text_catalog=None):
     headline = localized_text(text_catalog, "allocation.damage.team.headline", "双队综合增幅 {gain}", gain=f"{after - 1:+.2%}")
     if not search_is_complete(value):
         headline += " · " + _text(text_catalog, "allocation.damage.state.search_incomplete", "搜索未完成")
-    return DamageOptimizationPresentation(headline, "\n".join(lines),
-        localized_text(text_catalog, "allocation.damage.team.details",
+    details = localized_text(text_catalog, "allocation.damage.team.details",
         "两份战报各以本次基础配装的计分伤害为 100，综合增幅为两队相对增幅的等权平均。"
         "各队独立冻结计分范围，未计入伤害的收益未知；覆盖率不是准确率。"
-        "队伍之间允许收益取舍，关联成员须一起保存。各成员展示同一综合结果，请勿相加。搜索不保证全局最优。"), after > 1)
+        "队伍之间允许收益取舍，关联成员须一起保存。各成员展示同一综合结果，请勿相加。搜索不保证全局最优。")
+    if has_coverage:
+        details += "\n" + _coverage_terms(text_catalog)
+    return DamageOptimizationPresentation(headline, "\n".join(lines), details, after > 1)

@@ -85,13 +85,13 @@ def apply_runtime_data_upgrades(root: Path, package: Path, snapshot: Path | None
     index = root / "accounts" / "accounts.json"
     active = json.loads(index.read_text(encoding="utf-8"))["active_account_id"] if index.exists() else None
     settings = []
-    for entry in upgrade_entries(snapshot):
+    for entry in upgrade_entries(root, snapshot):
         path = root / entry["path"]
         if entry["account_id"] is None:
             with SharedDataDao(path):
                 pass
         else:
-            with UserDataDao(path):
+            with UserDataDao(path, verified_recovery_schema=entry["schema"]):
                 pass
             service = AccountSettingsService(path, static_database_path=package / "data" / "game_static.sqlite3",
                                              legacy_config_dir=path.parent / "config")

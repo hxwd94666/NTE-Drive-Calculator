@@ -74,9 +74,8 @@ def invalidate_management_preview(host):
         return
     except ValueError:
         pass
-    pending = {
-        uid: state for uid, state in owner.manual_targets.items() if state != host._warehouse_base_states.get(uid)
-    }
+    pending = {uid: state for uid, state in host._warehouse_pending_state_changes.items()
+               if owner.manual_targets.get(uid) == state}
     projected = _state_projection(host, pending)
     owner.recommendation_guard, owner.recommendation_targets, owner.conflicts = None, {}, []
     owner.conflict_guard = None
@@ -101,20 +100,28 @@ def project_management_preview(host, expected, result, guard):
     for uid, state in targets.items():
         if uid in manual and manual[uid] != state:
             raise ValueError("生成结果改变了已冻结的人工目标")
-    pending = {uid: state for uid, state in manual.items() if state != host._warehouse_base_states.get(uid)}
     generated = {uid: state for uid, state in targets.items() if uid not in manual}
-    pending.update(generated)
+    # 只采用首阶段已批准的人工目标。受阻/未知目标仍定案，但不进入待保存集合。
+    pending = dict(targets)
     guard.require_targets(pending)
     projected = timed_call(timings, "gui.state_projection", _state_projection, host, pending)
     # 全部门禁通过后再一次替换，失败不提交半份状态或冲突证据。
     owner.cancel_quality()
     owner.recommendation_guard, owner.recommendation_targets = guard, generated
-    owner.conflicts = list(result.get("conflicts", ()))
+    owner.conflicts = [row for row in result.get("conflicts", ()) if row["uid"] not in manual]
     owner.conflict_guard = guard
     owner.management_issues = [
         dict(row) for row in result.get("rows", ()) if row.get("decision_status") in {"unknown", "blocked"}
     ]
     _project_states(host, pending, projected, timings=timings)
+    hint = getattr(host, "warehouse_hint", None)
+    limitations = list(result.get("limitations", ()))
+    if any(row["uid"] in manual and "state_protected" in row.get("reasons", ())
+           for row in owner.management_issues):
+        limitations.append(host.text_catalog.render("warehouse.management.discard_protected"))
+    if hint is not None and limitations:
+        hint.setText("\n".join(limitations))
+        hint.show()
     if probe is not None:
         probe.submitted()
     score = result.get("warehouse_score")

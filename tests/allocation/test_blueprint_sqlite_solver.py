@@ -64,6 +64,7 @@ class BlueprintSqliteSolverTests(unittest.TestCase):
             static_database = Path(directory) / "game_static.sqlite3"
             shared_database = Path(directory) / "app_shared.sqlite3"
             shutil.copy2(STATIC_DATABASE_PATH, static_database)
+            shutil.copy2(STATIC_DATABASE_PATH.with_name("manifest.json"), static_database.with_name("manifest.json"))
             with StaticGameDataDao(static_database) as dao:
                 character_id = next(
                     int(character["character_id"])

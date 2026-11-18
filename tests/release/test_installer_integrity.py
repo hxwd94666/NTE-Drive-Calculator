@@ -55,11 +55,14 @@ def test_non_admin_builder_does_not_change_or_create_output(tmp_path, monkeypatc
     assert not api.writes and setup.read_bytes() == b"fixture"
 
 
-def test_output_keeps_path_and_limits_changes_to_owned_directory(tmp_path, monkeypatch):
+@pytest.mark.parametrize("parent_exists", [False, True])
+def test_output_keeps_path_and_limits_changes_to_owned_directory(tmp_path, monkeypatch, parent_exists):
     api = Labels()
     monkeypatch.setattr(integrity.sys, "platform", "win32")
     monkeypatch.setattr(integrity, "_api", lambda: api)
-    output = tmp_path / "output"
+    output = tmp_path / "installer" / "output"
+    if parent_exists:
+        output.parent.mkdir()
     assert integrity.prepare_installer_output(output)
     assert api.writes == [(output, "S:(ML;OICI;NW;;;ME)")]
     assert output.is_dir()

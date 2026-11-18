@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from concurrent.futures import CancelledError
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from src.domain.equipment.geometry.drive_layout import matrix_groups_in_scan_order
 from src.domain.allocation.inputs import AllocationCandidate, AllocationContext, AllocationRolePreference
@@ -62,6 +62,7 @@ class RoleTopK:
     character_id: int
     options: tuple[RoleAllocationOption, ...]
     rejection_reason: str | None
+    search_limited: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,7 @@ class UnifiedAllocation:
     selected: tuple[RoleAllocationOption, ...]
     unassigned_character_ids: tuple[int, ...]
     explanation: tuple[str, ...]
+    search_limited: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +97,7 @@ def _contributions(candidate: AllocationCandidate, role: AllocationRolePreferenc
     )
 
 
-def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocationOption | None:
+def _option(role: AllocationRolePreference, run, *, rank: int, native: bool = False) -> RoleAllocationOption | None:
     plan = run.plans.get(run.role_key(role.character_id)) or {}
     if not plan.get("valid"):
         return None
@@ -108,13 +110,15 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
             str(shape_id).strip().casefold(), []
         ).append(tuple(cells))
     assignments: list[AllocationAssignment] = []
+    blueprint_source = "Rust 图纸" if native else "PuzzleCombinatorics + DFSPuzzleSolver"
+    scoring_source = "Rust 基础评分" if native else "ScoringEngine"
     role_key = run.role_key(role.character_id)
     tape = plan.get("assigned_tape")
     if tape is not None:
         item = run.candidates_by_legacy_uid[tape.uid]
         assignments.append(AllocationAssignment(item.uid, "core", item.item_id, item.suit_id, None, (), None,
             float(tape.role_scores.get(role_key, 0.0)), _contributions(item, role),
-            ("ScoringEngine 标准化核心评分", "用户核心主词条过滤"),
+            (f"{scoring_source} 标准化核心评分", "用户核心主词条过滤"),
             grid_count=item.grid_count))
     for drives, slot_label in ((plan.get("assigned_set_drives", ()) or (), "套装必要形状"),
                                (plan.get("assigned_extra_drives", ()) or (), "额外形状")):
@@ -130,7 +134,7 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
             assignments.append(AllocationAssignment(item.uid, "module", item.item_id, item.suit_id, item.geometry,
                 shape_groups.pop(0), None,
                 float(drive.role_scores.get(role_key, 0.0)), _contributions(item, role),
-                ("ScoringEngine 标准化驱动评分", "PuzzleCombinatorics + DFSPuzzleSolver", slot_label),
+                (f"{scoring_source} 标准化驱动评分", blueprint_source, slot_label),
                 grid_count=item.grid_count))
     if any(groups for groups in groups_by_shape.values()):
         raise AllocationSolverError(f"角色 {role.character_id} 的图纸存在未绑定驱动格块")  # ui-text: internal
@@ -146,8 +150,8 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
         (
             "官方 20 格底盘",
             "官方形状坐标",
-            "PuzzleCombinatorics + DFSPuzzleSolver",
-            "ScoringEngine",
+            blueprint_source,
+            scoring_source,
             "官方配装预设未参与选优",
         ),
         str(plan.get("missing_core_reason") or "") or None,
@@ -208,20 +212,95 @@ def _top_k(
     return RoleTopK(role.character_id, tuple(options), None if options else "既有求解器未能生成满足约束的完整候选")
 
 
+def _validate_context(context: AllocationContext, top_k: int) -> None:
+    if not isinstance(context, AllocationContext):
+        raise TypeError("求解器只接受不可变 AllocationContext")  # ui-text: internal
+    if type(top_k) is not int or not 1 <= top_k <= 20:
+        raise ValueError("top_k 必须是 1 到 20 的整数")  # ui-text: internal
+    if not context.shapes or not context.suits or not context.attributes:
+        raise AllocationSolverError("AllocationContext 缺少求解器所需的形状、套装或属性映射")  # ui-text: internal
+
+
+def solve_native_allocation_context(
+    context: AllocationContext, *, top_k: int = 5, include_role_top_k: bool = True,
+    allow_missing_core: bool = False, cancel_check: Callable[[], bool] | None = None,
+) -> AllocationSolveResult:
+    """Calculate the weighted preview from its frozen context in the analysis component."""
+    from src.integrations.allocation.native_blueprints import create_blueprint_executor
+    from src.integrations.allocation.native_weighted_allocation import CAPABILITY, execute_weighted_allocation
+    from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
+    from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled, NativeAnalysisError
+    from src.services.allocation.execution.legacy_adapter import prepare_allocation
+
+    _checkpoint(cancel_check)
+    _validate_context(context, top_k)
+    try:
+        client = create_bundled_analysis_client(
+            static_database_path=context.static_database_path, cancelled=cancel_check,
+        )
+        if client is None or CAPABILITY not in client.version().get("capabilities", ()):
+            raise NativeAnalysisError("分析组件缺少加权配装能力，请更新配套组件")
+        if client.dataset_version != context.static_dataset.dataset_id:
+            raise NativeAnalysisError("加权配装使用的静态数据集已变更")
+        blueprints = create_blueprint_executor(client, cancel_check=cancel_check)
+    except NativeAnalysisCancelled:
+        raise CancelledError("配装计算已取消") from None
+    request, scorer, run = prepare_allocation(
+        context, allow_missing_core=allow_missing_core, cancel_check=cancel_check,
+        blueprint_executor=blueprints,
+    )
+    plans, top, limited = execute_weighted_allocation(
+        client, request, scorer, top_k=top_k if include_role_top_k else 0, cancel_check=cancel_check,
+    )
+    run = replace(run, plans=plans)
+    selected = []
+    role_top_k = []
+    for role in context.roles:
+        _checkpoint(cancel_check)
+        option = _option(role, run, rank=1, native=True)
+        if option is not None:
+            selected.append(option)
+        if include_role_top_k:
+            name = run.role_key(role.character_id)
+            batch = top[name]
+            options = []
+            for rank, plan in enumerate(batch["plans"], 1):
+                option = _option(role, replace(run, plans={name: plan}), rank=rank, native=True)
+                if option is None:
+                    raise AllocationSolverError("配装候选缺少有效装备")
+                options.append(option)
+            role_top_k.append(RoleTopK(
+                role.character_id, tuple(options),
+                None if options else (
+                    "配装搜索达到预算" if batch["limited"] else batch["reason"]
+                    or "未生成满足约束的完整候选"
+                ),
+                batch["limited"],
+            ))
+
+    selected_ids = {option.character_id for option in selected}
+    _checkpoint(cancel_check)
+    return AllocationSolveResult(
+        context.snapshot.snapshot_id, context.profile_id, context.profile_version, context.solver_version,
+        top_k, tuple(role_top_k),
+        UnifiedAllocation(
+            context.allocation_strategy, sum(option.score for option in selected), tuple(selected),
+            tuple(role.character_id for role in context.roles if role.character_id not in selected_ids),
+            ("Rust 从同一不可变库存和角色配置求解", "统一分配的原生装备 UID 不重复"),
+            limited,
+        ),
+    )
+
+
 def solve_allocation_context(context: AllocationContext, *, top_k: int = 5, include_role_top_k: bool = True,
                              role_search_limit: int = 20_000, global_search_limit: int = 100_000,
                              allow_missing_core: bool = False,
                              cancel_check: Callable[[], bool] | None = None) -> AllocationSolveResult:
-    """Run the established scorer, puzzle solver and strategy dispatcher via Context."""
+    """Run the Python reference implementation for comparison and offline callers."""
 
     _checkpoint(cancel_check)
     del role_search_limit, global_search_limit
-    if not isinstance(context, AllocationContext):
-        raise TypeError("求解器只接受不可变 AllocationContext")  # ui-text: internal
-    if not isinstance(top_k, int) or not 1 <= top_k <= 20:
-        raise ValueError("top_k 必须是 1 到 20 的整数")  # ui-text: internal
-    if not context.shapes or not context.suits or not context.attributes:
-        raise AllocationSolverError("AllocationContext 缺少既有求解器所需的形状、套装或属性映射")  # ui-text: internal
+    _validate_context(context, top_k)
     from src.services.allocation.execution.legacy_adapter import run_legacy_allocation
 
     role_top_k = (

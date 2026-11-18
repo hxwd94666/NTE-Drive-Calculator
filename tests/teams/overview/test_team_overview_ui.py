@@ -98,17 +98,41 @@ def test_source_controls_fit_small_screen_and_cancel_never_writes(tmp_path, them
         dispose(dialog)
 
 
-def test_preview_and_saved_status_are_explicit_plain_ui_state():
-    from PySide6.QtWidgets import QLabel
-    from src.ui.equipment.damage_optimization_panel import damage_optimization_panel
+@pytest.mark.parametrize("saved", [False, True])
+def test_allocation_results_only_show_saved_team_enhancement_status(saved):
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QToolButton, QVBoxLayout, QWidget
+    from src.domain.localization.catalog import make_catalog
+    from src.integrations.preferences.locale_files import bundled_text_catalog, read_catalog_file
+    from src.integrations.runtime.bundled_resources import bundled_root
+    from src.ui.equipment.equipment_result_rendering import _render_results
+
     application()
-    value = dict(objective="frozen_axis_expected_v1", result_kind="baseline", status="baseline_only", reason="模型未就绪")
-    for state in ("队伍增强预览，尚未保存", "本次队伍增强与方案已保存"):
-        panel = damage_optimization_panel(value, object_name="teamPreview", save_state=state)
-        try:
-            assert state in [label.text() for label in panel.findChildren(QLabel)]
-        finally:
-            dispose(panel)
+    base = bundled_text_catalog()
+    catalog = make_catalog(read_catalog_file(bundled_root() / "docs/examples/locales/qps-ploc.json"), base=base)
+    card = QWidget()
+    owner = SimpleNamespace(result_card=card, result_content_layout=QVBoxLayout(card), roles_db={}, text_catalog=catalog)
+    prefix = "auto.ui.equipment.equipment_result_rendering.render_results."
+    value = dict(objective="frozen_axis_expected_v1", result_kind="baseline", status="baseline_only",
+                 coverage=dict(policy="available_fixed_domain_v1", basis_damage=100,
+                               quantified_damage=23.3, estimated_damage=76.7, excluded_damage=0))
+    try:
+        _render_results(owner, {"角色": dict(valid=True, damage_optimization=value,
+                                             team_enhancement_preview={}, team_enhancement_saved=saved)})
+        panel = card.findChild(QWidget, "allocationDamageOptimization")
+        assert panel is not None
+        labels = panel.findChildren(QLabel)
+        texts = [label.text() for label in labels]
+        assert base.render(prefix + "e5dcc16f") not in texts
+        assert catalog.render(prefix + "e5dcc16f") not in texts
+        assert (catalog.render(prefix + "c47d7168") in texts) is saved
+        explanation = catalog.render("allocation.damage.detail.coverage_terms")
+        details, = (label for label in labels if explanation in label.text())
+        assert details.isHidden()
+        panel.findChild(QToolButton).click()
+        assert not details.isHidden()
+    finally:
+        dispose(card)
 
 
 def test_unselected_member_is_preview_only_until_explicit_partial_source_save(tmp_path):

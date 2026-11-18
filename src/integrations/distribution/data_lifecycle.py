@@ -9,7 +9,7 @@ import shutil
 from uuid import uuid4
 
 from src.app.constants import CORE_CONFIG_FILES
-from src.storage.sqlite.runtime_data_snapshot import database_identity
+from src.storage.sqlite.runtime_data_snapshot import database_identity, estimated_database_backup_bytes
 from .data_inventory import account_databases, configuration_files, copy_snapshot_file
 from .data_roots import write_record
 from .lock import DataRootLease, reject_links
@@ -95,13 +95,42 @@ def prepare_data_upgrade(root: Path, package: Path, distribution: Distribution,
         config_changed = True
     if not changing and not config_changed:
         return None
-    snapshot = _make_snapshot(root, configuration_files(root), changing, distribution, "upgrade")
+    files = configuration_files(root)
+    required = sum(path.stat().st_size for path in files) + sum(
+        estimated_database_backup_bytes(path) for path, _ in changing
+    )
+    if shutil.disk_usage(root).free < required:
+        raise DistributionError("可用磁盘空间不足，无法创建升级恢复点。")
+    snapshot = _make_snapshot(root, files, changing, distribution, "upgrade")
     write_record(pending, {"schema_version": 1, "recovery_id": snapshot.name})
     return snapshot
 
 
-def upgrade_entries(snapshot: Path | None) -> list[dict]:
-    return _load(snapshot / "record.json")["databases"] if snapshot else []
+def upgrade_entries(root: Path, snapshot: Path) -> list[dict]:
+    """全部备份和当前来源通过核对后，调用方才启动第一份库的迁移。"""
+    if snapshot.parent != root / "maintenance" / "data-recovery":
+        raise DistributionError("恢复点包含越界路径。")
+    record = _load(snapshot / "record.json")
+    pending = _load(root / "maintenance" / "pending-upgrade.json")
+    if (record.get("state") != "prepared" or record.get("reason") != "upgrade"
+            or record.get("recovery_id") != snapshot.name or pending.get("recovery_id") != snapshot.name):
+        raise DistributionError("该恢复点未完成备份校验。")
+    expected = {path.relative_to(root).as_posix(): info for path, info in _databases(root)
+                if info["schema"] < info["target_schema"] or info["legacy_settings"]}
+    entries = record["databases"]
+    for entry in entries:
+        relative = entry["path"]
+        info = expected.pop(relative, None)
+        if info is None:
+            raise DistributionError("恢复点包含越界路径。")
+        backup = snapshot / "files" / relative
+        reject_links(backup)
+        if (any(entry.get(key) != value for key, value in info.items()) or _digest(backup) != entry["sha256"]
+                or database_identity(backup, info["account_id"]) != info):
+            raise DistributionError("恢复点文件摘要不一致。")
+    if expected:
+        raise DistributionError("该恢复点未完成备份校验。")
+    return entries
 
 
 def finish_data_upgrade(root: Path, snapshot: Path | None, lease: DataRootLease) -> None:

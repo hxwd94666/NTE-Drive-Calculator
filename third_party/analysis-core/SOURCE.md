@@ -17,6 +17,8 @@ Rust 返回的版本化目标派生快照由 Python 在复核账号和静态配�
 `allocation_v2` 提供普通角色优先分配。正式直伤与轴伤使用 `damage_allocation_v1`：
 一次冻结作业生成图纸、原角色优先 B0、正式落位，再执行独立有界优化；不修改上游权重、基础评分或原始战报。
 `equipment_scoring_v1` 与分配共用评分/评级核，公开 ScoringEngine 为批量无公式适配入口。
+`allocation_blueprints_v1` 为独立图纸页和配装提供布局候选。
+`weighted_allocation_v1` 基于冻结装备和属性上下限生成统一分配与单角色 Top-K，返回搜索预算状态。
 完整作业返回基础分、评级、落位及覆盖证明；Calc 复核冻结身份并保存，不复制私有数值实现。
 功能范围、未量化机制和截断说明见[功能说明](../../docs/features.md#计算结果后处理)，
 协议职责与来源身份见[集成说明](../../docs/integrations.md#12-分配结果后处理作业)。

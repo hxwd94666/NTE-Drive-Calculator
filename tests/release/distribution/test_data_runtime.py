@@ -148,6 +148,8 @@ def test_upgrade_all_accounts_once_and_restore_preserves_newer_data(tmp_path):
         record = json.loads((snapshot / "record.json").read_text())
         assert {row["account_id"] for row in record["databases"]} == {"one", "two"}
         apply_runtime_data_upgrades(tmp_path, ROOT, snapshot, lease)
+        for key in ("one", "two"):
+            assert not (tmp_path / "accounts" / key / ".migration-backups").exists()
         finish_data_upgrade(tmp_path, snapshot, lease)
         assert prepare_data_upgrade(tmp_path, ROOT, portable(), lease) is None
         with UserDataDao(tmp_path / "accounts/one/user_data.sqlite3") as dao:
@@ -176,6 +178,19 @@ def test_backup_failure_prevents_migration_and_pending_failure_requires_restore(
         assert snapshot
         with pytest.raises(DistributionError, match="上次"):
             prepare_data_upgrade(tmp_path, ROOT, portable(), lease)
+
+
+def test_changed_recovery_copy_stops_all_accounts_before_migration(tmp_path):
+    account_root(tmp_path, ("one", "two"), old=True)
+    with DataRootLease(tmp_path) as lease:
+        snapshot = prepare_data_upgrade(tmp_path, ROOT, portable(), lease)
+        backup = snapshot / "files/accounts/two/user_data.sqlite3"
+        with backup.open("ab") as stream:
+            stream.write(b"changed")
+        with pytest.raises(DistributionError, match="摘要"):
+            apply_runtime_data_upgrades(tmp_path, ROOT, snapshot, lease)
+        for key in ("one", "two"):
+            assert database_identity(tmp_path / f"accounts/{key}/user_data.sqlite3", key)["schema"] == 44
 
 
 def test_normal_startup_only_inspects_schema_not_full_integrity(tmp_path, monkeypatch):

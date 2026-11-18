@@ -341,6 +341,7 @@ def test_unconfirmed_write_survives_late_read_and_modal_event_loop(app, monkeypa
     host = make_host(monkeypatch, tmp_path, reader)
 
     def modal_warning(*_args):
+        assert "已提交弃置 1 件、锁定 1 件、恢复正常 2 件" in _args[2]
         # 真正执行 Qt 嵌套事件循环，让迟到的读取在结果回调中交付。
         release.set()
         loop = QEventLoop()
@@ -358,7 +359,8 @@ def test_unconfirmed_write_survives_late_read_and_modal_event_loop(app, monkeypa
             before_snapshot_id=1, after_snapshot_id=None, verified=False,
             inventory_reduction_observed=False, verification_error="fixture pending confirmation",
             changes=({"uid": "fixture-1", "target_state": "locked"},),
-            summary={"discard_set_count": 0, "lock_set_count": 1, "discard_clear_count": 0, "lock_clear_count": 0},
+            reported_changes=tuple({"target_state": target}
+                                   for target in ("locked", "discarded", "normal", "normal")),
         ))
         app.processEvents()
         assert len(seen) == 2
@@ -374,6 +376,47 @@ def test_unconfirmed_write_survives_late_read_and_modal_event_loop(app, monkeypa
         until(app, lambda: host._warehouse_snapshot_id == 2 and not host.warehouse_read_controller.is_running())
         assert host._warehouse_confirmation_after is None
         assert [item["uid"] for item in host._warehouse_all_items] == ["fixture-2"]
+    finally:
+        release.set()
+        close_host(app, host)
+
+
+@pytest.mark.parametrize("switch_account", [True, False])
+def test_stale_save_plan_is_discarded_on_account_or_sync_change(app, monkeypatch, tmp_path, switch_account):
+    entered, release = threading.Event(), threading.Event()
+    confirmations = []
+
+    class Service:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def plan_manual_changes(self, *_args):
+            entered.set()
+            assert release.wait(5)
+            return SimpleNamespace(changes=({"target_state": "locked"},))
+
+    monkeypatch.setattr(page_module, "WarehouseStateManagementService", Service)
+    monkeypatch.setattr(page_module, "request_input_entry", lambda *_args: True)
+    monkeypatch.setattr(page_module.QMessageBox, "question", lambda *_args: confirmations.append(True))
+    host = make_host(monkeypatch, tmp_path, lambda _: snapshot(1))
+    try:
+        host._refresh_warehouse()
+        until(app, lambda: not host.warehouse_read_controller.is_running())
+        host._inventory_sync_service = SimpleNamespace(is_running=True)
+        host._inventory_sync_state_token = object()
+        host._warehouse_pending_state_changes = {"fixture-1": "locked"}
+        host._save_warehouse_state_changes()
+        until(app, entered.is_set)
+        if switch_account:
+            reset_warehouse_account(host)
+            host.app_context.generation += 1
+            host._warehouse_pending_state_changes = {"new-account": "normal"}
+        host._inventory_sync_state_token = object()
+        release.set()
+        until(app, lambda: not host.warehouse_read_controller.is_running())
+        assert not confirmations and not host._warehouse_management_busy
+        assert host._warehouse_pending_state_changes == ({"new-account": "normal"} if switch_account
+                                                         else {"fixture-1": "locked"})
     finally:
         release.set()
         close_host(app, host)

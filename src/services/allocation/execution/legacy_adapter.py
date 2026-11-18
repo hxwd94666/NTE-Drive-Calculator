@@ -248,20 +248,16 @@ def legacy_shapes(context: AllocationContext, *, cancel_check=None) -> dict[str,
     return result
 
 
-def run_legacy_allocation(
+def prepare_allocation(
     context: AllocationContext,
     *,
     roles: Sequence[AllocationRolePreference] | None = None,
     excluded_uids: Iterable[tuple[int, int]] = (),
     allow_missing_core: bool = False,
     cancel_check: Callable[[], bool] | None = None,
-    kernel_executor=None,
-) -> LegacyAllocationRun:
-    """Run the unchanged old scoring, blueprint and strategy pipeline.
-
-    All mutable objects below are short-lived projections of the Context.  The
-    old pipeline never sees a DAO, a moving snapshot, or a newer user profile.
-    """
+    blueprint_executor=None,
+):
+    """Project a frozen context to the shared allocation boundary."""
 
     _checkpoint(cancel_check)
     selected_roles = tuple(roles if roles is not None else context.roles)
@@ -277,7 +273,7 @@ def run_legacy_allocation(
     shapes_db = legacy_shapes(context, cancel_check=cancel_check)
     orchestrator = NTEPipelineOrchestrator.from_frozen_inputs(
         roles_db=roles_db, sets_db=suits_db, shapes_db=shapes_db,
-        static_database_path=getattr(context, "static_database_path", None),
+        static_database_path=getattr(context, "static_database_path", None), blueprint_executor=blueprint_executor,
     )
     blueprints = orchestrator.solve_blueprints(
         priority_list, custom_sets=custom_sets, set_effect_modes=set_modes,
@@ -322,10 +318,17 @@ def run_legacy_allocation(
         drive_screen_limit=drive_screen_limit, tape_screen_limit=tape_screen_limit,
         cancel_check=cancel_check,
     )
+    _checkpoint(cancel_check)
+    return request, scoring, LegacyAllocationRun(
+        role_keys=tuple((role.character_id, _role_key(role)) for role in selected_roles),
+        plans={}, candidates_by_legacy_uid=candidate_by_legacy_uid,
+    )
+
+
+def run_legacy_allocation(context: AllocationContext, *, kernel_executor=None, **options) -> LegacyAllocationRun:
+    """Run the in-process reference path for comparative and offline callers."""
+    request, scoring, run = prepare_allocation(context, **options)
     plans = (kernel_executor(request, scoring) if kernel_executor is not None
              else AllocationKernel(scoring).execute(request))
-    _checkpoint(cancel_check)
-    return LegacyAllocationRun(
-        role_keys=tuple((role.character_id, _role_key(role)) for role in selected_roles),
-        plans=plans, candidates_by_legacy_uid=candidate_by_legacy_uid,
-    )
+    _checkpoint(request.cancel_check)
+    return LegacyAllocationRun(run.role_keys, plans, run.candidates_by_legacy_uid)

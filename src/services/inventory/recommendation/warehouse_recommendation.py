@@ -17,6 +17,7 @@ from src.domain.equipment.warehouse.warehouse_rule_order import apply_ordered_ru
 from src.domain.equipment.warehouse.warehouse_quality import summarize_warehouse_quality
 from src.services.inventory.recommendation.warehouse_recommendation_profiles import (
     freeze_profile_witnesses,
+    run_profile_allocation,
     witness_uids,
 )
 from src.services.inventory.recommendation.warehouse_loss_guard import freeze_loss_witnesses, repair_known_losses
@@ -34,6 +35,8 @@ from src.services.inventory.recommendation.warehouse_recommendation_display impo
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.optimizer.allocation_kernel import AllocationKernelRequest, estimate_candidate_pool_limits
 from src.integrations.allocation.native_allocation import create_allocation_executor
+from src.integrations.allocation.native_blueprints import create_blueprint_executor
+from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
 from src.optimizer.scoring import ScoringEngine
 from src.services.identification.matching_context import build_equipment_match_context
 from src.services.identification.matching_settings import (
@@ -108,8 +111,10 @@ def run_warehouse_trial(
     originals_by_uid = deepcopy(raw_by_uid)
     raw_by_uid, fixed, excluded, fixed_retained = predecessor_context(raw_by_uid, predecessors)
     stats = StatCatalog.from_config_dir(config_dir)
+    analysis_client = create_bundled_analysis_client(static_database_path=static_database, cancelled=cancelled)
+    blueprint_executor = create_blueprint_executor(analysis_client, cancel_check=cancelled)
     orchestrator = timed_call(timings, "recommendation.catalog", warehouse_orchestrator,
-        inputs, static_database, config_dir, cancelled, timings=timings)
+        inputs, static_database, config_dir, cancelled, blueprint_executor=blueprint_executor, timings=timings)
     settings = (
         deepcopy(matching_settings)
         if matching_settings is not None
@@ -182,14 +187,17 @@ def run_warehouse_trial(
         cancel_check=cancelled,
     )
     progress("使用 Rust 配装内核，建立全角色可行配装见证")
-    native_execute = timed_call(timings, "witness.native_prepare", create_allocation_executor,static_database_path=static_database, cancel_check=cancelled)
+    native_execute = timed_call(timings, "witness.native_prepare", create_allocation_executor,
+        static_database_path=static_database, cancel_check=cancelled, analysis_client=analysis_client)
     execute = partial(native_execute, scorer=scorer)
     baseline = timed_call(timings, "witness.all_roles", execute, request)
     before = _plan_summary(baseline)
     progress('复核已保存配装偏好的实际约束')
+    solve_profile = partial(run_profile_allocation, executor=native_execute, timings=timings,
+                            blueprint_executor=blueprint_executor)
     profile_witnesses, profile_issues = freeze_profile_witnesses(
         inputs, checkpoint, cancelled,
-        executor=native_execute, excluded_uids=frozenset(excluded), timings=timings)
+        solve=solve_profile, excluded_uids=frozenset(excluded))
     incomplete = bool(
         profile_issues
         or context.errors
@@ -279,7 +287,7 @@ def run_warehouse_trial(
                    state_known=all(original.get(k) is not None for k in ('locked','discarded','equipped')))
     progress('冻结全角色、不同优先级及已保存配装的已知基线')
     witnesses = freeze_loss_witnesses(execute,request,before,
-                                    profile_witnesses,checkpoint,cancelled,_plan_summary,profile_executor=native_execute,timings=timings)
+                                    profile_witnesses,checkpoint,cancelled,_plan_summary,solve_profile=solve_profile,timings=timings)
     loss_check = repair_known_losses(result['rows'],witnesses,checkpoint,progress=progress,timings=timings)
     after = loss_check['after']['all_roles']
     loss = [f"{row['scope']}:{row['role']}" for row in loss_check['losses']]

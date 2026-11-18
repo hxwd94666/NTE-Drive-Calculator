@@ -127,7 +127,7 @@ class WarehouseInventoryTests(unittest.TestCase):
             def __init__(self, running):
                 self.running = running
 
-            def isRunning(self):
+            def is_running(self):
                 return self.running
 
         class Window:
@@ -136,7 +136,7 @@ class WarehouseInventoryTests(unittest.TestCase):
             _warehouse_pending_state_changes = {}
 
             def __init__(self):
-                self._warehouse_state_worker = Worker(True)
+                self.warehouse_read_controller = SimpleNamespace(state_save_lane=Worker(True))
                 self.warehouse_hint = Hint()
                 self.refresh_count = 0
 
@@ -153,7 +153,7 @@ class WarehouseInventoryTests(unittest.TestCase):
         self.assertEqual(0, window.refresh_count)
         self.assertTrue(window.warehouse_hint.visible)
 
-        window._warehouse_state_worker = Worker(False)
+        window.warehouse_read_controller.state_save_lane = Worker(False)
         _on_warehouse_sync_state(
             window,
             SimpleNamespace(phase="listening", last_snapshot_id=9),

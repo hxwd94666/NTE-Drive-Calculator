@@ -195,11 +195,15 @@ def _render_results(self, plan):
         gl.addLayout(role_hdr)
         gl.addSpacing(6)
 
+        text_catalog = getattr(self, "text_catalog", None)
+        save_state = None
+        if p.get("team_enhancement_preview") is not None and p.get("team_enhancement_saved"):
+            save_state = resolve_text_catalog(text_catalog).render(
+                "auto.ui.equipment.equipment_result_rendering.render_results.c47d7168"
+            )
         optimization_panel = damage_optimization_panel(
             p.get("damage_optimization"), object_name="allocationDamageOptimization",
-            save_state=("本次队伍增强与方案已保存" if p.get("team_enhancement_saved") else "队伍增强预览，尚未保存")
-                if p.get("team_enhancement_preview") is not None else None,
-            text_catalog=getattr(self, 'text_catalog', None),
+            save_state=save_state, text_catalog=text_catalog,
         )
         if optimization_panel is not None:
             gl.addWidget(optimization_panel)

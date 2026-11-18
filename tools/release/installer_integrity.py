@@ -205,8 +205,14 @@ def prepare_installer_output(output: Path) -> bool:
         return False
     api = _api()
     _admin_builder(api)
-    # 先检查既有父目录，再创建唯一归本安装器所有的输出目录，不跟随联接。
-    parent = plain_directory_root(output.parent)
+    # 构建入口已准备输出根；首次构建只在已核对的根下补齐 installer 目录。
+    parent = output.parent
+    try:
+        parent = plain_directory_root(parent)
+    except FileNotFoundError:
+        parent = plain_directory_root(parent.parent) / parent.name
+        parent.mkdir(exist_ok=True)
+        parent = plain_directory_root(parent)
     output = parent / output.name
     output.mkdir(exist_ok=True)
     plain_directory_root(output)

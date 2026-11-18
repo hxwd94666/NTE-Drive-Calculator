@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from concurrent.futures import CancelledError
+from math import isfinite
 from loguru import logger
 
 from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
@@ -71,26 +72,45 @@ def create_allocation_executor(*, static_database_path, cancel_check=None, analy
     return execute
 
 
-def restore(plans, request):
+def restore(plans, request, *, frozen_models=False, originals=None):
     """Validate identities and decode wire data before rendering or saving."""
     try:
         if set(plans) != set(request.role_order):
             raise ValueError("role mismatch")
-        originals = {item.uid: item for item in request.inventory}
+        if originals is None:
+            originals = {item.uid: item for item in request.inventory}
         used = set()
         immutable = ("item_type", "item_id", "area", "shape_id", "quality", "set_name",
                      "sub_stats", "main_stats", "main_value", "suit_id", "discarded",
                      "is_duplicate_drive", "duplicate_group_id", "duplicate_index", "duplicate_count")
+        def decode(raw, model):
+            if not frozen_models:
+                return model(**raw)
+            original = originals.get(raw["uid"])
+            if not isinstance(original, model):
+                raise ValueError("equipment kind mismatch")
+            # Weighted inputs were already validated by the context builder.
+            # Preserve that projection, including incomplete historic main-stat data.
+            if any(raw.get(key) != getattr(original, key, None) for key in immutable):
+                raise ValueError("equipment identity mismatch")
+            scores = raw["role_scores"]
+            if not isinstance(scores, dict) or any(
+                type(score) not in (int, float) or not isfinite(score)
+                for score in scores.values()
+            ):
+                raise ValueError("invalid equipment scores")
+            return original.model_copy(update={"role_scores": scores})
+
         for role, plan in plans.items():
             if not isinstance(plan, dict) or type(plan.get("valid")) is not bool:
                 raise ValueError("invalid plan")
             if isinstance(plan.get("assigned_tape"), dict):
-                plan["assigned_tape"] = Tape(**plan["assigned_tape"])
+                plan["assigned_tape"] = decode(plan["assigned_tape"], Tape)
             elif plan.get("assigned_tape") is not None:
                 raise ValueError("invalid tape")
             for field in ("assigned_set_drives", "assigned_extra_drives"):
                 if field in plan:
-                    plan[field] = [Drive(**item) for item in plan[field]]
+                    plan[field] = [decode(item, Drive) for item in plan[field]]
             if "stat_priority_key" in plan:
                 plan["stat_priority_key"] = tuple(plan["stat_priority_key"])
             items = [*plan.get("assigned_set_drives", []), *plan.get("assigned_extra_drives", [])]
@@ -115,6 +135,7 @@ def restore(plans, request):
                     raise ValueError("duplicate equipment")
                 used.add(item.uid)
             if (type(plan.get("score")) not in (int, float)
+                    or not isfinite(plan["score"])
                     or abs(sum(item.role_scores.get(role, 0.0) for item in items) - plan["score"]) > 1e-8):
                 raise ValueError("score mismatch")
     except (ValueError, TypeError, KeyError, AttributeError):

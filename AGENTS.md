@@ -4,6 +4,8 @@
 本文件只记跨功能硬边界；细节以 [docs/README.md](docs/README.md) 索引的专题为准。开工前核实当前分支、工作区和实际代码，
 不从旧对话或发行版本推断现状。本文件可公开：不得写入账号、凭据、真实 UID、抓包、截图、OCR 原文、未脱敏日志或本机绝对路径。
 
+**前端文案与语言补丁是完成门禁。** 任何任务涉及可见文案增删改，包括单句调整，都须按[第 9 节](#9-ui语言与日志)同步处理。
+
 ## 1. 事实源
 
 冲突时依次以：已通过的公共行为测试、数据库约束与正式协议 → 本契约 → 领域文档 → 当前 UI 表象。版本、schema、能力名和
@@ -73,6 +75,8 @@ UI Page/View → Controller → Application Service → Domain/Optimizer 或 DAO
 
 - 长任务创建时冻结账号、generation、路径、dataset、`snapshot_id`、配置版本、目标 `slot_id`、锁快照和取消 token；
   回调、保存、写库和外部指令前复核，过期结果静默丢弃。账号切换、模式降级和退出先撤权再有界等待任务结束。
+- 只有本次任务从零获取并导入新角色数据，或用户明确要求升级数据库版本时，Agent 才可提升数据库版本。
+  其他任务须沿用现有数据库 schema 版本、`PRAGMA user_version` 和迁移目标版本。
 - SQLite 迁移只追加，已发布迁移不改义；schema/payload/协议变化覆盖新建、升级、失败回滚和重试。多表写入用单一事务；
   JSON 写临时文件后原子替换；活库备份用一致性备份，不复制 WAL/SHM。
 - 账号导出不含日志、缓存、抓包、凭据和其他账号数据；导入先校验格式、路径、重复成员、总量和用户库，暂存迁移后原子切换，
@@ -119,8 +123,9 @@ UI Page/View → Controller → Application Service → Domain/Optimizer 或 DAO
 
 ## 9. UI、语言与日志
 
-- 前端文案增改删必须在同一变更里维护 `assets/locales/zh-CN.json` 的稳定 key 与命名参数、实际调用方和示例补丁；
-  展示端用注入的 `TextCatalog.render`，或登记整句原文由显示边界统一投影（只在 Qt 显示时替换，源码与数据层禁止替换文本）。
+- 前端文案增改删必须在同一变更里维护实际调用方、`assets/locales/zh-CN.json` 和 `docs/examples/locales/qps-ploc.json`，
+  核对两份目录的稳定 key 与命名参数。移除文案时按兼容约定处理旧 key。展示端用注入的 `TextCatalog.render`，
+  或登记整句原文由显示边界统一投影（只在 Qt 显示时替换，源码与数据层禁止替换文本）。
   业务分支按稳定 ID，不依赖译文；游戏正式名称、角色/槽位名、协议字段、日志事件码不登记、不翻译；拼接句用 key 加命名参数，
   服务层无目录时由显示边界按登记模板整行投影。内部诊断标注 `# ui-text: internal`；覆盖门禁基线为空，新增未登记中文直接失败。
   细则见 `docs/features/localization.md`。

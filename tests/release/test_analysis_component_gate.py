@@ -20,7 +20,7 @@ class AnalysisComponentGateTests(unittest.TestCase):
                 'sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
                 'capabilities': ['battle_page_v1', 'main_static_catalog_v1', 'allocation_v2',
                                  'allocation_blueprints_v1', 'damage_allocation_v1',
-                                 'equipment_scoring_v1', 'battle_axis_team_v1', 'battle_axis_fixed_team_v1', 'analysis_worker_v1', 'direct_damage_v1', 'analysis_stage_timings_v1'],
+                                 'equipment_scoring_v1', 'battle_axis_team_v1', 'battle_axis_fixed_team_v1', 'analysis_worker_v1', 'direct_damage_v1', 'analysis_stage_timings_v1', 'weighted_allocation_v1'],
             }
             metadata.write_text(json.dumps(manifest), encoding='utf-8')
             validate_analysis_component(binary, metadata)
@@ -31,7 +31,7 @@ class AnalysisComponentGateTests(unittest.TestCase):
                         validate_analysis_component(binary, metadata)
 
             # 当前版本号相同也要具备角色正式公式、会话及阶段能力；不让错配组件进入构建。
-            for capability in ('analysis_worker_v1', 'direct_damage_v1', 'analysis_stage_timings_v1'):
+            for capability in ('analysis_worker_v1', 'direct_damage_v1', 'analysis_stage_timings_v1', 'weighted_allocation_v1'):
                 with self.subTest(missing=capability):
                     metadata.write_text(json.dumps({**manifest, 'capabilities': [name for name in manifest['capabilities'] if name != capability]}), encoding='utf-8')
                     with self.assertRaises(RuntimeError):

@@ -289,7 +289,7 @@ def test_cancel_and_account_change_wait_for_owned_read_and_never_deliver_late_re
 def test_direct_projection_preserves_manual_no_change_and_replaces_old_generated_targets():
     guard = SimpleNamespace(snapshot_id=7, require_current=Mock(), require_targets=Mock())
     controller = SimpleNamespace(
-        manual_targets={"manual": "normal"},
+        manual_targets={"manual": "normal", "protected": "discarded"},
         recommendation_targets={"old": "locked"},
         recommendation_guard=object(),
         conflicts=[],
@@ -300,14 +300,16 @@ def test_direct_projection_preserves_manual_no_change_and_replaces_old_generated
         _warehouse_snapshot_id=7,
         _warehouse_source="nte_core",
         warehouse_read_controller=controller,
-        _warehouse_base_states={"manual": "normal", "old": "normal", "new": "normal"},
-        _warehouse_pending_state_changes={"old": "locked"},
+        _warehouse_base_states={"manual": "normal", "old": "normal", "new": "normal", "protected": "normal"},
+        _warehouse_pending_state_changes={"old": "locked", "protected": "discarded"},
         _warehouse_all_items=[
-            {"uid": uid, "locked": uid == "old", "discarded": False} for uid in ("manual", "old", "new")
+            {"uid": uid, "locked": uid == "old", "discarded": uid == "protected"}
+            for uid in ("manual", "old", "new", "protected")
         ]
         + [{"uid": "unknown", "locked": None, "discarded": None, "state_known": False}],
         _apply_warehouse_filters=Mock(),
         _update_warehouse_save_state=Mock(),
+        text_catalog=bundled_text_catalog(),
     )
     expected = capture_management_input(host)
     result = {
@@ -326,17 +328,20 @@ def test_direct_projection_preserves_manual_no_change_and_replaces_old_generated
                 "reasons": ["state_unknown"],
                 "state_known": False,
             },
+            {"uid": "protected", "decision": "review", "predecessor_fixed": True,
+             "decision_status": "blocked", "reasons": ["state_protected"]},
         ],
-        "conflicts": [{"uid": "manual"}],
+        "conflicts": [{"uid": "manual"}, {"uid": "rule-conflict"}],
     }
     project_management_preview(host, expected, result, guard)
     assert host._warehouse_pending_state_changes == {"new": "discarded"}
-    assert controller.manual_targets == {"manual": "normal"} and controller.recommendation_targets == {
+    assert controller.manual_targets == {"manual": "normal", "protected": "discarded"} and controller.recommendation_targets == {
         "new": "discarded"
     }
-    assert controller.conflicts == [{"uid": "manual"}]
-    assert controller.management_issues == [result["rows"][1]]
+    assert controller.conflicts == [{"uid": "rule-conflict"}]
+    assert controller.management_issues == result["rows"][1:]
     assert not next(row for row in host._warehouse_all_items if row["uid"] == "old")["locked"]
+    assert not next(row for row in host._warehouse_all_items if row["uid"] == "protected")["discarded"]
     assert next(row for row in host._warehouse_all_items if row["uid"] == "unknown")["locked"] is None
     snapshot = deepcopy(host._warehouse_all_items)
     controller.manual_targets["manual"] = "locked"

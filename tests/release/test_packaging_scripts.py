@@ -229,7 +229,7 @@ def executable_inputs(tmp_path, monkeypatch):
     (root / "third_party/presentmon/component.json").write_text(json.dumps({"sha256": payload_hash}))
     build.ANALYSIS_CORE_MANIFEST_PATH.write_text(json.dumps({
         "engine": "nte-analysis-core", "engine_version": ENGINE_VERSION, "sha256": payload_hash,
-        "capabilities": ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1", "analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"],
+        "capabilities": ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1", "weighted_allocation_v1", "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1", "analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"],
     }))
     role = SimpleNamespace(database_path=root / "data/role_catalog/game_static.sqlite3",
                            asset_root=root / "data/role_catalog/game_ui", dataset_id="synthetic", sha256="fixture")

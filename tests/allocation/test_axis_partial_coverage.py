@@ -40,6 +40,8 @@ def test_partial_axis_recommendation_preserves_coverage_and_distinct_gain():
     assert "参与计分部分轴伤" in view.headline and "+14.29%" in view.headline
     assert "计分 60.0%" in view.headline and "量化 40.0%＋估算 20.0%" in view.headline
     assert "计分覆盖 60.0%" in view.note and "估算 20.0%" in view.note and "未计入 40.0%" in view.note
+    assert "量化包括可用现有模型重算的伤害" in view.details and "估算指根据战报证据" in view.details
+    assert "估算指根据战报证据" not in view.note
     assert "不是命中次数或预测准确率" in view.details
 
 

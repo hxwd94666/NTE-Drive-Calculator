@@ -28,6 +28,10 @@ def current_state(raw):
     return "locked" if raw.get("locked") else "discarded" if raw.get("discarded") else "normal"
 
 
+def discard_is_protected(raw, *, locked_plan=False):
+    return locked_plan or raw.get("equipped") is True
+
+
 def manual_decision(item, raw, config, *, user_target=None, protected=False):
     known = all(raw.get(key) is not None for key in ("locked", "discarded", "equipped"))
     if not known:
@@ -35,7 +39,7 @@ def manual_decision(item, raw, config, *, user_target=None, protected=False):
     if user_target is not None:
         if user_target not in {"normal", "locked", "discarded"}:
             raise ValueError("无效仓库手工状态")
-        if user_target == "discarded" and (protected or raw.get("equipped")):
+        if user_target == "discarded" and discard_is_protected(raw, locked_plan=protected):
             return WarehouseDecision(item.uid, DecisionStatus.BLOCKED, "user", reason="state_protected")
         return WarehouseDecision(item.uid, DecisionStatus.DECIDED, "user", user_target)
     matches = tuple(
@@ -72,8 +76,7 @@ def manual_decision(item, raw, config, *, user_target=None, protected=False):
     state = current_state(raw)
     target = {"lock": "locked", "discard": "discarded", "keep": "normal" if state == "discarded" else state}[action]
     if target == "discarded" and (
-        protected
-        or raw.get("equipped")
+        discard_is_protected(raw, locked_plan=protected)
         or state == "locked"
         and config["discard"].get("on_locked") == "skip"
         or state == "discarded"
@@ -96,7 +99,7 @@ def scoring_decision(item, raw, config, scorer, context, roles, *, incomplete_sc
         if name in {"lock", "discard"}
     )
     if explicit:
-        if target == "discarded" and (protected or raw.get("equipped")):
+        if target == "discarded" and discard_is_protected(raw, locked_plan=protected):
             return WarehouseDecision(item.uid, DecisionStatus.BLOCKED, "scoring", reason="state_protected")
         return WarehouseDecision(item.uid, DecisionStatus.DECIDED, "scoring", target)
     incomplete = any(

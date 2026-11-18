@@ -32,6 +32,7 @@ class UserDataDaoCore:
         account_id: str | None = None,
         account_name: str | None = None,
         schema_path: str | Path = DEFAULT_SCHEMA_PATH,
+        verified_recovery_schema: int | None = None,
     ) -> None:
         self.database_path = Path(database_path).expanduser().resolve()
         existed = self.database_path.is_file()
@@ -55,7 +56,7 @@ class UserDataDaoCore:
                     account_id=str(account_id),
                     account_name=str(account_name or account_id),
                 )
-            self._migrate_schema(backup_existing=existed)
+            self._migrate_schema(backup_existing=existed, verified_recovery_schema=verified_recovery_schema)
             self._validate_schema()
         except BaseException:
             self.close()
@@ -203,7 +204,7 @@ class UserDataDaoCore:
         except (OSError, sqlite3.Error) as exc:
             raise UserDataError("无法初始化用户数据库") from exc
 
-    def _migrate_schema(self, *, backup_existing: bool = True) -> None:
+    def _migrate_schema(self, *, backup_existing: bool, verified_recovery_schema: int | None) -> None:
         connection = self._db()
         try:
             row = connection.execute(
@@ -216,6 +217,10 @@ class UserDataDaoCore:
                 raise UserDataError("用户数据库正忙，读取结构受阻；请稍后重试") from exc
             raise UserDataError("文件不是 NTE 用户数据库") from exc
         version = int(row["version"] or 0) if row is not None else 0
+        if verified_recovery_schema is not None:
+            if not backup_existing or version != verified_recovery_schema:
+                raise UserDataError("账号结构在升级备份期间改变，请重新打开账号")
+            backup_existing = False
         if version > SCHEMA_VERSION:
             raise UserDataError(
                 f"用户数据库结构版本 {version} 高于当前程序支持的 {SCHEMA_VERSION}"
@@ -227,9 +232,9 @@ class UserDataDaoCore:
                     raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")  # ui-text: internal
                 migration_sql = migration_path.read_text(encoding="utf-8")
                 if backup_existing and target_version in {45, 47, 48, 49, 50, 51, 52, 53}:
-                    # 养成历史与队伍资料各自升级前保全当时完整库；更早默认值迁移仍沿原事务。
-                    # 备份失败不进入本次新增结构，修复后可在同一旧库重试。
+                    # 独立入口只备份一次；更早的旧值修复仍允许先于完整性检查执行。
                     backup_before_user_migration(self.database_path, target_version - 1)
+                    backup_existing = False
                 rebuilds_foreign_key_parent = migration_sql.startswith(
                     "-- requires-foreign-keys-off"
                 )

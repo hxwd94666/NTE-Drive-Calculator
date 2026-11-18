@@ -29,7 +29,7 @@ def setup(monkeypatch, profiles):
 
 def test_empty_profile_does_not_disable_discard(monkeypatch):
     _, build, inputs = setup(monkeypatch, [{'profile_id': 1, 'version': {'version_number': 5, 'characters': []}}])
-    witnesses, issues = module.freeze_profile_witnesses(inputs, lambda: None, lambda: False)
+    witnesses, issues = module.freeze_profile_witnesses(inputs, lambda: None, lambda: False, solve=Mock())
     assert not witnesses and not issues
     build.assert_not_called()
 
@@ -37,44 +37,50 @@ def test_empty_profile_does_not_disable_discard(monkeypatch):
 def test_exact_profile_version_constraints_and_native_uids_are_rechecked(monkeypatch):
     context, build, inputs = setup(monkeypatch, [{'profile_id': 1, 'version': {'version_number': 5, 'characters': [{}]}}])
     run = Mock(return_value=result())
-    monkeypatch.setattr(module, 'run_legacy_allocation', run)
-    witnesses, issues = module.freeze_profile_witnesses(inputs, lambda: None, lambda: False)
+    witnesses, issues = module.freeze_profile_witnesses(inputs, lambda: None, lambda: False, solve=run)
     assert not issues
     assert build.call_args.kwargs['profile_version'] == 5
     assert build.call_args.kwargs['snapshot_id'] == 12
     assert module.witness_uids(witnesses) == frozenset({'nte-module-3-7'})
     run.return_value = result(score=90)
-    assert module.verify_profile_removal(witnesses, {'nte-module-3-7'}, lambda: None, lambda: False) == ['profile:1:1003']
+    assert module.verify_profile_removal(witnesses, {'nte-module-3-7'}, lambda: None, lambda: False,
+                                          solve=run) == ['profile:1:1003']
     assert run.call_args.args[0] is context
-    assert run.call_args.kwargs['excluded_uids'] == {(3, 7)}
+    assert run.call_args.args[2] == {(3, 7)}
 
 
 def test_failed_profile_is_incomplete_and_cancel_propagates(monkeypatch):
     _, _, inputs = setup(monkeypatch, [{'profile_id': 1, 'version': {'version_number': 5, 'characters': [{}]}}])
     run = Mock(return_value=result(valid=False))
-    monkeypatch.setattr(module, 'run_legacy_allocation', run)
-    _, issues = module.freeze_profile_witnesses(inputs, lambda: None, lambda: False)
+    _, issues = module.freeze_profile_witnesses(inputs, lambda: None, lambda: False, solve=run)
     assert issues
     run.side_effect = CancelledError()
     with pytest.raises(CancelledError):
-        module.freeze_profile_witnesses(inputs, lambda: None, lambda: False)
+        module.freeze_profile_witnesses(inputs, lambda: None, lambda: False, solve=run)
 
 
 def test_native_profile_solver_does_not_drop_unsupported_constraints_or_fallback_on_error(monkeypatch):
     context = SimpleNamespace(allocation_strategy='role_priority',
         roles=[SimpleNamespace(property_limits=(), crit_threshold=None)])
     native = Mock()
+    blueprints = Mock()
     run = Mock(return_value=result())
     monkeypatch.setattr(module, 'run_legacy_allocation', run)
-    module._run(context, lambda: False, executor=native)
+    def solve(context, cancelled):
+        return module.run_profile_allocation(context, cancelled, executor=native, blueprint_executor=blueprints)
+
+    solve(context, lambda: False)
     assert callable(run.call_args.kwargs['kernel_executor'])
+    assert run.call_args.kwargs['blueprint_executor'] is blueprints
     for limits, threshold in ((('special-bound',), None), ((), 0.0)):
         context.roles[0].property_limits = limits
         context.roles[0].crit_threshold = threshold
-        module._run(context, lambda: False, executor=native)
-        assert 'kernel_executor' not in run.call_args.kwargs
+        inputs = SimpleNamespace(profile_contexts=(context,), profile_issues=())
+        witnesses, issues = module.freeze_profile_witnesses(inputs, lambda: None, lambda: False, solve=solve)
+        assert not witnesses and len(issues) == 1
+    assert run.call_count == 1
     context.roles[0].property_limits = ()
     context.roles[0].crit_threshold = None
     run.side_effect = RuntimeError('native failed')
     with pytest.raises(RuntimeError, match='native failed'):
-        module._run(context, lambda: False, executor=native)
+        solve(context, lambda: False)

@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
+from concurrent.futures import CancelledError
 from pathlib import Path
 
 from src.domain.equipment.geometry.shapes import OFFICIAL_SHAPE_LABELS
+from src.integrations.allocation.native_blueprints import create_bundled_blueprint_executor
+from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisCancelled
 from src.models.equipment import DriveShape
-from src.solver.blueprint_utils import dedupe_blueprints_by_piece_signature
-from src.solver.combinatorics import PuzzleCombinatorics
-from src.solver.dfs_puzzle import DFSPuzzleSolver
 from src.services.characters.character_shape_bonus_service import get_effective_character_shape_bonus
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 
@@ -81,7 +81,6 @@ def custom_board(cells: Iterable[dict]) -> list[list[int]]:
     """把账号自建盘映射为求解盘；沿用 enabled 输入行计数的 20 格门禁，不新增去重。"""
 
     board = [[-1] * 5 for _ in range(5)]
-    enabled_count = 0
     for cell in cells:
         row = int(cell.get("row_number", cell.get("row", 0))) - 1
         column = int(cell.get("column_number", cell.get("column", 0))) - 1
@@ -89,41 +88,10 @@ def custom_board(cells: Iterable[dict]) -> list[list[int]]:
             continue
         if bool(cell.get("is_enabled")):
             board[row][column] = 0
-            enabled_count += 1
+    enabled_count = sum(value == 0 for row in board for value in row)
     if enabled_count != 20:
         raise ValueError(f"自建角色底盘应为 20 格，实际为 {enabled_count} 格")  # ui-text: internal
     return board
-
-
-def _solve_board_candidates(
-    *,
-    board: list[list[int]],
-    suit_shape_ids: list[str],
-    preferred_label: str,
-    combinatorics: PuzzleCombinatorics,
-    solver: DFSPuzzleSolver,
-) -> list[dict]:
-    """每个拼件组合仅取 DFS 首解（max_solutions=1），再按拼件签名去重；无全局候选上限。"""
-    candidates: list[dict] = []
-    for extra_piece_ids in combinatorics.generate_piece_combinations(
-        suit_shape_ids, preferred_label
-    ):
-        solved_boards: list[list[list[object]]] = []
-        solver.solve(
-            board,
-            suit_shape_ids + extra_piece_ids,
-            solved_boards,
-            max_solutions=1,
-        )
-        if solved_boards:
-            candidates.append(
-                {
-                    "set_pieces": list(suit_shape_ids),
-                    "extra_pieces": list(extra_piece_ids),
-                    "board": _display_board(solved_boards[0]),
-                }
-            )
-    return dedupe_blueprints_by_piece_signature(candidates)
 
 
 def _preferred_extra_label(
@@ -188,9 +156,14 @@ def solve_blueprints_from_static(
     *,
     custom_characters: Iterable[dict] = (),
     shared_database_path: str | Path | None = None,
+    cancel_check=None,
 ) -> dict[str, dict]:
-    # 静态 DAO 的连接与读取事务由调用方持有；这里只编排形状模型和候选求解。
-    """借用调用方 static_dao 编排官方与账号自建盘，复用形状、组合与 DFS 约束；不接管 DAO 生命周期。"""
+    """Read frozen board definitions and delegate all blueprint search to Rust."""
+    def checkpoint():
+        if cancel_check is not None and cancel_check():
+            raise CancelledError("图纸生成已取消")
+
+    checkpoint()
     module_items = static_dao.list_equipment_items("module")
     core_items = {
         item["item_id"]: item
@@ -200,11 +173,11 @@ def solve_blueprints_from_static(
     shape_models = _official_shape_models(
         static_dao.list_shapes(), module_items
     )
-    combinatorics = PuzzleCombinatorics(shape_models)
-    solver = DFSPuzzleSolver(shape_models)
-    results: dict[str, dict] = {}
+    roles: list[dict] = []
+    metadata: dict[str, dict] = {}
 
     for character in static_dao.list_characters():
+        checkpoint()
         plan = static_dao.get_equipment_plan(int(character["character_id"]))
         if plan is None:
             continue
@@ -230,19 +203,18 @@ def solve_blueprints_from_static(
         ) or _preferred_extra_label(
             plan, item_by_id, set_piece_ids, shape_models
         )
-        candidates = _solve_board_candidates(
-            board=board,
-            suit_shape_ids=set_piece_ids,
-            preferred_label=preferred_label,
-            combinatorics=combinatorics,
-            solver=solver,
-        )
-        if not candidates:
-            continue
+        role_key = f"official:{int(character['character_id'])}"
+        roles.append({
+            "role": role_key,
+            "board": board,
+            "set_shapes": set_piece_ids,
+            "extra_label": preferred_label,
+            "set_effect_mode": "four_piece",
+        })
         role_name = str(
             plan.get("character_name_zh") or character["character_id"]
         )
-        results[role_name] = {
+        metadata[role_key] = {
             "character_id": int(character["character_id"]),
             "role_name": role_name,
             "core_name": str(
@@ -253,9 +225,9 @@ def solve_blueprints_from_static(
             "core_level": int(plan.get("core_level") or 0),
             "suit_name": str(suit.get("name_zh") or suit["suit_id"]),
             "preferred_extra_label": preferred_label or "无特定偏好",
-            "blueprints": candidates,
         }
     for custom in custom_characters:
+        checkpoint()
         character_id = int(custom["character_id"])
         role_name = str(custom.get("name_zh") or character_id)
         target_suit_id = str(custom.get("target_suit_id") or "")
@@ -268,25 +240,54 @@ def solve_blueprints_from_static(
         if not suit or not set_piece_ids:
             continue
         board = custom_board(custom.get("board_cells") or ())
-        candidates = _solve_board_candidates(
-            board=board,
-            suit_shape_ids=set_piece_ids,
-            preferred_label="",
-            combinatorics=combinatorics,
-            solver=solver,
-        )
-        if not candidates:
-            continue
-        results[role_name] = {
+        role_key = f"custom:{character_id}"
+        roles.append({
+            "role": role_key,
+            "board": board,
+            "set_shapes": set_piece_ids,
+            "extra_label": "",
+            "set_effect_mode": "four_piece",
+        })
+        metadata[role_key] = {
             "character_id": character_id,
             "role_name": role_name,
             "core_name": "未配置卡带",
             "core_level": 0,
             "suit_name": str(suit.get("name_zh") or suit["suit_id"]),
             "preferred_extra_label": "无特定偏好",
-            "blueprints": candidates,
             "is_custom": True,
         }
 
+    if not roles:
+        return {}
+    try:
+        execute = create_bundled_blueprint_executor(static_dao.database_path, cancel_check=cancel_check)
+    except NativeAnalysisCancelled:
+        raise CancelledError("图纸生成已取消") from None
+    shapes = [shape.model_dump() for shape in shape_models.values() if shape.shape_id != "TAPE_15"]
+    results: dict[str, dict] = {}
+    for start in range(0, len(roles), 8):
+        checkpoint()
+        batch = roles[start:start + 8]
+        plans = execute({
+            "version": 1,
+            "include_layout_variants": False,
+            "roles": batch,
+            "shapes": shapes,
+        })
+        for role in batch:
+            role_key = role["role"]
+            candidates = plans[role_key]
+            if not candidates:
+                continue
+            detail = metadata[role_key]
+            results[detail["role_name"]] = {
+                **detail,
+                "blueprints": [
+                    {**candidate, "board": _display_board(candidate["board"])}
+                    for candidate in candidates
+                ],
+            }
+    checkpoint()
     return results
 

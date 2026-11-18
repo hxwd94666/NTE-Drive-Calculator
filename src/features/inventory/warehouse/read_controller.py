@@ -11,7 +11,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QTimer
 from src.ui.common.paint_timings import begin_gui_timing
 
-from src.app.page_tasks import PageRequest, PageTaskLane
+from src.app.page_tasks import PageCommitLane, PageRequest, PageTaskLane
 from src.domain.inventory.warehouse_filter import WarehouseFilterSpec
 from src.domain.inventory.warehouse_read_request import WarehouseReadRequest
 from src.features.inventory.warehouse.display.presenter import load_warehouse_snapshot
@@ -46,6 +46,8 @@ class WarehouseReadController(QObject):
         self._quality_reader = quality_reader
         self._quality_lane = PageTaskLane(self)
         self._quality_cancel = Event()
+        self.state_save_lane = PageCommitLane(self)
+        self.state_save_cancel = Event()
         self._sequence = 0
         self._closed = False
         self.card_timings = None
@@ -150,6 +152,7 @@ class WarehouseReadController(QObject):
     def cancel(self) -> None:
         """账号变更先失效结果；物理读取由原通道持有至结束。"""
         self._lane.cancel()
+        self.state_save_cancel.set()
         for timings in (self.card_timings, self.state_timings, self.read_timings):
             if timings is not None:
                 timings.close()
@@ -168,7 +171,7 @@ class WarehouseReadController(QObject):
         self._quality_lane.close()
 
     def is_running(self) -> bool:
-        return self._lane.is_running() or self._quality_lane.is_running()
+        return self._lane.is_running() or self._quality_lane.is_running() or self.state_save_lane.is_running()
 
 
 def reset_warehouse_account(host: Any, *, text_catalog=None) -> None:
@@ -177,6 +180,9 @@ def reset_warehouse_account(host: Any, *, text_catalog=None) -> None:
     if owner is None:
         return
     owner.cancel()
+    from src.features.inventory.warehouse.progress import close_warehouse_state_progress
+    close_warehouse_state_progress(host)
+    host._warehouse_management_busy = False
     owner.draft_revision += 1
     owner.base_quality = None
     owner.recommendation_guard = None
@@ -205,6 +211,7 @@ def reset_warehouse_account(host: Any, *, text_catalog=None) -> None:
     host._warehouse_filter_spec = WarehouseFilterSpec()
     host.warehouse_filter_drawer.set_items([], host._warehouse_filter_spec)
     host._apply_warehouse_filters()
+    host._update_warehouse_save_state()
     host.warehouse_source_notice.hide()
 
 
@@ -289,8 +296,8 @@ def warehouse_projection_busy(host: Any) -> bool:
     busy = getattr(host, "_warehouse_management_busy", None)
     if busy is not None:
         return bool(busy)
-    worker = getattr(host, "_warehouse_state_worker", None)
-    return worker is not None and worker.isRunning()
+    lane = getattr(getattr(host, "warehouse_read_controller", None), "state_save_lane", None)
+    return lane is not None and lane.is_running()
 
 
 def defer_warehouse_refresh(host: Any, snapshot_id: int | None = None, *, text_catalog=None) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 from src.integrations.scoring.equipment_scoring import freeze_scoring_catalog
 
 
-def freeze(request, scorer):
+def freeze(request, scorer, *, weighted=False):
     """No scoring/search in Python: only names, immutable source data and indices."""
     from src.domain.equipment.properties.suit_identity import normalized_suit_name, suit_id_for_target
 
@@ -63,7 +63,7 @@ def freeze(request, scorer):
             'target_label': str(target or ''), 'mains': list(dict.fromkeys(mains)),
             'main_labels': list(request.core_main_filters.get(role, ())),
         })
-    if any(request.property_limits.values()):
+    if not weighted and any(request.property_limits.values()):
         raise ValueError('allocation_v1 is the Calc button path; generic property_limits are not supported')
     if request.strategy != 'role_priority':
         raise ValueError('allocation_v1 requires role_priority')

@@ -20,7 +20,7 @@ from src.services.allocation.execution.allocation_solver import (
     AllocationSolveResult,
     RoleAllocationOption,
     UnifiedAllocation,
-    solve_allocation_context,
+    solve_native_allocation_context as solve_allocation_context,
 )
 from src.services.allocation.results.weighted_save import (
     save_weighted_preview_records,
@@ -343,6 +343,8 @@ def run_weighted_allocation(request: WeightedAllocationRequest) -> WeightedAlloc
             selected_role_count=len(preview.result.unified.selected),
             unassigned_role_count=len(preview.result.unified.unassigned_character_ids),
             allocation_strategy=preview.result.unified.strategy,
+            unified_search_limited=preview.result.unified.search_limited,
+            limited_role_search_count=sum(row.search_limited for row in preview.result.role_top_k),
         )
         return preview
 

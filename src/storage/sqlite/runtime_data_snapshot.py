@@ -46,6 +46,13 @@ def backup_database(source: Path, destination: Path) -> None:
             raise DataSnapshotError("恢复点数据库校验失败，尚未迁移。")
 
 
+def estimated_database_backup_bytes(path: Path) -> int:
+    # 逻辑页数包括 SQLite 当前可见的 WAL 页；磁盘上的主文件长度不足以估算备份。
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
+        db.execute("BEGIN")
+        return db.execute("PRAGMA page_count").fetchone()[0] * db.execute("PRAGMA page_size").fetchone()[0]
+
+
 def legacy_import_identity_needs_repair(path: Path, account_id: str, account_name: str) -> bool:
     """只识别历史 default 导入分叉；其他身份冲突与未来 schema 沿原门禁停止。"""
     try:

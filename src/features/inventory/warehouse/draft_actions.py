@@ -24,10 +24,10 @@ def has_warehouse_draft(host):
 
 def _busy(host):
     manager = getattr(host, "warehouse_management_controller", None)
-    worker = getattr(host, "_warehouse_state_worker", None)
+    lane = getattr(getattr(host, "warehouse_read_controller", None), "state_save_lane", None)
     return (
         getattr(host, "_warehouse_management_busy", False)
-        or (worker is not None and worker.isRunning())
+        or (lane is not None and lane.is_running())
         or (manager is not None and manager.is_running())
     )
 

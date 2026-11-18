@@ -56,6 +56,7 @@ def main() -> int:
         or "damage_allocation_v1" not in capabilities
         or "equipment_scoring_v1" not in capabilities
         or "allocation_blueprints_v1" not in capabilities
+        or "weighted_allocation_v1" not in capabilities
         or "battle_axis_team_v1" not in capabilities
         or "battle_axis_fixed_team_v1" not in capabilities
         or not {"analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"}.issubset(capabilities)
@@ -72,7 +73,7 @@ def main() -> int:
         "rustc": build_record["rustc"],
         "license_sha256": sha256(license_path),
         "dependency_notices_sha256": sha256(source / "THIRD_PARTY_NOTICES.txt"),
-        "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel, frozen drive allocation and bounded blueprint generation; Python owns user input, request freezing, process lifecycle and rendering",
+        "scope": "native read-only account and static database loading, frozen battle analysis, replay, robust target fitting, buff and equipment counterfactuals, marginal panel, frozen drive allocation, weighted allocation and bounded blueprint generation; Python owns user input, request freezing, process lifecycle and rendering",
     }
     manifest["source_input_sha256"] = build_record["source_input_sha256"]
     # 可执行文件探测后、修改目标前再次核对整套构建记录，防止配给旧产物。
