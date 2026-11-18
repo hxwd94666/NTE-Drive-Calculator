@@ -59,6 +59,18 @@ class ReleaseScenario(PublicReleaseInputs):
         else:
             self.swaps.append("replaced")
 
+    def attempt_manifest_change_under_pin(self):
+        manifest = self.static.with_name("manifest.json")
+        original = manifest.read_bytes()
+        try:
+            manifest.write_bytes(self.manifest_b)
+        except PermissionError:
+            # 保存期提交单元同时 pin 住发行清单；替换企图失败，清单保持 A。
+            self.swaps.append("manifest_blocked_by_real_pin")
+            assert manifest.read_bytes() == original
+        else:
+            self.swaps.append("manifest_replaced")
+
     def calculate(self):
         return runner.run_weighted_allocation(replace(self.request, ownership=self.owner.capture(self.identity)))
 
@@ -144,7 +156,8 @@ def test_swap_in_pure_solve_rejects_requested_source_change_without_preview(scen
             s.swap()
         return result
     monkeypatch.setattr(runner, "solve_allocation_context", actor)
-    with pytest.raises(RuntimeError):
+    # 真实 pin 拒绝替换；read_unit 不再把调用方的 OSError 改写成"被占用"错误，原异常直接传播。
+    with pytest.raises(PermissionError):
         s.calculate()
     assert rows(s.database) == before
     assert digest(s.static) == s.release_a.sha256
@@ -168,7 +181,7 @@ def test_changed_manifest_after_solve_discards_preview_and_releases_pin(scenario
 
 @pytest.mark.parametrize("explicit", [False, True], ids=["primary", "slots"])
 @pytest.mark.parametrize("when", ["prepare", "pre-commit"])
-def test_changed_source_during_save_rejects_whole_transaction(scenario, monkeypatch, explicit, when):
+def test_source_change_during_save_is_blocked_by_real_pins(scenario, monkeypatch, explicit, when):
     s = scenario
     preview = s.calculate()
     before = rows(s.database)
@@ -177,7 +190,7 @@ def test_changed_source_during_save_rejects_whole_transaction(scenario, monkeypa
         if not changed:
             s.attempt_swap_under_pin()
             changed.append(when)
-            s.static.with_name("manifest.json").write_bytes(s.manifest_b)
+            s.attempt_manifest_change_under_pin()
     if when == "prepare":
         real = SavedStateLoadoutBridge.prepare_role_plan
         def prepare(bridge, **kwargs):
@@ -193,11 +206,12 @@ def test_changed_source_during_save_rejects_whole_transaction(scenario, monkeypa
             with real(operation):
                 yield
         monkeypatch.setattr(WeightedOperation, "commit_context", pre_commit)
-    with pytest.raises(RuntimeError):
-        s.save(preview, explicit=explicit)
-    assert changed == [when] and s.swaps == ["blocked_by_real_pin"]
-    assert rows(s.database) == before
-    s.swap()  # 保存异常同样释放来源pin；旧方案/槽位事实完整保留。
+    # 保存全程 pin 住静态库与清单：来源无法在事务中途被换掉，保存基于冻结的 A 完成。
+    ids = s.save(preview, explicit=explicit)
+    assert changed == [when] and s.swaps == ["blocked_by_real_pin", "manifest_blocked_by_real_pin"]
+    assert ids and rows(s.database) != before
+    assert digest(s.static) == s.release_a.sha256
+    s.swap()  # 保存结束同样释放来源pin。
 
 
 def test_old_preview_without_release_and_cancel_require_recompute(scenario, monkeypatch):
@@ -236,15 +250,16 @@ def test_classic_save_uses_same_release_and_final_commit_recheck(scenario, chang
     def progress(stage):
         if changed and stage[0].startswith("正在写入"):
             s.attempt_swap_under_pin()
-            s.static.with_name("manifest.json").write_bytes(s.manifest_b)
+            s.attempt_manifest_change_under_pin()
     kwargs = dict(database_path=s.database, static_database_path=s.static,
                   static_identity=(s.static, preview.static_dataset.dataset_id, (stat.st_size, stat.st_mtime_ns)),
                   static_release=preview.static_release, lock_snapshot=locks, rows=[row], checkpoint=lambda: None, progress=progress)
     if changed:
-        with pytest.raises(RuntimeError):
-            plan_save.save_allocation_plans(**kwargs)
-        assert rows(s.database) == before
-        assert s.swaps == ["blocked_by_real_pin"]
+        # 写入阶段的替换被真实 pin 拒绝，最终提交复核仍看到同一 A 发行。
+        assert plan_save.save_allocation_plans(**kwargs) == 1
+        assert rows(s.database) != before
+        assert s.swaps == ["blocked_by_real_pin", "manifest_blocked_by_real_pin"]
+        assert digest(s.static) == s.release_a.sha256
     else:
         assert plan_save.save_allocation_plans(**kwargs) == 1
         assert rows(s.database) != before

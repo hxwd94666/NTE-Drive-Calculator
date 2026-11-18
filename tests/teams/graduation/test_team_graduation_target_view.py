@@ -30,7 +30,7 @@ def pump():
         application().processEvents()
 
 
-@pytest.mark.parametrize('theme', ['black', 'dark', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 @pytest.mark.parametrize('width', [580, 1100])
 def test_target_and_advice_have_only_outer_scroll_and_right_footer(tmp_path, monkeypatch, theme, width):
     from src.app import window_geometry

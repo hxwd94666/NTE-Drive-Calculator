@@ -39,7 +39,7 @@ def protect_exported_snapshot(method):
             except sqlite3.Error as exc:
                 raise UserDataError("无法核对已提交的背包快照来源") from exc
             if exists is None:
-                raise UserDataValidationError(f"背包快照已清理或尚未提交：{selected_id}")
+                raise UserDataValidationError(f"背包快照已清理或尚未提交：{selected_id}")  # ui-text: internal
             result = method(owner, snapshot_id)
             _exported.setdefault(_key(owner.database_path), set()).add(selected_id)
             return result

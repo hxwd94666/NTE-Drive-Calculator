@@ -42,7 +42,9 @@ def test_graduation_rate_uses_role_page_damage_contract(monkeypatch) -> None:
     }, "saved") == 75.0
     assert graduation_service.graduation_rate({"profile": {"character_level": 20}}, "current") == 50.0
     assert all(profile == {"character_level": 80} for profile, _world in received)
-    assert all(world == {"yaodao_attack_add": 20.0, "quantao_crit_damage": 0.04} for _profile, world in received)
+    # 两侧均固定为满家具默认值（含新增的铠甲防御加成），不随账号当前家具变化。
+    from src.domain.official_role.models import WorldBonusSettings
+    assert all(world == WorldBonusSettings().to_payload() for _profile, world in received)
 
 
 def test_missing_graduation_template_has_no_misleading_hover_description() -> None:

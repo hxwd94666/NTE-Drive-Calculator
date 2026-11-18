@@ -1,6 +1,7 @@
 # 绑定单个养成草稿的自动历史保存状态及针对原信封的重试入口。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from collections.abc import Callable
 from functools import partial
@@ -50,7 +51,7 @@ class CultivationHistoryDraftBinding(QObject):
         try:
             return self._service.freeze(self._session, configuration, explicit_calculation=explicit)
         except (ValueError, HistoryContextExpired) as error:
-            self.status_changed.emit(f"本次历史输入未准备完成：{error}", False)
+            self.status_changed.emit(localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.history.history_binding.freeze.f7f96967b', '本次历史输入未准备完成：{error}', error=f'{error}'), False)
             return None
 
     def accept(
@@ -60,7 +61,7 @@ class CultivationHistoryDraftBinding(QObject):
         if envelope is None or self._closed:
             return
         if history_error is not None:
-            self.status_changed.emit(f"本次计算已完成，历史保存失败：{history_error}", False)
+            self.status_changed.emit(localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.history.history_binding.accept.fbec6d937', '本次计算已完成，历史保存失败：{history_error}', history_error=f'{history_error}'), False)
             return
         self._retry = (envelope, project)
         self.retry()
@@ -109,7 +110,7 @@ class CultivationHistoryDraftBinding(QObject):
                 except HistoryContextExpired:
                     self._retry = None
                     can_retry = False
-            self.status_changed.emit(f"本次计算已完成，历史保存失败：{outcome.message}", can_retry)
+            self.status_changed.emit(localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.history.history_binding.completed.f98cfc784', '本次计算已完成，历史保存失败：{message}', message=f'{outcome.message}'), can_retry)
 
     def close(self) -> None:
         if self._closed:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import resolve_text_catalog
 from pathlib import Path
 
@@ -69,7 +70,7 @@ class CharacterCatalogProvider:
         page = self._service.list_characters(query=query, offset=offset, limit=limit)
         self._ensure_dataset(release, page.dataset)
         return CatalogPage(
-            items=tuple(self._item(item) for item in page.items),
+            items=tuple(self._item(item, text_catalog=getattr(self, 'text_catalog', None)) for item in page.items),
             total=page.total,
             offset=page.offset,
             limit=page.limit,
@@ -96,8 +97,8 @@ class CharacterCatalogProvider:
                 title=resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.detail.caption'),
                 fields=tuple(
                     official(
-                        f"Lv.{point.level} · 阶段 {point.breakthrough_stage} · {point.state}",
-                        f"生命 {point.hp_base:g} / 攻击 {point.atk_base:g} / 防御 {point.def_base:g}",
+                        localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.providers.character.detail.f5a48096e', 'Lv.{level} · 阶段 {breakthrough_stage} · {state}', level=f'{point.level}', breakthrough_stage=f'{point.breakthrough_stage}', state=f'{point.state}'),
+                        localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.providers.character.detail.f9a27ce1e', '生命 {hp_base} / 攻击 {atk_base} / 防御 {def_base}', hp_base=f'{point.hp_base:g}', atk_base=f'{point.atk_base:g}', def_base=f'{point.def_base:g}'),
                     )
                     for point in growth.items
                 ) or (derived("面板状态", "unavailable：该角色没有成长行"),),
@@ -132,11 +133,11 @@ class CharacterCatalogProvider:
         )
 
     @staticmethod
-    def _item(summary: CharacterSummary) -> CatalogItem:
-        subtitle = (
-            f"{summary.element_label} · 技能 {summary.skill_count} · "
-            f"觉醒 {summary.awakening_count} · 成长状态 {summary.growth_count}"
-        )
+    def _item(summary: CharacterSummary, *, text_catalog=None) -> CatalogItem:
+        subtitle = localized_text(
+            text_catalog, "static_catalog.character.item.subtitle", "{element} · 技能 {skills} · 觉醒 {awakenings} · 成长状态 {growth}",
+            element=f"{summary.element_label}", skills=f"{summary.skill_count}",
+            awakenings=f"{summary.awakening_count}", growth=f"{summary.growth_count}")
         return CatalogItem(
             domain_key=CHARACTER_DOMAIN.key,
             record_id=str(summary.character_id),
@@ -228,8 +229,7 @@ class CharacterCatalogProvider:
                     official(
                         "等级、解锁与消耗",
                         lines([
-                            f"Lv.{level.level} · 突破 {level.required_breakthrough_stage} · "
-                            f"觉醒 {level.required_awaken_level} · "
+                            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.providers.character.detail_sections.fd3c5cba2', 'Lv.{level} · 突破 {required_breakthrough_stage} · 觉醒 {required_awaken_level} · ', level=f'{level.level}', required_breakthrough_stage=f'{level.required_breakthrough_stage}', required_awaken_level=f'{level.required_awaken_level}')
                             + (", ".join(
                                 f"{cost.item_id} × {cost.quantity:g}" for cost in level.costs
                             ) or "无材料")
@@ -268,8 +268,7 @@ class CharacterCatalogProvider:
                     official(
                         "阶段路线",
                         lines([
-                            f"阶段 {row.ordinal}：角色 {row.character_level} / 弧盘 {row.fork_level} / "
-                            f"空幕 {row.core_item_id} Lv.{row.core_level} / 驱动 Lv.{row.equipment_level} / "
+                            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.providers.character.detail_sections.fa5232090', '阶段 {ordinal}：角色 {character_level} / 弧盘 {fork_level} / 空幕 {core_item_id} Lv.{core_level} / 驱动 Lv.{equipment_level} / ', ordinal=f'{row.ordinal}', character_level=f'{row.character_level}', fork_level=f'{row.fork_level}', core_item_id=f'{row.core_item_id}', core_level=f'{row.core_level}', equipment_level=f'{row.equipment_level}')
                             + "技能："
                             + (
                                 ", ".join(

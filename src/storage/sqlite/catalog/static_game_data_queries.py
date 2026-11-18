@@ -99,11 +99,11 @@ class StaticGameDataQueriesMixin(
             except (TypeError, json.JSONDecodeError) as exc:
                 raise StaticGameDataError(
                     f"静态设置默认值 {row['setting_key']!r} 不是有效 JSON"
-                ) from exc
+                ) from exc  # ui-text: internal
             if not isinstance(value, dict):
                 raise StaticGameDataError(
                     f"静态设置默认值 {row['setting_key']!r} 不是 JSON 对象"
-                )
+                )  # ui-text: internal
             defaults[str(row["setting_key"])] = value
         return defaults
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from src.ui.common.enum_text import ui_enum_text
 from PySide6.QtCore import Qt, Signal
@@ -639,11 +640,11 @@ class BattleMarginalPage(QWidget):
         drive_count = sum(str(item.get("kind") or "") != "core" for item in items)
         parts = [
             character_level_summary(self._details[index], profile),
-            f"{awakening_count}觉",
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.marginal.page.refresh_change_summary.f08c19bf8', '{awakening_count}觉', awakening_count=f'{awakening_count}'),
             "好感10" if profile.get("likeability_level_10_enabled") else "未启用好感10",
             fork_level_summary(self._details[index], profile),
             "技能 " + ("/".join(str(value) for value in skill_levels) or "未配置"),
-            f"空幕{core_count}/驱动{drive_count}",
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.marginal.page.refresh_change_summary.f022c219a', '空幕{core_count}/驱动{drive_count}', core_count=f'{core_count}', drive_count=f'{drive_count}'),
         ]
         summary = " · ".join(parts)
         if self._draft_dirty:

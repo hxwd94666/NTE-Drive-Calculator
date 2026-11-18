@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.domain.characters.recommended_weights import WORKSHOP_STAT_PROPERTY_IDS
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.integrations.runtime.bundled_resources import bundled_config_dir
 from src.domain.official_role.graduation_shape import graduation_extra_shape_stats
@@ -268,18 +269,22 @@ def _resolved_graduation_context_key(detail: dict, context_key: str) -> str:
     return "saved" if int(saved.get("slot_id") or 0) == slot_id else requested
 
 
-def graduation_tooltip(detail: dict) -> str:
+def graduation_tooltip(detail: dict, catalog=None) -> str:
     """Describe the benchmark equipment behind the graduation percentage."""
 
+    # 说明文案经冻结目录渲染；属性名是正式游戏数据，原样插入。
+    def t(key, fallback, **values):
+        return localized_text(catalog, f"official_role.graduation.tooltip.{key}", fallback, **values)
+
     if (detail.get("likeability_bonus") or {}).get("availability") == "unavailable":
-        return "满练度毕业基准需要十级好感属性；当前同版资料缺项，尚未生成该角色的毕业基准。"
+        return t("likeability_missing", "满练度毕业基准需要十级好感属性；当前同版资料缺项，尚未生成该角色的毕业基准。")
 
     template = graduation_template_with_weight_substats(detail)
     if not isinstance(template, dict):
-        return "空幕直伤毕业基准尚未生成。"
+        return t("not_generated", "空幕直伤毕业基准尚未生成。")
     equipment = template.get("equipment") or ()
     if not isinstance(equipment, (list, tuple)):
-        return "空幕直伤毕业基准尚未生成。"
+        return t("not_generated", "空幕直伤毕业基准尚未生成。")
     core: dict[str, Any] = next(
         (
             item
@@ -289,7 +294,7 @@ def graduation_tooltip(detail: dict) -> str:
         {},
     )
     main: dict[str, Any] = next(iter(core.get("main_stats") or ()), {})
-    main_text = _stat_text(detail, main) if main else "未记录"
+    main_text = _stat_text(detail, main) if main else t("not_recorded", "未记录")
     aggregated_substats: dict[tuple[str, bool], dict] = {}
     for item in equipment:
         for stat in item.get("sub_stats") or ():
@@ -312,15 +317,15 @@ def graduation_tooltip(detail: dict) -> str:
         for index in range(0, len(substat_text), 3)
     ]
     lines = [
-        "空幕直伤毕业基准（满级角色、满级精1弧盘）：",
-        f"卡带主词条：{main_text}",
-        "毕业副词条：" + (substat_lines[0] if substat_lines else "未记录"),
+        t("heading", "空幕直伤毕业基准（满级角色、满级精1弧盘）："),
+        t("main_stat", "卡带主词条：{value}", value=main_text),
+        t("substats", "毕业副词条：{value}", value=substat_lines[0] if substat_lines else t("not_recorded", "未记录")),
     ]
     lines.extend(f"　　　　　{line}" for line in substat_lines[1:])
     lines.extend((
-        "毕业率 = 满练度配当前空幕直伤 ÷ 满练度配毕业空幕直伤，结果不封顶。",
-        "两侧均固定满级养成、精1弧盘常驻、好感10与家具满加成。",
-        "只计算直伤，不计条件被动、机制伤害和队友加成。",
+        t("formula", "毕业率 = 满练度配当前空幕直伤 ÷ 满练度配毕业空幕直伤，结果不封顶。"),
+        t("fixed_inputs", "两侧均固定满级养成、精1弧盘常驻、好感10与家具满加成。"),
+        t("scope", "只计算直伤，不计条件被动、机制伤害和队友加成。"),
     ))
     return "\n".join(lines)
 

@@ -33,6 +33,7 @@ from src.domain.equipment.loadouts.virtual_equipment import (
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.domain.rewind.dual_target import DualTargetGuard, DualTargetResult
+from src.domain.rewind.shape_overview import DriveMargin, slot_drive_margins
 from src.domain.localization.catalog import localized_text
 from src.integrations.preferences.locale_files import enum_text
 
@@ -116,6 +117,8 @@ class RewindShapeAnalysis:
     selected_source_snapshots: tuple[tuple[int, int], ...] = ()
     dual_target: DualTargetResult | None = None
     dual_guard: DualTargetGuard | None = None
+    # 本次所选方案全部驱动相对冻结目标的余量；超出八种形状、八槽为空时也保留，供只读总览。
+    drive_margins: tuple[DriveMargin, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,19 +164,18 @@ class RewindShapeRecommendationService:
         return save(self, value, strategy='dual_target', guard=guard, checkpoint=checkpoint,
                     save_plan='saved_rewind_shape_ids' in value, analysis=analysis)
 
-    def analyze_dual_target_shortfalls(self, request, *, checkpoint=lambda: None):
+    def analyze_dual_target_shortfalls(self, request, *, checkpoint=lambda: None, text_catalog=None):
         from src.services.rewind.dual_recommendation import analyze
-        return analyze(self, request, checkpoint=checkpoint)
+        return analyze(self, request, checkpoint=checkpoint, text_catalog=text_catalog)
 
-    def validate_dual_target_guard(self, guard, *, checkpoint=lambda: None, inventory_change_confirmed: bool = False):
+    def validate_dual_target_guard(self, guard, *, checkpoint=lambda: None, accepted_changes=frozenset()):
         from src.services.rewind.dual_recommendation import validate_guard
-        validate_guard(self, guard, checkpoint=checkpoint, inventory_change_confirmed=inventory_change_confirmed)
+        validate_guard(self, guard, checkpoint=checkpoint, accepted_changes=accepted_changes)
 
     def save_preferences(self, value: dict[str, object], *, strategy=None, save_plan=False,
-                         expected_slots=(), static_identity=None, checkpoint=lambda: None, analysis=None):
+                         checkpoint=lambda: None, analysis=None):
         from src.services.rewind.preferences import save
-        return save(self, value, strategy=strategy, save_plan=save_plan, expected_slots=expected_slots,
-                    static_identity=static_identity, checkpoint=checkpoint, analysis=analysis)
+        return save(self, value, strategy=strategy, save_plan=save_plan, checkpoint=checkpoint, analysis=analysis)
 
     def list_target_roles(self, *, checkpoint=lambda: None,
                           text_catalog=None) -> tuple[RewindTargetRole, ...]:
@@ -292,11 +294,8 @@ class RewindShapeRecommendationService:
             shape_rows = static_dao.list_shapes()
             shapes = tuple(RewindShape(str(row["shape_id"]), int(row["cell_count"])) for row in shape_rows)
             known_shape_ids = {shape.shape_id for shape in shapes}
-            role_names = {int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
-                          for row in static_dao.list_characters()}
             with dao.read_consistent_state():
-                role_names.update({int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
-                                   for row in dao.list_custom_characters()})
+                role_names = rewind_role_names(static_dao, dao)
                 snapshot_id = dao.current_inventory_snapshot_id()
                 summary = dao.inventory_snapshot_summary(snapshot_id) if snapshot_id is not None else None
                 if not snapshot_complete(summary):
@@ -341,12 +340,16 @@ class RewindShapeRecommendationService:
                         validated.append(row)
                 if problems:
                     raise ValueError("\n".join(problems))
-        shortfalls, score_gaps = Counter(), Counter()
+        def threshold_for(area):
+            return (target_percentage_score(target_custom_percent, area)
+                    if target_custom_percent is not None else target_grade_score(target_grade, area))
+
+        shortfalls, score_gaps, margins = Counter(), Counter(), []
         for slot in validated:
             checkpoint()
+            margins.extend(slot_drive_margins(slot, threshold_for))
             for drive in slot.drives:
-                threshold = (target_percentage_score(target_custom_percent, drive.area)
-                             if target_custom_percent is not None else target_grade_score(target_grade, drive.area))
+                threshold = threshold_for(drive.area)
                 gap = max(0.0, threshold - drive.score)
                 if gap > 0:
                     shortfalls[drive.shape_id] += 1
@@ -394,6 +397,7 @@ class RewindShapeRecommendationService:
             notice=notice,
             required_count=sum(shortfalls.values()),
             strategy=strategy,
+            drive_margins=tuple(margins),
             owned_shape_counts=tuple(
                 (shape.shape_id, int(owned_shape_counts[shape.shape_id]))
                 for shape in shapes
@@ -413,6 +417,15 @@ class RewindShapeRecommendationService:
                 if (slot is None or slot.get("is_archived") or slot["character_id"] != ref.character_id
                         or ((slot.get("current_plan") or {}).get("plan_id")) != ref.plan_id):
                     raise ValueError("所选配装已变化，请关闭并重新打开倒带推荐后生成。")
+
+
+def rewind_role_names(static_dao, dao) -> dict[int, str]:
+    """正式角色 ID → 提示用显示名；自建角色覆盖同 ID 静态名，缺名才回退 ID，名称不参与身份判断。"""
+    names = {int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
+             for row in static_dao.list_characters()}
+    names.update({int(row["character_id"]): str(row.get("name_zh") or row["character_id"])
+                  for row in dao.list_custom_characters()})
+    return names
 
 
 def _target_label(target_grade: str, target_custom_percent: float | None, *, text_catalog=None) -> str:

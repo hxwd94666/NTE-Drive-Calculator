@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from dataclasses import dataclass
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTreatmentEvent
 from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.services.battle_report.treatment.audited import (
@@ -206,8 +207,7 @@ class BattleTreatmentEventService:
                 relative_time_us=event_time_us,
                 treatment_kind=kind,
                 basis=(
-                    f"伊洛伊正式技能在动画事件 {notify_name} 施加治疗；"
-                    "事件时点由动作起点与正式动画 Notify 偏移派生。"
+                    localized_text(None, 'auto.services.battle_report.treatment.mechanisms.oneiroi_instant_events.f81b92dc5', '伊洛伊正式技能在动画事件 {notify_name} 施加治疗；事件时点由动作起点与正式动画 Notify 偏移派生。', notify_name=f'{notify_name}')
                 ),
             ))
         return tuple(results)

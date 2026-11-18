@@ -232,7 +232,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
         super().resizeEvent(event)
         if not self._reflow_pending:
             self._reflow_pending = True
-            QTimer.singleShot(0, self._reflow_for_width)
+            QTimer.singleShot(0, self, self._reflow_for_width)
 
     def _columns_for_width(self, item_width: int, spacing: int) -> int:
         available = max(0, self.width() - 4)

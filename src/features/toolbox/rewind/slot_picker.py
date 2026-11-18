@@ -1,4 +1,5 @@
 # 用明确槽位身份选择倒带推荐的角色方案。
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (
@@ -23,7 +24,7 @@ class RewindSlotPicker(QDialog):
         body = QWidget()
         rows = QVBoxLayout(body)
         for index, slot in enumerate(role.slots):
-            score = f"{slot.score:g}分 · {loadout_total_grade(slot.score)}" if slot.score is not None else "总评分资料不足"
+            score = localized_text(text_catalog, 'auto.features.toolbox.rewind.slot_picker.init.ff57efd48', '{score}分 · {value}', score=f'{slot.score:g}', value=f'{loadout_total_grade(slot.score)}') if slot.score is not None else "总评分资料不足"
             option = QRadioButton(f"{slot.slot_name} · {score}")
             option.setObjectName("rewindSlotOption")
             option.setToolTip(f"{slot.slot_name} · {score}\n{slot.reason}")

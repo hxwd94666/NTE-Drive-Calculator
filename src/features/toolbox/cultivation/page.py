@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from collections.abc import Callable
 from functools import partial
@@ -323,7 +324,7 @@ class CultivationCalculatorPage(QWidget):
                 resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.toolbox.cultivation.page.import_owned_materials.text', origin=f'{origin}', saved_at_utc=f'{imported.saved_at_utc}', value=f'{len(observed)}', applied=f'{applied}')
             )
             if imported.skipped_item_count:
-                message += f" {imported.skipped_item_count} 种记录有冲突或字段异常，已跳过。"
+                message += localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.page.import_owned_materials.f2a8ddadb', ' {skipped_item_count} 种记录有冲突或字段异常，已跳过。', skipped_item_count=f'{imported.skipped_item_count}')
         for content in (self.calculator, self.batch_calculator):
             content.owned_materials.set_import_status(message)
 

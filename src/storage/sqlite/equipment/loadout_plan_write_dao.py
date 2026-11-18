@@ -65,7 +65,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
             for coordinate in ("target_row", "target_column"):
                 value = assignment.get(coordinate)
                 if value is not None and _integer(value, coordinate) not in range(1, 6):
-                    raise UserDataValidationError(f"{coordinate} 必须在 1 到 5 之间")
+                    raise UserDataValidationError(f"{coordinate} 必须在 1 到 5 之间")  # ui-text: internal
             normalized.append((serial, slot, kind, assignment))
         if is_active:
             if source_snapshot_id is None:
@@ -113,7 +113,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                 ),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建配装方案后未返回 plan_id")
+                raise UserDataError("创建配装方案后未返回 plan_id")  # ui-text: internal
             plan_id = int(cursor.lastrowid)
             for ordinal, (serial, slot, kind, assignment) in enumerate(normalized):
                 connection.execute(
@@ -253,7 +253,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                 ),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建残留配装方案后未返回 plan_id")
+                raise UserDataError("创建残留配装方案后未返回 plan_id")  # ui-text: internal
             residual_plan_id = int(cursor.lastrowid)
             if plan.get("slot_id") is not None:
                 connection.execute(
@@ -387,7 +387,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                 if not virtual and uid in claimed_uids:
                     raise UserDataValidationError(
                         f"批量保存中的装备 UID {uid} 同时分配给多个角色"
-                    )
+                    )  # ui-text: internal
                 role_uids.add(uid)
                 if not virtual:
                     claimed_uids[uid] = character_id
@@ -396,7 +396,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                     if value is not None and _integer(value, coordinate) not in range(1, 6):
                         raise UserDataValidationError(
                             f"{coordinate} 必须在 1 到 5 之间"
-                        )
+                        )  # ui-text: internal
                 normalized_assignments.append(assignment)
             if not normalized_assignments:
                 raise UserDataValidationError("每个激活方案至少需要一件装备")
@@ -437,7 +437,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                 ),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建配装方案后未返回 plan_id")
+                raise UserDataError("创建配装方案后未返回 plan_id")  # ui-text: internal
             plan_id = int(cursor.lastrowid)
             for ordinal, assignment in enumerate(plan.get("assignments") or ()):
                 check()
@@ -515,7 +515,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                 ):
                     raise UserDataValidationError(
                         f"背包快照不可用于保存：{snapshot_id}"
-                    )
+                    )  # ui-text: internal
                 inventory_by_snapshot[snapshot_id] = {
                     (
                         int(row["uid_slot"]),
@@ -543,7 +543,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                     if (inventory.get(uid) or {}).get("kind") != assignment["kind"]:
                         raise UserDataValidationError(
                             f"装备 UID {uid} 不在方案固定的背包快照中"
-                        )
+                        )  # ui-text: internal
             affected_plans = [
                 plan
                 for plan in self.list_loadout_plans()
@@ -725,7 +725,7 @@ class LoadoutPlanWriteDaoMixin(AllocationPlanBatchDaoMixin):
                 raise UserDataValidationError(
                     "保存后仍存在被多个激活方案占用的装备 UID："
                     f"({duplicate['uid_slot']}, {duplicate['uid_serial']})"
-                )
+                )  # ui-text: internal
             # 保留既有锁/UID复核；最终身份与取消检查须和真实提交处于同一门闩。
             with commit_context() if commit_context is not None else nullcontext():
                 if validate is not None:

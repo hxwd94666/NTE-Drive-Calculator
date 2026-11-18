@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
 from src.domain.battle_report.capture.summary import (
@@ -31,6 +32,9 @@ def page():
     view.marginal_page.set_source_analysis = Mock()
     yield view
     view.close()
+    # 页面被内部信号与子控件引用，仅 close 不会释放；本例创建的页面须显式删除并当场完成。
+    view.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     assert app is not None
 
 

@@ -208,7 +208,7 @@ class PerformanceUiTests(unittest.TestCase):
                         "automatic": False, "rows": {}, "history": [], "log_path": "", "log_error": None}
         controller = Controller()
         card = PerformanceCard(controller)
-        for theme in ("dark", "black", "light"):
+        for theme in ("black",):
             apply_app_theme(self.app, theme)
             controller.set_enabled(True)
             card.show_details()

@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.observability import log_event
 from src.services.inventory.sync.furniture import apply_native_furniture
 from src.integrations.native_core.nte_core_protocol import NteCoreProcessError
@@ -51,9 +52,9 @@ def _snapshot_listening_message(
         return "当前库存来源尚不支持原生角色身份，正在等待原生背包同步"
     prefix = "已收到原生背包" if received else "当前已保存原生背包"
     if not has_character_list:
-        return f"{prefix}，该快照未附带独立角色列表；正在后台监听更新"
+        return localized_text(None, 'auto.services.inventory.sync.runtime.snapshot_listening_message.f0b46da2c', '{prefix}，该快照未附带独立角色列表；正在后台监听更新', prefix=f'{prefix}')
     if not summary.get("character_instance_count"):
-        return f"{prefix}，尚未观测到角色实例；正在后台监听更新"
+        return localized_text(None, 'auto.services.inventory.sync.runtime.snapshot_listening_message.f53895c5d', '{prefix}，尚未观测到角色实例；正在后台监听更新', prefix=f'{prefix}')
     return "背包已同步，正在后台监听变化"
 
 
@@ -69,7 +70,7 @@ def _snapshot_waiting_message(summary, has_character_list):
         previous = "上次库存来源尚不支持原生角色身份"
     else:
         previous = "上次保存的背包仍可用于计算"
-    return f"监听已就绪，等待本次背包数据；{previous}。"
+    return localized_text(None, 'auto.services.inventory.sync.runtime.snapshot_waiting_message.fb955afec', '监听已就绪，等待本次背包数据；{previous}。', previous=f'{previous}')
 
 
 def run_inventory_sync(service: Any) -> None:
@@ -323,7 +324,7 @@ def run_inventory_sync(service: Any) -> None:
                         )
                         service._publish(
                             "collecting",
-                            f"已接收 {result.item_count} 件，等待背包内容稳定",
+                            localized_text(None, 'auto.services.inventory.sync.runtime.run_inventory_sync.fd9c296af', '已接收 {item_count} 件，等待背包内容稳定', item_count=f'{result.item_count}'),
                             source_snapshot_ready=True,
                             running=True,
                             capturing=True,
@@ -373,7 +374,7 @@ def run_inventory_sync(service: Any) -> None:
                     continue
                 service._publish(
                     "saving",
-                    f"背包已稳定，正在保存 {stable.item_count} 件",
+                    localized_text(None, 'auto.services.inventory.sync.runtime.run_inventory_sync.f91a43ff1', '背包已稳定，正在保存 {item_count} 件', item_count=f'{stable.item_count}'),
                     running=True,
                     capturing=True,
                     pending_item_count=stable.item_count,

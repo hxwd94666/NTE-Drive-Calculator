@@ -21,6 +21,10 @@ from src.services.accounts.settings import AccountSettingsService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.static_game_data_metadata import MINIMUM_SUPPORTED_SCHEMA_VERSION
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataError, UserDataValidationError
+from src.domain.rewind.strategy_preferences import STRATEGIES, UI_KEY, strategy_key
+
+# v53 升级事务一次性生成倒带三策略与界面选择副本；与旧设置导入同属账号设置集合。
+REWIND_KEYS = {UI_KEY, *(strategy_key(name) for name in STRATEGIES)}
 
 
 def _sha(path: Path) -> str:
@@ -115,16 +119,16 @@ def test_settings_migration_is_one_missing_only_transaction(tmp_path, monkeypatc
                                                       "commit": "fault_commit"}[failure])
                 service.migrate_legacy_settings()
                 assert _setting_state(observer)["marker"]
-                assert set(_setting_state(observer)["copies"]) == {"hotkeys", "update", "ui", "scan_management_role_suits", "warehouse_management_role_suits"}
+                assert set(_setting_state(observer)["copies"]) == {"hotkeys", "update", "ui", "scan_management_role_suits", "warehouse_management_role_suits", *REWIND_KEYS}
         else:
             service.migrate_legacy_settings()
             state = _setting_state(observer)
             assert state["marker"]
             if failure == "concurrent-marker":
-                assert set(state["copies"]) == {"hotkeys", "ui", "scan_management_role_suits", "warehouse_management_role_suits"}
+                assert set(state["copies"]) == {"hotkeys", "ui", "scan_management_role_suits", "warehouse_management_role_suits", *REWIND_KEYS}
                 assert state["copies"]["hotkeys"] == {"capture": "F2"}
             else:
-                assert set(state["copies"]) == {"hotkeys", "update", "ui", "scan_management_role_suits", "warehouse_management_role_suits"}
+                assert set(state["copies"]) == {"hotkeys", "update", "ui", "scan_management_role_suits", "warehouse_management_role_suits", *REWIND_KEYS}
                 if failure == "concurrent-explicit":
                     assert state["copies"]["hotkeys"] == {"capture": "F2"}
             before_repeat = state

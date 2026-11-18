@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from src.domain.localization.catalog import localized_text
 from src.services.damage.damage_calculation_service import DamageScalingStat
 from src.services.official_role.native_damage import role_damage_calculator
 from src.services.official_role.panel.attributes import (
@@ -115,7 +116,7 @@ def calculate_official_role_damage_breakdown(
             "detail": "角色面板统一按 100% 计算",
         },
         {
-            "name": f"倍率对应属性（{scaling_names[values.scaling_stat]}）",
+            "name": localized_text(None, 'auto.services.official_role.panel.panel_explanation.calculate_official_role_damage_breakdown.f6b84921b', '倍率对应属性（{value}）', value=f'{scaling_names[values.scaling_stat]}'),
             "value": result.scaling_attribute_value,
             "detail": (
                 f"{scaling_base:g} × (1 + {scaling_up * 100:g}%) + "
@@ -141,19 +142,14 @@ def calculate_official_role_damage_breakdown(
             "name": "防御区",
             "value": result.defense_multiplier,
             "detail": (
-                f"敌防 {result.enemy_defense:g}；角色 {values.character_level:g} 级 / "
-                f"敌人 {values.enemy_level:g} 级；穿透 {values.defense_penetration * 100:g}% / "
-                f"减防 {values.defense_reduction * 100:g}%"
+                localized_text(None, 'auto.services.official_role.panel.panel_explanation.calculate_official_role_damage_breakdown.fb320384e', '敌防 {enemy_defense}；角色 {character_level} 级 / 敌人 {enemy_level} 级；穿透 {value}% / 减防 {value_2}%', enemy_defense=f'{result.enemy_defense:g}', character_level=f'{values.character_level:g}', enemy_level=f'{values.enemy_level:g}', value=f'{values.defense_penetration * 100:g}', value_2=f'{values.defense_reduction * 100:g}')
             ),
         },
         {
             "name": "抗性区",
             "value": result.resistance_multiplier,
             "detail": (
-                f"基础抗性 {values.boss_resistance * 100:g}% - 减抗 "
-                f"{sum(values.enemy_resistance_reductions) * 100:g}% - 穿透 "
-                f"{sum(values.resistance_penetrations) * 100:g}% = "
-                f"{result.effective_resistance * 100:g}%"
+                localized_text(None, 'auto.services.official_role.panel.panel_explanation.calculate_official_role_damage_breakdown.f4816bf9a', '基础抗性 {value}% - 减抗 {value_2}% - 穿透 {value_3}% = {value_4}%', value=f'{values.boss_resistance * 100:g}', value_2=f'{sum(values.enemy_resistance_reductions) * 100:g}', value_3=f'{sum(values.resistance_penetrations) * 100:g}', value_4=f'{result.effective_resistance * 100:g}')
             ),
         },
         {

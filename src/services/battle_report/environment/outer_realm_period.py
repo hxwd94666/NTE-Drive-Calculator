@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.targets.encounter import BattleEncounterCandidate
 
 
@@ -34,8 +35,7 @@ class BattleOuterRealmPeriod:
         start = self.starts_at_mainland.strftime("%Y-%m-%d %H:%M:%S")
         end = self.ends_at_mainland.strftime("%Y-%m-%d %H:%M:%S")
         return (
-            f"战报发生时间 {occurred}（大陆服）唯一命中轨外期数"
-            f" {self.display_label}，正式生效区间为 {start}—{end}"
+            localized_text(None, 'auto.services.battle_report.environment.outer_realm_period.inference_basis.f99b09db6', '战报发生时间 {occurred}（大陆服）唯一命中轨外期数 {display_label}，正式生效区间为 {start}—{end}', occurred=f'{occurred}', display_label=f'{self.display_label}', start=f'{start}', end=f'{end}')
         )
 
 

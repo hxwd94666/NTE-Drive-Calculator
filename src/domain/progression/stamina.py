@@ -114,7 +114,7 @@ def project_identification_level(
         raise ValueError(
             "猎人等级必须位于 "
             f"{policy.minimum_hunter_level}–{policy.maximum_hunter_level}"
-        )
+        )  # ui-text: internal
     native = sum(level >= threshold for threshold in policy.thresholds)
     effective = native if effective_level is None else int(effective_level)
     allowed = {native}
@@ -124,7 +124,7 @@ def project_identification_level(
         raise ValueError(
             f"鉴别等级 {native} 只能保持不变"
             + ("或下调一级" if native >= policy.lower_adjustment_unlock_level else "")
-        )
+        )  # ui-text: internal
     return IdentificationLevelProjection(
         hunter_level=level,
         native_level=native,

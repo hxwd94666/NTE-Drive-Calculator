@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.domain.inventory.post_actions import GRADE_ORDER, DEFAULT_EXCLUDED_SET_NAMES, DEFAULT_EXCLUDED_SHAPE_IDS
+from src.domain.inventory.post_actions import GRADE_ORDER
 from src.ui.common.widgets import NoWheelComboBox
 from src.ui.equipment_management.scope_dialogs import RoleScopeDialog, TypeRangeDialog, type_range_summary
 
@@ -296,11 +296,12 @@ class ScoringFields:
         self._selected_character_ids[key] = dialog.selected_character_ids()
         self._update_role_scope_summary(key)
 
+    # 未保存范围默认全选，与匹配端 None 包含全部的口径一致。
     def _default_shape_ids(self) -> list[str]:
-        return [shape_id for shape_id, _area in self._shape_options if shape_id not in DEFAULT_EXCLUDED_SHAPE_IDS]
+        return [shape_id for shape_id, _area in self._shape_options]
 
     def _default_set_names(self) -> list[str]:
-        return [set_name for set_name in self._set_options if set_name not in DEFAULT_EXCLUDED_SET_NAMES]
+        return list(self._set_options)
 
     def _selected_or_default(self, values: list[str] | None, defaults: list[str]) -> list[str]:
         if values is None:

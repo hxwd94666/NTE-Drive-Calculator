@@ -37,23 +37,23 @@ class AllocationScoringRules:
             seen = set()
             for key, value in pairs:
                 if not isinstance(key, str) or not key or key in seen:
-                    raise ValueError(f"评分规则{name}的键无效或重复")
+                    raise ValueError(f"评分规则{name}的键无效或重复")  # ui-text: internal
                 seen.add(key)
                 if name in _NUMERIC:
                     if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
-                        raise ValueError(f"评分规则{name}.{key}的数值无效")
+                        raise ValueError(f"评分规则{name}.{key}的数值无效")  # ui-text: internal
                     value = float(value)
                 elif not isinstance(value, str):
-                    raise ValueError(f"评分规则{name}.{key}的别名无效")
+                    raise ValueError(f"评分规则{name}.{key}的别名无效")  # ui-text: internal
                 copied.append((key, value))
             object.__setattr__(self, name, tuple(copied))
         for name in _LISTS:
             source = getattr(self, name)
             if isinstance(source, (str, bytes)):
-                raise ValueError(f"评分规则{name}必须是文本列表")
+                raise ValueError(f"评分规则{name}必须是文本列表")  # ui-text: internal
             source = tuple(source)
             if any(not isinstance(value, str) for value in source):
-                raise ValueError(f"评分规则{name}必须是文本列表")
+                raise ValueError(f"评分规则{name}必须是文本列表")  # ui-text: internal
             object.__setattr__(self, name, tuple(source))
         if not isinstance(self.source_sha256, str):
             raise ValueError("评分规则来源哈希必须是文本")
@@ -70,7 +70,7 @@ class AllocationScoringRules:
             raise ValueError("评分规则缺少基础值或卡带主词条目录")
         for name in (*_NUMERIC, *_ALIASES):
             if name in data and data[name] is not None and not isinstance(data[name], Mapping):
-                raise ValueError(f"评分规则{name}必须是对象")
+                raise ValueError(f"评分规则{name}必须是对象")  # ui-text: internal
         return cls(**{name: data.get(name) or () for name in (*_NUMERIC, *_ALIASES, *_LISTS)},
                    source_sha256=source_sha256)
 

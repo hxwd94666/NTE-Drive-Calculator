@@ -104,7 +104,7 @@ def legacy_shape_id(value: Any) -> str:
         return geometry
     shape_id = _SHAPE_IDS.get(geometry.casefold())
     if shape_id is None:
-        raise AllocationInventoryProjectionError(f"未知官方驱动形状：{value!r}")
+        raise AllocationInventoryProjectionError(f"未知官方驱动形状：{value!r}")  # ui-text: internal
     return shape_id
 
 
@@ -122,7 +122,7 @@ def _stats(stats: list[dict[str, Any]]) -> dict[str, float]:
         if name is None:
             raise AllocationInventoryProjectionError(
                 f"求解器尚不支持官方属性 ID {property_id or '<empty>'}"
-            )
+            )  # ui-text: internal
         result[name] = _stat_value(stat)
     return result
 
@@ -144,7 +144,7 @@ class SqliteAllocationInventory:
     def _quality(value: Any) -> str:
         quality = _QUALITY_NAMES.get(str(value or "").strip().casefold())
         if quality is None:
-            raise AllocationInventoryProjectionError(f"未知装备品质：{value!r}")
+            raise AllocationInventoryProjectionError(f"未知装备品质：{value!r}")  # ui-text: internal
         return quality
 
     @staticmethod
@@ -173,7 +173,7 @@ class SqliteAllocationInventory:
         except Exception as exc:
             raise AllocationInventoryProjectionError(
                 f"稳定背包快照 {pinned_snapshot_id} 不可用"
-            ) from exc
+            ) from exc  # ui-text: internal
 
         return self.project_snapshot(pinned_snapshot_id, summary, snapshot_items)
 
@@ -239,14 +239,14 @@ class SqliteAllocationInventory:
                 if not set_name:
                     raise AllocationInventoryProjectionError(
                         f"静态数据库缺少核心套装 {suit_id or '<empty>'}"
-                    )
+                    )  # ui-text: internal
                 main_stats = _stats(item.get("main_stats") or [])
                 if not main_stats and str(summary.get("source") or "") == "vision":
                     continue
                 if len(main_stats) != 1:
                     raise AllocationInventoryProjectionError(
                         f"核心 {base['uid']} 必须且仅包含一个主词条"
-                    )
+                    )  # ui-text: internal
                 main_stat, snapshot_main_value = next(iter(main_stats.items()))
                 main_value = full_level_tape_main_value(main_stat, item.get("quality"))
                 if main_value is None:
@@ -263,7 +263,7 @@ class SqliteAllocationInventory:
                     }
                 )
             else:
-                raise AllocationInventoryProjectionError(f"未知装备类型：{kind!r}")
+                raise AllocationInventoryProjectionError(f"未知装备类型：{kind!r}")  # ui-text: internal
             projected.append(base)
 
         return AllocationInventoryProjection(

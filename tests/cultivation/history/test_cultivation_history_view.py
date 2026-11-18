@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

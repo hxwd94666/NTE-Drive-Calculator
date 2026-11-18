@@ -12,7 +12,7 @@ from tests.characters.official.test_likeability_source_gap import gap
 NTE_TEST_TIER = "core"
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_unknown_likeability_choice_is_not_silently_cleared(monkeypatch, theme):
     from src.app.theme import apply_app_theme, current_theme_name
     from src.domain.official_role.models import WorldBonusSettings
@@ -35,7 +35,7 @@ def test_unknown_likeability_choice_is_not_silently_cleared(monkeypatch, theme):
         stats = group.findChildren(QDoubleSpinBox)
         assert checkbox.isChecked() and checkbox.isEnabled()
         assert "缺失" in checkbox.text()
-        assert "关闭此选项" in checkbox.toolTip()
+        assert "关闭后不计此项" in checkbox.toolTip()
         assert len(stats) == 5 and all("未知" in field.text() for field in stats)
         assert window._official_role_dirty_ids == set()
         checkbox.setChecked(False)

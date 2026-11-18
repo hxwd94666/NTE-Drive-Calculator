@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import resolve_text_catalog
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, replace
@@ -373,7 +374,7 @@ class BattleReportAnalysisControllerMixin:
         elif request.load.detail_level == "marginal":
             self._page.show_marginal_error(message)
         else:
-            self._page.clear_analysis(f"读取战报逐击分析失败：{message}")
+            self._page.clear_analysis(localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.analysis.loading.analysis_load_failed.fad720379', '读取战报逐击分析失败：{message}', message=f'{message}'))
         log_event(
             "WARNING",
             "battle_report.analysis_load_failed",

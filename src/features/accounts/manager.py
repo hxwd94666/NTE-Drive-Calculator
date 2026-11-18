@@ -35,7 +35,9 @@ from src.integrations.accounts.mutation_directories import (
 )
 from src.services.accounts.naming import AccountNamingService, normalize_account_name
 from src.services.accounts.transfer import export_account_data, import_account_data
-from src.integrations.accounts.transfer_archive import AccountImportRecoveryError, account_directory_identity
+from src.integrations.accounts.transfer_archive import (
+    AccountDirectoryBusyError, AccountImportRecoveryError, account_directory_identity,
+)
 from src.storage.config_migration import replace_core_config_dir
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
@@ -391,7 +393,7 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
         try:
             target = manager.prepare_account_deletion(account_id)
         except AccountMutationRecoveryError as exc:
-            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.qmessagebox'), str(exc))
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.qmessagebox'), ui_enum_text(text_catalog, str(exc)))
             return
         except ValueError:
             QMessageBox.information(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.ret'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.delete_account.qmessagebox_2')))
@@ -489,6 +491,11 @@ def show_account_manager_dialog(parent, style_sheet: str, manager: AccountManage
                     refresh(runtime["active_id"])
                     refresh_account_combo_callback()
             detail = "\n账号回切尚未完成，临时账号已保留，请重试切换。" if switch_pending else ""
+            if isinstance(exc, AccountDirectoryBusyError):
+                # 原目录尚未移动：按“状态 → 原因 → 下一步”提示，原始异常只进本机日志。
+                logger.warning(f"account.import_directory_busy | 账号目录仍被占用，导入未替换原件 | error={exc}")
+                QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.import_account.path'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.import_account.directory_busy', detail=ui_enum_text(text_catalog, f'{detail}'))))
+                return
             QMessageBox.critical(dialog, resolve_text_catalog(text_catalog).render('ui.accounts.import_account.path'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.accounts.import_account.qmessagebox_3', exc=f'{exc}', detail=ui_enum_text(text_catalog, f'{detail}'))))
             return
         try:

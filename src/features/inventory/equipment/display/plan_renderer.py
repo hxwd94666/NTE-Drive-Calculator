@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -97,7 +98,7 @@ class _ResponsivePairWidget(QWidget):
             self._layout.invalidate()
             self._layout.activate()
             self._sync_minimum_height()
-            QTimer.singleShot(0, self._sync_minimum_height)
+            QTimer.singleShot(0, self, self._sync_minimum_height)
             self.updateGeometry()
         super().resizeEvent(event)
 
@@ -450,7 +451,8 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
         if rd.get("_game_existing_plan_locked"):
             import_btn.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.render_equip_role.import_btn')))
         elif not rd.get("_game_importable"):
-            import_btn.setToolTip(str(rd.get("_game_reason") or "当前方案不完整"))
+            import_btn.setToolTip(str(rd.get("_game_reason") or resolve_text_catalog(
+                getattr(self, 'text_catalog', None)).render('ui.inventory.game_plan.incomplete')))
         import_btn.clicked.connect(
             lambda _=False, rn=source_role_name: self._import_game_loadout(rn)
         )
@@ -676,7 +678,7 @@ def _render_equip_role(self, role_name, rd, *, target_layout=None):
             )
         )
     if drives:
-        gl.addWidget(presentation.section_label(f"驱动 ({len(drives)}个):"))
+        gl.addWidget(presentation.section_label(localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.equipment.display.plan_renderer.render_equip_role.fed4e5f9f', '驱动 ({count}个):', count=f'{len(drives)}')))
         for d in drives:
             d_q = d.get(EQUIP_QUALITY, "Gold")
             if EQUIP_SCORE in d and d.get(EQUIP_GRADE):

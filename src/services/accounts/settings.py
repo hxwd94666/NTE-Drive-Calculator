@@ -206,7 +206,7 @@ class AccountSettingsService:
     def _setting_key(setting_key: str) -> str:
         key = str(setting_key).strip()
         if key not in SETTING_GROUPS:
-            raise UserDataValidationError(f"未知设置分组：{key or '<空>'}")
+            raise UserDataValidationError(f"未知设置分组：{key or '<空>'}")  # ui-text: internal
         return key
 
     @classmethod
@@ -235,7 +235,7 @@ class AccountSettingsService:
             for name in ("inventory_sync_method", "equipment_apply_method"):
                 method = str(normalized[name]).strip()
                 if method not in {"nte_core", "gamepad"}:
-                    raise UserDataValidationError(f"{name} 必须是 nte_core 或 gamepad")
+                    raise UserDataValidationError(f"{name} 必须是 nte_core 或 gamepad")  # ui-text: internal
                 normalized[name] = method
             device = normalized.get("capture_device_id")
             normalized["capture_device_id"] = (
@@ -251,34 +251,34 @@ class AccountSettingsService:
                 settle = float(normalized["inventory_settle_seconds"])
             except (TypeError, ValueError) as exc:
                 raise UserDataValidationError(
-                    "inventory_settle_seconds 必须是数值"
+                    "inventory_settle_seconds 必须是数值"  # ui-text: internal
                 ) from exc
             if not math.isfinite(settle) or settle <= 0:
                 raise UserDataValidationError(
-                    "inventory_settle_seconds 必须大于 0"
+                    "inventory_settle_seconds 必须大于 0"  # ui-text: internal
                 )
             normalized["inventory_settle_seconds"] = settle
             retention = normalized["inventory_snapshot_retention_count"]
             if isinstance(retention, bool):
                 raise UserDataValidationError(
-                    "inventory_snapshot_retention_count 必须是正整数"
+                    "inventory_snapshot_retention_count 必须是正整数"  # ui-text: internal
                 )
             try:
                 retention = int(retention)
             except (TypeError, ValueError) as exc:
                 raise UserDataValidationError(
-                    "inventory_snapshot_retention_count 必须是正整数"
+                    "inventory_snapshot_retention_count 必须是正整数"  # ui-text: internal
                 ) from exc
             if retention < 1:
                 raise UserDataValidationError(
-                    "inventory_snapshot_retention_count 必须是正整数"
+                    "inventory_snapshot_retention_count 必须是正整数"  # ui-text: internal
                 )
             normalized["inventory_snapshot_retention_count"] = retention
         elif key == "hotkeys":
             for name in ("capture", "finish", "stop", "battle_rerecord"):
                 hotkey = str(normalized[name]).strip()
                 if not hotkey:
-                    raise UserDataValidationError(f"{name} 快捷键不能为空")
+                    raise UserDataValidationError(f"{name} 快捷键不能为空")  # ui-text: internal
                 normalized[name] = hotkey
         elif key == "update":
             normalized["never_remind"] = bool(normalized["never_remind"])

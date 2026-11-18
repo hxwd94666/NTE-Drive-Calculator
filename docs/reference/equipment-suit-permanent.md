@@ -32,4 +32,4 @@
 
 候选入口为`tools/game_data/build_equipment_suit_permanent_candidate.py`，仅在`build/`新建独立审查SQLite，包含24条`equipment_suit_effect_review`、17条`equipment_suit_permanent_property`及来源元数据。数值采用正式property_id，百分比保存为ratio（例如14%=0.14）。此库是审查数据，不是主静态game包，明确标记`release_ready=false`、`runtime_integration=pending`；无正式发行manifest，不替换data、不供运行时旁路读取。
 
-同一投影已纳入追加迁移、importer、主静态构建和正式晋升入口，不保留独立运行时套装侧库。消费者和剩余发布门禁见[实施审查](../roadmap/equipment-suit-permanent.md)。条件效果的固定轴行为另见[战报套装目录](counterfactual/equipment-suits.md)，本表不将其升级为全场常驻。
+同一投影已纳入追加迁移、importer、主静态构建和正式晋升入口，不保留独立运行时套装侧库。消费者和剩余发布门禁见[实施审查](../roadmap.md)。条件效果的固定轴行为另见[战报套装目录](counterfactual/equipment-suits.md)，本表不将其升级为全场常驻。

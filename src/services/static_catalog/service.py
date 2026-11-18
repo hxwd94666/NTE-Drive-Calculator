@@ -38,7 +38,7 @@ class StaticCatalogService:
         self._release_reader = release_reader or StaticCatalogReleaseReader()
         provider_map = {provider.domain.key: provider for provider in providers}
         if GLOBAL_DOMAIN_KEY in provider_map:
-            raise ValueError(f"领域 key {GLOBAL_DOMAIN_KEY!r} 保留给全局搜索")
+            raise ValueError(f"领域 key {GLOBAL_DOMAIN_KEY!r} 保留给全局搜索")  # ui-text: internal
         self._providers = provider_map
         self._domain_paths = {key: Path(path).resolve() for key, path in (domain_database_paths or {}).items()}
         if self._domain_paths.keys() - provider_map.keys():
@@ -77,7 +77,7 @@ class StaticCatalogService:
         if domain_key != GLOBAL_DOMAIN_KEY:
             provider = self._providers.get(domain_key)
             if provider is None:
-                raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")
+                raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")  # ui-text: internal
             return provider.search(
                 request.release_for(domain_key),
                 query=normalized_query,
@@ -115,7 +115,7 @@ class StaticCatalogService:
         self._ensure_request_unchanged(request)
         provider = self._providers.get(domain_key)
         if provider is None:
-            raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")
+            raise StaticCatalogServiceError(f"未知资料领域：{domain_key}")  # ui-text: internal
         return provider.detail(request.release_for(domain_key), str(record_id))
 
     def relations(
@@ -134,7 +134,7 @@ class StaticCatalogService:
         provider = self._providers.get(domain_key)
         loader = getattr(provider, "relations", None)
         if not callable(loader):
-            raise StaticCatalogServiceError(f"资料领域不支持分页关系：{domain_key}")
+            raise StaticCatalogServiceError(f"资料领域不支持分页关系：{domain_key}")  # ui-text: internal
         return loader(
             request.release_for(domain_key),
             str(record_id),
@@ -155,4 +155,4 @@ class StaticCatalogService:
         if errors:
             raise StaticCatalogServiceError(
                 f"关闭游戏资料库时有 {len(errors)} 个数据提供器失败"
-            ) from errors[0]
+            ) from errors[0]  # ui-text: internal

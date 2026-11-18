@@ -135,4 +135,5 @@ def test_replacement_without_ready_scorer_does_not_offer_zero_score_save(monkeyp
     monkeypatch.setattr(replacement_controller.QMessageBox, "information", lambda *args: messages.append(args[2]))
     result = replacement_controller._show_prepared_replacement(
         SimpleNamespace(scoring_engine=None), {}, {}, [{}], context_key="saved", on_saved=None, owner=None)
-    assert result is False and messages == ["评分资料尚未就绪，请等待资料加载完成后重试。"]
+    # 提示统一经 plain_tooltip 包成 <qt> 纯文本。
+    assert result is False and messages == ["<qt>评分资料尚未就绪，请等待资料加载完成后重试。</qt>"]

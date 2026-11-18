@@ -273,7 +273,7 @@ class StaticCatalogMechanicsDetailProjector:
         try:
             return _PLAYER_FORMULAS[formula.key]
         except KeyError as exc:
-            raise LookupError(f"公式缺少玩家中文投影：{formula.key}") from exc
+            raise LookupError(f"公式缺少玩家中文投影：{formula.key}") from exc  # ui-text: internal
 
     def model_detail(self, model: CounterfactualMatrixRow) -> MechanicsDetail:
         consumer = (

@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.domain.battle_report.targets.profiles import BattleTargetCondition
 from src.domain.battle_report.targets.profiles import BattleSelectedTargetProfile
@@ -136,7 +137,7 @@ def display_battle_environment_name(condition: BattleTargetCondition) -> str:
                 else "上半" if "FirstHalf" in parts[2]
                 else "下半"
             )
-            return f"轨外之境第{int(parts[1])}层{half}"
+            return localized_text(None, 'auto.services.battle_report.environment.conditions.display_battle_environment_name.fa0c385cc', '轨外之境第{value}层{half}', value=f'{int(parts[1])}', half=f'{half}')
         return "轨外之境"
     prefix = {
         "open_world": "大世界",

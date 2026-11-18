@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from src.ui.common.enum_text import ui_enum_text
 from collections.abc import Callable
@@ -366,7 +367,7 @@ class BattleTargetVitalPanel(QWidget):
                     if event.included_in_effective_damage
                     else "描述预计"
                 ),
-                f"归因{event.attribution_confidence} / 结算{event.calculation_confidence}",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.analysis.target_vitals.render.fac5d68f3', '归因{attribution_confidence} / 结算{calculation_confidence}', attribution_confidence=f'{event.attribution_confidence}', calculation_confidence=f'{event.calculation_confidence}'),
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -399,8 +400,7 @@ class BattleTargetVitalPanel(QWidget):
             "没有可用于生命上限派生的正式目标血量样本。",
         )
         estimate_note = (
-            f" 描述预计合计 {_number(analysis.estimated_max_hp_reduction_damage)}，"
-            "属于低置信弱证据，默认不计入有效伤害。"
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.analysis.target_vitals.render.f63fc313d', ' 描述预计合计 {value}，属于低置信弱证据，默认不计入有效伤害。', value=f'{_number(analysis.estimated_max_hp_reduction_damage)}')
             if analysis.estimated_max_hp_events
             else ""
         )

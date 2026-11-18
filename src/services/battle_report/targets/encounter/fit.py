@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from math import exp, isclose, isfinite, log, log1p
 from typing import Final
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
 
@@ -278,7 +279,7 @@ class BattleEncounterFitService:
             ):
                 hit_loss, reason = _prediction_loss(prediction)
                 if hit_loss is None:
-                    failure = f"候选 {candidate.candidate_ref}：{reason}"
+                    failure = localized_text(None, 'auto.services.battle_report.targets.encounter.fit.select_python.fe84daaef', '候选 {candidate_ref}：{reason}', candidate_ref=f'{candidate.candidate_ref}', reason=f'{reason}')
                     break
                 candidate_losses.append((candidate.candidate_ref, hit_loss))
             if failure:
@@ -332,13 +333,11 @@ class BattleEncounterFitService:
             f"共同合格逐击 {common_hits} 条、独立证据组 {common_groups} 个；"
             "仅使用 non_critical_damage / critical_damage / expected_damage "
             "原始公式预测的对数 Student-t 核残差，"
-            "corrected_expected_damage 未进入评分。"
+            "corrected_expected_damage 未进入评分。"  # ui-text: internal
         )
         if len(ranked) > 1:
             audit_summary += (
-                f" 同血量公式画像冲突仍保留；胜者 {winner.candidate_ref}，"
-                f"与次优分差 {score_gap:.6f}、相对分差 {relative_gap:.2%}，"
-                f"置信度{confidence}。"
+                localized_text(None, 'auto.services.battle_report.targets.encounter.fit.select_python.f57f1f10f', ' 同血量公式画像冲突仍保留；胜者 {candidate_ref}，与次优分差 {score_gap}、相对分差 {relative_gap}，置信度{confidence}。', candidate_ref=f'{winner.candidate_ref}', score_gap=f'{score_gap:.6f}', relative_gap=f'{relative_gap:.2%}', confidence=f'{confidence}')
             )
         return BattleEncounterFitSelection(
             winner_ref=winner.candidate_ref,
@@ -421,14 +420,11 @@ class BattleEncounterFitService:
             f"共同合格逐击 {common_hits} 条、独立证据组 {common_groups} 个；"
             "仅使用 non_critical_damage / critical_damage / expected_damage "
             "原始公式预测的对数 Student-t 核残差，"
-            "corrected_expected_damage 未进入评分。"
+            "corrected_expected_damage 未进入评分。"  # ui-text: internal
         )
         if len(scores) > 1:
             summary += (
-                f" 同血量公式画像冲突仍保留；胜者 {response['winner_ref']}，"
-                f"与次优分差 {response['score_gap']:.6f}、"
-                f"相对分差 {response['relative_score_gap']:.2%}，"
-                f"置信度{response['confidence']}。"
+                localized_text(None, 'auto.services.battle_report.targets.encounter.fit.native_select.f573b82fc', ' 同血量公式画像冲突仍保留；胜者 {value}，与次优分差 {value_2}、相对分差 {value_3}，置信度{value_4}。', value=f"{response['winner_ref']}", value_2=f"{response['score_gap']:.6f}", value_3=f"{response['relative_score_gap']:.2%}", value_4=f"{response['confidence']}")
             )
         response["alternatives"] = tuple(response["alternatives"])
         return BattleEncounterFitSelection(

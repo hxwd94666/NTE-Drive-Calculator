@@ -1,6 +1,7 @@
 # 用紧凑配置卡、五列材料图片卡和体力摘要展示冻结历史，次要信息按需展开。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 import json
 
@@ -84,8 +85,8 @@ class CultivationHistoryDetail(QScrollArea):
         stamina = self._snapshot["stamina"]
         total = stamina["total_stamina"]
         prefix = "估算" if self._snapshot["version"] >= 2 else ""
-        return (f"合并{prefix}体力：{total:,}" if total is not None
-                else f"合并已知{prefix}体力：{stamina['known_stamina']:,} · 总体力未知")
+        return (localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.history.history_detail.stamina_text.ff6e2998d', '合并{prefix}体力：{total}', prefix=f'{prefix}', total=f'{total:,}') if total is not None
+                else localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.history.history_detail.stamina_text.f28ca02eb', '合并已知{prefix}体力：{value} · 总体力未知', prefix=f'{prefix}', value=f"{stamina['known_stamina']:,}"))
 
     def _new_content(self) -> tuple[QWidget, QVBoxLayout]:
         old = self.takeWidget()
@@ -139,25 +140,27 @@ class CultivationHistoryDetail(QScrollArea):
         fork = target["fork"]
         title = target["name"] + (f"（{fork['name']}）" if fork else "")
         section = _Section(title, content, expanded=expanded)
-        parts = [self._config_text("人物", self._progress(target), target["character_enabled"])]
+        parts = [self._config_text("人物", self._progress(target, getattr(self, 'text_catalog', None)), target["character_enabled"])]
         skills = target["skills"]
         pairs = {(skill["current_level"], skill["target_level"]) for skill in skills}
         if len(pairs) == 1:
             current, goal = next(iter(pairs))
-            skill_text = f"{current} → {goal} 级（{len(skills)} 项）"
+            skill_text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.history.history_detail.target_card.fbb58ebfa', '{current} → {goal} 级（{count} 项）', current=f'{current}', goal=f'{goal}', count=f'{len(skills)}')
         else:
-            skill_text = "；".join(f"项目 {index + 1}：{skill['current_level']} → {skill['target_level']} 级"
+            skill_text = "；".join(localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.history.history_detail.target_card.feef8f9d0', '项目 {value}：{value_2} → {value_3} 级', value=f'{index + 1}', value_2=f"{skill['current_level']}", value_3=f"{skill['target_level']}")
                                    for index, skill in enumerate(skills)) or "无技能项目"
         parts.append(self._config_text("技能", skill_text, target["skills_enabled"]))
         if fork is not None:
-            parts.append(self._config_text("弧盘", self._progress(fork), fork["enabled"]))
+            parts.append(self._config_text("弧盘", self._progress(fork, getattr(self, 'text_catalog', None)), fork["enabled"]))
         section.content.addWidget(_label("  |  ".join(parts), section.body))
         return section
 
     @staticmethod
-    def _progress(values: dict) -> str:
-        return (f"{values['current_level']}级 / 突破{values['current_stage']} → "
-                f"{values['target_level']}级 / 突破{values['target_stage']}")
+    def _progress(values: dict, text_catalog=None) -> str:
+        return localized_text(
+            text_catalog, "cultivation.history.progress", "{current_level}级 / 突破{current_stage} → {target_level}级 / 突破{target_stage}",
+            current_level=f"{values['current_level']}", current_stage=f"{values['current_stage']}",
+            target_level=f"{values['target_level']}", target_stage=f"{values['target_stage']}")
 
     @staticmethod
     def _config_text(title: str, value: str, enabled: bool) -> str:

@@ -28,6 +28,8 @@ from src.features.allocation.results.results_diff_view import (
     _diff_item_card,
     _build_plan_diff_dialog,
     _show_plan_diff_dialog,
+)
+from src.features.allocation.results.saved_equipment_sync import (
     _sync_role_drive_replacement,
     _sync_role_tape_replacement,
 )
@@ -355,7 +357,8 @@ def _equip_card(
     if score_frame is not None:
         hdr.addWidget(score_frame, 0, Qt.AlignTop)
     if replacement_callback:
-        replacement_btn = QPushButton(str(replacement_text or ("优化" if shape_id else "替换")))
+        replacement_btn = QPushButton(str(replacement_text or resolve_text_catalog(getattr(self, 'text_catalog', None)).render(
+            'ui.equipment.equip_card.optimize' if shape_id else 'ui.equipment.equip_card.replace')))
         replacement_btn.setObjectName("btnAction")
         if is_feature_card:
             replacement_btn.setFixedSize(74, 33)

@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
+from src.domain.localization.catalog import localized_text
 from src.services.static_catalog.monsters.display import NAME_UNAVAILABLE
 from src.services.static_catalog.monsters.feast import (
     apply_feast_options,
@@ -240,9 +241,9 @@ class StaticCatalogFeastPeriodMixin:
             else _key("feast", stage_id, difficulty_id, *target_key)
         )
         subtitle = (
-            f"争锋赏宴 · {period.display_label} · {difficulty_name}"
+            localized_text(None, 'auto.services.static_catalog.monsters.feast_periods.build_feast_detail.f2e66e9b9', '争锋赏宴 · {display_label} · {difficulty_name}', display_label=f'{period.display_label}', difficulty_name=f'{difficulty_name}')
             if period is not None
-            else f"争锋赏宴 · {difficulty_name}"
+            else localized_text(None, 'auto.services.static_catalog.monsters.feast_periods.build_feast_detail.f4768ec74', '争锋赏宴 · {difficulty_name}', difficulty_name=f'{difficulty_name}')
         )
         entry = self._entry(
             entry_key, domain="encounter", play_mode="feast",
@@ -303,7 +304,7 @@ class StaticCatalogFeastPeriodMixin:
             ))
         relations = tuple(dict.fromkeys(
             CatalogRelation(
-                f"查看 Boss 模板：{candidate['static_table']}",
+                localized_text(None, 'auto.services.static_catalog.monsters.feast_periods.build_feast_detail.f7a885ed1', '查看 Boss 模板：{value}', value=f"{candidate['static_table']}"),
                 _key(
                     "profile_monster",
                     candidate["static_table"],

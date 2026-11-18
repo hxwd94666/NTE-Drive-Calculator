@@ -50,20 +50,20 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         text = str(value or "").strip()
         if not text:
             if required:
-                raise UserDataValidationError(f"{label} 不能为空")
+                raise UserDataValidationError(f"{label} 不能为空")  # ui-text: internal
             return None
         return text
 
     @staticmethod
     def _preference_number(value: Any, label: str) -> float:
         if isinstance(value, bool):
-            raise UserDataValidationError(f"{label} 必须是有限数值")
+            raise UserDataValidationError(f"{label} 必须是有限数值")  # ui-text: internal
         try:
             number = float(value)
         except (TypeError, ValueError) as exc:
-            raise UserDataValidationError(f"{label} 必须是有限数值") from exc
+            raise UserDataValidationError(f"{label} 必须是有限数值") from exc  # ui-text: internal
         if not math.isfinite(number):
-            raise UserDataValidationError(f"{label} 必须是有限数值")
+            raise UserDataValidationError(f"{label} 必须是有限数值")  # ui-text: internal
         return number
 
     @classmethod
@@ -80,7 +80,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 row.get("property_id"), "property_id", required=True
             )
             if property_id in seen_ids:
-                raise UserDataValidationError("角色词条权重不能包含重复 property_id")
+                raise UserDataValidationError("角色词条权重不能包含重复 property_id")  # ui-text: internal
             seen_ids.add(property_id)
             weight = cls._preference_number(row.get("weight", 0), f"{property_id} weight")
             main_weight = cls._preference_number(
@@ -375,7 +375,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         for ordinal, (raw_property_id, raw_value) in enumerate(property_values.items()):
             property_id = str(raw_property_id or "").strip()
             if not property_id:
-                raise UserDataValidationError("额外形状加成 property_id 不能为空")
+                raise UserDataValidationError("额外形状加成 property_id 不能为空")  # ui-text: internal
             value = self._preference_number(raw_value, "额外形状加成数值")
             if value < 0:
                 raise UserDataValidationError("额外形状加成数值不能小于 0")
@@ -543,15 +543,15 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         raw_character_id = _integer(character_id, "character_id", minimum=1)
         raw_level = _integer(character_level, "character_level", minimum=1)
         if raw_level > 80:
-            raise UserDataValidationError("character_level 不能大于 80")
+            raise UserDataValidationError("character_level 不能大于 80")  # ui-text: internal
         raw_breakthrough = _integer(breakthrough_stage, "breakthrough_stage", minimum=0)
         if raw_breakthrough > 6:
-            raise UserDataValidationError("breakthrough_stage 不能大于 6")
+            raise UserDataValidationError("breakthrough_stage 不能大于 6")  # ui-text: internal
         if not _valid_breakthrough_stage_for_level(raw_level, raw_breakthrough):
             raise UserDataValidationError("角色等级与突破阶段不匹配")
         raw_awakening = _integer(awakening_level, "awakening_level", minimum=0)
         if raw_awakening > 6:
-            raise UserDataValidationError("awakening_level 不能大于 6")
+            raise UserDataValidationError("awakening_level 不能大于 6")  # ui-text: internal
         raw_ordinal = _integer(ordinal, "ordinal", minimum=0)
         raw_fork_id = self._preference_text(fork_id, "fork_id")
         if raw_fork_id is None:
@@ -561,14 +561,14 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
         else:
             raw_fork_level = _integer(fork_level, "fork_level", minimum=1)
             if raw_fork_level > 80:
-                raise UserDataValidationError("fork_level 不能大于 80")
+                raise UserDataValidationError("fork_level 不能大于 80")  # ui-text: internal
             raw_fork_breakthrough = _integer(
                 fork_breakthrough_stage,
                 "fork_breakthrough_stage",
                 minimum=0,
             )
             if raw_fork_breakthrough > 6:
-                raise UserDataValidationError("fork_breakthrough_stage 不能大于 6")
+                raise UserDataValidationError("fork_breakthrough_stage 不能大于 6")  # ui-text: internal
             if not _valid_breakthrough_stage_for_level(
                 raw_fork_level, raw_fork_breakthrough
             ):
@@ -577,7 +577,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 fork_refinement_level, "fork_refinement_level", minimum=1
             )
             if raw_refinement > 5:
-                raise UserDataValidationError("fork_refinement_level 不能大于 5")
+                raise UserDataValidationError("fork_refinement_level 不能大于 5")  # ui-text: internal
         raw_selected_skill = self._preference_text(selected_skill_id, "selected_skill_id")
         normalized_skills: dict[str, int] = {}
         for skill_id, skill_level in dict(skill_levels or {}).items():
@@ -586,7 +586,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 skill_level, f"{raw_skill_id} skill_level", minimum=1
             )
         if raw_selected_skill and raw_selected_skill not in normalized_skills:
-            raise UserDataValidationError("selected_skill_id 必须存在于 skill_levels")
+            raise UserDataValidationError("selected_skill_id 必须存在于 skill_levels")  # ui-text: internal
         normalized_awaken_effects: list[str] = []
         for effect_id in selected_awaken_effect_ids or ():
             normalized = self._preference_text(
@@ -595,7 +595,7 @@ class CharacterProfileDaoMixin(UserDataDaoMixinHost):
                 required=True,
             )
             if normalized in normalized_awaken_effects:
-                raise UserDataValidationError("selected_awaken_effect_ids 不能重复")
+                raise UserDataValidationError("selected_awaken_effect_ids 不能重复")  # ui-text: internal
             normalized_awaken_effects.append(normalized)
         selection_initialized = bool(awakening_selection_initialized)
         if selection_initialized and len(normalized_awaken_effects) > raw_awakening:

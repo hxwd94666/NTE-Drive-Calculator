@@ -2,6 +2,7 @@
 from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.native.state_payload import HIT_FIELDS, ACTION_FIELDS, state_rows, ZANKOU_CONFIG_FIELDS, state_row
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.native.hit_state import compute_hit_state, restore_q_final_states
@@ -140,8 +141,7 @@ def reconstruct_zankou_q_final_damage(
                 continue
             branch_name = "血宴入梦时" if branch == "magic" else "焚天烬灭舞"
             basis = (
-                "觉醒二「渊底之吻」蓄焰：覆纹/浊燃触发后，"
-                f"本次{branch_name}独立最终伤害 +150%，即 ×2.5"
+                localized_text(None, 'auto.services.battle_report.characters.zankou.reconstruct_zankou_q_final_damage.f4b8b99fb', '觉醒二「渊底之吻」蓄焰：覆纹/浊燃触发后，本次{branch_name}独立最终伤害 +150%，即 ×2.5', branch_name=f'{branch_name}')
                 + (
                     "；觉醒四「梦魇生花」使血宴分支独立持有并消费资格"
                     if branch == "magic"
@@ -213,7 +213,7 @@ def _single_curve_value(static_dao: Any, curve_id: str) -> float:
     curve = static_dao.get_combat_curve(_CURVE_TABLE, curve_id)
     points = tuple((curve or {}).get("points") or ())
     if len(points) != 1 or not isinstance(points[0].get("value"), (int, float)):
-        raise ValueError(f"残虹形态曲线 {curve_id} 不是单值静态证据")
+        raise ValueError(f"残虹形态曲线 {curve_id} 不是单值静态证据")  # ui-text: internal
     return float(points[0]["value"])
 
 

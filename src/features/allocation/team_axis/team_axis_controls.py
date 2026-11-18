@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import ElidedTextLabel, plain_tooltip, resolve_text_catalog, set_button_text
 from src.features.allocation.team_axis.team_axis_dialog import TeamAxisDialog
 from src.services.allocation.inputs.search_settings import SEARCH_MODES, load_search_mode, save_search_mode
@@ -128,7 +129,7 @@ def persist_search_mode(owner, *, text_catalog=None):
         save_search_mode(owner.app_context.account.user_database_path, owner.team_axis_search.currentData())
     except Exception as error:
         reload_search_mode(owner)
-        QMessageBox.warning(owner.dialog_parent, resolve_text_catalog(text_catalog).render('ui.allocation.persist_search_mode.qmessagebox'), str(error))
+        QMessageBox.warning(owner.dialog_parent, resolve_text_catalog(text_catalog).render('ui.allocation.persist_search_mode.qmessagebox'), ui_enum_text(text_catalog, str(error)))
 
 
 def configure_team_axes(owner, *, initial_request=None, initial_team_id=None, initial_match=None):
@@ -165,7 +166,7 @@ def choose_team_axes(owner, *, initial_request=None, initial_team_id=None, initi
     except CancelledError:
         return None
     except (ValueError, RuntimeError) as error:
-        QMessageBox.warning(owner.dialog_parent, resolve_text_catalog(getattr(owner, "text_catalog", None)).render("teams.axis.label"), str(error))
+        QMessageBox.warning(owner.dialog_parent, resolve_text_catalog(getattr(owner, "text_catalog", None)).render("teams.axis.label"), ui_enum_text(getattr(owner, "text_catalog", None), str(error)))
         return None
     try:
         owner._team_axis_dialog = dialog

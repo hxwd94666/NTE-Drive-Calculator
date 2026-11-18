@@ -2,6 +2,7 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.results import BattleBuildHitCounterfactual
 from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
@@ -147,7 +148,7 @@ class BattleDaffodillMarginalService:
                     character_id=1054,
                     character_name="达芙蒂尔",
                     skill_name="完美真相",
-                    damage_name=f"五觉额外倾陷·洞察第{ordinal}层",
+                    damage_name=localized_text(None, 'auto.services.battle_report.characters.daffodill_marginal.derived_rows.f5544a292', '五觉额外倾陷·洞察第{ordinal}层', ordinal=f'{ordinal}'),
                     baseline_damage=0.0,
                     known_projection_damage=float(settlement),
                     candidate_damage=float(settlement),
@@ -159,10 +160,7 @@ class BattleDaffodillMarginalService:
                         dependency_scope="mechanic_specific",
                         included_dimension_ids=("candidate_derived_settlement",),
                         explanation=(
-                            f"候选五觉按原轴同目标洞察第 {ordinal} 层，在既有倾陷"
-                            f"时点追加一次达芙蒂尔个人倾陷结算；零觉基础的一次结算"
-                            f"仍由原始逐击保留，因此总次数为 1 + 洞察层数；公式锚点为"
-                            f"{anchor_basis}"
+                            localized_text(None, 'auto.services.battle_report.characters.daffodill_marginal.derived_rows.fd0ab5523', '候选五觉按原轴同目标洞察第 {ordinal} 层，在既有倾陷时点追加一次达芙蒂尔个人倾陷结算；零觉基础的一次结算仍由原始逐击保留，因此总次数为 1 + 洞察层数；公式锚点为{anchor_basis}', ordinal=f'{ordinal}', anchor_basis=f'{anchor_basis}')
                         ),
                     ),
                     baseline_formula_damage=0.0,
@@ -243,8 +241,7 @@ class BattleDaffodillMarginalService:
             confidence=row.quantification.confidence,
             factors=factors,
             missing_evidence=(
-                "候选五觉按洞察层数追加达芙蒂尔个人倾陷结算；"
-                f"原轴触发逐击 {row.source_event_id} 保持不变。",
+                localized_text(None, 'auto.services.battle_report.characters.daffodill_marginal.composition_replay.fb68f02c5', '候选五觉按洞察层数追加达芙蒂尔个人倾陷结算；原轴触发逐击 {source_event_id} 保持不变。', source_event_id=f'{row.source_event_id}'),
             ),
             formula_type="候选五觉·额外倾陷伤害",
             critical_rate=0.0,

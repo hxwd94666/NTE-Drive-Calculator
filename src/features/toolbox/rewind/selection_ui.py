@@ -1,6 +1,7 @@
 # 编排倒带角色槽位草稿、账号偏好与可失效的只读任务。
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from concurrent.futures import CancelledError
 from dataclasses import dataclass
@@ -223,6 +224,7 @@ class RewindSelectionUiMixin:
         ):
             self._recommendation_invalidated = True
         self._save_plan_button.setEnabled(False)
+        self._sync_dual_overlap_button()
         self._generate_button.setEnabled(True)
         self._generate_button.setText(_ui_text('rewind.selection.invalidate_recommendation.generate_button'))
 
@@ -260,7 +262,7 @@ class RewindSelectionUiMixin:
             try:
                 dual_request = self._dual_request()
             except ValueError as error:
-                QMessageBox.warning(self, self.text_catalog.render("rewind.dual.invalid_input"), str(error))
+                QMessageBox.warning(self, self.text_catalog.render("rewind.dual.invalid_input"), ui_enum_text(self.text_catalog, str(error)))
                 return
         token = object()
         self._analysis_token = token
@@ -284,7 +286,8 @@ class RewindSelectionUiMixin:
 
         def analyze():
             if dual_request is not None:
-                return self._service.analyze_dual_target_shortfalls(dual_request, checkpoint=checkpoint)
+                return self._service.analyze_dual_target_shortfalls(
+                    dual_request, checkpoint=checkpoint, text_catalog=getattr(self, 'text_catalog', None))
             return self._service.analyze_for_targets(
             target_character_ids=target_ids, primary_character_ids=primary_ids, selected_slots=slots,
             strategy=strategy, selection_limit=8, target_grade=grade, target_custom_percent=custom,
@@ -311,10 +314,8 @@ class RewindSelectionUiMixin:
         self._generated_analysis = analysis
         self._recommendation_invalidated = False
         self._last_input_signature = self._input_signature()
-        if analysis.notice:
-            self._render_message(resolve_text_catalog(self.text_catalog).render('rewind.results.notice'), analysis.notice)
-        else:
-            self._render_plans(analysis)
+        # 提示（超出八种形状或全部达标）也照常显示八槽：空槽可点开手选弹窗，按冻结余量自行挑选。
+        self._render_plans(analysis)
 
     def _on_analysis_error(self, token, message):
         _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
@@ -324,6 +325,8 @@ class RewindSelectionUiMixin:
             self._check_selection_context()
         except CancelledError:
             return
+        # 服务校验原文是固定说明表，展示时经冻结目录投影；已本地化的多行问题原样显示。
+        message = ui_enum_text(self.text_catalog, message)
         self._generate_button.setEnabled(True)
         self._generate_button.setText(_ui_text('rewind.selection.on_analysis_error.generate_button'))
         self._save_plan_button.setEnabled(False)

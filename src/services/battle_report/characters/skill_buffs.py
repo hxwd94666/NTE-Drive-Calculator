@@ -24,14 +24,14 @@ def _curve_values(static_dao: Any, table: str, curve_id: str) -> tuple[float, ..
     curve = static_dao.get_combat_curve(table, curve_id)
     values = tuple(float(row["value"]) for row in (curve or {}).get("points") or ())
     if not values:
-        raise ValueError(f"角色技能曲线缺失：{curve_id}")
+        raise ValueError(f"角色技能曲线缺失：{curve_id}")  # ui-text: internal
     return values
 
 
 def _constant_curve(static_dao: Any, table: str, curve_id: str) -> float:
     values = _curve_values(static_dao, table, curve_id)
     if any(value != values[0] for value in values[1:]):
-        raise ValueError(f"角色技能曲线不是常数：{curve_id}")
+        raise ValueError(f"角色技能曲线不是常数：{curve_id}")  # ui-text: internal
     return values[0]
 
 

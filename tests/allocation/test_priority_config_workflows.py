@@ -9,6 +9,17 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
+def _track(case: unittest.TestCase, widget):
+    """本例创建的选择器在用例结束时关闭并当场完成删除；信号闭包会让它无法被垃圾回收。"""
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    case.addCleanup(QCoreApplication.sendPostedEvents, None, QEvent.Type.DeferredDelete)
+    case.addCleanup(widget.deleteLater)
+    case.addCleanup(widget.close)
+    return widget
+
+
+
 
 class PriorityGroupWorkflowTests(unittest.TestCase):
     def test_manual_cap_written_after_automatic_cap_overrides_it(self):
@@ -17,7 +28,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles(
             {"A": {"default_weapon": "暴击弧盘"}},
             [],
@@ -41,7 +52,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
             (name, item) for name, item in weapons.items()
             if item["fork_id"] == "fork_DemonBlade"
         )
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({"A": {"default_weapon": fork_name}}, [], weapons_db=weapons)
         selector.selected = ["A"]
 
@@ -59,7 +70,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "priority.json"
-            selector = RoleSelector()
+            selector = _track(self, RoleSelector())
             selector.load_roles(
                 {"「零」": {"character_id": 1051}},
                 [],
@@ -72,7 +83,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
             selector._write_priority_config(path)
 
             saved = json.loads(path.read_text(encoding="utf-8"))
-            restored = RoleSelector()
+            restored = _track(self, RoleSelector())
             restored.load_roles(
                 {"「零」": {"character_id": 1051}},
                 [],
@@ -113,7 +124,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            selector = RoleSelector()
+            selector = _track(self, RoleSelector())
             selector.load_roles(
                 {
                     "主角": {"character_id": 1051},
@@ -208,7 +219,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
         selector.selected = ["A", "B", "C", "D"]
         selector.priority_links = ["=", ">>", "="]
@@ -224,7 +235,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({name: {} for name in "ABCDE"}, [])
         selector.selected = ["A", "B", "C", "D", "E"]
         selector.priority_links = ["=", ">>", ">", "="]
@@ -240,7 +251,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({name: {} for name in "ABCDE"}, [])
         selector.selected = ["A", "B", "C", "D", "E"]
         selector.priority_links = ["=", ">>", ">", "="]
@@ -256,7 +267,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({"早雾": {}, "达芙蒂尔": {}, "薄荷": {}}, [])
         selector.selected = ["早雾"]
 
@@ -269,7 +280,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles(
             {name: {} for name in ("早雾", "「零」", "薄荷", "达芙蒂尔", "白藏", "阿德勒")},
             [],
@@ -291,7 +302,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({name: {} for name in ("早雾", "安魂曲", "薄荷")}, [])
         selector.selected = ["早雾", "安魂曲", "薄荷"]
         selector.priority_links = ["=", ">>"]
@@ -316,7 +327,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.integrations.runtime.bundled_resources import bundled_game_ui_asset_root
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         assets = GameUiAssetCatalog(bundled_game_ui_asset_root())
         selector.load_roles(
             {"早雾": {"character_id": 1003}},
@@ -336,7 +347,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles(
             {"自定义": {"is_custom": True}},
             [],
@@ -366,7 +377,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         app = QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.resize(700, 440)
         selector.show()
         selector.load_roles({f"角色{index}": {} for index in range(18)}, [])
@@ -415,7 +426,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles(
             {
                 "九原": {"default_set": "影之信条"},
@@ -436,7 +447,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles(
             {"A": {}},
             [],
@@ -464,7 +475,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles(
             {
                 "九原": {"default_set": "影之信条"},
@@ -486,7 +497,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
         selector.selected = ["A", "B", "C", "D"]
         selector.priority_links = [">", ">>", "="]
@@ -503,7 +514,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({"A": {}, "B": {}, "C": {}}, [])
         selector.selected = ["A", "B", "C"]
         selector.priority_links = [">>", ">>"]
@@ -520,7 +531,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
         selector.selected = ["A", "B", "C", "D"]
         selector.priority_links = [">>", "=", ">>"]
@@ -537,7 +548,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({name: {} for name in "ABCDE"}, [])
         selector.selected = ["A", "B", "C", "D", "E"]
         selector.priority_links = [">>", "=", ">", ">>"]
@@ -554,7 +565,7 @@ class PriorityGroupWorkflowTests(unittest.TestCase):
         from src.features.allocation.selection.role_selector import RoleSelector
 
         QApplication.instance() or QApplication([])
-        selector = RoleSelector()
+        selector = _track(self, RoleSelector())
         selector.load_roles({"A": {}, "B": {}, "C": {}, "D": {}}, [])
         selector.selected = ["A", "B", "C", "D"]
         selector.priority_links = [">", ">>", "="]
@@ -648,8 +659,7 @@ class PriorityPersistenceTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "account-a" / "priority.json"
-        self.selector = RoleSelector(priority_config_path_provider=lambda: self.path)
-        self.addCleanup(self.selector.close)
+        self.selector = _track(self, RoleSelector(priority_config_path_provider=lambda: self.path))
         self.selector.load_roles({"A": {}, "B": {}}, ["旧卡带"])
         self.selector.selected = ["A"]
         self.selector.custom_sets = {"A": "旧卡带"}

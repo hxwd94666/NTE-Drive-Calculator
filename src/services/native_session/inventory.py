@@ -1,6 +1,7 @@
 # 将同修订读取去重与库存租约放在同一所有权模块，未知写入保留占用且不重发。
 from __future__ import annotations
 from time import monotonic
+from src.domain.localization.catalog import localized_text
 from src.integrations.native_core.nte_core_protocol import NteCoreProtocolError
 from src.integrations.native_core.snapshots.native_inventory_snapshot import NativeSnapshotPending
 from copy import deepcopy
@@ -126,8 +127,8 @@ class NativeInventoryLease:
     @property
     def maintenance_description(self):
         if self._write_outcome_unknown:
-            return f'{self._write_operation}的执行结果未确认，请先核对游戏中的实际状态；本次不更新插件，也不重发操作。'
-        return f'{self._write_operation}正在执行或等待结果确认，请等待该功能结束，再更新插件。'
+            return localized_text(None, 'auto.services.native_session.inventory.maintenance_description.f952fd7cb', '{write_operation}的执行结果未确认，请先核对游戏中的实际状态；本次不更新插件，也不重发操作。', write_operation=f'{self._write_operation}')
+        return localized_text(None, 'auto.services.native_session.inventory.maintenance_description.fdf862b04', '{write_operation}正在执行或等待结果确认，请等待该功能结束，再更新插件。', write_operation=f'{self._write_operation}')
 
     @property
     def snapshot_ready(self):

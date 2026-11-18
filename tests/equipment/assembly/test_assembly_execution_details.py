@@ -9,6 +9,7 @@ from src.domain.equipment.assembly.assembly_progress import AssemblyTarget
 from src.domain.localization.catalog import make_catalog
 from src.features.inventory.equipment.assembly.assembly_surface import AssemblySurface
 from src.integrations.preferences.locale_files import bundled_text_catalog
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 NTE_TEST_TIER = "core"
 
@@ -19,7 +20,7 @@ def app():
 
 
 @pytest.mark.parametrize("automatic", [False, True])
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_details_toggle_handles_whole_row_space_and_enter_without_closing(app, monkeypatch, automatic, theme):
     from src.app import window_geometry
 

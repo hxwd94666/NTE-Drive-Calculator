@@ -70,7 +70,7 @@ def _close_owned_components(
     if errors:
         raise RuntimeError(
             f"关闭{label}时有 {len(errors)} 个组件失败"
-        ) from errors[0]
+        ) from errors[0]  # ui-text: internal
 
 
 def build_static_catalog_providers(

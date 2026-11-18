@@ -23,6 +23,7 @@ from src.integrations.preferences.locale_files import bundled_text_catalog
 from tests.warehouse.test_warehouse_management_ui import context
 from tests.warehouse.test_warehouse_management_ui import editor_data
 from tests.warehouse.test_warehouse_management_ui import wait
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 @pytest.fixture

@@ -2,6 +2,7 @@
 import numpy as np
 from typing import List, Dict
 
+from src.domain.localization.catalog import localized_text
 from src.models.equipment import Drive, Tape
 from src.optimizer.strategies.allocation_matrix_builder import AllocationMatrixBuilder
 from src.optimizer.strategies.crit_constraint_repair import CritConstraintRepairMixin
@@ -59,11 +60,11 @@ class RolePriorityStrategy(
             if index not in used_indices
         ]
         if not same_shape:
-            return f"候选池缺少 {shape_id} 驱动（图纸无法填满）"
+            return localized_text(None, 'auto.optimizer.strategies.role_priority_strategy.missing_drive_reason.f3ea53bff', '候选池缺少 {shape_id} 驱动（图纸无法填满）', shape_id=f'{shape_id}')
         cap = self._crit_rate_cap(role_name, crit_rate_caps)
         if cap is not None:
-            return f"暴击率上限 {cap:g}% 使 {shape_id} 驱动无法加入当前组合"
-        return f"{shape_id} 驱动候选无法满足图纸约束"
+            return localized_text(None, 'auto.optimizer.strategies.role_priority_strategy.missing_drive_reason.f9c2dda93', '暴击率上限 {cap}% 使 {shape_id} 驱动无法加入当前组合', cap=f'{cap:g}', shape_id=f'{shape_id}')
+        return localized_text(None, 'auto.optimizer.strategies.role_priority_strategy.missing_drive_reason.f3577b111', '{shape_id} 驱动候选无法满足图纸约束', shape_id=f'{shape_id}')
 
     def _find_best_fit(self, role_name: str, blueprint: Dict, available_pool: List[Drive], target_set: str,
                        crit_mode: str | None = None, assigned_tape: Tape | None = None,

@@ -55,7 +55,7 @@ def parse_distribution(value: object) -> Distribution:
     if result.data_policy == "external":
         if (not result.portable or result.update_channel != "platform"
                 or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", result.data_root_key)):
-            raise DistributionError("外部数据根需要平台便携标识和稳定 data_root_key。")
+            raise DistributionError("外部数据根需要平台便携标识和稳定 data_root_key。")  # ui-text: internal
     elif result.data_root_key:
         raise DistributionError("内置 userdata 策略不接受外部数据根标识。")
     return result
@@ -74,4 +74,4 @@ def load_distribution(app_dir: Path) -> Distribution:
             raise ValueError("invalid metadata file")
         return parse_distribution(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError) as error:
-        raise DistributionError(f"发行标识读取失败：{path}；请修复完整程序包。") from error
+        raise DistributionError(f"发行标识读取失败：{path}；请修复完整程序包。") from error  # ui-text: internal

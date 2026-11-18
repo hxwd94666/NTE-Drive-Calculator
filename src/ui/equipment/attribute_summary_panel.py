@@ -137,7 +137,7 @@ class AttributeSummaryPanel(QFrame):
 
         normalized_character_id = int(character_id)
         if normalized_character_id <= 0:
-            raise ValueError("character_id 必须大于 0")
+            raise ValueError("character_id 必须大于 0")  # ui-text: internal
         loadout = AttributeSummaryLoadout(
             character_id=normalized_character_id,
             core=core,

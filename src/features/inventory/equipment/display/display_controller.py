@@ -83,7 +83,7 @@ def _show_saved_plan_diff_dialog(self, role_name, diff):
 
 
 def _persistence_failure(window, title, error):
-    QMessageBox.warning(window, title, error)
+    QMessageBox.warning(window, title, ui_enum_text(getattr(window, 'text_catalog', None), str(error)))
 
 
 def _persistence_projection_failure(window, error):

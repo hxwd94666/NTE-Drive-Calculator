@@ -224,7 +224,7 @@ def _restore_saved_option(context, signature: WeightedSavedPlanSignature):
         None,
     )
     if role is None:
-        raise RuntimeError(f"角色 {signature.character_id} 缺少当前官方蓝图。")
+        raise RuntimeError(f"角色 {signature.character_id} 缺少当前官方蓝图。")  # ui-text: internal
     official_cells = {
         (int(cell.row), int(cell.column))
         for cell in role.equipment.cells
@@ -246,7 +246,7 @@ def _restore_saved_option(context, signature: WeightedSavedPlanSignature):
         ):
             raise RuntimeError(
                 f"角色 {signature.character_id} 的手动替换方案缺少可验证的装备或评分。"
-            )
+            )  # ui-text: internal
         geometry = candidate.geometry if candidate is not None else saved.geometry
         if saved.kind == "core":
             board_cells = ()
@@ -255,7 +255,7 @@ def _restore_saved_option(context, signature: WeightedSavedPlanSignature):
                 str(geometry or "").removeprefix("EquipmentGeometry_").casefold()
             )
             if shape is None or saved.target_row is None or saved.target_column is None:
-                raise RuntimeError(f"角色 {signature.character_id} 的手动驱动缺少官方坐标。")
+                raise RuntimeError(f"角色 {signature.character_id} 的手动驱动缺少官方坐标。")  # ui-text: internal
             board_cells = tuple(sorted(
                 (saved.target_row + int(cell.x), saved.target_column + int(cell.y))
                 for cell in shape.cells
@@ -266,7 +266,7 @@ def _restore_saved_option(context, signature: WeightedSavedPlanSignature):
             ):
                 raise RuntimeError(
                     f"角色 {signature.character_id} 的手动替换布局不符合当前官方蓝图。"
-                )
+                )  # ui-text: internal
             occupied_cells.update(board_cells)
             board_labels.append((
                 str(shape.legacy_shape_id or geometry or shape.shape_id),
@@ -296,7 +296,7 @@ def _restore_saved_option(context, signature: WeightedSavedPlanSignature):
     if occupied_cells != official_cells:
         raise RuntimeError(
             f"角色 {signature.character_id} 的手动替换布局未完整覆盖当前官方蓝图。"
-        )
+        )  # ui-text: internal
     generated_board: list[list[str | int]] = [[-1] * 5 for _ in range(5)]
     for label, board_cells in board_labels:
         for row, column in board_cells:
@@ -509,7 +509,7 @@ def replace_weighted_allocation_assignment(
         None,
     )
     if candidate is None:
-        raise RuntimeError(f"替换装备 UID {new_uid} 不在计算固定的背包快照中。")
+        raise RuntimeError(f"替换装备 UID {new_uid} 不在计算固定的背包快照中。")  # ui-text: internal
     target_owner = next(
         (
             option
@@ -527,7 +527,7 @@ def replace_weighted_allocation_assignment(
         None,
     )
     if target_owner is None:
-        raise RuntimeError(f"当前临时方案中不存在待替换 UID {old_uid}。")
+        raise RuntimeError(f"当前临时方案中不存在待替换 UID {old_uid}。")  # ui-text: internal
     if displaced_owner is target_owner:
         raise RuntimeError("不能用同一角色当前方案中的另一件装备重复占位。")
     target_role = next(
@@ -535,7 +535,7 @@ def replace_weighted_allocation_assignment(
         None,
     )
     if target_role is None:
-        raise RuntimeError(f"当前方案中不存在角色 {target_owner.character_id} 的评分配置。")
+        raise RuntimeError(f"当前方案中不存在角色 {target_owner.character_id} 的评分配置。")  # ui-text: internal
     replacement_score = score_allocation_candidate(preview.context, target_role, candidate)
 
     changed_count = 0
@@ -609,11 +609,11 @@ def replace_weighted_allocation_assignment(
     if changed_count != 1:
         raise RuntimeError(
             f"当前方案中应恰好存在一个待替换 UID {old_uid}，实际为 {changed_count} 个。"
-        )
+        )  # ui-text: internal
     if displaced_owner is not None and displaced_count != 1:
         raise RuntimeError(
             f"当前临时方案中的被借装备 UID {new_uid} 无法唯一定位。"
-        )
+        )  # ui-text: internal
     unified = replace(
         preview.result.unified,
         total_score=sum(float(option.score) for option in updated_options),

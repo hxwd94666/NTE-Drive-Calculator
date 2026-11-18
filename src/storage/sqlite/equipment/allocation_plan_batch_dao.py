@@ -43,7 +43,7 @@ class AllocationPlanBatchDaoMixin(UserDataDaoMixinHost):
             ),
         )
         if cursor.lastrowid is None:
-            raise UserDataError("创建目标配装槽位后未返回 slot_id")
+            raise UserDataError("创建目标配装槽位后未返回 slot_id")  # ui-text: internal
         return int(cursor.lastrowid)
 
     def save_calculated_loadout_plans(
@@ -58,6 +58,12 @@ class AllocationPlanBatchDaoMixin(UserDataDaoMixinHost):
         try:
             connection.execute("BEGIN IMMEDIATE")
             checkpoint()
+            team_sources = None
+            if team_results is not None:
+                # 写锁已持有：先于本次写入冻结并核对队伍来源，之后的核对不受自身写入的隐式默认影响。
+                team_sources = {entry.team.team_id: self.get_team_source(entry.team.team_id)
+                                for entry in team_results.entries}
+                self.assert_team_result_context(team_results, sources=team_sources)
             if validate is not None:
                 validate()
             slots, claims, summaries = {}, {}, {}
@@ -172,10 +178,10 @@ class AllocationPlanBatchDaoMixin(UserDataDaoMixinHost):
                 result.append(plan_id)
             # 可选提交接受门禁只包住原有末端检查与commit，不改变借出/历史算法。
             if team_results is not None:
-                self.save_team_enhancement_run(team_results, tuple(result))
+                self.save_team_enhancement_run(team_results, tuple(result), sources=team_sources)
             with commit_context() if commit_context is not None else nullcontext():
                 if team_results is not None:
-                    self.assert_team_result_context(team_results)
+                    self.assert_team_result_context(team_results, sources=team_sources)
                 checkpoint()
                 connection.commit()
             return tuple(result)

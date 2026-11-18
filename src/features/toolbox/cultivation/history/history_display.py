@@ -3,17 +3,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from src.domain.localization.catalog import localized_text
 from src.domain.progression.history import HistorySummary, decode_summary
 
 
-def summary_text(summary: HistorySummary) -> tuple[str, str]:
+def summary_text(summary: HistorySummary, *, text_catalog=None) -> tuple[str, str]:
     try:
         value = decode_summary(summary.summary_json)
         names = summary.character_labels or tuple(item["name"] for item in value["characters"])
         name = "、".join(names)
         total = value["total_stamina"]
         prefix = "估算 " if value["version"] >= 2 else ""
-        stamina = prefix + (f"{total:,}" if total is not None else f"已知 {value['known_stamina']:,} · 未完整")
+        stamina = prefix + (f"{total:,}" if total is not None else localized_text(text_catalog, 'auto.features.toolbox.cultivation.history.history_display.summary_text.fefcb50f9', '已知 {value} · 未完整', value=f"{value['known_stamina']:,}"))
         return name, stamina
     except (ValueError, TypeError, KeyError, RecursionError):
         return "记录摘要异常，仍可勾选删除", "请查看详情或删除"

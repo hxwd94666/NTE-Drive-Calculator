@@ -70,11 +70,11 @@ def _stat(label: Any, value: Any) -> dict[str, Any]:
     name = _STAT_LABEL_ALIASES.get(name, name)
     property_id = _PROPERTY_IDS.get(name)
     if property_id is None:
-        raise VisionInventorySnapshotError(f"视觉扫描包含未支持的词条：{name or '<empty>'}")
+        raise VisionInventorySnapshotError(f"视觉扫描包含未支持的词条：{name or '<empty>'}")  # ui-text: internal
     try:
         numeric_value = float(value)
     except (TypeError, ValueError) as exc:
-        raise VisionInventorySnapshotError(f"视觉扫描词条 {name} 的数值无效：{value!r}") from exc
+        raise VisionInventorySnapshotError(f"视觉扫描词条 {name} 的数值无效：{value!r}") from exc  # ui-text: internal
     return {
         "property_id": property_id,
         "value": numeric_value / 100.0 if property_id in _PERCENT_PROPERTY_IDS else numeric_value,
@@ -123,7 +123,7 @@ def build_vision_snapshot(
     """
     driver = str(capture_driver or "").strip().casefold()
     if driver not in {"mouse", "gamepad"}:
-        raise VisionInventorySnapshotError("视觉扫描 capture_driver 必须是 mouse 或 gamepad")
+        raise VisionInventorySnapshotError("视觉扫描 capture_driver 必须是 mouse 或 gamepad")  # ui-text: internal
     resources = resources or load_recognition_resources(
         static_database_path=static_dao.database_path if static_dao is not None else None)
     suits = {_compact_set_name(name): suit_id for suit_id, name in resources.suits}
@@ -135,10 +135,10 @@ def build_vision_snapshot(
         item_type = str(item.get("item_type") or "").strip()
         kind = "module" if item_type == "drive" else "core" if item_type == "tape" else ""
         if not kind:
-            raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项类型无效：{item_type!r}")
+            raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项类型无效：{item_type!r}")  # ui-text: internal
         quality = _QUALITY.get(str(item.get("quality") or "").strip().casefold())
         if quality is None:
-            raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项品质无效：{item.get('quality')!r}")
+            raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项品质无效：{item.get('quality')!r}")  # ui-text: internal
         row: dict[str, Any] = {
             "uid": {"serial": ordinal, "slot": 1},
             "kind": kind,
@@ -167,17 +167,17 @@ def build_vision_snapshot(
             except AllocationInventoryProjectionError as exc:
                 raise VisionInventorySnapshotError(
                     f"视觉扫描第 {ordinal} 项形状无效：{item.get('shape_id')!r}"
-                ) from exc
+                ) from exc  # ui-text: internal
             geometry = _GEOMETRY.get(shape_id)
             if geometry is None:
-                raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项形状无效：{shape_id!r}")
+                raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 项形状无效：{shape_id!r}")  # ui-text: internal
             row["geometry"] = geometry
             row["main_stats"] = _stats(item.get("main_stats"))
         else:
             set_name = str(item.get("set_name") or "").strip()
             suit_id = suits.get(_compact_set_name(set_name))
             if suit_id is None:
-                raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 张卡带套装无法匹配官方静态库：{set_name!r}")
+                raise VisionInventorySnapshotError(f"视觉扫描第 {ordinal} 张卡带套装无法匹配官方静态库：{set_name!r}")  # ui-text: internal
             row["suit_id"] = suit_id
             row["geometry"] = "Core"
             row["grid"] = 15

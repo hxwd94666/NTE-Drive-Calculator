@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from src.ui.common.enum_text import ui_enum_text
 from collections.abc import Callable, Mapping
@@ -76,14 +77,14 @@ class WarehouseResultCard(QWidget):
         if owner_name:
             tooltip += (
                 ("\n" if tooltip else "")
-                + f"当前装配方案持有者：{owner_name}"
+                + localized_text(text_catalog, 'auto.features.inventory.warehouse.display.result_card.init.f60a509c4', '当前装配方案持有者：{owner_name}', owner_name=f'{owner_name}')
             )
         weighted = [f"{s['label']}：{s['weight']:g}" for s in [*(self.item_view.get('main_stats') or ()),
                     *(self.item_view.get('sub_stats') or ())] if 'weight' in s]
         if weighted:
             tooltip += '\n冻结词条权重（灰、绿、蓝、金、橙递增）：\n' + '\n'.join(weighted)
         if self.item_view.get('main_stats_at_max_level'):
-            tooltip += f"\n实际等级 {self.item_view.get('level', 0)}；主属性按满级预览"
+            tooltip += localized_text(text_catalog, 'auto.features.inventory.warehouse.display.result_card.init.f8e7032d2', '\n实际等级 {value}；主属性按满级预览', value=f"{self.item_view.get('level', 0)}")
         if tooltip:
             self.setToolTip(plain_tooltip(ui_enum_text(getattr(self, 'text_catalog', None), tooltip)))
 

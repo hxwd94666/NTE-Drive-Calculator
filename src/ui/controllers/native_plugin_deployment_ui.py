@@ -1,4 +1,5 @@
 # 在现有设置部署入口展示原生插件配套状态并提交游戏退出后的整套部署。
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import QEventLoop, QSize, Qt, QThread, QTimer
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QProgressBar, QVBoxLayout
@@ -282,7 +283,7 @@ def start_native_loader_from_settings(window) -> None:
         window._refresh_equipment_plugin_status()
         QMessageBox.warning(
             window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.start_native_loader_from_settings.qmessagebox_3'),
-            plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.start_native_loader_from_settings.qmessagebox_4') + str(error) +
+            plain_tooltip(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.start_native_loader_from_settings.qmessagebox_4') + ui_enum_text(getattr(window, 'text_catalog', None), str(error)) +
             resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.start_native_loader_from_settings.qmessagebox_5')),
         )
     except (EquipmentPluginDeploymentError, ModPluginLoadingError, PermissionError) as error:

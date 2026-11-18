@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from math import isfinite
 from typing import Any
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 
@@ -56,7 +57,7 @@ def restore_fadia_intervals(result: dict[str, Any]) -> tuple[BattleInferredBuffI
                 "正式 Buff_Reaction_4_new 逐击表明黯星已结算；"
                 "正式 HTExtractAttributeGEComp 以来源当时 MAXHP 的 10%"
                 "给全队加生命上限，最多 5 次；"
-                + (f"按{half}半场独立累计并在换半时清空；" if half else "")
+                + (localized_text(None, 'auto.services.battle_report.characters.state_compute.restore_fadia_intervals.f6681898f', '按{half}半场独立累计并在换半时清空；', half=f'{half}') if half else "")
                 + ("本次目标最大生命正式下降值按 200% 反推来源当时 MAXHP。"
                    if observed else "缺少本次目标下降值，使用冻结 PanelHP、三觉与前序本机制层数递推。")
             ),

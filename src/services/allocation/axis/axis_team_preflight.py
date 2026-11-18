@@ -82,7 +82,7 @@ def prepare_axis_team_selection(client, selection, selected_roles, *, user_datab
     if team["outside_character_ids"]:
         outsiders = set(team["outside_character_ids"])
         names = "、".join(name for name, cid in mapped if cid in outsiders)
-        raise ValueError(f"轴伤优先仅优化所选战报队伍。队外角色：{names}。请移除这些角色或更换战报。")
+        raise ValueError(f"轴伤优先仅优化所选战报队伍。队外角色：{names}。请移除这些角色或更换战报。")  # ui-text: internal
     if not team["ready"]:
         raise ValueError(_MESSAGES.get(team["reason"], "所选战报缺少完整四人队伍证据，请更换具有完整队伍记录的战报；不会按出伤角色猜测队伍。"))
     if not team["fixed_ready"]:

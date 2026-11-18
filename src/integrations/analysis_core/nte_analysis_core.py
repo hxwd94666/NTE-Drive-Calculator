@@ -421,7 +421,7 @@ class NteAnalysisCoreClient(ComponentLeaseMixin, WorkerSessionMixin, ProjectionC
             # Do not surface raw stderr, request JSON or private values.
             raise NativeAnalysisError(
                 f"独立分析核心拒绝请求或执行失败（退出码 {returncode}）"
-            )
+            )  # ui-text: internal
 
     def _run_progress(
         self, payload: bytes, *, checkpoint: Callable[[], None] | None,

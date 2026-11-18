@@ -612,3 +612,43 @@ def test_capture_mss_ownership_on_synthetic_grab_success_and_failure(monkeypatch
     else:
         factory.assert_called_once_with()
         assert sct.events == ["enter", grab, ("exit", RuntimeError if fails else None), "close"]
+
+
+@pytest.mark.parametrize("limit,expected", [(2, 2), (5, 3), (None, 3)])
+def test_ten_limit_caps_balance_count_and_never_exceeds_it(limit, expected) -> None:
+    # 余额 1850、单价 600 可做 3 次十连：上限更小按上限，更大或未填按余额。
+    backend = _Backend()
+    limits = () if limit is None else (("blue", limit),)
+    report = execute_rewind_request(
+        RewindExecutionRequest(("blue",), "none", ten_limits=limits),
+        backend=backend,
+        capture=_capture,
+        ocr_engine=_Ocr(("1,850",)),
+    )
+
+    assert report.ten_draws == expected and backend.clicks.count((1865, 1071)) == expected
+    assert report.quality_draws == (("blue", expected * 10),)
+    assert report.remaining_currency == 1850 - expected * 600
+
+
+def test_ten_limit_applies_only_to_its_own_quality() -> None:
+    backend = _Backend()
+    report = execute_rewind_request(
+        RewindExecutionRequest(("blue", "gold"), "none", ten_limits=(("gold", 1),)),
+        backend=backend,
+        capture=_capture,
+        ocr_engine=_SequenceOcr(("1,800",), ("1,200",)),
+    )
+
+    assert report.quality_draws == (("gold", 10), ("blue", 20))
+    assert report.quality_remaining_currency == (("gold", 1200), ("blue", 0))
+
+
+@pytest.mark.parametrize("limits", [(("blue", 0),), (("blue", -1),), (("blue", True),), (("red", 2),),
+                                    (("blue", 1), ("blue", 2)), (("blue", 1.5),)])
+def test_invalid_ten_limits_are_rejected_before_any_input(limits) -> None:
+    backend = _Backend()
+    with pytest.raises(ValueError):
+        execute_rewind_request(RewindExecutionRequest(("blue",), "none", ten_limits=limits),
+                               backend=backend, capture=_capture, ocr_engine=_Ocr())
+    assert backend.events == []

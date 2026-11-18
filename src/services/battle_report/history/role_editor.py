@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.build.inputs import GRADUATION_ASSUMPTION_TITLE
 from src.integrations.static_catalog.static_catalog_release import static_catalog_read_unit
 from src.services.battle_report.build.equipment import battle_equipment_items
@@ -104,7 +105,7 @@ def build_role_editor_details(
                     profile.get("equipment_context_title") or "修改副本配装"
                 )
                 equipment_contexts["edited"] = {
-                    "title": f"修改副本 · {source_title}",
+                    "title": localized_text(None, 'auto.services.battle_report.history.role_editor.build_role_editor_details.f5ca61d7c', '修改副本 · {source_title}', source_title=f'{source_title}'),
                     "source_title": source_title,
                     "source_kind": str(
                         profile.get("equipment_source_kind") or "edited_copy"

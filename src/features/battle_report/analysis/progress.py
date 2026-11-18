@@ -12,14 +12,16 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.ui.common.enum_text import ui_enum_text
 from src.services.battle_report.analysis.progress import BattleAnalysisProgress
 
 
+# 分析种类 → 文本目录 key；未知种类使用通用说明。
 _DETAIL_COPY = {
-    "hit": "正在重建当前范围的 Buff 区间、伤害乘区与逐击公式…",
-    "buff": "正在推断 Buff 区间并逐项计算移除反事实…",
-    "marginal": "正在物化当前生效基线，并生成固定轴对照…",
-    "composition": "正在重放倾陷逐角色公式，并更新伤害构成…",
+    "hit": "ui.battle_report.progress.hit",
+    "buff": "ui.battle_report.progress.buff",
+    "marginal": "ui.battle_report.progress.marginal",
+    "composition": "ui.battle_report.progress.composition",
 }
 
 
@@ -55,13 +57,14 @@ class BattleAnalysisProgressBar(QFrame):
         self.progress.setFormat('%p%')
         self.progress.setTextVisible(True)
         self.message_label.setText(
-            _DETAIL_COPY.get(kind, "正在重建当前范围的战报分析…")
+            self.text_catalog.render(_DETAIL_COPY.get(kind, "ui.battle_report.progress.default"))
         )
         self.show()
 
     def update_progress(self, progress: BattleAnalysisProgress) -> None:
         self.progress.show()
-        message = progress.message
+        # 服务进度说明是固定原文表；展示端经冻结目录投影，未登记的诊断原文保持不变。
+        message = ui_enum_text(self.text_catalog, progress.message)
         if progress.overall_percent is not None:
             self.progress.setRange(0, 100)
             self.progress.setValue(max(1, min(100, progress.overall_percent)))
@@ -76,7 +79,7 @@ class BattleAnalysisProgressBar(QFrame):
             completed = max(0, min(progress.completed, progress.total))
             self.progress.setRange(0, progress.total)
             self.progress.setValue(completed)
-            self.progress.setFormat("本阶段 %v / %m")
+            self.progress.setFormat(self.text_catalog.render("ui.battle_report.progress.stage_format"))
             self.progress.setTextVisible(True)
             message = f"{message}（{completed}/{progress.total}）"
         else:

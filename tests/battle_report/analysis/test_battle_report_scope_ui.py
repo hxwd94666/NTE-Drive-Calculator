@@ -20,6 +20,7 @@ from src.features.battle_report.analysis.buff_evidence import BattleBuffEvidence
 from src.services.battle_report.buffs.counterfactual_plan import (
     battle_buff_counterfactual_key,
 )
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 def _hit(event_id: str, time_us: int, damage: float) -> BattleAnalysisHit:

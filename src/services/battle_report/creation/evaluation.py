@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.results import BattleBuffCounterfactualResult, BattleDamageCoverage
 from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
@@ -535,8 +536,7 @@ class BattleCreationPassiveEvaluationService:
                 creation_hits,
                 method="complete_lifecycle_attribution_zero",
                 explanation=(
-                    "专用状态模型已证明当前固定轴没有因该被动新增的事件。 "
-                    f"{evidence_basis}"
+                    localized_text(None, 'auto.services.battle_report.creation.evaluation.from_attribution.f37349f5e', '专用状态模型已证明当前固定轴没有因该被动新增的事件。 {evidence_basis}', evidence_basis=f'{evidence_basis}')
                 ),
                 coverage_basis_damage=hit_damage,
             )
@@ -557,8 +557,7 @@ class BattleCreationPassiveEvaluationService:
                 confidence="高",
                 method="complete_lifecycle_event_attribution",
                 explanation=(
-                    "专用状态模型已给出移除被动时消失的完整事件集；只删除"
-                    f"该集合，其他真实逐击不变。 {evidence_basis}"
+                    localized_text(None, 'auto.services.battle_report.creation.evaluation.from_attribution.f2637b472', '专用状态模型已给出移除被动时消失的完整事件集；只删除该集合，其他真实逐击不变。 {evidence_basis}', evidence_basis=f'{evidence_basis}')
                 ),
             )
         if direct_damage > 0.0:
@@ -585,8 +584,7 @@ class BattleCreationPassiveEvaluationService:
                 confidence="中",
                 method="partial_lifecycle_event_attribution",
                 explanation=(
-                    "只汇报正式事件归属已确认的直接伤害；未归属花伤保持"
-                    f"不可量化。 {evidence_basis}"
+                    localized_text(None, 'auto.services.battle_report.creation.evaluation.from_attribution.f3c5746c1', '只汇报正式事件归属已确认的直接伤害；未归属花伤保持不可量化。 {evidence_basis}', evidence_basis=f'{evidence_basis}')
                 ),
             )
         return cls._unavailable(
@@ -598,7 +596,7 @@ class BattleCreationPassiveEvaluationService:
                 "尚无可直接归属的正式事件，且事件集未证明完整。",
                 enabled.definition.adapter_id,
             ),),
-            f"未归属逐击保持原值，不伪造被动伤害。 {evidence_basis}",
+            localized_text(None, 'auto.services.battle_report.creation.evaluation.from_attribution.f82dcba56', '未归属逐击保持原值，不伪造被动伤害。 {evidence_basis}', evidence_basis=f'{evidence_basis}'),
             coverage_basis_damage=hit_damage,
         )
 

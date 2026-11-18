@@ -1,6 +1,7 @@
 # 编辑正式弧盘身份及成长草稿，展示已证实的常驻属性与直伤投影。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QWidget
 
@@ -138,7 +139,7 @@ def _build_fork_group(
             property_label = _attribute_name(detail, property_id)
             permanent_value = permanent_stats.get(property_id)
             if permanent_value is not None:
-                property_label += f"（常驻 {_display_property_value(detail, property_id, permanent_value)}）"
+                property_label += localized_text(getattr(window, 'text_catalog', None), 'auto.features.official_role.editing.fork_fields.refresh_fork_summary.fcaa497b4', '（常驻 {value}）', value=f'{_display_property_value(detail, property_id, permanent_value)}')
             row.addWidget(plain_label(property_label))
             row.addStretch()
             shown = plain_label(_display_property_value(detail, property_id, value))

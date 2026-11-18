@@ -12,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.targets.encounter import (
     BattleEncounterCandidate, BattleEncounterCandidateMatch, BattleEncounterTargetPreset, BattleObservedTarget,
 )
@@ -214,8 +215,7 @@ class BattleInferredTargetConditionService:
             source_kind=INFERRED_ENCOUNTER_SOURCE_KIND,
             confidence=selection.confidence,
             inference_basis=(
-                f"完整遭遇/半场的 {len(observed)} 个目标实例及初始最大生命"
-                f" [{hp_text}] 均可一对一注入默认环境的静态槽位；"
+                localized_text(None, 'auto.services.battle_report.targets.inferred_condition.infer.f3b284823', '完整遭遇/半场的 {count} 个目标实例及初始最大生命 [{hp_text}] 均可一对一注入默认环境的静态槽位；', count=f'{len(observed)}', hp_text=f'{hp_text}')
                 + (
                     "单目标受击 GameplayEffect 的索引、ID 与正式静态类路径"
                     "一致，补充了怪物身份；"

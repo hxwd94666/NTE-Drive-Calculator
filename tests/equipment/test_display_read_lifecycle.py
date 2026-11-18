@@ -86,7 +86,8 @@ def test_account_and_mode_refreshes_keep_one_reader_and_only_latest_request(app,
     active = 0
     lock = threading.Lock()
 
-    def read(database_path, *, static_database_path, saved_states=None, mode):
+    # 正式读取入口还会透传 text_catalog 等展示参数；假读取只核对路径与模式。
+    def read(database_path, *, static_database_path, saved_states=None, mode, **_display_kwargs):
         nonlocal active
         with lock:
             active += 1
@@ -104,6 +105,9 @@ def test_account_and_mode_refreshes_keep_one_reader_and_only_latest_request(app,
                         lambda path, **kwargs: read(path, mode="saved", **kwargs))
     monkeypatch.setattr(view, "_load_game_equipment_display_states",
                         lambda path, **kwargs: read(path, mode="game", **kwargs))
+    # 读取失败会弹真实模态框并永久阻塞测试；记录下来改为断言失败。
+    warnings = []
+    monkeypatch.setattr(view.QMessageBox, "warning", lambda *args: warnings.append(args[1:]))
     host = make_host(tmp_path, monkeypatch)
     try:
         host._refresh_equip()
@@ -127,6 +131,7 @@ def test_account_and_mode_refreshes_keep_one_reader_and_only_latest_request(app,
         assert max(concurrent) == 1
         assert list(host._game_loadout_states) == ["next"]
         assert [list(states) for states in host.applied] == [["next"]]
+        assert warnings == []
     finally:
         dispose(app, host, release)
 

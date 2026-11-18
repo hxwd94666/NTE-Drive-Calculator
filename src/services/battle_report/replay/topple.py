@@ -328,11 +328,11 @@ class BattleToppleHitReplayService:
             critical_state="not_applicable",
             confidence=confidence,
             factors=tuple(factors),
-            missing_evidence=((
+            missing_evidence=(
                 _text(text_catalog, "missing.daffodill_scope",
                       "达芙蒂尔额外倾陷结算只重放达芙蒂尔本人的倾陷贡献；"
                       "静态 TRUE 标签不改变倾陷的防御与抗性规则"),
-            ),) if source_character_id is not None else (
+            ) if source_character_id is not None else (
                 _text(text_catalog, "missing.core_team_total",
                       "倾陷事件的逐角色分量来自公式重放；nte-core 当前仅上报团队合计"),
             ),

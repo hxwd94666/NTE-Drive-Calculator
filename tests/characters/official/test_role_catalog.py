@@ -26,6 +26,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 from tools.game_data.build_role_catalog import RoleCatalogBuilder
 from tools.game_data import promote_static_release as promotion
 from tools.game_data.promote_role_catalog import promote_role_catalog
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 NTE_TEST_TIER = "core"
 ROOT = next(parent for parent in Path(__file__).resolve().parents

@@ -10,6 +10,7 @@ from math import isclose
 from pathlib import Path
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.results import BattleBuildCounterfactual
 from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification
 from src.domain.battle_report.counterfactual.results import (
@@ -228,7 +229,7 @@ class BattleMarginalBenefitService:
                 report_battle_analysis_progress(
                     progress_callback,
                     phase="core_main",
-                    message=f"正在计算金色空幕主属性：{label}…",
+                    message=localized_text(None, 'auto.services.battle_report.marginal.benefits.core_main_stats.f0bb86515', '正在计算金色空幕主属性：{label}…', label=f'{label}'),
                     completed=ordinal - 1,
                     total=len(core_catalog),
                 )
@@ -318,7 +319,7 @@ class BattleMarginalBenefitService:
         report_battle_analysis_progress(
             progress_callback,
             phase="fork_benefit",
-            message=f"正在建立 {fork_name} 的无弧盘基线…",
+            message=localized_text(None, 'auto.services.battle_report.marginal.benefits.fork_benefit.ff495b882', '正在建立 {fork_name} 的无弧盘基线…', fork_name=f'{fork_name}'),
         )
         no_fork_candidate = cls._replace_profile(
             candidate, character_id, no_fork_profile,
@@ -355,7 +356,7 @@ class BattleMarginalBenefitService:
         report_battle_analysis_progress(
             progress_callback,
             phase="fork_benefit",
-            message=f"正在拆分 {fork_name} 的常驻属性与技能机制…",
+            message=localized_text(None, 'auto.services.battle_report.marginal.benefits.fork_benefit.f338bc5d7', '正在拆分 {fork_name} 的常驻属性与技能机制…', fork_name=f'{fork_name}'),
         )
         loaded_stats_only = load_variant(stats_only_candidate)
         if loaded_stats_only is None:

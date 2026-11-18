@@ -52,7 +52,7 @@ def materialize_official_role_detail_inputs(
     character = static_dao.get_character(character_id)
     catalog_scope = static_dao.get_catalog_scope()
     if character is None:
-        raise ValueError(f"官方角色不存在：{character_id}")
+        raise ValueError(f"官方角色不存在：{character_id}")  # ui-text: internal
     growth_rows = static_dao.list_character_panel_growth(character_id)
     skills = static_dao.list_character_skills(character_id)
     skill_name_renderer = cached(

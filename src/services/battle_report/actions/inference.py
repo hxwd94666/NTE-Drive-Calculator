@@ -10,6 +10,7 @@ from dataclasses import replace
 import re
 from statistics import median
 from typing import Literal
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend, available_battle_compute
 
 from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
@@ -179,7 +180,7 @@ def _phase_token(hit: BattleAnalysisHit, kind: str) -> str:
     if kind == "A":
         branch = re.search(r"Branch(\d+)", effect, flags=re.IGNORECASE)
         if branch:
-            return f"A分支{branch.group(1)}"
+            return localized_text(None, 'auto.services.battle_report.actions.inference.phase_token.f8d2e0241', 'A分支{value}', value=f'{branch.group(1)}')
     return kind
 
 

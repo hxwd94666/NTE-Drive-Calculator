@@ -61,8 +61,8 @@ def native_capture_end_warning(
         "game_thread_pulse_exception": "游戏线程采集回调异常",
     }.get(trigger) if isinstance(trigger, str) else None
     if reason == "source_changed" and trigger_label:
-        detail += f"（触发：{trigger_label}）"
-    return f"增强采集提前结束：{detail}；本场可能缺少逐击数据。"
+        detail += localized_text(None, 'auto.services.battle_report.capture.metadata.native_capture_end_warning.ff890cec0', '（触发：{trigger_label}）', trigger_label=f'{trigger_label}')
+    return localized_text(None, 'auto.services.battle_report.capture.metadata.native_capture_end_warning.f0b85cbd0', '增强采集提前结束：{detail}；本场可能缺少逐击数据。', detail=f'{detail}')
 
 
 def native_capture_end_reason(
@@ -76,3 +76,4 @@ def native_capture_end_reason(
         return None
     reason = terminal.get("reason")
     return str(reason) if reason else None
+from src.domain.localization.catalog import localized_text

@@ -97,7 +97,7 @@ class StaticCatalogMiscProvider:
     ) -> None:
         self.text_catalog = resolve_text_catalog(text_catalog)
         if domain_key not in _DOMAIN_ORDER:
-            raise ValueError(f"不支持的杂项资料域：{domain_key!r}")
+            raise ValueError(f"不支持的杂项资料域：{domain_key!r}")  # ui-text: internal
         self._database_path = Path(database_path).expanduser().resolve()
         self._service = StaticCatalogMiscService(
             self._database_path,

@@ -64,7 +64,7 @@ def freeze_team_sources(dao, static_dao, teams, *, checkpoint=lambda: None, sour
         for character_id in team.character_ids:
             checkpoint()
             character = static_dao.get_character(character_id) or {}
-            name = character.get("name_zh") or custom.get(character_id) or f"角色 {character_id}"
+            name = character.get("name_zh") or custom.get(character_id) or localized_text(text_catalog, 'auto.services.teams.source_inputs.freeze_team_sources.f84645dad', '角色 {character_id}', character_id=f'{character_id}')
             issues, items, slot_id, plan_id, snapshot_id = [], (), None, None, None
             if config.mode == SourceMode.GAME:
                 snapshot_id = game.snapshot_id

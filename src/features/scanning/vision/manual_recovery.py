@@ -140,7 +140,7 @@ class ManualRecoveryDialog(QDialog):
 
             os.startfile(path)
         except Exception as exc:
-            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.scanning.open_path.qmessagebox'), str(exc))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.scanning.open_path.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
 
     def filled_values(self) -> tuple[tuple[str, float], ...]:
         """只提取展示草稿，不修改解析事实，也不把未完成行伪装成装备。"""

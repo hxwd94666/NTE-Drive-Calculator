@@ -469,7 +469,7 @@ def _on_vision_application_failed(self, dependencies, error):
     saved = self._vision_commit.last_result
     _restore_vision_controls(self)
     state = localized_text(getattr(self, 'text_catalog', None), "scanning.workflow.state.snapshot_saved", "背包已保存 #{snapshot_id}", snapshot_id=saved.snapshot_id) if saved and saved.snapshot_id else localized_text(getattr(self, 'text_catalog', None), "scanning.workflow.state.commit_returned", "提交结果已返回")
-    QMessageBox.warning(self.dialog_parent, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.scanning.on_vision_application_failed.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.scanning.on_vision_application_failed.qmessagebox_2', state=ui_enum_text(getattr(self, 'text_catalog', None), f'{state}'), error=f'{error}')))
+    QMessageBox.warning(self.dialog_parent, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.scanning.on_vision_application_failed.qmessagebox'), plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.scanning.on_vision_application_failed.qmessagebox_2', state=ui_enum_text(getattr(self, 'text_catalog', None), f'{state}'), error=ui_enum_text(getattr(self, 'text_catalog', None), f'{error}'))))
 
 
 def _on_vision_committed(self, dependencies, result):
@@ -596,7 +596,7 @@ def _on_vision_canceled(self, count):
     QMessageBox.information(
         self.dialog_parent,
         resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.scanning.on_vision_canceled.qmessagebox'),
-        vision_cancel_message(count),
+        vision_cancel_message(count, text_catalog=getattr(self, 'text_catalog', None)),
     )
 
 

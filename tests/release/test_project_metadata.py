@@ -22,7 +22,15 @@ class ProjectMetadataTests(unittest.TestCase):
         )
 
     def test_dated_test_versions_keep_release_order_and_package_identity(self):
-        self.assertEqual(__package_version__, "2.4.0.dev202611062209")
+        # 日期型测试版（如 2.4.0.202611082106T）映射为 PEP 440 dev 版本；版本号唯一来源是 src/app/version.py。
+        # 正式发行版（如 2.4.0）的包版本即版本号本身。
+        if __version__.endswith("T"):
+            release, stamp = __version__.removesuffix("T").rsplit(".", 1)
+            self.assertTrue(stamp.isdigit() and len(stamp) == 12)
+            self.assertEqual(__package_version__, f"{release}.dev{stamp}")
+        else:
+            self.assertRegex(__version__, r"^\d+\.\d+\.\d+$")
+            self.assertEqual(__package_version__, __version__)
         for remote, current, newer in (
             ("2.3.1.T261003", "2.3.1.T261002", True),
             ("2.3.1.T261002", "2.3.1.T261002", False),

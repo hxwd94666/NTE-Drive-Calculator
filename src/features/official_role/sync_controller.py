@@ -1,6 +1,7 @@
 # 在角色页同步已证实的原生养成字段，并冻结账号、代次和取消边界。
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
@@ -230,7 +231,7 @@ class CharacterProfileSyncController(QObject):
             except (CancelledError, InventorySyncCancelled):
                 return
             except Exception as exc:
-                QMessageBox.warning(self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.official_role.finish.qmessagebox'), str(exc))
+                QMessageBox.warning(self.parent(), resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.official_role.finish.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
                 return
             self._check(job)
             if result.saved_count:

@@ -37,7 +37,7 @@ def detect_rewind_shape_positions(
     if len(candidate_centers) != len(_SHAPE_NAMES):
         raise RuntimeError(
             f"倒带自选页候选槽位应为 {len(_SHAPE_NAMES)} 个，实际为 {len(candidate_centers)} 个"
-        )
+        )  # ui-text: internal
 
     height, width = array.shape[:2]
     scale = min(width / _REFERENCE_SIZE[0], height / _REFERENCE_SIZE[1])
@@ -54,9 +54,9 @@ def detect_rewind_shape_positions(
     ]
     if weak:
         details = ", ".join(
-            f"槽位{index + 1}:{name}={score:.2f}" for index, name, score in weak
+            f"槽位{index + 1}:{name}={score:.2f}" for index, name, score in weak  # ui-text: internal
         )
-        raise RuntimeError(f"倒带自选页形状识别置信度不足（{details}；总分 {total_score:.2f}）")
+        raise RuntimeError(f"倒带自选页形状识别置信度不足（{details}；总分 {total_score:.2f}）")  # ui-text: internal
 
     return {
         _SHAPE_NAMES[shape_index]: (

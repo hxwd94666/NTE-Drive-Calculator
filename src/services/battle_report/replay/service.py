@@ -2,6 +2,7 @@
 from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.domain.battle_report.buffs.models import BattleHitBuffProjection
 from src.domain.battle_report.replay.models import BattleHitReplayResult, BattleSkillDamageEvidence
@@ -298,7 +299,7 @@ class BattleHitReplayService(BattleDirectHitReplayMixin):
                     else cls._unreplayable(
                         hit.event_id,
                         hit.damage,
-                        f"{formula_label} 需要独立逐击重放适配器",
+                        localized_text(None, 'auto.services.battle_report.replay.service.replay.fcc0a1ec9', '{formula_label} 需要独立逐击重放适配器', formula_label=f'{formula_label}'),
                         formula_label,
                     )
                 )
@@ -311,7 +312,7 @@ class BattleHitReplayService(BattleDirectHitReplayMixin):
                     "direct_follow_up",
                     "special_lacrimosa_dissonance",
                 }
-                else f"直伤（{formula_label}）"
+                else localized_text(None, 'auto.services.battle_report.replay.service.replay.fd6391e3d', '直伤（{formula_label}）', formula_label=f'{formula_label}')
             )
             cache_key = full_replay_formula_cache_key(
                 channel_id=channel_id,

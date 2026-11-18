@@ -79,7 +79,7 @@ def control_performance_trace(session, payload, context_key):
         if client is None or not client.is_running:
             raise LookupError('原生会话已断开')
         if 'native_performance_trace_v1' not in (client.hello_result or {}).get('capabilities', ()):
-            raise NotImplementedError('当前组件不支持细分性能采样，需要更新配套 Core、宿主和插件')
+            raise NotImplementedError('当前组件不支持细分性能采样，需要更新配套 Core、宿主和插件')  # ui-text: internal
         if session._current_context() != context_key:
             raise LookupError('账号已改变')
         if payload['action'] == 'start':

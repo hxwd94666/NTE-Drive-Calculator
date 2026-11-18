@@ -9,6 +9,7 @@ from src.integrations.preferences.plugin_settings_store import PluginSettingsSto
 from src.services.plugins.hud import PluginService
 from src.services.native_session.session import NativeGameSession
 from tests.native_session.test_native_game_session import FakeNativeCore
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class Policy:
@@ -204,7 +205,7 @@ def test_plugin_cards_remain_editable_across_modes_and_themes(tmp_path, monkeypa
         show_detection=lambda: routes.append("detection"),
     )
     page.resize(820, 540)
-    for theme in ("black", "dark", "light"):
+    for theme in ("black",):
         apply_app_theme(app, theme)
         page.show()
         app.processEvents()

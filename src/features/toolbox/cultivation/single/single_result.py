@@ -1,6 +1,7 @@
 # 渲染单角色养成合计及折叠明细，保持页面编辑与结果展示分离。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QToolButton, QVBoxLayout, QWidget
@@ -27,13 +28,13 @@ class CultivationSingleResultMixin:
             ))
             self._result_layout.addWidget(summary)
         if plan.required_experience:
-            overflow = f"，经验书最小溢出 {plan.experience_overflow:,}" if plan.experience_overflow else ""
+            overflow = localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.single.single_result.render_plan.f1e266ed9', '，经验书最小溢出 {experience_overflow}', experience_overflow=f'{plan.experience_overflow:,}') if plan.experience_overflow else ""
             self._result_layout.addWidget(plain_label(
                 resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.render_plan.caption', required_experience=f'{plan.required_experience:,}', overflow=f'{overflow}'), self._result_body
             ))
         if plan.fork_required_experience:
             overflow = (
-                f"，材料最小溢出 {plan.fork_experience_overflow:,}"
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.cultivation.single.single_result.render_plan.f4ee0f7f3', '，材料最小溢出 {fork_experience_overflow}', fork_experience_overflow=f'{plan.fork_experience_overflow:,}')
                 if plan.fork_experience_overflow else ""
             )
             self._result_layout.addWidget(plain_label(

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.results import BattleBuildCounterfactual
 from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleTimelineDamageGroup
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
@@ -100,8 +101,7 @@ class BattleBuildTimelineProjectionService:
                 detail_lines = group.detail_lines + (
                     projection_line,
                     (
-                        f"{vital.quantification.explanation}；"
-                        f"置信度 {vital.quantification.confidence}"
+                        localized_text(None, 'auto.services.battle_report.build.timeline_projection.project.f34cdc77a', '{explanation}；置信度 {confidence}', explanation=f'{vital.quantification.explanation}', confidence=f'{vital.quantification.confidence}')
                     ),
                 )
                 groups.append(replace(
@@ -143,7 +143,7 @@ class BattleBuildTimelineProjectionService:
                 evidence_event_ids=(row.event_id,),
                 detail_lines=(
                     row.quantification.explanation,
-                    f"置信度 {row.quantification.confidence}",
+                    localized_text(None, 'auto.services.battle_report.build.timeline_projection.project.f1a126401', '置信度 {confidence}', confidence=f'{row.quantification.confidence}'),
                 ),
             )
             for row in derived_rows

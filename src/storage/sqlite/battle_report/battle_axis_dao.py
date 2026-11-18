@@ -208,7 +208,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             inserted = 0
             for index, value in enumerate(rows):
                 if not isinstance(value, Mapping):
-                    raise UserDataValidationError(f"逐击 rows[{index}] 不是对象")
+                    raise UserDataValidationError(f"逐击 rows[{index}] 不是对象")  # ui-text: internal
                 inserted += self._insert_hit(connection, capture_id, value)
             stored_hits = int(
                 connection.execute(
@@ -276,14 +276,14 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         if not isinstance(labels, Sequence) or isinstance(
             labels, (str, bytes, bytearray)
         ):
-            raise UserDataValidationError("hit.follow_up_labels 必须是数组")
+            raise UserDataValidationError("hit.follow_up_labels 必须是数组")  # ui-text: internal
         target_context = hit.get("target_context") or []
         if isinstance(target_context, str):
             target_context = [target_context] if target_context.strip() else []
         if not isinstance(target_context, Sequence) or isinstance(
             target_context, (bytes, bytearray)
         ):
-            raise UserDataValidationError("hit.target_context 必须是数组")
+            raise UserDataValidationError("hit.target_context 必须是数组")  # ui-text: internal
         normalized_context = [
             str(value) for value in target_context if str(value).strip()
         ]
@@ -727,10 +727,10 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
         if not isinstance(intervals, Sequence) or isinstance(
             intervals, (str, bytes, bytearray)
         ):
-            raise UserDataValidationError("time_stop_intervals 必须是数组")
+            raise UserDataValidationError("time_stop_intervals 必须是数组")  # ui-text: internal
         for ordinal, value in enumerate(intervals):
             if not isinstance(value, Mapping):
-                raise UserDataValidationError("time_stop_interval 必须是对象")
+                raise UserDataValidationError("time_stop_interval 必须是对象")  # ui-text: internal
             start = value.get("start_unix", value.get("started_at_unix"))
             end = value.get("end_unix", value.get("ended_at_unix"))
             duration = value.get("duration_seconds")
@@ -738,7 +738,7 @@ class BattleAxisDaoMixin(UserDataDaoMixinHost):
             end_offset = value.get("end_offset_seconds")
             pause_type_mask = _optional_integer(value.get("pause_type_mask"), "time_stop.pause_type_mask")
             if pause_type_mask is not None and not 0 < pause_type_mask <= 0xFFFF_FFFF:
-                raise UserDataValidationError("time_stop.pause_type_mask 必须是非零 u32 整数或 null")
+                raise UserDataValidationError("time_stop.pause_type_mask 必须是非零 u32 整数或 null")  # ui-text: internal
             if duration is None and isinstance(start, (int, float)) and isinstance(
                 end, (int, float)
             ):

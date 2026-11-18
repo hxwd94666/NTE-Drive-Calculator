@@ -49,7 +49,7 @@ def load_graduation_configuration(inputs, team, *, scoring_rules_path, cancelled
                 cid, profile = actor["character_id"], actor["profile"]
                 growth = tuple(sorted({(r["level"], r["breakthrough_stage"]) for r in unit.dao.list_character_panel_growth(cid)}))
                 if not growth:
-                    raise ValueError(f"角色 {cid} 缺少正式成长档位")
+                    raise ValueError(f"角色 {cid} 缺少正式成长档位")  # ui-text: internal
                 level, stage = max(growth)
                 skill_rows = unit.dao.list_character_skill_level_requirements(cid)
                 choices, defaults = [], []
@@ -57,10 +57,10 @@ def load_graduation_configuration(inputs, team, *, scoring_rules_path, cancelled
                     rows = tuple((r["level"], r["required_breakthrough_stage"], r["required_awaken_level"])
                                  for r in skill_rows if r["skill_id"] == skill)
                     if any(type(v) is not int or v < 0 for row in rows for v in row):
-                        raise ValueError(f"角色 {cid} 的技能 {skill} 等级前置证据不完整")
+                        raise ValueError(f"角色 {cid} 的技能 {skill} 等级前置证据不完整")  # ui-text: internal
                     valid = [n for n, b, a in rows if b <= stage and a <= profile["awakening_level"]]
                     if not valid:
-                        raise ValueError(f"角色 {cid} 的技能 {skill} 缺少可确认的合法目标等级")
+                        raise ValueError(f"角色 {cid} 的技能 {skill} 缺少可确认的合法目标等级")  # ui-text: internal
                     choices.append((skill, rows))
                     defaults.append((skill, max(valid)))
                 fork = (TargetFork(profile["fork_id"], profile["fork_level"], profile["fork_breakthrough_stage"],

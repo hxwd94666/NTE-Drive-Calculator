@@ -3,7 +3,7 @@
 本文记录维护者确认的目标、有限搜索的决策依据和实施证据。第 1–7 节解释模型与约束，第 8 节是可继续调整的策略要求，
 第 9.1 节记录交付核对，第 10 节保留 Rust 覆盖审计，第 11 节明确必要验收及历史证据范围。
 已交付行为唯一见[功能说明](../features.md#计算结果后处理)，协议/进程职责见[集成说明](../integrations.md#12-分配结果后处理作业)。
-公式引用[伤害计算索引](../reference/damage-calculation.md)和[固定轴反事实](../reference/damage/replay-and-buffs.md)，不在本方案再维护一套公式。
+公式引用[伤害计算索引](../reference/damage/README.md)和[固定轴反事实](../reference/damage/replay-and-buffs.md)，不在本方案再维护一套公式。
 
 ## 1. 两个策略分别解决什么问题
 

@@ -12,6 +12,7 @@ from src.features.settings.page import _build_environment_card
 from src.services.work_modes.service import WorkModeService
 from src.ui.controllers import environment_controller as environment
 from tests.plugins.test_native_plugin_bundle import make_bundle
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 @pytest.fixture

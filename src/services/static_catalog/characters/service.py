@@ -111,20 +111,20 @@ def _loads(value: object, *, context: str) -> Any:
     try:
         return json.loads(str(value))
     except (TypeError, json.JSONDecodeError) as exc:
-        raise StaticCatalogProjectionError(f"{context} 不是有效 JSON") from exc
+        raise StaticCatalogProjectionError(f"{context} 不是有效 JSON") from exc  # ui-text: internal
 
 
 def _string_tuple(value: object, *, context: str) -> tuple[str, ...]:
     parsed = _loads(value, context=context)
     if not isinstance(parsed, list):
-        raise StaticCatalogProjectionError(f"{context} 必须是 JSON 数组")
+        raise StaticCatalogProjectionError(f"{context} 必须是 JSON 数组")  # ui-text: internal
     return tuple(str(item) for item in parsed if str(item).strip())
 
 
 def _float_tuple(value: object, *, context: str) -> tuple[float, ...]:
     parsed = _loads(value, context=context)
     if not isinstance(parsed, list):
-        raise StaticCatalogProjectionError(f"{context} 必须是 JSON 数组")
+        raise StaticCatalogProjectionError(f"{context} 必须是 JSON 数组")  # ui-text: internal
     return tuple(float(item) for item in parsed)
 
 
@@ -351,7 +351,7 @@ class StaticCatalogCharacterService:
         for row in self._queries.list_catalog_awakenings(character_id):
             effect_id = str(row["effect_id"])
             structured = _loads(
-                row["modify_data_json"], context=f"觉醒 {effect_id} modify_data_json",
+                row["modify_data_json"], context=f"觉醒 {effect_id} modify_data_json",  # ui-text: internal
             )
             result.append(AwakeningEffect(
                 effect_id=effect_id,
@@ -363,7 +363,7 @@ class StaticCatalogCharacterService:
                 structured_effects=_flatten_structured(structured),
                 gameplay_effect_ids=_string_tuple(
                     row["gameplay_effect_ids_json"],
-                    context=f"觉醒 {effect_id} gameplay_effect_ids_json",
+                    context=f"觉醒 {effect_id} gameplay_effect_ids_json",  # ui-text: internal
                 ),
                 buff_definition_ids=tuple(
                     str(value) for value in row.get("buff_definition_ids", ())
@@ -383,11 +383,11 @@ class StaticCatalogCharacterService:
     def _costs(value: object, *, context: str) -> tuple[CostItem, ...]:
         parsed = _loads(value, context=context)
         if not isinstance(parsed, list):
-            raise StaticCatalogProjectionError(f"{context} 必须是 JSON 数组")
+            raise StaticCatalogProjectionError(f"{context} 必须是 JSON 数组")  # ui-text: internal
         result = []
         for item in parsed:
             if not isinstance(item, Mapping) or not str(item.get("ID") or "").strip():
-                raise StaticCatalogProjectionError(f"{context} 包含无效材料项")
+                raise StaticCatalogProjectionError(f"{context} 包含无效材料项")  # ui-text: internal
             result.append(CostItem(
                 item_id=str(item["ID"]),
                 quantity=float(item.get("Number") or 0),
@@ -420,15 +420,15 @@ class StaticCatalogCharacterService:
                         damage_type=str(item["damage_type"]),
                         atk_rates=_float_tuple(
                             item["atk_rate_base_json"],
-                            context=f"技能 {skill_id} 伤害攻击倍率",
+                            context=f"技能 {skill_id} 伤害攻击倍率",  # ui-text: internal
                         ),
                         def_rates=_float_tuple(
                             item["def_rate_base_json"],
-                            context=f"技能 {skill_id} 伤害防御倍率",
+                            context=f"技能 {skill_id} 伤害防御倍率",  # ui-text: internal
                         ),
                         hp_rates=_float_tuple(
                             item["hp_rate_base_json"],
-                            context=f"技能 {skill_id} 伤害生命倍率",
+                            context=f"技能 {skill_id} 伤害生命倍率",  # ui-text: internal
                         ),
                     )
                     for item in row.get("damage_items", ())
@@ -448,7 +448,7 @@ class StaticCatalogCharacterService:
             required_awaken_level=int(row["required_awaken_level"]),
             costs=self._costs(
                 row["cost_items_json"],
-                context=f"技能 {skill_id} 等级 {row['level']} 消耗",
+                context=f"技能 {skill_id} 等级 {row['level']} 消耗",  # ui-text: internal
             ),
         )
 
@@ -475,15 +475,15 @@ class StaticCatalogCharacterService:
             source_type=_optional_text(row.get("source_type")),
             damage_effect_ids=_string_tuple(
                 row["damage_effect_ids_json"],
-                context=f"技能 {skill_id} 等级提示 damage_effect_ids_json",
+                context=f"技能 {skill_id} 等级提示 damage_effect_ids_json",  # ui-text: internal
             ),
             defense_effect_ids=_string_tuple(
                 row["defense_effect_ids_json"],
-                context=f"技能 {skill_id} 等级提示 defense_effect_ids_json",
+                context=f"技能 {skill_id} 等级提示 defense_effect_ids_json",  # ui-text: internal
             ),
             health_effect_ids=_string_tuple(
                 row["health_effect_ids_json"],
-                context=f"技能 {skill_id} 等级提示 health_effect_ids_json",
+                context=f"技能 {skill_id} 等级提示 health_effect_ids_json",  # ui-text: internal
             ),
         )
 
@@ -538,7 +538,7 @@ class StaticCatalogCharacterService:
         if row is None:
             return None
         equipment = _loads(
-            row["equipment_json"], context=f"角色 {character_id} 毕业装备模板",
+            row["equipment_json"], context=f"角色 {character_id} 毕业装备模板",  # ui-text: internal
         )
         if not isinstance(equipment, list):
             raise StaticCatalogProjectionError("毕业装备模板必须是 JSON 数组")
@@ -606,7 +606,7 @@ class StaticCatalogCharacterService:
         if module_counts != anchor_counts:
             raise StaticCatalogProjectionError(
                 f"角色 {character_id} 图纸模块与锚点数量不一致"
-            )
+            )  # ui-text: internal
         anchor_offsets: dict[str, int] = {}
         for item in row.get("modules", ()):
             item_id = str(item["item_id"])
@@ -628,13 +628,13 @@ class StaticCatalogCharacterService:
                 ):
                     raise StaticCatalogProjectionError(
                         f"角色 {character_id} 图纸模块越出 5×5 底盘"
-                    )
+                    )  # ui-text: internal
             ordinal = int(item["ordinal"])
             for cell in occupied:
                 if cell in board:
                     raise StaticCatalogProjectionError(
                         f"角色 {character_id} 图纸模块发生重叠"
-                    )
+                    )  # ui-text: internal
                 board[cell] = ordinal
             modules.append(EquipmentPlanModule(
                 ordinal=ordinal,
@@ -649,7 +649,7 @@ class StaticCatalogCharacterService:
         if len(board) != 20:
             raise StaticCatalogProjectionError(
                 f"角色 {character_id} 正式图纸应覆盖 20 格，实际 {len(board)} 格"
-            )
+            )  # ui-text: internal
         cells = tuple(
             (row_index, column_index, board.get((row_index, column_index)))
             for row_index in range(1, 6)

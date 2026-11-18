@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.runtime.application_runtime_paths import resolve_application_roots, select_runtime_data_root
 from .data_lifecycle import migrate_existing_data, restore_data_recovery, resume_data_import
 from .data_roots import select_external_data_root
@@ -34,7 +35,7 @@ def run_maintenance(args) -> bool:
         if chosen == app_dir.resolve() or app_dir.resolve() in chosen.resolve().parents:
             raise DistributionError("平台外部数据根须位于程序目录之外，避免清空程序目录时一起删除。")
         path = select_external_data_root(distribution, args.portable_data_root)
-        print(f"外部数据位置已明确保存：{path}；下次启动使用该目录。")
+        print(localized_text(None, 'auto.integrations.distribution.maintenance_cli.run_maintenance.ff457633a', '外部数据位置已明确保存：{path}；下次启动使用该目录。', path=f'{path}'))
         return True
     root = select_runtime_data_root(app_dir, distribution=distribution)
     with DataRootLease(root) as lease:
@@ -42,13 +43,13 @@ def run_maintenance(args) -> bool:
             if not distribution.portable:
                 raise DistributionError("旧根迁入只适用于明确的便携发行。")
             migrate_existing_data(args.migrate_data_from, root, lease, confirm_source_closed=args.confirm_source_closed)
-            print(f"迁入已完成：{root}；原数据根保留。")
+            print(localized_text(None, 'auto.integrations.distribution.maintenance_cli.run_maintenance.fcf2f5811', '迁入已完成：{root}；原数据根保留。', root=f'{root}'))
             print("旧游戏/组件路径记录保留；首次使用前请到环境检测重新确认，旧 Loader 执行物未迁入，未修改注册表或部署。")
         elif args.resume_data_import:
             resume_data_import(root, lease)
-            print(f"迁入发布已恢复：{root}。")
+            print(localized_text(None, 'auto.integrations.distribution.maintenance_cli.run_maintenance.f56f68899', '迁入发布已恢复：{root}。', root=f'{root}'))
         else:
             kept = restore_data_recovery(root, args.restore_data_recovery, distribution, lease,
                                          confirm_replace=args.confirm_replace_current_data)
-            print(f"数据已恢复；新版数据保存在 {kept}。请使用与恢复数据匹配的程序版本，再启动。")
+            print(localized_text(None, 'auto.integrations.distribution.maintenance_cli.run_maintenance.fddba2317', '数据已恢复；新版数据保存在 {kept}。请使用与恢复数据匹配的程序版本，再启动。', kept=f'{kept}'))
     return True

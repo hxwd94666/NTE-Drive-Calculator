@@ -43,7 +43,7 @@ class LoadoutManagementDaoMixin(UserDataDaoMixinHost):
                 if scope is None or not rows:
                     raise UserDataValidationError("新增槽位缺少正式角色身份")
                 if len(rows) >= MAX_VISIBLE_LOADOUT_SLOTS:
-                    raise UserDataValidationError(f"每个角色最多创建 {MAX_VISIBLE_LOADOUT_SLOTS} 个配装槽位")
+                    raise UserDataValidationError(f"每个角色最多创建 {MAX_VISIBLE_LOADOUT_SLOTS} 个配装槽位")  # ui-text: internal
                 name = self._normalize_slot_name(mutation.name)
                 key = self._normalize_slot_key(self._next_slot_key(scope))
                 order = connection.execute(

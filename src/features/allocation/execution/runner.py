@@ -119,7 +119,7 @@ def _allocation_paths(window: Any) -> tuple[Path, Path, Path, Path, Path]:
                 static_database_path,
             )
         ):
-            raise RuntimeError("分配功能缺少 AppContext 或显式路径依赖")
+            raise RuntimeError("分配功能缺少 AppContext 或显式路径依赖")  # ui-text: internal
         assert database_path is not None
         assert config_dir is not None
         assert user_config_dir is not None

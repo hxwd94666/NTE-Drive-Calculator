@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.geometry.drive_layout import extract_drive_blocks_from_state
 from src.domain.equipment.geometry.native_layout import validate_native_layout
 from src.domain.equipment.loadouts.loadout_plan_scores import exact_assignment_score_total
@@ -94,7 +95,7 @@ def character_ids_for_static_role(
         ]
     ids = tuple(sorted({int(row["character_id"]) for row in candidates}))
     if not ids:
-        raise SavedStateLoadoutError(f"静态数据库中没有角色 [{raw_name}] 的官方 ID")
+        raise SavedStateLoadoutError(f"静态数据库中没有角色 [{raw_name}] 的官方 ID")  # ui-text: internal
     return ids
 
 
@@ -115,7 +116,7 @@ def custom_character_id_for_role(
     if not matches:
         return None
     if len(matches) > 1:
-        raise SavedStateLoadoutError(f"自建角色 [{raw_name}] 存在重复记录")
+        raise SavedStateLoadoutError(f"自建角色 [{raw_name}] 存在重复记录")  # ui-text: internal
     return int(matches[0]["character_id"])
 
 
@@ -189,7 +190,7 @@ def resolve_character_id_for_static_role(
     if len(found) > 1:
         raise SavedStateLoadoutError(
             f"角色 [{role_name}] 的多个官方 ID 同时存在于固定快照，请手动选择"
-        )
+        )  # ui-text: internal
     for summary in user_dao.list_inventory_snapshots():
         historical_id = int(summary["snapshot_id"])
         if historical_id >= snapshot_id:
@@ -208,13 +209,13 @@ def resolve_character_id_for_static_role(
     raise SavedStateLoadoutError(
         f"角色 [{role_name}] 有多个候选官方 ID（{candidate_text}），"
         "请先在一键装配中手动选择角色实例并保存映射"
-    )
+    )  # ui-text: internal
 
 
 def _saved_uid(value: Any, *, expected_kind: str) -> tuple[int, int]:
     match = _SAVED_UID_PATTERN.fullmatch(str(value or "").strip())
     if match is None or match.group("kind") != expected_kind:
-        raise SavedStateLoadoutError(f"无效的 {expected_kind} UID：{value!r}")
+        raise SavedStateLoadoutError(f"无效的 {expected_kind} UID：{value!r}")  # ui-text: internal
     return int(match.group("slot")), int(match.group("serial"))
 
 
@@ -251,7 +252,7 @@ def _official_anchor(
     if len(matches) != 1:
         raise SavedStateLoadoutError(
             f"无法唯一确定官方配装锚点：occupied={sorted(occupied)}"
-        )
+        )  # ui-text: internal
     return matches[0]
 
 
@@ -335,7 +336,7 @@ class SavedStateLoadoutBridge:
         if self.user_dao.inventory_snapshot_summary(selected_snapshot_id) is None:
             raise SavedStateLoadoutError(
                 f"指定的稳定背包快照不存在：{selected_snapshot_id}"
-            )
+            )  # ui-text: internal
 
         character = self.static_dao.get_character(character_id)
         custom_character_id = custom_character_id_for_role(role_name, self.user_dao)
@@ -343,7 +344,7 @@ class SavedStateLoadoutBridge:
         if character is None and not is_matching_custom_role:
             raise SavedStateLoadoutError(
                 f"静态数据库中不存在角色 ID {character_id}（{role_name}）"
-            )
+            )  # ui-text: internal
 
         if self._frozen_snapshot_id is not None:
             if selected_snapshot_id != self._frozen_snapshot_id:
@@ -371,7 +372,7 @@ class SavedStateLoadoutBridge:
             if not isinstance(drive, Mapping):
                 raise SavedStateLoadoutError(
                     f"角色 [{role_name}] 的棋盘块 {block.get('block_id')} 没有对应驱动"
-                )
+                )  # ui-text: internal
             slot, serial = _saved_uid(drive.get("uid"), expected_kind="module")
             virtual = bool(drive.get("virtual"))
             item = (
@@ -389,11 +390,11 @@ class SavedStateLoadoutBridge:
             if item is None or item.get("kind") != "module":
                 raise SavedStateLoadoutError(
                     f"角色 [{role_name}] 的驱动 UID ({slot}, {serial}) 不在所选稳定背包中"
-                )
+                )  # ui-text: internal
             official_shape_id = _shape_id(item.get("geometry"))
             shape = shapes.get(official_shape_id)
             if shape is None:
-                raise SavedStateLoadoutError(f"静态数据库缺少形状 {official_shape_id}")
+                raise SavedStateLoadoutError(f"静态数据库缺少形状 {official_shape_id}")  # ui-text: internal
             row, column = _official_anchor(block.get("cells"), shape.get("cells") or [])
             assignment = {
                 "uid_serial": serial,
@@ -433,7 +434,7 @@ class SavedStateLoadoutBridge:
             if core_item is None or core_item.get("kind") != "core":
                 raise SavedStateLoadoutError(
                     f"角色 [{role_name}] 的核心 UID ({core_slot}, {core_serial}) 不在所选稳定背包中"
-                )
+                )  # ui-text: internal
             assignment = {
                 "uid_serial": core_serial,
                 "uid_slot": core_slot,
@@ -453,7 +454,7 @@ class SavedStateLoadoutBridge:
 
         module_count = sum(item["kind"] == "module" for item in assignments)
         if module_count <= 0:
-            raise SavedStateLoadoutError(f"角色 [{role_name}] 没有可装配的驱动")
+            raise SavedStateLoadoutError(f"角色 [{role_name}] 没有可装配的驱动")  # ui-text: internal
         normalized_payload = dict(payload or {
             "schema": "saved-state-official-loadout-v1",
             "source": "equipment_page",
@@ -464,7 +465,7 @@ class SavedStateLoadoutBridge:
             normalized_payload.get("assignment_scores") or {},
         )
         return PreparedLoadoutPlan(
-            name=name or f"配装页：{role_name}",
+            name=name or localized_text(None, 'auto.services.equipment.loadouts.saved_state_loadout_bridge.prepare_role_plan.f9928741b', '配装页：{role_name}', role_name=f'{role_name}'),
             role_name=role_name,
             character_id=character_id,
             snapshot_id=selected_snapshot_id,

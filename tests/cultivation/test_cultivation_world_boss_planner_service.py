@@ -35,7 +35,7 @@ class _Planner(CultivationPlannerService):
         # 仅使用本例冻结输入，不读取账号库、解包目录或运行时静态文件。
         super().__init__(static_database_path=Path("unused-static"), user_database_path=Path("unused-user"))
 
-    def calculate(self, request):
+    def calculate(self, request, **_kwargs):
         return CultivationPlan("角色", MaterialSummaryStatus.COMPLETE,
                                (CultivationSection("角色突破", MATERIALS),),
                                MATERIALS, 0, 0, (1,), ())
@@ -48,7 +48,7 @@ class _Planner(CultivationPlannerService):
 def _in_process_solver():
     # 来源/展示测试不需要启动 SciPy 子进程，仍执行正式纯计算入口。
     with patch("src.services.progression.stamina_planner.calculate_isolated_progression_stamina",
-               side_effect=calculate_progression_stamina):
+               side_effect=lambda request, **_kwargs: calculate_progression_stamina(request)):
         yield
 
 

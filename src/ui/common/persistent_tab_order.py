@@ -56,7 +56,7 @@ class PersistentTabOrderBinding(QObject):
                 self._drag_active = False
                 self._drag_changed = False
                 if should_save:
-                    QTimer.singleShot(0, self.persist_current_order)
+                    QTimer.singleShot(0, self, self.persist_current_order)
         return False
 
     def _on_tab_moved(self, _from_index: int, _to_index: int) -> None:

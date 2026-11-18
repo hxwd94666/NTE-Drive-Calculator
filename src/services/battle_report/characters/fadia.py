@@ -2,6 +2,7 @@
 from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.native.state_payload import HIT_FIELDS, HP_EVENT_FIELDS, state_rows, fadia_character
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.characters.state_compute import compute_character_state, restore_fadia_intervals
@@ -300,7 +301,7 @@ class BattleFadiaHpStackService:
                         "正式 HTExtractAttributeGEComp 以来源当时 MAXHP 的 10%"
                         "给全队加生命上限，最多 5 次；"
                         + (
-                            f"按{half}半场独立累计并在换半时清空；"
+                            localized_text(None, 'auto.services.battle_report.characters.fadia.infer.f6681898f', '按{half}半场独立累计并在换半时清空；', half=f'{half}')
                             if half else ""
                         )
                         + (

@@ -29,8 +29,7 @@ def fixed_coverage_note(value):
     if not isclose(sum(value[key] for key in keys[1:]), total, rel_tol=1e-9, abs_tol=1e-9):
         return ""
     strict, estimated, excluded = (value[key] / total * 100 for key in keys[1:])
-    return (f"计分覆盖 {strict + estimated:.1f}%：已量化（含已证实不变）{strict:.1f}%、估算 {estimated:.1f}%；"
-            f"未计入 {excluded:.1f}%。")
+    return (localized_text(None, 'auto.domain.allocation.damage_display.fixed_coverage_note.f74e0a2b1', '计分覆盖 {value}%：已量化（含已证实不变）{strict}%、估算 {estimated}%；未计入 {excluded}%。', value=f'{strict + estimated:.1f}', strict=f'{strict:.1f}', estimated=f'{estimated:.1f}', excluded=f'{excluded:.1f}'))
 
 
 def search_is_complete(value):
@@ -39,3 +38,4 @@ def search_is_complete(value):
             and all(value.get(key) is not False for key in ("blueprint_complete", "enumeration_complete", "quantification_complete"))
             and (value.get("blueprint_usage") or {}).get("complete") is not False
             and value.get("blueprint_enumeration_complete") is not False)
+from src.domain.localization.catalog import localized_text

@@ -8,8 +8,10 @@ from dataclasses import replace
 from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import QMessageBox
 
+from src.ui.common.enum_text import ui_enum_text
 from src.domain.rewind.rewind_loadout import read_slot_preferences, references_for_roles
 from src.features.toolbox.rewind.execution_dialog import RewindExecutionOptions
+from src.domain.rewind.strategy_preferences import parse_ten_limits
 from src.features.toolbox.rewind.role_selection import preference_custom_percent
 
 
@@ -23,7 +25,8 @@ class RewindProfileUiMixin:
             target_grade=self._target_grade, target_threshold_mode=self._target_threshold_mode,
             target_custom_percent=self._target_custom_percent, groups=self._dual_group_preferences(),
             rewind_qualities=list(self._rewind_options.qualities),
-            rewind_drive_customization=self._rewind_options.drive_customization)
+            rewind_drive_customization=self._rewind_options.drive_customization,
+            rewind_ten_limits=dict(self._rewind_options.ten_limits))
         if hasattr(self, '_editable_slots'):
             fields['editable_rewind_slots'] = [None if slot is None else dict(
                 shape_id=slot.shape.shape_id, quality_gap=slot.quality_gap) for slot in self._editable_slots]
@@ -40,7 +43,7 @@ class RewindProfileUiMixin:
 
     def _preference_error_text(self, error):
         key = 'rewind.storage.' + str(error)
-        return self.text_catalog.render(key) if key in self.text_catalog.messages else str(error)
+        return self.text_catalog.render(key) if key in self.text_catalog.messages else ui_enum_text(self.text_catalog, str(error))
 
     def _switch_strategy_profile(self, key):
         try:
@@ -69,7 +72,8 @@ class RewindProfileUiMixin:
         self._target_custom_percent = preference_custom_percent(preferences.get('target_custom_percent'))
         self._rewind_options = RewindExecutionOptions(
             qualities=tuple(preferences.get('rewind_qualities', ('gold',))),
-            drive_customization=preferences.get('rewind_drive_customization', 'none'))
+            drive_customization=preferences.get('rewind_drive_customization', 'none'),
+            ten_limits=parse_ten_limits(preferences.get('rewind_ten_limits')))
         self._saved_rewind_shape_ids = tuple(preferences.get('saved_rewind_shape_ids', ()))
         self._saved_rewind_slots = tuple(preferences.get('saved_rewind_slots', ()))
         self._analysis_token = self._generated_analysis = None

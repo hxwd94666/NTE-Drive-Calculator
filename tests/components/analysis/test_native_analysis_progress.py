@@ -259,13 +259,15 @@ class ProgressTransportTests(unittest.TestCase):
         self.assert_clean()
 
     def test_progress_keeps_work_alive_beyond_original_total_timeout(self):
-        self.client.timeout = .5
+        # 空闲窗口从子进程启动起计时，须容下 2 核负载下的解释器启动；
+        # 事件间隔远小于窗口、总时长（≥2.4s）明显超过窗口，仍证明进度可延续作业。
+        self.client.timeout = 1.5
         source = (
             "import sys,json,time\n"
             "sys.stdin.buffer.read()\n"
             f"line=json.dumps({event()!r})+'\\n'\n"
-            "for _ in range(4):\n"
-            " sys.stderr.write(line);sys.stderr.flush();time.sleep(.2)\n"
+            "for _ in range(6):\n"
+            " sys.stderr.write(line);sys.stderr.flush();time.sleep(.4)\n"
             "print('{}')\n"
         )
         with self.child(source):

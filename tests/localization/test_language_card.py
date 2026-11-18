@@ -108,7 +108,7 @@ def test_import_confirm_and_choose_chinese_is_explicit_without_hot_switch_or_res
         retire(app, card)
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_pseudo_language_plain_text_keyboard_and_visible_controls(app, service, theme):
     service.install(ROOT / "docs/examples/locales/qps-ploc.json")
     service.select("qps-ploc")

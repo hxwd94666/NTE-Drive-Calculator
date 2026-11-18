@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from functools import lru_cache
@@ -277,11 +278,11 @@ def _render_results(self, plan):
             gl.addWidget(missing_core)
 
         if drives:
-            gl.addWidget(self._section_label(f"驱动 ({len(drives)}个):"))
+            gl.addWidget(self._section_label(localized_text(getattr(self, 'text_catalog', None), 'auto.ui.equipment.equipment_result_rendering.render_results.fed4e5f9f', '驱动 ({count}个):', count=f'{len(drives)}')))
             for d in drives:
                 score = d.role_scores.get(role, 0) if hasattr(d, "role_scores") else 0
                 grade = self._calc_grade(score, d.area)
-                mvp_tag = f" 👑第{d.pick_order}顺位" if getattr(d, "is_mvp", False) else ""
+                mvp_tag = localized_text(getattr(self, 'text_catalog', None), 'auto.ui.equipment.equipment_result_rendering.render_results.f8e5e18e9', ' 👑第{pick_order}顺位', pick_order=f'{d.pick_order}') if getattr(d, "is_mvp", False) else ""
                 drive_uid = str(_diff_value(d, "uid", "") or "")
                 drive_changed = bool(_diff_value(d, "is_changed", False) or drive_uid in changed_uids)
                 gl.addWidget(

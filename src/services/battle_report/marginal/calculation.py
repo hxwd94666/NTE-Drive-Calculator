@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.results import BattleMarginalResult
 from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
@@ -523,7 +524,7 @@ class BattleMarginalCalculationService:
             cancelled_dimension_ids=ratio.cancelled_dimension_ids,
             gaps=gaps,
             explanation=(
-                f"{ratio.explanation} 当前有效配置锚点仅有已量化投影。"
+                localized_text(None, 'auto.services.battle_report.marginal.calculation.inherit_anchor_status.f855003f6', '{explanation} 当前有效配置锚点仅有已量化投影。', explanation=f'{ratio.explanation}')
             ),
         )
 

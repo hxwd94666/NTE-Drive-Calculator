@@ -7,6 +7,7 @@ from collections.abc import Mapping
 
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.build.inputs import assumed_graduation_equipment
 
 from src.storage.sqlite.protocols import UserDataDaoMixinHost
@@ -40,16 +41,16 @@ def _selected_target_profiles(value: object) -> list[dict[str, Any]]:
     result = []
     for ordinal, raw in enumerate(value, start=1):
         if not isinstance(raw, dict):
-            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案必须是对象")
+            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案必须是对象")  # ui-text: internal
         static_target_id = str(raw.get("static_target_id") or "").strip()
         selection_target_id = str(
             raw.get("selection_target_id") or static_target_id
         ).strip()
         if not static_target_id or not selection_target_id:
-            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案缺少正式 ID")
+            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案缺少正式 ID")  # ui-text: internal
         resistances = raw.get("resistances") or {}
         if not isinstance(resistances, dict):
-            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案抗性必须是对象")
+            raise UserDataValidationError(f"第 {ordinal} 个目标属性档案抗性必须是对象")  # ui-text: internal
         result.append({
             "static_target_id": static_target_id,
             "selection_target_id": selection_target_id,
@@ -74,25 +75,25 @@ def _selected_target_profiles(value: object) -> list[dict[str, Any]]:
                 if raw.get("defense_base") in (None, "")
                 else _finite_number(
                     raw.get("defense_base"),
-                    f"第 {ordinal} 个目标 DefBase",
+                    f"第 {ordinal} 个目标 DefBase",  # ui-text: internal
                     minimum=0.0,
                 )
             ),
             "defense_up": _finite_number(
                 raw.get("defense_up") or 0.0,
-                f"第 {ordinal} 个目标 DefUp",
+                f"第 {ordinal} 个目标 DefUp",  # ui-text: internal
                 minimum=-1.0,
                 maximum=10.0,
             ),
             "defense_add": _finite_number(
                 raw.get("defense_add") or 0.0,
-                f"第 {ordinal} 个目标 DefAdd",
+                f"第 {ordinal} 个目标 DefAdd",  # ui-text: internal
                 minimum=-1_000_000_000.0,
                 maximum=1_000_000_000.0,
             ),
             "topple_limit": _finite_number(
                 raw.get("topple_limit") or 50.0,
-                f"第 {ordinal} 个目标 UnbalMax",
+                f"第 {ordinal} 个目标 UnbalMax",  # ui-text: internal
                 minimum=0.0,
                 maximum=1_000_000.0,
             ),
@@ -244,7 +245,7 @@ class BattleAnalysisDaoMixin(UserDataDaoMixinHost):
         values = {
             damage_type: _finite_number(
                 resistances.get(damage_type),
-                f"{damage_type} 最终抗性",
+                localized_text(None, 'auto.storage.sqlite.battle_report.battle_analysis_dao.save_battle_target_condition.f5c0ad749', '{damage_type} 最终抗性', damage_type=f'{damage_type}'),
                 minimum=-5.0,
                 maximum=5.0,
             )

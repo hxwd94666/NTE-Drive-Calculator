@@ -169,7 +169,7 @@ class AllocationContext:
 
     def __post_init__(self):
         if not isinstance(self.scoring_rules, AllocationScoringRules):
-            raise TypeError("AllocationContext必须显式固定评分规则")
+            raise TypeError("AllocationContext必须显式固定评分规则")  # ui-text: internal
 
     @property
     def scoring_rule_sha256(self) -> str:

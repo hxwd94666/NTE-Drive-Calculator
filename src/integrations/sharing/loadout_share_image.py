@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from concurrent.futures import CancelledError
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -17,6 +19,7 @@ from tempfile import NamedTemporaryFile
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
+from src.domain.localization.catalog import localized_text
 from src.domain.sharing.loadout_share import LoadoutSharePanel, ShareEquipment
 from src.integrations.runtime.bundled_resources import bundled_root
 from src.integrations.sharing.loadout_share_assets import share_asset, share_template
@@ -37,13 +40,27 @@ HIGHLIGHT_LOCKED = (255, 200, 130)
 def _font(size: int) -> ImageFont.FreeTypeFont:
     path = share_asset("fonts", "panel")
     if path is None:
-        raise FileNotFoundError("分享面板缺少 MiSans 字体资源")
+        raise FileNotFoundError("分享面板缺少 MiSans 字体资源")  # ui-text: internal
     font = ImageFont.truetype(str(path), size)
     # Official, unmodified MiSans Bold 4.009; same design as VF's 630 instance.
     return font
 
 
+# 本次渲染的文字翻译函数：由界面层传入显示投影；渲染线程各自持有，默认原样输出中文。
+_TRANSLATE: ContextVar[Callable[[str], str]] = ContextVar("share_text_translate", default=lambda text: text)
+
+
+@contextmanager
+def share_text_translation(translate: Callable[[str], str] | None):
+    token = _TRANSLATE.set(translate or (lambda text: text))
+    try:
+        yield
+    finally:
+        _TRANSLATE.reset(token)
+
+
 def _text(draw, xy, text: str, size: int, fill=WHITE, *, width=None, anchor="lm", shrink=False) -> None:
+    text = _TRANSLATE.get()(text)
     font = _font(size)
     if shrink and width is not None:
         while size > 16 and draw.textlength(text, font=font) > width:
@@ -72,7 +89,7 @@ def _texture(name: str, size: tuple[int, int] | None = None) -> Image.Image:
     path = share_template(name)
     image = _image(path)
     if image is None:
-        raise ValueError(f"分享面板模板图片损坏：{name}")
+        raise ValueError(f"分享面板模板图片损坏：{name}")  # ui-text: internal
     return image.resize(size, Image.Resampling.LANCZOS) if size else image
 
 
@@ -230,7 +247,7 @@ def _grade(canvas, grade: str, xy, size: int) -> None:
     if asset is not None and _icon(canvas, asset, (*xy, size, size)):
         return
     if grade in {"ACE", "SSS", "SS", "S", "A+", "A", "B", "C", "D"}:
-        raise FileNotFoundError(f"分享面板缺少或损坏评级资源：{grade}")
+        raise FileNotFoundError(f"分享面板缺少或损坏评级资源：{grade}")  # ui-text: internal
     # Preserve unknown legacy grades without silently substituting another rank.
     draw = ImageDraw.Draw(canvas)
     x, y = xy
@@ -253,7 +270,7 @@ def _score_weapon(canvas, panel: LoadoutSharePanel, y: int) -> None:
     _paste(canvas, "weapon_fg", (x, y), (676, weapon_h))
     _text(draw, (x + 318, y + 41), panel.fork_name, 36, width=244, shrink=True)
     stage = panel.fork_refinement
-    stage_text = f"{stage}阶" if stage is not None else "—阶"
+    stage_text = localized_text(None, 'auto.integrations.sharing.loadout_share_image.score_weapon.f897d475d', '{stage}阶', stage=f'{stage}') if stage is not None else "—阶"
     draw.rounded_rectangle((x + 568, y + 23, x + 657, y + 69), radius=23, fill="#e72e3a")
     _text(draw, (x + 612, y + 46), stage_text, 26, anchor="mm")
     for index in range(5):
@@ -299,7 +316,7 @@ def _equipment(canvas, item: ShareEquipment, x: int, y: int, height: int) -> Non
     draw = ImageDraw.Draw(canvas)
     _text(draw, (x + 116, y + 34), item.name, 26, width=220)
     _grade(canvas, item.grade, (x + 110, y + 62), 48)
-    score_text = "—" if item.score is None else f"{item.score:.1f}分"
+    score_text = "—" if item.score is None else localized_text(None, 'auto.integrations.sharing.loadout_share_image.equipment.ffc81acc2', '{score}分', score=f'{item.score:.1f}')
     score_w = max(104, min(188, int(draw.textlength(score_text, font=_font(24))) + 34))
     draw.rounded_rectangle((x + 158, y + 70, x + 158 + score_w, y + 108), radius=19, fill="#ee4891")
     _text(draw, (x + 158 + score_w // 2, y + 89), score_text, 24, width=score_w - 16, anchor="mm")
@@ -330,8 +347,14 @@ def _equipment(canvas, item: ShareEquipment, x: int, y: int, height: int) -> Non
 
 def render_loadout_share_png(
     panel: LoadoutSharePanel, *, cancelled: Callable[[], bool] = lambda: False,
+    translate: Callable[[str], str] | None = None,
 ) -> bytes:
     """Composite original textures; keep confirmed rows without a damage area."""
+    with share_text_translation(translate):
+        return _render_loadout_share_png(panel, cancelled=cancelled)
+
+
+def _render_loadout_share_png(panel: LoadoutSharePanel, *, cancelled: Callable[[], bool]) -> bytes:
     if not 1 <= len(panel.equipment) <= 32 or len(panel.attributes) > 48 or len(panel.skills) > 32 or len(panel.fork_stats) > 16:
         raise ValueError("分享面板条目数量超出展示限制")
     if cancelled():

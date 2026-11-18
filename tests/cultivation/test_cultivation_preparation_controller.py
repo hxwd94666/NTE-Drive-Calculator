@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from threading import Event
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -118,13 +119,15 @@ def test_batch_preparation_cache_ignores_stock_but_not_targets(monkeypatch):
     controller.submit(replace(request, owned_quantities=(("a", 1),)), "context")
     _wait_until(lambda: not controller.is_running())
     assert calls == [1, 2] and len(results) == 1
+    # 目标集合变化必须重建准备结果；完全相同的单角色目标由批量服务的计划缓存复用
+    # （服务随养成页按账号/数据集身份重建，不跨身份复用）。
     controller.prepare(_batch(_target(1)), "context")
     _wait_until(lambda: not controller.is_running())
-    assert calls == [1, 2, 1]
+    assert calls == [1, 2] and len(ready) == 2
     controller.invalidate(clear_preparation=True)
     controller.prepare(_batch(_target(1)), "context")
     _wait_until(lambda: not controller.is_running())
-    assert calls == [1, 2, 1, 1]
+    assert calls == [1, 2] and len(ready) == 3
     controller.close()
     owner.deleteLater()
     app.processEvents()

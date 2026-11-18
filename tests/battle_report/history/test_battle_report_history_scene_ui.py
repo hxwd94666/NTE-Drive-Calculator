@@ -4,7 +4,9 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from PySide6.QtCore import QRect
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from src.domain.battle_report.history.records import BattleReportHistoryEntry
@@ -60,9 +62,12 @@ class BattleReportHistorySceneUiTests(unittest.TestCase):
             self.assertEqual([82, 81], viewed)
             self.assertEqual([82, 81], deleted)
             self.assertEqual([(82, "auto"), (81, "manual")], retained)
-            dialog.resize(1120, 650)
-            dialog.show()
-            app.processEvents()
+            # 固定真实桌面可用区：离屏虚拟屏仅 800×600，已安装的对话框默认限位会把窗口压窄，
+            # 结果取决于此前用例是否安装过该过滤器。
+            with patch("src.app.window_geometry._available_geometry", lambda _dialog: QRect(0, 0, 1920, 1080)):
+                dialog.resize(1120, 650)
+                dialog.show()
+                app.processEvents()
             self.assertEqual(0, dialog.table.horizontalScrollBar().maximum())
             dialog.close()
             dialog.deleteLater()

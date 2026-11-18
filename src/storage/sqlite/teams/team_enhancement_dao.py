@@ -17,7 +17,9 @@ class TeamEnhancementDaoMixin(UserDataDaoMixinHost):
             raise ValueError("作业身份已有不同的已保存结果，请重新计算")
         return tuple(json.loads(row["plan_ids_json"]))
 
-    def assert_team_result_context(self, commit):
+    def assert_team_result_context(self, commit, *, sources=None):
+        # sources 为本次写事务开始时读到的来源投影；同一事务写入方案后，单槽隐式默认绑定会随之出现，
+        # 不能把自身写入误判为来源变化。未提供时读取当前投影。
         if self.profile()["account_id"] != commit.account_id:
             raise ValueError("队伍增强与当前账号不一致")
         teams = self.list_teams()
@@ -30,7 +32,8 @@ class TeamEnhancementDaoMixin(UserDataDaoMixinHost):
         elif commit.joint_summary_json is not None:
             raise ValueError("单队结果不能携带联合指标")
         for entry in commit.entries:
-            if entry.team not in teams or self.get_team_source(entry.team.team_id) != entry.source:
+            current = sources[entry.team.team_id] if sources is not None else self.get_team_source(entry.team.team_id)
+            if entry.team not in teams or current != entry.source:
                 raise ValueError("队伍或简报来源已变化，请重新计算")
             payload = json.loads(entry.payload_json)
             validate_team_result_payload(payload)
@@ -44,11 +47,11 @@ class TeamEnhancementDaoMixin(UserDataDaoMixinHost):
                 raise ValueError("队伍增强成员或来源绑定不完整")
             used.update(entry.team.character_ids)
 
-    def save_team_enhancement_run(self, commit, plan_ids):
+    def save_team_enhancement_run(self, commit, plan_ids, *, sources=None):
         db = self._db()
         if not db.in_transaction:
             raise RuntimeError("队伍增强结果必须与方案处于同一保存事务")
-        self.assert_team_result_context(commit)
+        self.assert_team_result_context(commit, sources=sources)
         if self.completed_team_run(commit.run_id, commit.input_digest) is not None:
             raise ValueError("本次增强已经保存，请核对作业记录")
         plans = {plan["character_id"]: plan for plan in self.get_loadout_plans(plan_ids)}

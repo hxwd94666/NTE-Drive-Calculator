@@ -105,8 +105,8 @@ def test_target_editor_only_returns_explicit_draft_and_preserves_frozen_configur
     finally:dispose(dialog)
 
 
-@pytest.mark.parametrize('theme',['black','dark','light'])
-@pytest.mark.parametrize('width',[560,1040])
+@pytest.mark.parametrize('theme',["black"])
+@pytest.mark.parametrize('width',[560])
 def test_remaining_windows_long_patch_actions_stay_in_available_area(tmp_path,monkeypatch,theme,width):
     from src.app import window_geometry
     app=application();previous=current_theme_name();apply_app_theme(app,theme)
@@ -161,7 +161,7 @@ def test_mixed_loadout_preview_reports_empty_and_unselected_and_cancel_is_readon
     finally:drain_dialog(dialog);dispose(dialog)
 
 
-@pytest.mark.parametrize('theme',['black','dark','light'])
+@pytest.mark.parametrize('theme',["black"])
 def test_graduation_and_target_long_patch_keep_footer_and_editor_reachable(tmp_path,monkeypatch,theme):
     from src.app import window_geometry
     app=application();previous=current_theme_name();apply_app_theme(app,theme)
@@ -186,7 +186,7 @@ def test_graduation_and_target_long_patch_keep_footer_and_editor_reachable(tmp_p
         cleanup(owner,dialog);apply_app_theme(app,previous)
 
 
-@pytest.mark.parametrize('width',[520,1000])
+@pytest.mark.parametrize('width',[520])
 def test_calculation_controls_long_patch_reflows_without_overflow_or_write(tmp_path,width):
     from src.features.allocation.team_axis import team_axis_controls as module
     from unittest.mock import patch

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt
@@ -203,7 +204,7 @@ class ForkProfileView(QWidget):
         refinement_row = QHBoxLayout()
         self._refinement_buttons: dict[int, QPushButton] = {}
         for level in range(1, 6):
-            button = self._node_button(f"{'★' * level}\n混频 {level}")
+            button = self._node_button(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.build_detail_tab.fd2d771a6', '{value}\n混频 {level}', value=f"{'★' * level}", level=f'{level}'))
             button.clicked.connect(
                 lambda _checked=False, value=level: self.set_refinement(value),
             )
@@ -345,8 +346,8 @@ class ForkProfileView(QWidget):
             cap = int(row["max_fork_level"])
             state = "突破前" if index == 0 and len(choices) == 2 else "突破后"
             if len(choices) == 1:
-                state = f"阶段 {stage}"
-            button = self._node_button(f"{state} · 上限 {cap}")
+                state = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.sync_stage_buttons.fb93a1aba', '阶段 {stage}', stage=f'{stage}')
+            button = self._node_button(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.sync_stage_buttons.f8ab19fc2', '{state} · 上限 {cap}', state=f'{state}', cap=f'{cap}'))
             button.setProperty("forkStage", stage)
             button.setChecked(stage == self._stage)
             button.clicked.connect(
@@ -392,8 +393,8 @@ class ForkProfileView(QWidget):
             (row for row in detail.breakthroughs if row.stage == self._stage),
             None,
         )
-        stage_text = f"突破 {self._stage} 阶" if self._stage is not None else "突破阶段未提供"
-        exp_text = f"升级经验 {growth.need_exp}" if growth is not None else "升级经验未提供"
+        stage_text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.refresh_selection.fec9c0585', '突破 {stage} 阶', stage=f'{self._stage}') if self._stage is not None else "突破阶段未提供"
+        exp_text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.refresh_selection.fc98e63bb', '升级经验 {need_exp}', need_exp=f'{growth.need_exp}') if growth is not None else "升级经验未提供"
         material_text = breakthrough_cost_text(stage, self._item_names,
                                              text_catalog=getattr(self, 'text_catalog', None))
         self.current_level_cost.setText(
@@ -546,10 +547,10 @@ class ForkProfileView(QWidget):
             return
         for material in detail.experience_materials:
             costs = self._item_names.present_costs(material.costs)
-            detail_text = f"{material.experience_value:,} EXP/个"
+            detail_text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.render_cultivation_routes.f872f5c42', '{experience_value} EXP/个', experience_value=f'{material.experience_value:,}')
             cost_text = self._item_names.player_text(costs)
             if cost_text:
-                detail_text += f" · 使用消耗 {cost_text}"
+                detail_text += localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.render_cultivation_routes.fcdb4f377', ' · 使用消耗 {cost_text}', cost_text=f'{cost_text}')
             card = ProgressionMaterialCard(
                 name=material.name_zh or material.item_id,
                 amount_text=f"{material.experience_value:,} EXP",
@@ -561,7 +562,7 @@ class ForkProfileView(QWidget):
             )
             self._exp_material_cards.append(card)
         for stage in detail.breakthroughs:
-            card = self._panel(f"阶段 {stage.stage} · 上限 Lv.{stage.max_fork_level}")
+            card = self._panel(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.render_cultivation_routes.f907d6f94', '阶段 {stage} · 上限 Lv.{max_fork_level}', stage=f'{stage.stage}', max_fork_level=f'{stage.max_fork_level}'))
             displayed_costs = self._item_names.present_costs(
                 (*stage.item_costs, *stage.gold_costs)
             )
@@ -585,7 +586,7 @@ class ForkProfileView(QWidget):
             card.layout().addWidget(self._info_row("突破面板", modifier_text))
             self._breakthrough_cards.append(card)
         for refinement in detail.refinement_levels:
-            card = self._panel(f"{'★' * refinement.level} · 混频 {refinement.level}")
+            card = self._panel(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.forks.profile.render_cultivation_routes.f4b4811d3', '{value} · 混频 {level}', value=f"{'★' * refinement.level}", level=f'{refinement.level}'))
             costs = self._item_names.present_raw(refinement.need_gold_raw)
             card.layout().addWidget(self._info_row(
                 "消耗",

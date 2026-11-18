@@ -100,9 +100,10 @@ class DriveAssemblyInputBackendTests(unittest.TestCase):
             pause_seconds=0.0,
         )
 
+        # 借用弹窗未出现：检查步骤正常完成且不点击；只有探测未知才记为未完成。
         self.assertEqual([], backend.calls)
-        self.assertEqual(0, report.executed_actions)
-        self.assertEqual(1, len(report.skipped_actions))
+        self.assertEqual(1, report.executed_actions)
+        self.assertEqual(0, len(report.skipped_actions))
 
     def test_clicks_ocr_target_text_center_when_available(self):
         import numpy as np

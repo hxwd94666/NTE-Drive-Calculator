@@ -13,7 +13,7 @@ BASE_LOCALE = "zh-CN"
 CATALOG_ID = "nte-ui"
 FORMAT_VERSION = 1
 # 界面文案全量接入目录后的条目上限；单条仍受长度限制，文件体积另有字节上限。
-MAX_CATALOG_MESSAGES = 6144
+MAX_CATALOG_MESSAGES = 16384
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*")
 _KEY = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+")
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

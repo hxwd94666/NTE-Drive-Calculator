@@ -357,7 +357,7 @@ def _is_role_blueprint_assembly_action(action: dict[str, Any]) -> bool:
 def _action_diagnostic(action: dict[str, Any]) -> str:
     """Return concise, useful context for an action that could not run."""
 
-    fields = [f"动作={action.get('name', '未命名')}"]
+    fields = [f"动作={action.get('name', '未命名')}"]  # ui-text: internal
     for key in ("block_id", "position", "from", "to", "target_position", "duration_ms", "gamepad_button", "gamepad_stick"):
         if key in action:
             fields.append(f"{key}={action[key]}")

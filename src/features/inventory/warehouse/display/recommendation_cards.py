@@ -1,4 +1,6 @@
 # 以冻结装备身份驱动虚拟仓库卡片，勾选只表示采用本次建议。
+from src.ui.common.enum_text import ui_enum_text
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import resolve_text_catalog
 from PySide6.QtCore import QAbstractListModel, QEvent, QModelIndex, QRect, QSize, Qt, Signal
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QListView, QStyle, QStyledItemDelegate, QStyleOptionButton
@@ -67,10 +69,9 @@ class RecommendationCardModel(QAbstractListModel):
             ratio = review_ratio(row)
             rate = '未评估' if ratio is None else f'{ratio:.1%}'
             view = self.views[uid]
-            return (f"{view['display_name']} · {DECISION_NAMES[row['decision']]}\n"
-                    f"最佳适配：{best_role(row) or '未确认'} · {row.get('best_current_grade') or '未评估'} · {rate}\n"
-                    + (f"实际等级 {view['level']}；主属性按满级展示\n" if view.get('main_stats_at_max_level') else '')
-                    + '\n'.join(f"{s['label']} {s['value']}" + (f"（权重 {s['weight']:g}）" if 'weight' in s else '')
+            return (localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.warehouse.display.recommendation_cards.data.f2fad306b', '{value} · {value_2}\n最佳适配：{value_3} · {value_4} · {rate}\n', value=f"{view['display_name']}", value_2=f"{DECISION_NAMES[row['decision']]}", value_3=f"{best_role(row) or ui_enum_text(getattr(self, 'text_catalog', None), '未确认')}", value_4=f"{row.get('best_current_grade') or ui_enum_text(getattr(self, 'text_catalog', None), '未评估')}", rate=f'{rate}')
+                    + (localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.warehouse.display.recommendation_cards.data.f6c8e7ebc', '实际等级 {value}；主属性按满级展示\n', value=f"{view['level']}") if view.get('main_stats_at_max_level') else '')
+                    + '\n'.join(f"{s['label']} {s['value']}" + (localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.warehouse.display.recommendation_cards.data.f91818961', '（权重 {value}）', value=f"{s['weight']:g}") if 'weight' in s else '')
                                 for s in [*view['main_stats'], *view['sub_stats']])
                     + '\n' + self.bases[uid])
         return None

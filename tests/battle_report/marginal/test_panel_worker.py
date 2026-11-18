@@ -67,7 +67,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
             render_character_panel_and_margins(panel, table, analysis=analysis, baseline=baseline, marginal_panel=wrong_role)
         calculate.assert_not_called()
         panel.render.assert_called_once_with(baseline, (), current_element_property=None)
-        render.assert_called_once_with(table, ())
+        render.assert_called_once_with(table, (), text_catalog=None)
 
     def test_ui_uses_returned_panel_and_filters_only_real_drive_properties(self):
         baseline = BattleCharacterBaseline(1, "角色", "fixture", ())
@@ -79,7 +79,7 @@ class BattleMarginalPanelWorkerTests(unittest.TestCase):
         with patch("src.features.battle_report.marginal.character_panel.render_attribute_results") as render:
             render_character_panel_and_margins(panel, table, analysis=analysis, baseline=baseline, marginal_panel=result)
         panel.render.assert_called_once_with(baseline, result.results, current_element_property=None)
-        render.assert_called_once_with(table, (drive,))
+        render.assert_called_once_with(table, (drive,), text_catalog=None)
 
 
     def test_same_full_scope_role_switch_loads_missing_panel_despite_current_models(self):

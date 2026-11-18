@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.mechanics.dot_evidence import (
     BattleDotStackState, DOT_KIND_NAMES, dot_basis, dot_final_basis,
@@ -46,10 +47,10 @@ def restore_dot_states(rows: list[dict[str, Any]]) -> dict[str, Any]:
             raise ValueError("invalid_hit_state_result")
         label = (
             "三觉：噩梦提前结算" if row["early"] else
-            f"{DOT_KIND_NAMES[kind]}观测下限" if row["lower"] else
+            localized_text(None, 'auto.services.battle_report.native.hit_state.restore_dot_states.f0ee7da69', '{value}观测下限', value=f'{DOT_KIND_NAMES[kind]}') if row["lower"] else
             "浊燃结算前层数" if kind == "scorch" else
-            f"{DOT_KIND_NAMES[kind]}当前状态" if kind in ("cang_field", "adler_skill") else
-            f"{DOT_KIND_NAMES[kind]}当前层数"
+            localized_text(None, 'auto.services.battle_report.native.hit_state.restore_dot_states.f5a7c8f9f', '{value}当前状态', value=f'{DOT_KIND_NAMES[kind]}') if kind in ("cang_field", "adler_skill") else
+            localized_text(None, 'auto.services.battle_report.native.hit_state.restore_dot_states.f303340af', '{value}当前层数', value=f'{DOT_KIND_NAMES[kind]}')
         )
         results[row["event_id"]] = BattleDotStackState(
             event_id=row["event_id"], coefficient=row["coefficient"], label=label,
@@ -71,8 +72,7 @@ def restore_q_final_states(rows: list[dict[str, Any]]) -> dict[str, Any]:
         results[row["event_id"]] = ZankouQFinalDamageEvidence(
             event_id=row["event_id"], multiplier=row["multiplier"],
             evidence_basis=(
-                "觉醒二「渊底之吻」蓄焰：覆纹/浊燃触发后，"
-                f"本次{name}独立最终伤害 +150%，即 ×2.5"
+                localized_text(None, 'auto.services.battle_report.native.hit_state.restore_q_final_states.fe1d2fa11', '觉醒二「渊底之吻」蓄焰：覆纹/浊燃触发后，本次{name}独立最终伤害 +150%，即 ×2.5', name=f'{name}')
                 + ("；觉醒四「梦魇生花」使血宴分支独立持有并消费资格" if branch == "magic" else "")
             ),
         )

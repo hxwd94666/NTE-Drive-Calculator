@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 from pathlib import Path
+from src.domain.localization.catalog import localized_text
 from src.domain.catalog.static_catalog import StaticCatalogRelease
 from src.integrations.static_catalog.static_catalog_release import StaticCatalogReleaseReader, static_catalog_commit_unit
 
@@ -85,7 +86,7 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
                 "comparison_baseline": (row.get("payload") or {}).get("last_diff"),
                 "create_slot_name": row["role_name"] if slot_id is None else None,
             })
-            progress((f"已校验配装方案 {index}/{len(rows)}", index, len(rows) + 4))
+            progress((localized_text(None, 'auto.services.allocation.results.plan_save.save_allocation_plans.f7a19ab05', '已校验配装方案 {index}/{count}', index=f'{index}', count=f'{len(rows)}'), index, len(rows) + 4))
         checkpoint()
         reader.ensure_unchanged(release)
         verify_allocation_lock_snapshot(user_dao, lock_snapshot)

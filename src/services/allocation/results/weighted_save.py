@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from dataclasses import replace
 from pathlib import Path
 
+from src.domain.localization.catalog import localized_text
 from src.optimizer.contracts import (
     EQUIP_SHAPE_ID, EQUIP_UID, ROLE_BLUEPRINT_LAYOUT, ROLE_EQUIPPED_DRIVES, ROLE_EQUIPPED_TAPE,
 )
@@ -92,13 +93,13 @@ def save_weighted_preview_records(
             checkpoint()
             role_name = role_names.get(option.character_id)
             if role_name is None:
-                raise RuntimeError(f"静态数据集中找不到角色 {option.character_id}。")
+                raise RuntimeError(f"静态数据集中找不到角色 {option.character_id}。")  # ui-text: internal
             comparisons = preview.loadout_comparisons.get(int(option.character_id), ())
             if bindings:
                 slot_id = bound_targets[int(option.character_id)]
             elif slot_ids_by_character is not None:
                 if int(option.character_id) not in slot_ids_by_character:
-                    raise RuntimeError(f"角色 [{role_name}] 缺少明确的配装槽位保存目标。")
+                    raise RuntimeError(f"角色 [{role_name}] 缺少明确的配装槽位保存目标。")  # ui-text: internal
                 slot_id = slot_ids_by_character[int(option.character_id)]
             else:
                 primary = next((row for row in comparisons if row.slot_key == "primary"), None)
@@ -109,7 +110,7 @@ def save_weighted_preview_records(
                 role_state=role_state(option),
                 character_id=option.character_id,
                 snapshot_id=result.snapshot_id,
-                name=f"词条配装：{role_name}",
+                name=localized_text(None, 'auto.services.allocation.results.weighted_save.save_weighted_preview_records.ffdb549fd', '词条配装：{role_name}', role_name=f'{role_name}'),
                 score=option.score,
                 payload={
                     "schema": "allocation-official-snapshot-v1",

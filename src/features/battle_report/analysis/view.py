@@ -384,7 +384,7 @@ class BattleLongAnalysisView(
         self._topple_detail_requested_analysis = None
         self._analysis_record_id = None
         self._selected_character_id = None
-        self.capability_label.setText(message)
+        self.capability_label.setText(ui_enum_text(getattr(self, 'text_catalog', None), message))
         self.capability_label.show()
         self.action_summary_label.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.clear.action_summary_label'))
         self.timeline.set_analysis(None)
@@ -413,7 +413,7 @@ class BattleLongAnalysisView(
     def set_loading(self, message: str) -> None:
         """Keep the previous projection visible while its replacement loads."""
 
-        self.capability_label.setText(message)
+        self.capability_label.setText(ui_enum_text(getattr(self, 'text_catalog', None), message))
         self.capability_label.show()
 
     def set_analysis(
@@ -455,7 +455,8 @@ class BattleLongAnalysisView(
         outer_tip = (
             ""
             if not outer_buffs
-            else "；赛季 Buff：" + "、".join(outer_buffs)
+            else "；" + resolve_text_catalog(getattr(self, 'text_catalog', None)).render(
+                "battle_report.environment.season_buffs", names="、".join(outer_buffs))
         )
         condition = analysis.target_condition
         self.environment_button.setEnabled(True)
@@ -480,7 +481,8 @@ class BattleLongAnalysisView(
             environment_name = display_battle_environment_name(condition)
             summary = environment_name
             if condition.feast_options:
-                summary += f"；争锋加成 {len(condition.feast_options)} 项"
+                summary += "；" + resolve_text_catalog(getattr(self, 'text_catalog', None)).render(
+                    "battle_report.environment.feast_count", count=f"{len(condition.feast_options)}")
             if condition.witch_buff_name_zh:
                 summary += f"；{condition.witch_buff_name_zh}"
             summary += outer_tip
@@ -683,7 +685,7 @@ class BattleLongAnalysisView(
             for row in hit_replays
         )
         self.capability_label.setText(
-            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_time_presentation.capability_label', capability_name=f'{capability_name}', mode_name=ui_enum_text(getattr(self, 'text_catalog', None), f'{mode_name}'), value=f'{_time(start_display)}', value_2=f'{_time(end_display)}', formula_model_version=f'{analysis.formula_model_version}', value_3=f'{len(selected_inputs)}', value_4=f'{len(selected_actions)}', replayed=f'{replayed}', value_5=f'{len(hit_replays)}', crit_resolved=f'{crit_resolved}', value_6=f"{getattr(analysis, 'hit_replay_model_version', '') or '公式按需加载'}", value_7=f"{getattr(analysis, 'timeline_projection_version', '未生成时间轴')}", value_8=f"{getattr(analysis, 'target_vital_model_version', '未生成生命轴')}", value_9=f"{getattr(analysis, 'buff_inference_version', '') or 'Buff 按需加载'}", value_10=f"{getattr(analysis, 'buff_attribute_projection_version', '') or 'Buff 投影按需加载'}")
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_time_presentation.capability_label', capability_name=f'{capability_name}', mode_name=ui_enum_text(getattr(self, 'text_catalog', None), f'{mode_name}'), value=f'{_time(start_display)}', value_2=f'{_time(end_display)}', formula_model_version=f'{analysis.formula_model_version}', value_3=f'{len(selected_inputs)}', value_4=f'{len(selected_actions)}', replayed=f'{replayed}', value_5=f'{len(hit_replays)}', crit_resolved=f'{crit_resolved}', value_6=f"{getattr(analysis, 'hit_replay_model_version', '') or ui_enum_text(getattr(self, 'text_catalog', None), '公式按需加载')}", value_7=f"{getattr(analysis, 'timeline_projection_version', None) or ui_enum_text(getattr(self, 'text_catalog', None), '未生成时间轴')}", value_8=f"{getattr(analysis, 'target_vital_model_version', None) or ui_enum_text(getattr(self, 'text_catalog', None), '未生成生命轴')}", value_9=f"{getattr(analysis, 'buff_inference_version', '') or ui_enum_text(getattr(self, 'text_catalog', None), 'Buff 按需加载')}", value_10=f"{getattr(analysis, 'buff_attribute_projection_version', '') or ui_enum_text(getattr(self, 'text_catalog', None), 'Buff 投影按需加载')}")
         )
         self.inferred_fact_label.render_facts(
             tuple(getattr(analysis, "inferred_character_facts", ()))
@@ -711,7 +713,7 @@ class BattleLongAnalysisView(
         )
         zoom_percent = round(float(self.zoom_combo.currentData() or 1.0) * 100)
         self.action_summary_label.setText(
-            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_time_presentation.action_summary_label', mode_name=ui_enum_text(getattr(self, 'text_catalog', None), f'{mode_name}'), value=f'{format_time_stop_evidence(analysis)}', zoom_percent=f'{zoom_percent}', value_2=f'{len(selected_inputs):,}', value_3=f'{len(selected_actions):,}', value_4=f'{len(action_event_ids):,}', value_5=f'{len(outgoing):,}', event_coverage=f'{event_coverage:.1f}', damage_coverage=f'{damage_coverage:.1f}')
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_time_presentation.action_summary_label', mode_name=ui_enum_text(getattr(self, 'text_catalog', None), f'{mode_name}'), value=f'{format_time_stop_evidence(analysis, text_catalog=getattr(self, "text_catalog", None))}', zoom_percent=f'{zoom_percent}', value_2=f'{len(selected_inputs):,}', value_3=f'{len(selected_actions):,}', value_4=f'{len(action_event_ids):,}', value_5=f'{len(outgoing):,}', event_coverage=f'{event_coverage:.1f}', damage_coverage=f'{damage_coverage:.1f}')
         )
         self.start_spin.setValue(start_display / 1_000_000.0)
         self.end_spin.setValue(end_display / 1_000_000.0)

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from typing import Any
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.damage.weave_source import weave_source_key
 
@@ -260,8 +261,7 @@ def _skill_level_ability_id(
         return selected, ""
     return (
         selected,
-        f"正式技能等级提示将派生伤害 {imported_ability_id or damage_id} "
-        f"归入 {selected}",
+        localized_text(None, 'auto.services.battle_report.damage.skill_evidence.skill_level_ability_id.fa6348d6a', '正式技能等级提示将派生伤害 {value} 归入 {selected}', value=f'{imported_ability_id or damage_id}', selected=f'{selected}'),
     )
 
 
@@ -355,13 +355,11 @@ class BattleSkillDamageEvidenceService:
                 damage_id = canonical_reaction_damage_id
                 if explicit_reaction is not None:
                     inferred_basis = (
-                        f"显式{explicit_reaction[1]}结算身份优先于 Core 复用的来源 GE "
-                        f"{original_damage_id}"
+                        localized_text(None, 'auto.services.battle_report.damage.skill_evidence.load.feefc9c63', '显式{value}结算身份优先于 Core 复用的来源 GE {original_damage_id}', value=f'{explicit_reaction[1]}', original_damage_id=f'{original_damage_id}')
                     )
                 elif original_damage_id.casefold() != damage_id.casefold():
                     inferred_basis = (
-                        f"冻结残虹突破把正式浊燃记录 {original_damage_id} "
-                        f"替换为 {damage_id}"
+                        localized_text(None, 'auto.services.battle_report.damage.skill_evidence.load.f50e07357', '冻结残虹突破把正式浊燃记录 {original_damage_id} 替换为 {damage_id}', original_damage_id=f'{original_damage_id}', damage_id=f'{damage_id}')
                     )
             if not damage_id and hit.event_id in co_timed_damage_ids:
                 damage_id, inferred_basis = co_timed_damage_ids[hit.event_id]
@@ -397,8 +395,7 @@ class BattleSkillDamageEvidenceService:
                         inferred_basis = (
                             f"{inferred_basis}；" if inferred_basis else ""
                         ) + (
-                            f"正式伤害技能属于角色 {formal_owner_id}，"
-                            f"不采用 Core 会话归属角色 {definition_owner_character_id} 的公式定义"
+                            localized_text(None, 'auto.services.battle_report.damage.skill_evidence.load.f41786042', '正式伤害技能属于角色 {formal_owner_id}，不采用 Core 会话归属角色 {definition_owner_character_id} 的公式定义', formal_owner_id=f'{formal_owner_id}', definition_owner_character_id=f'{definition_owner_character_id}')
                         )
                     definition_owner_character_id = formal_owner_id
             panel_character_id = definition_owner_character_id
@@ -434,9 +431,7 @@ class BattleSkillDamageEvidenceService:
             if linko_inference is not None:
                 ability_id = linko_inference.skill_level_ability_id
                 level_owner_basis = (
-                    "同频合击推论仅覆盖面板与等级来源：倍率定义仍取执行角色伤害项，"
-                    f"等级读取角色 {skill_level_character_id} 的 {ability_id}；"
-                    f"置信度 {linko_inference.confidence}"
+                    localized_text(None, 'auto.services.battle_report.damage.skill_evidence.load.f0c5b8937', '同频合击推论仅覆盖面板与等级来源：倍率定义仍取执行角色伤害项，等级读取角色 {skill_level_character_id} 的 {ability_id}；置信度 {confidence}', skill_level_character_id=f'{skill_level_character_id}', ability_id=f'{ability_id}', confidence=f'{linko_inference.confidence}')
                 )
             else:
                 ability_id, level_owner_basis = _skill_level_ability_id(
@@ -515,7 +510,7 @@ class BattleSkillDamageEvidenceService:
             }
             basis = (
                 f"skill_damage[{tier}] 原始倍率数组，"
-                f"有效等级 {effective_level}"
+                f"有效等级 {effective_level}"  # ui-text: internal
             )
             if inferred_basis:
                 basis += f"；{inferred_basis}：{damage_id}"
@@ -576,9 +571,7 @@ class BattleSkillDamageEvidenceService:
                 if q_settlement_coefficient is not None:
                     coefficient *= q_settlement_coefficient
                     basis += (
-                        "；正式九原 Q 主动玫约清算状态系数 "
-                        f"{_KUHARA_Q_SETTLEMENT_CURVE_ID}="
-                        f"{q_settlement_coefficient:g}"
+                        localized_text(None, 'auto.services.battle_report.damage.skill_evidence.load.fbb815261', '；正式九原 Q 主动玫约清算状态系数 {kuhara_q_settlement_curve_id}={q_settlement_coefficient}', kuhara_q_settlement_curve_id=f'{_KUHARA_Q_SETTLEMENT_CURVE_ID}', q_settlement_coefficient=f'{q_settlement_coefficient:g}')
                     )
             evidence.append(BattleSkillDamageEvidence(
                 event_id=hit.event_id,

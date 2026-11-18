@@ -63,7 +63,7 @@ def collect_nte_core_diagnostics(
         )
         detected = client.detect_capture_environment()
         if not isinstance(detected, Mapping):
-            raise TypeError("capture.detect 返回了无效结果")
+            raise TypeError("capture.detect 返回了无效结果")  # ui-text: internal
         result["capture_detect"] = dict(detected)
         result["ok"] = True
     except NteCoreError as exc:

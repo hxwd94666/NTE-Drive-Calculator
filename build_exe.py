@@ -202,6 +202,32 @@ def _remove_package_artifact(path: Path) -> None:
             path.unlink()
 
 
+COMPONENT_CANDIDATE_PREFIX = "component-candidate-"
+
+
+def _remove_stale_component_candidates() -> int:
+    """组件候选只供单次 PyInstaller 收集；新构建前回收本输出根下的旧候选，避免每次构建累积一份。
+
+    只认 `build/component-bundles/component-candidate-*` 普通目录；链接、重定向或同名文件拒绝清理，
+    其他成员原样保留。构建输出须独占，与 `_remove_package_artifact` 的竞态边界相同。
+    """
+    parent = BUILD / "component-bundles"
+    plain_member_stat(ROOT, ROOT)
+    try:
+        plain_member_stat(ROOT, parent)
+    except FileNotFoundError:
+        return 0
+    removed = 0
+    for child in sorted(parent.iterdir()):
+        if not child.name.startswith(COMPONENT_CANDIDATE_PREFIX):
+            continue
+        if not stat.S_ISDIR(plain_member_stat(ROOT, child).st_mode):
+            raise ValueError(f"组件候选类型不符：{child}")
+        shutil.rmtree(child)
+        removed += 1
+    return removed
+
+
 def _first_existing_file(*candidates: str | Path | None) -> Path | None:
     for candidate in candidates:
         if not candidate:
@@ -380,6 +406,9 @@ def main() -> int:
     ):
         if notice_path.is_file():
             _append_add_data(notice_path, "licenses")
+    stale_candidates = _remove_stale_component_candidates()
+    if stale_candidates:
+        build_cli.info(f"[BUILD] 已回收 {stale_candidates} 个旧组件候选目录")
     component_bundle = prepare_component_bundle(
         application_root=ROOT, inputs=native_component_build_inputs(ROOT),
         output_parent=BUILD / "component-bundles",

@@ -126,14 +126,14 @@ def _option(role: AllocationRolePreference, run, *, rank: int) -> RoleAllocation
             if not shape_groups:
                 raise AllocationSolverError(
                     f"角色 {role.character_id} 的图纸无法为驱动形状 {drive.shape_id} 分配独立格块"
-                )
+                )  # ui-text: internal
             assignments.append(AllocationAssignment(item.uid, "module", item.item_id, item.suit_id, item.geometry,
                 shape_groups.pop(0), None,
                 float(drive.role_scores.get(role_key, 0.0)), _contributions(item, role),
                 ("ScoringEngine 标准化驱动评分", "PuzzleCombinatorics + DFSPuzzleSolver", slot_label),
                 grid_count=item.grid_count))
     if any(groups for groups in groups_by_shape.values()):
-        raise AllocationSolverError(f"角色 {role.character_id} 的图纸存在未绑定驱动格块")
+        raise AllocationSolverError(f"角色 {role.character_id} 的图纸存在未绑定驱动格块")  # ui-text: internal
     if not assignments:
         return None
     return RoleAllocationOption(
@@ -217,11 +217,11 @@ def solve_allocation_context(context: AllocationContext, *, top_k: int = 5, incl
     _checkpoint(cancel_check)
     del role_search_limit, global_search_limit
     if not isinstance(context, AllocationContext):
-        raise TypeError("求解器只接受不可变 AllocationContext")
+        raise TypeError("求解器只接受不可变 AllocationContext")  # ui-text: internal
     if not isinstance(top_k, int) or not 1 <= top_k <= 20:
-        raise ValueError("top_k 必须是 1 到 20 的整数")
+        raise ValueError("top_k 必须是 1 到 20 的整数")  # ui-text: internal
     if not context.shapes or not context.suits or not context.attributes:
-        raise AllocationSolverError("AllocationContext 缺少既有求解器所需的形状、套装或属性映射")
+        raise AllocationSolverError("AllocationContext 缺少既有求解器所需的形状、套装或属性映射")  # ui-text: internal
     from src.services.allocation.execution.legacy_adapter import run_legacy_allocation
 
     role_top_k = (

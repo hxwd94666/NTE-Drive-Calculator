@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.timeline.clock import visible_time_stop_intervals
 
 from collections import defaultdict
@@ -107,25 +108,24 @@ def format_analysis_evidence(analysis: BattleAnalysisSnapshot) -> str:
     return f"{capability} · {axis} · {format_time_stop_evidence(analysis)}"
 
 
-def format_time_stop_evidence(analysis: BattleAnalysisSnapshot) -> str:
+def format_time_stop_evidence(analysis: BattleAnalysisSnapshot, *, text_catalog=None) -> str:
     count = len(visible_time_stop_intervals(analysis))
     return {
-        "nte_core": f"采集到时停 {count} 段",
+        "nte_core": localized_text(text_catalog, 'auto.features.battle_report.timeline.layout.format_time_stop_evidence.f5078e8c2', '采集到时停 {count} 段', count=f'{count}'),
         "nte_core_partial": (
-            f"实测时停 {count} 段（覆盖不完整，缺失区间未知）"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.layout.format_time_stop_evidence.ff29bc24f', '实测时停 {count} 段（覆盖不完整，缺失区间未知）', count=f'{count}')
         ),
         "nte_core_plus_inferred_linko_e": (
-            f"采集时停 + 灵可 E 推算 {count} 段"
-            "（含低置信）"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.layout.format_time_stop_evidence.f3c41ce4e', '采集时停 + 灵可 E 推算 {count} 段（含低置信）', count=f'{count}')
         ),
         "inferred_q_action": (
-            f"Q 动作推算时停 {count} 段（低置信）"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.layout.format_time_stop_evidence.f5d4ebe0d', 'Q 动作推算时停 {count} 段（低置信）', count=f'{count}')
         ),
         "inferred_linko_e": (
-            f"灵可 E 推算时停 {count} 段（低置信）"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.layout.format_time_stop_evidence.fc6aa5014', '灵可 E 推算时停 {count} 段（低置信）', count=f'{count}')
         ),
         "inferred_q_and_linko_e": (
-            f"Q / 灵可 E 推算时停 {count} 段（低置信）"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.layout.format_time_stop_evidence.f49f541ca', 'Q / 灵可 E 推算时停 {count} 段（低置信）', count=f'{count}')
         ),
     }.get(getattr(analysis, "time_stop_source_kind", "none"), "未取得时停")
 
@@ -239,7 +239,7 @@ def _role_order(analysis: BattleAnalysisSnapshot) -> list[tuple[int | None, str]
 def build_timeline_layout(
     analysis: BattleAnalysisSnapshot,
     *,
-    x_for_time: Callable[[int], float],
+    x_for_time: Callable[[int], float], text_catalog=None,
 ) -> TimelineLayout:
     # 矩形宽度只用于可操作的展示；原时间、实例和事件 payload 原样保留，不回写动作/逐击事实。
     roles = _role_order(analysis)
@@ -306,7 +306,7 @@ def build_timeline_layout(
         role_index = role_indexes[role]
         lane = TimelineLane(
             key=f"action:{role[0]}:{role[1]}",
-            label=f"{role[1]}\n上：直伤 · 下：动作",
+            label=localized_text(text_catalog, 'auto.features.battle_report.timeline.layout.build_timeline_layout.f05dad745', '{value}\n上：直伤 · 下：动作', value=f'{role[1]}'),
             kind="action",
             top=cursor,
             height=ROLE_LANE_HEIGHT,

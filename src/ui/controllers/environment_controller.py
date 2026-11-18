@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from typing import Any, cast
 
@@ -235,7 +236,7 @@ def _require_environment_diagnostics(self, *, packet: bool, label: str) -> bool:
     try:
         self.work_mode_service.require(capability)
     except PermissionError as error:
-        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.require_environment_diagnostics.qmessagebox'), str(error))
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.require_environment_diagnostics.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
         return False
     return True
 
@@ -410,7 +411,7 @@ def _deploy_equipment_plugin(self):
     try:
         self.work_mode_service.require("native_load")
     except PermissionError as error:
-        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.deploy_equipment_plugin.qmessagebox_3'), str(error))
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.deploy_equipment_plugin.qmessagebox_3'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
         return
     executable = self.work_mode_service.settings.game_executable
     if not executable.strip():
@@ -419,7 +420,7 @@ def _deploy_equipment_plugin(self):
     try:
         running = game_process_running()
     except EquipmentPluginDeploymentError as error:
-        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.deploy_equipment_plugin.qmessagebox'), str(error))
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.deploy_equipment_plugin.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
         return
     if running:
         QMessageBox.warning(

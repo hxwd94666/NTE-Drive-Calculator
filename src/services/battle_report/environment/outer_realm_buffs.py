@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.native.team_state import compute_team_state
 from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 
@@ -212,11 +213,11 @@ class BattleOuterRealmBuffService:
         return BattleInferredBuffInterval(
             interval_id=interval_id,
             buff_asset_path=config.gameplay_effect_path,
-            buff_name=f"轨外之境 · {config.buff_name}",
+            buff_name=localized_text(None, 'auto.services.battle_report.environment.outer_realm_buffs.base_interval.ffa7deed5', '轨外之境 · {buff_name}', buff_name=f'{config.buff_name}'),
             source_effect_definition_id=config.buff_id,
             source_kind="outer_realm_season_buff",
             source_character_id=0,
-            source_character_name=f"轨外之境 · {config.season_name}",
+            source_character_name=localized_text(None, 'auto.services.battle_report.environment.outer_realm_buffs.base_interval.f65f7357a', '轨外之境 · {season_name}', season_name=f'{config.season_name}'),
             target_scope="team",
             start_us=start_us,
             end_us=end_us,
@@ -399,7 +400,7 @@ class BattleOuterRealmBuffService:
                 inference_basis=(
                     f"{hit.gameplay_effect_id} 证明目标进入倾陷；按该目标正式 "
                     f"UnbalMax={limit:g} ÷ UnbalReduceReset={speed:g}，"
-                    "在扣时停时钟上重建倾陷恢复区间。"
+                    "在扣时停时钟上重建倾陷恢复区间。"  # ui-text: internal
                 ),
             ))
         return tuple(result)
@@ -428,7 +429,7 @@ def _native_intervals(backend, config, *, hits, battle_end_us, time_stop_interva
             requirement = f"battle-target|id={hit.target_id}"
             basis = (f"{hit.gameplay_effect_id} 证明目标进入倾陷；按该目标正式 "
                      f"UnbalMax={float(config.topple_limit):g} ÷ UnbalReduceReset={float(config.topple_recovery_speed):g}，"
-                     "在扣时停时钟上重建倾陷恢复区间。")
+                     "在扣时停时钟上重建倾陷恢复区间。")  # ui-text: internal
         else:
             raise ValueError("Unknown native outer state kind")
         result.append(BattleOuterRealmBuffService._base_interval(

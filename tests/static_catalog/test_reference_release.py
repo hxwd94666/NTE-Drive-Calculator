@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.features.static_catalog.dependencies import build_static_catalog_domain_pages, build_static_catalog_providers
@@ -183,6 +184,8 @@ class ReferenceCatalogTests(unittest.TestCase):
             for spec in reversed(specs):
                 spec.close()
             owner.deleteLater()
+            # 无事件循环时 deleteLater 不会自行执行；本例请求的删除须当场完成，避免控件累积拖慢后续主题切换。
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.assertEqual(digest, hashlib.sha256(MAIN.read_bytes()).hexdigest())
 
     def test_fork_campaigns_accept_new_count_but_reject_duplicate_identity(self):

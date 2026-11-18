@@ -180,7 +180,7 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
             if int(visible[0] if visible is not None else 0) >= MAX_VISIBLE_LOADOUT_SLOTS:
                 raise UserDataValidationError(
                     f"每个角色最多创建 {MAX_VISIBLE_LOADOUT_SLOTS} 个配装槽位"
-                )
+                )  # ui-text: internal
             order_row = connection.execute(
                 "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM role_loadout_slot WHERE character_id = ?",
                 (raw_character_id,),
@@ -196,7 +196,7 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
                 (raw_character_id, key, slot_name, int(order_row[0]), now, now),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建配装槽位后未返回 slot_id")
+                raise UserDataError("创建配装槽位后未返回 slot_id")  # ui-text: internal
             connection.commit()
             return int(cursor.lastrowid)
         except (sqlite3.Error, UserDataValidationError) as exc:
@@ -675,11 +675,11 @@ class LoadoutSlotDaoMixin(UserDataDaoMixinHost):
                 character_id, slot_key, slot_name, sort_order,
                 current_plan_id, is_archived, created_at_utc, updated_at_utc
             ) VALUES (?, ?, '主力', 0, NULL, 0, ?, ?)
-            """,
+            """,  # ui-text: internal
             (raw_character_id, PRIMARY_LOADOUT_SLOT_KEY, now, now),
         )
         if cursor.lastrowid is None:
-            raise UserDataError("创建默认配装槽位后未返回 slot_id")
+            raise UserDataError("创建默认配装槽位后未返回 slot_id")  # ui-text: internal
         slot = {
             "slot_id": int(cursor.lastrowid),
             "slot_key": PRIMARY_LOADOUT_SLOT_KEY,

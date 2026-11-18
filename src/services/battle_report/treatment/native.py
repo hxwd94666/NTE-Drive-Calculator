@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence, BattleInferredBuffInterval
 from src.domain.battle_report.timeline.events import BattleTreatmentEvent
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
@@ -133,7 +134,7 @@ def _event(payload: dict) -> BattleTreatmentEvent:
     elif kind == "zankou_effect3_huo_period":
         maximum, ratio = arguments["maximum_health"], arguments["recover_ratio"]
         text["amount_basis"] = (
-            f"残虹结算时最大生命 × {ratio:g}"
+            localized_text(None, 'auto.services.battle_report.treatment.native.event.f2001e6d7', '残虹结算时最大生命 × {ratio}', ratio=f'{ratio:g}')
             if maximum is None else f"{maximum:g} × {ratio:g}"
         )
     payload["evidence_event_ids"] = tuple(payload["evidence_event_ids"])

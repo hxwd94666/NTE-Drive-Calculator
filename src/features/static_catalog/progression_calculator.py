@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from collections.abc import Callable, Mapping
 
@@ -434,11 +435,10 @@ class ProgressionCalculatorDialog(QDialog):
             icon = self._asset_catalog.progression_item_icon(deficit.item_id)
             self.result_layout.addWidget(ProgressionMaterialCard(
                 name=(material.display_name if material is not None else deficit.item_id),
-                amount_text=f"缺口 × {deficit.deficit_quantity:,}",
+                amount_text=localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.progression_calculator.render_result.f6253f4de', '缺口 × {deficit_quantity}', deficit_quantity=f'{deficit.deficit_quantity:,}'),
                 icon_path=icon,
                 detail_text=(
-                    f"需要 {deficit.required_quantity:,} · "
-                    f"持有 {deficit.owned_quantity:,}"
+                    localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.progression_calculator.render_result.fa88a4ec5', '需要 {required_quantity} · 持有 {owned_quantity}', required_quantity=f'{deficit.required_quantity:,}', owned_quantity=f'{deficit.owned_quantity:,}')
                 ),
                 parent=self.result_host,
             ))
@@ -452,7 +452,7 @@ class ProgressionCalculatorDialog(QDialog):
             self.result_layout.addWidget(row)
         if result.gaps:
             rows = tuple(
-                (f"计算未完整项 {index}", gap)
+                (localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.progression_calculator.render_result.f555e0508', '计算未完整项 {index}', index=f'{index}'), gap)
                 for index, gap in enumerate(result.gaps, start=1)
             )
             self.result_layout.addWidget(_Disclosure(rows, parent=self.result_host, text_catalog=getattr(self, 'text_catalog', None)))

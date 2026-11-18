@@ -93,7 +93,7 @@ def _project_candidate(candidate, names, shapes_by_geometry):
             duplicate_count=candidate.duplicate_count, role_scores={}, max_score=0.0,
             is_mvp=False, pick_order=0,
         )
-    raise ValueError(f"候选装备{candidate.uid}的类型无效")
+    raise ValueError(f"候选装备{candidate.uid}的类型无效")  # ui-text: internal
 
 
 def legacy_items(context: AllocationContext, *, cancel_check=None) -> tuple[list[Drive | Tape], dict[str, AllocationCandidate]]:
@@ -138,7 +138,7 @@ def score_allocation_candidates(
     for requested in candidates:
         candidate = by_uid.get(requested.uid)
         if candidate is None:
-            raise ValueError(f"候选装备{requested.uid}不在固定背包上下文中")
+            raise ValueError(f"候选装备{requested.uid}不在固定背包上下文中")  # ui-text: internal
         if candidate.uid not in items:
             items[candidate.uid] = _project_candidate(candidate, names, shapes)
     scoring.prepare_scores(list(items.values()), profiles=[{"key": "profile", "weights": weights,
@@ -272,7 +272,7 @@ def run_legacy_allocation(
      priority_modes, crit_caps, priority_groups) = _role_config(context, selected_roles, cancel_check=cancel_check)
     if any(not role_data["weights"] for role_data in roles_db.values()):
         missing = [key for key, role_data in roles_db.items() if not role_data["weights"]]
-        raise ValueError(f"缺少异环工坊或用户覆盖词条权重：{', '.join(missing)}")
+        raise ValueError(f"缺少异环工坊或用户覆盖词条权重：{', '.join(missing)}")  # ui-text: internal
     _checkpoint(cancel_check)
     shapes_db = legacy_shapes(context, cancel_check=cancel_check)
     orchestrator = NTEPipelineOrchestrator.from_frozen_inputs(

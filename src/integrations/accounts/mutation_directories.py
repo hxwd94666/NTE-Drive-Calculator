@@ -8,7 +8,9 @@ from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
-from src.integrations.accounts.transfer_archive import account_directory_identity
+from src.integrations.accounts.transfer_archive import (
+    account_directory_identity, rename_directory_with_retry,
+)
 from src.utils.logger import logger
 
 
@@ -38,7 +40,7 @@ def directory_occupied(path: Path) -> bool:
 def require_account_directory_ready(target: Path) -> None:
     retired = retired_account_directory(target)
     if directory_occupied(retired):
-        raise AccountMutationRecoveryError(f"账号目录恢复或清理待完成，请保留并核对：{retired}")
+        raise AccountMutationRecoveryError(f"账号目录恢复或清理待完成，请保留并核对：{retired}")  # ui-text: internal
 
 
 def preserve_deleted_account_cleanup(target: Path, identity: tuple[int, int] | None) -> Path | None:
@@ -51,7 +53,7 @@ def preserve_deleted_account_cleanup(target: Path, identity: tuple[int, int] | N
     # 只重命名此次确认的单个原件；不清理、不扫描同前缀目录，也不把旧残留当新账号事实。
     cleanup = target.parent / f".account-cleanup-{target.name}-{uuid4().hex}"
     if directory_occupied(cleanup):
-        raise AccountMutationRecoveryError(f"账号清理保留位已被占用：{cleanup}")
+        raise AccountMutationRecoveryError(f"账号清理保留位已被占用：{cleanup}")  # ui-text: internal
     retired.rename(cleanup)
     logger.warning(f"已删除账号的残留原件已保留，物理清理仍待完成：{cleanup}")
     return cleanup
@@ -59,7 +61,7 @@ def preserve_deleted_account_cleanup(target: Path, identity: tuple[int, int] | N
 
 def _require_directory_identity(directory: Path, identity: tuple[int, int] | None) -> None:
     if directory.is_symlink() or account_directory_identity(directory) != identity:
-        raise AccountMutationRecoveryError(f"账号目录身份已变化，未覆盖或清理：{directory}")
+        raise AccountMutationRecoveryError(f"账号目录身份已变化，未覆盖或清理：{directory}")  # ui-text: internal
 
 
 def _remove_owned_directory(directory: Path, accounts_dir: Path, identity: tuple[int, int] | None) -> None:
@@ -89,10 +91,10 @@ def create_account_directory(target: Path, prepare: Callable[[Path], None], publ
             try:
                 _require_directory_identity(target, identity)
                 if directory_occupied(staged):
-                    raise AccountMutationRecoveryError(f"新账号恢复位已被占用：{staged}")
+                    raise AccountMutationRecoveryError(f"新账号恢复位已被占用：{staged}")  # ui-text: internal
                 target.rename(staged)
             except OSError as error:
-                raise AccountMutationRecoveryError(f"新账号索引未发布，目录保留待核对：{target}") from error
+                raise AccountMutationRecoveryError(f"新账号索引未发布，目录保留待核对：{target}") from error  # ui-text: internal
             raise
     finally:
         if directory_occupied(staged):
@@ -111,17 +113,18 @@ def delete_account_directory(target: Path, publish: Callable[[], None]) -> Path 
         return None
     retired = retired_account_directory(target)
     identity = account_directory_identity(target)
-    target.rename(retired)
+    # 刚切走的账号目录可能仍被杀毒/索引短暂占用；改名前有界重试，原件未动。
+    rename_directory_with_retry(target, retired, overwrite=False)
     try:
         publish()
     except BaseException:
         try:
             _require_directory_identity(retired, identity)
             if directory_occupied(target):
-                raise AccountMutationRecoveryError(f"账号恢复目标已被占用，原件保留于：{retired}")
+                raise AccountMutationRecoveryError(f"账号恢复目标已被占用，原件保留于：{retired}")  # ui-text: internal
             retired.rename(target)
         except OSError as error:
-            raise AccountMutationRecoveryError(f"账号索引未更改，原目录恢复待完成，请保留：{retired}") from error
+            raise AccountMutationRecoveryError(f"账号索引未更改，原目录恢复待完成，请保留：{retired}") from error  # ui-text: internal
         raise
     try:
         _remove_owned_directory(retired, target.parent, identity)

@@ -175,7 +175,7 @@ class StaticCatalogOverviewQueries:
             raise StaticGameDataError(
                 f"不支持的静态数据库结构版本：{version!r}；支持 "
                 f"{MINIMUM_SUPPORTED_SCHEMA_VERSION} 至 {SCHEMA_VERSION}"
-            )
+            )  # ui-text: internal
 
     def close(self) -> None:
         connection = getattr(self, "_connection", None)

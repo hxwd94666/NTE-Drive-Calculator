@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from pathlib import Path
 from typing import Callable, Protocol
@@ -302,8 +303,7 @@ class FeastEncounterView(QWidget):
             context=MonsterContext(
                 play="争锋赏宴",
                 scene=(
-                    f"{self._setup.period_label} · "
-                    f"挑战 {self._setup.challenge_ordinal} · {self._setup.title}"
+                    localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.feast_view.refresh_detail.fe1e25e4e', '{period_label} · 挑战 {challenge_ordinal} · {title}', period_label=f'{self._setup.period_label}', challenge_ordinal=f'{self._setup.challenge_ordinal}', title=f'{self._setup.title}')
                 ),
                 level=self.difficulty_combo.currentText(),
             ),

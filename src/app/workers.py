@@ -10,6 +10,7 @@ from concurrent.futures import CancelledError
 
 from PySide6.QtCore import QThread, Signal
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.vision.incremental_scan import DroneScanner
 from src.integrations.vision.recognition.image_resources import CaptureTemplateFile
 from src.integrations.vision.recognition.ocr.backend_runtime import check_cancel
@@ -44,7 +45,7 @@ class WorkerThread(QThread):
             self.error.emit("任务已取消")
         except SystemExit as exc:
             logger.error(f"WorkerThread 捕获 SystemExit: {exc}")
-            self.error.emit(f"系统异常退出: {exc}")
+            self.error.emit(localized_text(getattr(self, 'text_catalog', None), 'auto.app.workers.run.f88e74ffd', '系统异常退出: {exc}', exc=f'{exc}'))
         except Exception as exc:
             err_detail = f"{exc}\n\n{tb.format_exc()}"
             logger.error(f"WorkerThread 异常: {err_detail}")
@@ -141,7 +142,7 @@ class FullVisualScanParseWorkerThread(QThread):
         self.amd_compatibility = bool(amd_compatibility)
         self.capture_driver = str(capture_driver or "mouse").strip().casefold()
         if self.capture_driver not in {"mouse", "gamepad"}:
-            raise ValueError(f"不支持的全量扫描驱动：{capture_driver}")
+            raise ValueError(f"不支持的全量扫描驱动：{capture_driver}")  # ui-text: internal
         self.mouse_compatibility_mode = (
             self.capture_driver == "mouse" and self.amd_compatibility
         )
@@ -296,9 +297,7 @@ class FullVisualScanParseWorkerThread(QThread):
             logger.error(f"FullVisualScanParseWorker 系统依赖错误: {exc}")
             if self.capture_driver == "gamepad":
                 self.error.emit(
-                    "ViGEmClient.dll 加载失败，请确认:\n"
-                    "1. 已安装 ViGEmBus 驱动 (https://github.com/nefarius/ViGEmBus/releases)\n"
-                    f"2. 重启电脑后再试\n\n原始错误: {exc}"
+                    localized_text(getattr(self, 'text_catalog', None), 'auto.app.workers.run.f414f3a3d', 'ViGEmClient.dll 加载失败，请确认:\n1. 已安装 ViGEmBus 驱动 (https://github.com/nefarius/ViGEmBus/releases)\n2. 重启电脑后再试\n\n原始错误: {exc}', exc=f'{exc}')
                 )
             else:
                 self.error.emit(str(exc))

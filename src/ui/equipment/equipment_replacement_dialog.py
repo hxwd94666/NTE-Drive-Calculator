@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from src.domain.localization.catalog import localized_text
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from copy import deepcopy
 from dataclasses import dataclass
@@ -130,7 +131,7 @@ class ReplacementCandidateLoader(QObject):
         except Exception as exc:
             self._timer.stop()
             self.progress.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.batch.progress'))
-            QMessageBox.warning(self._dialog, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.batch.qmessagebox'), str(exc))
+            QMessageBox.warning(self._dialog, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.equipment.batch.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
             return
         self._schedule()
 
@@ -575,7 +576,7 @@ def show_equipment_replacement_dialog(
         loader.set_paused(False)
         confirm.setEnabled(True)
         confirm.setText(resolve_text_catalog(text_catalog).render('ui.equipment.show_equipment_replacement_dialog.confirm'))
-        QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.inventory.apply_replacement.qmessagebox_2'), str(error))
+        QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.inventory.apply_replacement.qmessagebox_2'), ui_enum_text(text_catalog, str(error)))
 
     def application_failed(error) -> None:
         if active():
@@ -607,7 +608,7 @@ def show_equipment_replacement_dialog(
             if on_confirm is not None:
                 on_confirm(choice)
         except Exception as exc:
-            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.inventory.apply_replacement.qmessagebox_2'), str(exc))
+            QMessageBox.warning(dialog, resolve_text_catalog(text_catalog).render('ui.inventory.apply_replacement.qmessagebox_2'), ui_enum_text(text_catalog, str(exc)))
             return
         dialog.accept()
 

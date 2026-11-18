@@ -29,7 +29,7 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
     def rename_account(self, account_name: str) -> None:
         name = str(account_name).strip()
         if not name:
-            raise UserDataValidationError("account_name 不能为空")
+            raise UserDataValidationError("account_name 不能为空")  # ui-text: internal
         # 独立调用仍提交；命名 Service 的外层事务拥有最终提交与失败回滚。
         with self.write_transaction() as connection:
             connection.execute(
@@ -74,7 +74,7 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
             if not isinstance(value, dict):
                 raise UserDataError(
                     f"账号设置副本 {row['setting_key']!r} 不是 JSON 对象"
-                )
+                )  # ui-text: internal
             copies[str(row["setting_key"])] = value
         return copies
 
@@ -107,7 +107,7 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
     ) -> None:
         key = str(setting_key).strip()
         if not key:
-            raise UserDataValidationError("setting_key 不能为空")
+            raise UserDataValidationError("setting_key 不能为空")  # ui-text: internal
         if not isinstance(value, Mapping):
             raise UserDataValidationError("账号设置副本必须是对象")
         connection = self._db()
@@ -215,7 +215,7 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
             raise UserDataValidationError("scope 不能为空")
         normalized_keys = [str(item_key).strip() for item_key in item_keys]
         if any(not item_key for item_key in normalized_keys):
-            raise UserDataValidationError("item_key 不能为空")
+            raise UserDataValidationError("item_key 不能为空")  # ui-text: internal
         if len(set(normalized_keys)) != len(normalized_keys):
             raise UserDataValidationError("界面项目顺序不能包含重复项")
         connection = self._db()
@@ -267,14 +267,14 @@ class AccountDataDaoMixin(UserDataDaoMixinHost):
         inventory_method = inventory_sync_method or current["inventory_sync_method"]
         apply_method = equipment_apply_method or current["equipment_apply_method"]
         if inventory_method not in SYNC_METHODS:
-            raise UserDataValidationError("inventory_sync_method 必须是 nte_core 或 gamepad")
+            raise UserDataValidationError("inventory_sync_method 必须是 nte_core 或 gamepad")  # ui-text: internal
         if apply_method not in SYNC_METHODS:
-            raise UserDataValidationError("equipment_apply_method 必须是 nte_core 或 gamepad")
+            raise UserDataValidationError("equipment_apply_method 必须是 nte_core 或 gamepad")  # ui-text: internal
         device_id = current["capture_device_id"] if capture_device_id is None else str(capture_device_id).strip() or None
         raw_enabled = current["raw_capture_enabled"] if raw_capture_enabled is None else bool(raw_capture_enabled)
         settle = current["inventory_settle_seconds"] if inventory_settle_seconds is None else float(inventory_settle_seconds)
         if settle <= 0:
-            raise UserDataValidationError("inventory_settle_seconds 必须大于 0")
+            raise UserDataValidationError("inventory_settle_seconds 必须大于 0")  # ui-text: internal
         auto_start = (
             current["auto_start_inventory_sync"]
             if auto_start_inventory_sync is None

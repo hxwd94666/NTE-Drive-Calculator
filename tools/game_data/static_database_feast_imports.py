@@ -6,6 +6,7 @@ from tools.game_data.static_database_build_support import (
 )
 
 from tools.game_data.static_database_feast_mechanisms import import_mechanisms, option_score
+from src.storage.sqlite.catalog.static_catalog_monster_name_queries import _numeric_identity
 
 
 def _option_effect(option_id: str, buff_path: str | None) -> tuple[str, str | None]:
@@ -25,6 +26,19 @@ def _option_effect(option_id: str, buff_path: str | None) -> tuple[str, str | No
 
 
 class FeastImportMixin:
+    def _feast_family_name(self, monster_id: str) -> str | None:
+        """同一 mon/boss 数字家族在深渊刷怪与图鉴绑定中的唯一正式名；多名或无名返回 None。"""
+        identity = _numeric_identity(monster_id)
+        if identity is None:
+            return None
+        rows = self.connection.execute(
+            "SELECT monster_class_path, monster_name_zh FROM abyss_monster_pool_entry "
+            "WHERE trim(COALESCE(monster_name_zh, '')) <> '' UNION ALL "
+            "SELECT b.monster_template_name, m.name_zh FROM monster_template_binding b "
+            "JOIN monster_catalog m USING(monster_manual_id) WHERE m.name_zh IS NOT NULL").fetchall()
+        names = {str(name) for formal, name in rows if _numeric_identity(formal) == identity}
+        return next(iter(names)) if len(names) == 1 else None
+
     def _feast_targets(self, stage_id: str, difficulty_id: int):
         nodes = self.connection.execute(
             "SELECT difficulty_ordinal,difficulty_level,spawn_id FROM clone_activity_difficulty "
@@ -145,6 +159,11 @@ class FeastImportMixin:
                     boss_name = str(names[0][0]) if len(names) == 1 else None
                     if len(targets[difficulty_id]) == 1:
                         boss_name = text_parts(display.get("Desc"))[0] or boss_name
+                        # 关卡展示文案可能沿用换 Boss 前的旧名（如 DiyBossStage8 换为玛门后仍写墨菲克斯）；
+                        # 目标数字家族在其他正式来源中有唯一名称且不一致时，以家族正式名为准。
+                        family_name = self._feast_family_name(monster_id)
+                        if family_name and boss_name and boss_name != family_name:
+                            boss_name = family_name
                     self.connection.execute("INSERT INTO feast_stage_difficulty VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
                         stage_id, difficulty_id, static_table, monster_id,
                         text_parts(value.get("Desc"))[0] or str(difficulty_id), boss_name,

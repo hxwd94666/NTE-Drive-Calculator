@@ -257,6 +257,7 @@ def executable_inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(build, "load_ocr_dictionary", Mock())
     monkeypatch.setattr(build, "_find_package_dir", lambda _name: None)
     monkeypatch.setattr(build, "_remove_package_artifact", Mock())
+    monkeypatch.setattr(build, "_remove_stale_component_candidates", Mock(return_value=0))
     outside = tmp_path / "caller cwd"
     outside.mkdir()
     monkeypatch.chdir(outside)
@@ -368,10 +369,33 @@ def test_executable_main_freezes_root_resources_and_rejects_invalid_analysis(exe
     build.write_ocr_support_manifest.assert_called_once_with(generated_manifest, support)
     assert build.prepare_component_bundle.call_args.kwargs['output_parent'] == output / 'build/component-bundles'
     assert build.prepare_component_bundle.call_args.kwargs['application_root'] == root
+    build._remove_stale_component_candidates.assert_called_once_with()
     build.native_component_build_inputs.assert_called_once_with(root)
     assert [call.args[0] for call in build._remove_package_artifact.call_args_list] == [
         output / "build/NTE_Drive_Calc", output / "dist/NTE_Drive_Calc", output / "dist/NTE_Drive_Calc.exe",
     ]
+
+
+def test_stale_component_candidates_are_reclaimed_without_touching_other_members(tmp_path, monkeypatch):
+    import build_exe as build
+
+    root = tmp_path / "release inputs"
+    monkeypatch.setattr(build, "ROOT", root)
+    monkeypatch.setattr(build, "BUILD", root / "build")
+    root.mkdir()
+    assert build._remove_stale_component_candidates() == 0
+    parent = root / "build/component-bundles"
+    for name in ("component-candidate-old1", "component-candidate-old2"):
+        (parent / name).mkdir(parents=True)
+        (parent / name / "nte-core.exe").write_bytes(b"stale")
+    (parent / "keep-me").mkdir()
+    (parent / "notes.txt").write_text("kept")
+    assert build._remove_stale_component_candidates() == 2
+    assert sorted(path.name for path in parent.iterdir()) == ["keep-me", "notes.txt"]
+    (parent / "component-candidate-file").write_text("not a directory")
+    with pytest.raises(ValueError, match="组件候选类型不符"):
+        build._remove_stale_component_candidates()
+    assert (parent / "component-candidate-file").read_text() == "not a directory"
 
 
 @pytest.mark.parametrize('isolated', [False, True])

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
 from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.services.battle_report.timeline.clock import (
@@ -483,9 +484,7 @@ class BattleBuffIntervalSupportMixin:
     def _basis(rule: Any, occurrence: BuffOccurrence) -> str:
         if rule.source_kind == "confirmed_character_passive":
             return (
-                f"本场冻结角色突破已解锁 {rule.source_effect_definition_id}；"
-                f"按已审计角色被动事件 {rule.event_type} 投影。"
-                "运行时 Buff 事件可用时仍由高置信证据覆盖。"
+                localized_text(None, 'auto.services.battle_report.buffs.interval_support.basis.fcb18edcd', '本场冻结角色突破已解锁 {source_effect_definition_id}；按已审计角色被动事件 {event_type} 投影。运行时 Buff 事件可用时仍由高置信证据覆盖。', source_effect_definition_id=f'{rule.source_effect_definition_id}', event_type=f'{rule.event_type}')
             )
         if rule.event_type == "STATIC_EQUIPPED_SOURCE":
             return (
@@ -493,11 +492,7 @@ class BattleBuffIntervalSupportMixin:
                 "不含进场后弧盘、套装或觉醒 Buff，因此按整场低置信区间投影。"
             )
         return (
-            f"冻结配装效果 {rule.source_effect_definition_id} 的静态事件 "
-            f"{rule.event_type} 与推算动作/逐击对齐；正式触发条件 "
-            f"{getattr(rule, 'application_requirement_asset_path', '') or '无'}；"
-            "区间状态置信度"
-            f" {occurrence.state_confidence}，不是 nte-core 实测 Buff。"
+            localized_text(None, 'auto.services.battle_report.buffs.interval_support.basis.fe121e51d', '冻结配装效果 {source_effect_definition_id} 的静态事件 {event_type} 与推算动作/逐击对齐；正式触发条件 {value}；区间状态置信度 {state_confidence}，不是 nte-core 实测 Buff。', source_effect_definition_id=f'{rule.source_effect_definition_id}', event_type=f'{rule.event_type}', value=f"{getattr(rule, 'application_requirement_asset_path', '') or '无'}", state_confidence=f'{occurrence.state_confidence}')
         )
 
     @staticmethod

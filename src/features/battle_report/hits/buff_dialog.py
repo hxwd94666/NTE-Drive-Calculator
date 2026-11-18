@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Sequence
 
@@ -41,12 +42,7 @@ class BattleHitBuffDialog(HitInspectionDialog):
         hp_before = "—" if hit.target_hp_before is None else f"{hit.target_hp_before:,.0f}"
         hp_after = "—" if hit.target_hp_after is None else f"{hit.target_hp_after:,.0f}"
         raw_lines = (
-            f"事件 ID：{hit.event_id}\n序号：{hit.sequence}\n"
-            f"Ability：{hit.ability_id or '—'}\nGE：{hit.gameplay_effect_id or '—'}\n"
-            f"组件：{hit.damage_component or '—'}\n攻击类型：{hit.attack_type or '—'}\n"
-            f"伤害属性：{hit.damage_attribute or '—'}\n目标 ID：{hit.target_id or '—'}\n"
-            f"HP：{hp_before} → {hp_after}\n"
-            "Buff口径：原始逐击归属；公式另按正式来源角色消费属性。\n"
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.hits.buff_dialog.show_for_hit.fb90938a2', '事件 ID：{event_id}\n序号：{sequence}\nAbility：{value}\nGE：{value_2}\n组件：{value_3}\n攻击类型：{value_4}\n伤害属性：{value_5}\n目标 ID：{value_6}\nHP：{hp_before} → {hp_after}\nBuff口径：原始逐击归属；公式另按正式来源角色消费属性。\n', event_id=f'{hit.event_id}', sequence=f'{hit.sequence}', value=f"{hit.ability_id or '—'}", value_2=f"{hit.gameplay_effect_id or '—'}", value_3=f"{hit.damage_component or '—'}", value_4=f"{hit.attack_type or '—'}", value_5=f"{hit.damage_attribute or '—'}", value_6=f"{hit.target_id or '—'}", hp_before=f'{hp_before}', hp_after=f'{hp_after}')
         )
         replay_lines = "公式重放：尚未生成"
         if replay is not None:
@@ -56,11 +52,8 @@ class BattleHitBuffDialog(HitInspectionDialog):
             ) or "- 无结构化因子"
             gaps = "\n".join(f"- {row}" for row in replay.missing_evidence)
             replay_lines = (
-                f"公式重放：{replay.selected_damage if replay.selected_damage is not None else '—'}\n"
-                f"暴击判定：{replay.critical_state}\n置信度：{replay.confidence}\n"
-                f"暴击策略：{replay.critical_policy}\n公式类型：{replay.formula_type}\n"
-                f"因子：\n{factors}"
-                + (f"\n缺失证据：\n{gaps}" if gaps else "")
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.hits.buff_dialog.show_for_hit.f5ccaed59', '公式重放：{value}\n暴击判定：{critical_state}\n置信度：{confidence}\n暴击策略：{critical_policy}\n公式类型：{formula_type}\n因子：\n{factors}', value=f"{replay.selected_damage if replay.selected_damage is not None else '—'}", critical_state=f'{replay.critical_state}', confidence=f'{replay.confidence}', critical_policy=f'{replay.critical_policy}', formula_type=f'{replay.formula_type}', factors=f'{factors}')
+                + (localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.hits.buff_dialog.show_for_hit.fb20685fe', '\n缺失证据：\n{gaps}', gaps=f'{gaps}') if gaps else "")
             )
         self.detail.setPlainText(
             raw_lines + "\n" + render_field_evidence(hit.field_evidence)

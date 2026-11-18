@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 import hashlib
 import json
 import sqlite3
@@ -45,7 +46,7 @@ class SharedDataDao:
         except sqlite3.Error as exc:
             raise SharedDataError(
                 f"无法打开公共覆盖数据库：{self.database_path}"
-            ) from exc
+            ) from exc  # ui-text: internal
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA busy_timeout = 10000")
@@ -110,12 +111,12 @@ class SharedDataDao:
             if version > SCHEMA_VERSION:
                 raise SharedDataError(
                     f"公共覆盖数据库版本 {version} 高于程序支持版本 {SCHEMA_VERSION}"
-                )
+                )  # ui-text: internal
             for target_version in range(version + 1, SCHEMA_VERSION + 1):
-                stage = f"迁移 v{target_version}"
+                stage = localized_text(None, 'auto.storage.sqlite.shared_data_dao.initialize_or_migrate.f45d0060b', '迁移 v{target_version}', target_version=f'{target_version}')
                 migration = MIGRATIONS.get(target_version)
                 if migration is None:
-                    raise SharedDataError(f"缺少公共覆盖数据库迁移 v{target_version}")
+                    raise SharedDataError(f"缺少公共覆盖数据库迁移 v{target_version}")  # ui-text: internal
                 execute_transaction_script(
                     connection, migration.read_text(encoding="utf-8"),
                     incomplete_error=SharedDataError("公共覆盖数据库迁移脚本包含未结束的 SQL 语句"),
@@ -135,7 +136,7 @@ class SharedDataDao:
         except BaseException as exc:
             connection.rollback()
             if isinstance(exc, (OSError, sqlite3.Error)):
-                raise SharedDataError(f"公共覆盖数据库{stage}失败") from exc
+                raise SharedDataError(f"公共覆盖数据库{stage}失败") from exc  # ui-text: internal
             raise
 
     def _validate_schema(self) -> None:
@@ -192,9 +193,9 @@ class SharedDataDao:
     ) -> dict[str, Any]:
         key = str(logical_character_key or "").strip()
         if not key:
-            raise ValueError("logical_character_key 不能为空")
+            raise ValueError("logical_character_key 不能为空")  # ui-text: internal
         if int(representative_character_id) <= 0:
-            raise ValueError("representative_character_id 必须为正整数")
+            raise ValueError("representative_character_id 必须为正整数")  # ui-text: internal
         if not str(shape_label or "").strip() or int(shape_grid_count) <= 0:
             raise ValueError("额外形状标签和格数无效")
 
@@ -206,7 +207,7 @@ class SharedDataDao:
             if not property_id or display_value < 0:
                 raise ValueError("额外形状覆盖包含无效属性或数值")
             if property_id in seen_properties:
-                raise ValueError(f"额外形状覆盖包含重复属性：{property_id}")
+                raise ValueError(f"额外形状覆盖包含重复属性：{property_id}")  # ui-text: internal
             seen_properties.add(property_id)
             normalized.append((property_id, display_value, ordinal))
 
@@ -336,14 +337,14 @@ class SharedDataDao:
             shape_label = str(raw.get("shape_label") or "").strip()
             grid_count = int(raw.get("shape_grid_count") or 0)
             if not key or representative_id <= 0 or not shape_label or grid_count <= 0:
-                raise ValueError(f"旧版额外形状记录无效：{key or '<empty>'}")
+                raise ValueError(f"旧版额外形状记录无效：{key or '<empty>'}")  # ui-text: internal
             properties: list[tuple[str, float, int]] = []
             seen: set[str] = set()
             for ordinal, property_row in enumerate(raw.get("properties") or ()):
                 property_id = str(property_row.get("property_id") or "").strip()
                 value = float(property_row.get("display_value", 0.0))
                 if not property_id or value < 0 or property_id in seen:
-                    raise ValueError(f"旧版额外形状属性无效：{key}")
+                    raise ValueError(f"旧版额外形状属性无效：{key}")  # ui-text: internal
                 seen.add(property_id)
                 properties.append((property_id, value, ordinal))
             normalized_records.append(
@@ -480,12 +481,12 @@ def read_legacy_shape_bonus_catalog(database_path: str | Path) -> dict[str, Any]
             ]
             records.append(record)
     except sqlite3.Error as exc:
-        raise RuntimeError(f"旧版静态数据库无法读取：{path}") from exc
+        raise RuntimeError(f"旧版静态数据库无法读取：{path}") from exc  # ui-text: internal
     finally:
         if "connection" in locals():
             connection.close()
     if dataset is None or schema is None:
-        raise RuntimeError(f"旧版静态数据库缺少数据集信息：{path}")
+        raise RuntimeError(f"旧版静态数据库缺少数据集信息：{path}")  # ui-text: internal
     return {
         "database_path": str(path),
         "database_sha256": _sha256(path),

@@ -108,7 +108,7 @@ class NTEPipelineOrchestrator:
         resolved = resolve_name(normalized_name, self.sets_db.keys(), cutoff=0.78)
         if not resolved:
             available = "、".join(self.sets_db.keys())
-            raise ValueError(f"错误：指定的套装 {set_name} 不存在于官方 SQLite 数据中！可用套装：{available}")
+            raise ValueError(f"错误：指定的套装 {set_name} 不存在于官方 SQLite 数据中！可用套装：{available}")  # ui-text: internal
         return resolved
 
     def _canonicalize_role_sets(self):
@@ -339,7 +339,7 @@ class NTEPipelineOrchestrator:
                 if not fork_id:
                     raise ValueError(
                         f"角色 [{role_name}] 选择的弧盘名称不能唯一对应正式弧盘 ID"
-                    )
+                    )  # ui-text: internal
             else:
                 fork_id = str(role.get("default_fork_id") or "")
             role["effective_fork_id"] = fork_id

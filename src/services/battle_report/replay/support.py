@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from math import floor
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
 from src.domain.battle_report.build.inputs import BattleCharacterBaseline
@@ -118,7 +119,7 @@ def replay_source_terms(
             source_group=row.source_group,
             source_name=row.source_name,
             is_percent=row.is_percent,
-            evidence_basis=f"{baseline.source} 角色属性来源快照",
+            evidence_basis=localized_text(None, 'auto.services.battle_report.replay.support.replay_source_terms.fe759af96', '{source} 角色属性来源快照', source=f'{baseline.source}'),
         )
         for row in baseline.source_stats
         if row.property_id in property_ids and row.value != 0.0
@@ -138,7 +139,7 @@ def replay_source_terms(
                 token in modifier.property_id
                 for token in ("Up", "Crit", "Damage", "Ignore", "Penetrate")
             ),
-            evidence_basis=f"命中时 Buff 投影（置信度{modifier.confidence}）",
+            evidence_basis=localized_text(None, 'auto.services.battle_report.replay.support.replay_source_terms.fad48cf93', '命中时 Buff 投影（置信度{confidence}）', confidence=f'{modifier.confidence}'),
         ))
     if terms:
         return tuple(terms)
@@ -152,7 +153,7 @@ def replay_source_terms(
             source_group="resolved",
             source_name="冻结合计",
             is_percent=resolved[property_id].is_percent,
-            evidence_basis=f"{baseline.source} 合计值；历史来源未拆分",
+            evidence_basis=localized_text(None, 'auto.services.battle_report.replay.support.replay_source_terms.ff1392e6d', '{source} 合计值；历史来源未拆分', source=f'{baseline.source}'),
         )
         for property_id in property_ids
         if property_id in resolved and resolved[property_id].value != 0.0

@@ -206,6 +206,7 @@ def calculate_official_role_final_weights(
     base_property_weights: Mapping[str, float] | None = None,
     base_main_property_weights: Mapping[str, float] | None = None,
     text_catalog: TextCatalog | None = None,
+    calculator=None,
 ) -> dict[str, Any]:
     """Resolve the exact final weights displayed by the role-page table.
 
@@ -215,8 +216,9 @@ def calculate_official_role_final_weights(
     hidden candidate score cannot drift from the visible table.
     """
 
+    # 调用方已持有计算器时复用同一冻结身份，不为回退重算再做一次整库校验或启动新分析进程。
     resolved_margins = margins if margins is not None else calculate_official_role_margins(
-        detail, context_key, text_catalog=text_catalog,
+        detail, context_key, calculator=calculator, text_catalog=text_catalog,
     )
     property_weights, formula_ids = _normalized_direct_damage_weights(
         base_property_weights or detail.get("property_weights") or {},

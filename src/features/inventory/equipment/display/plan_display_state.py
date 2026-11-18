@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.scoring.allocation_rating import allocation_grade
 from src.domain.equipment.loadouts.loadout_plan_scores import exact_assignment_score_total
 from src.features.inventory.equipment.display.plan_projection import (
@@ -176,9 +177,7 @@ def _sqlite_plan_display_state(
         )
         if item is None:
             message = (
-                f"方案 #{plan.get('plan_id')} 的装备 UID "
-                f"({assignment.get('uid_slot')}, {assignment.get('uid_serial')}) "
-                f"不在来源快照 {snapshot_id} 中"
+                localized_text(text_catalog, 'auto.features.inventory.equipment.display.plan_display_state.sqlite_plan_display_state.f86ffb1f6', '方案 #{value} 的装备 UID ({value_2}, {value_3}) 不在来源快照 {snapshot_id} 中', value=f"{plan.get('plan_id')}", value_2=f"{assignment.get('uid_slot')}", value_3=f"{assignment.get('uid_serial')}", snapshot_id=f'{snapshot_id}')
             )
             logger.error("已保存方案兼容性错误：{}", message)
             raise RuntimeError(message)
@@ -190,8 +189,7 @@ def _sqlite_plan_display_state(
         ]
         if unknown_properties:
             message = (
-                f"方案 #{plan.get('plan_id')} 的来源快照包含当前静态数据未定义的属性 ID："
-                f"{', '.join(sorted(set(unknown_properties)))}"
+                localized_text(text_catalog, 'auto.features.inventory.equipment.display.plan_display_state.sqlite_plan_display_state.fc5556b9d', '方案 #{value} 的来源快照包含当前静态数据未定义的属性 ID：{value_2}', value=f"{plan.get('plan_id')}", value_2=f"{', '.join(sorted(set(unknown_properties)))}")
             )
             logger.error("已保存方案兼容性错误：{}", message)
             raise RuntimeError(message)
@@ -201,7 +199,7 @@ def _sqlite_plan_display_state(
         if item["kind"] == "core":
             suit_id = str(item.get("suit_id") or "")
             if suit_id not in suit_names:
-                message = f"方案 #{plan.get('plan_id')} 的核心套装 {suit_id or '<empty>'} 不在当前静态数据中"
+                message = localized_text(text_catalog, 'auto.features.inventory.equipment.display.plan_display_state.sqlite_plan_display_state.f052701fd', '方案 #{value} 的核心套装 {value_2} 不在当前静态数据中', value=f"{plan.get('plan_id')}", value_2=f"{suit_id or '<empty>'}")
                 logger.error("已保存方案兼容性错误：{}", message)
                 raise RuntimeError(message)
             main_stats = _official_stat_values(item.get('main_stats'))
@@ -235,7 +233,7 @@ def _sqlite_plan_display_state(
         shape_id = _display_shape_id(geometry)
         official_shape = "EquipmentGeometry_" + str(geometry or "").removeprefix("EquipmentGeometry_")
         if official_shape not in shape_cells:
-            message = f"方案 #{plan.get('plan_id')} 的驱动形状 {geometry or '<empty>'} 不在当前静态数据中"
+            message = localized_text(text_catalog, 'auto.features.inventory.equipment.display.plan_display_state.sqlite_plan_display_state.ffc5cf648', '方案 #{value} 的驱动形状 {value_2} 不在当前静态数据中', value=f"{plan.get('plan_id')}", value_2=f"{geometry or '<empty>'}")
             logger.error("已保存方案兼容性错误：{}", message)
             raise RuntimeError(message)
         drives.append(

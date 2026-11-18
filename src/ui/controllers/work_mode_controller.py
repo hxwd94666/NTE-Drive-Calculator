@@ -474,7 +474,7 @@ class WorkModeController(ComponentUpgradeGuideMixin, WorkModeReportActionsMixin,
             if (result.startup and self._upgrade_stage() is not None
                     and not self._upgrade_prompted):
                 self._upgrade_prompted = True
-                QTimer.singleShot(800, self._show_upgrade_when_idle)
+                QTimer.singleShot(800, self, self._show_upgrade_when_idle)
             return
         if isinstance(result, _CleanupResult):
             if result.request_id != self._cleanup_request_id:

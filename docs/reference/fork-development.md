@@ -71,7 +71,7 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 保留同名正式 ID 分离与官方来源未写入的断言。它验证实际页面到持久化，不靠打印预期值通过。
 修改生产规则时则进入下节对应责任入口，不以改测试期望掩盖生产错误。
 
-当前源码切片的隔离复现记录见[架构验证](../validation/architecture-renewal-day1.md)。隔离运行须记录
+当前源码切片的隔离复现记录见架构验证。隔离运行须记录
 新进程实际 `src`/`tools`/测试包的导入路径来自明确记录的源码根，第三方包来自按锁文件 wheel 哈希
 安装的新虚拟环境，而不是旧 editable 安装、另一工作区或复用的 site-packages。最小参考依赖的安装方式
 只在 README 维护；参考环境不是完整产品环境，基线 ref 与未提交工作树 overlay 分开记录。
@@ -169,7 +169,7 @@ uv run --no-sync python -B tools/quality/run_tests.py full -j 1 --pattern test_c
 ## 5. 未来接入与本次证据的限制
 
 新语种 OCR 仍需对应识别模型/字典、别名到正式 ID、布局模板、冻结/缓存身份及真实样本；
-职责见[功能内语言预备](../roadmap/architecture-post-refactor-review.md#鉴定与扫描的功能内语言预备)，
+职责见[功能内语言预备](../roadmap.md)，
 不由界面补丁推断支持。新伤害分配沿[伤害备忘](../roadmap/damage-allocation.md)后续开发，
 本例不启用搜索器、不提供假伤害结果。
 

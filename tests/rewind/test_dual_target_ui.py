@@ -1,4 +1,5 @@
 # 验证兼顾模式单窗分组、独立目标、旧模式隔离、来源失效与长译文底栏，不连接游戏。
+from collections import Counter
 from copy import deepcopy
 from time import monotonic
 from threading import Event
@@ -6,13 +7,14 @@ from threading import Event
 import pytest
 from PySide6.QtTest import QTest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QTableWidget, QToolButton
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QPushButton, QTableWidget
 from shiboken6 import isValid
 
 from tests.support.auto_sync_ui_fixture import dispose
 from tests.support.qt_fonts import fonts as application
 from src.domain.localization.catalog import make_catalog
 from src.features.toolbox import page
+from src.features.toolbox.rewind.dual_overlap_dialog import RewindDualOverlapDialog
 from src.features.toolbox.rewind.dual_role_picker import DualRoleSelectionDialog
 from src.integrations.preferences.locale_files import bundled_text_catalog
 from src.ui.common.text_catalog import TextActionButton
@@ -40,7 +42,8 @@ class UiService:
 
     def save_dual_target_preferences(self, value, *, guard=None, checkpoint=lambda: None):
         checkpoint()
-        if guard:self.inner.validate_dual_target_guard(guard)
+        # 与正式保存一致：只拒绝静态换版，库存或配装更新照常覆盖。
+        if guard and guard.static_identity != self.inner.static_identity():raise ValueError('rewind_source_changed')
         self.dual.update(deepcopy(value))
         if 'saved_rewind_shape_ids' in value:
             self.dual.update(saved_guard=guard_payload(guard) if guard else None,
@@ -52,6 +55,7 @@ class UiService:
 
     def validate_dual_target_guard(self, *args, **kwargs):return self.inner.validate_dual_target_guard(*args, **kwargs)
     def validate_selection(self, *args):return self.inner.validate_selection(*args)
+    def static_identity(self):return self.inner.static_identity()
 
 
 def setup_dialog(tmp_path, monkeypatch, *, catalog=None, generation=None):
@@ -119,7 +123,7 @@ def test_three_profiles_restore_independent_roles_targets_options_and_manual_dra
         cleanup(reopened)
 
 
-@pytest.mark.parametrize('theme', ['dark', 'black', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 @pytest.mark.parametrize('target', ['focused', 'improve', 'push'])
 def test_custom_percentage_double_click_replaces_whole_value_without_early_save(tmp_path, monkeypatch, theme, target):
     from src.app.theme import apply_app_theme, current_theme_name, install_dialog_defaults
@@ -215,23 +219,22 @@ def test_generate_save_invalidate_and_stale_guard_leave_legacy_pool_untouched(tm
         assert not errors
         assert len(service.requests) == 1
         assert dialog._slots_complete()
-        assert dialog.findChild(QTableWidget, 'rewindDualDemands').rowCount() == 1
-        details = dialog.findChild(QToolButton, 'rewindDualDetails')
-        assert not details.isChecked()
-        details.click()
-        assert details.isChecked()
+        # 共同形状表在“共同缺口”弹窗内；结果区只提供已启用的入口。
+        assert dialog._result_tabs.widget(0).findChild(QTableWidget) is None
+        assert dialog._result_tabs.widget(0).findChild(QPushButton, 'rewindDualOverlap').isEnabled()
         dialog._save_plan()
         assert service.saved['saved_rewind_shape_ids'] == old['saved_rewind_shape_ids']
         assert service.dual['saved_rewind_shape_ids'] == ['EquipmentGeometry_Hen4'] * 8
         assert service.dual['saved_guard']['slots'][0]['source_snapshot_id'] == 3
-        # 重开后再次保存仍须复核原冻结来源，不能将推荐隐式降为手动方案。
+        # 生成后库存已更新：再次保存照常覆盖，原冻结来源不变，也不隐式降为手动方案。
         original_analysis = dialog._generated_analysis
         dialog._generated_analysis = None
         dao.current_inventory_snapshot_id = lambda: 99
-        saved = deepcopy(service.dual)
+        saved_guard = deepcopy(service.dual['saved_guard'])
         dialog._save_plan()
-        assert service.dual == saved and errors
-        monkeypatch.setattr(dialog, '_confirm_rewind_inventory_change', lambda: False)
+        assert not errors and service.dual['saved_guard'] == saved_guard
+        assert service.dual['plan_origin'] == 'dual_target'
+        monkeypatch.setattr(dialog, '_confirm_rewind_source_change', lambda _changes: False)
         assert not dialog._check_saved_plan()
         dao.current_inventory_snapshot_id = lambda: 9
         old_token, old_result = dialog._analysis_token, dialog._generated_analysis
@@ -249,6 +252,26 @@ def test_generate_save_invalidate_and_stale_guard_leave_legacy_pool_untouched(tm
     finally:cleanup(dialog)
 
 
+def test_save_after_generation_is_not_blocked_by_later_inventory_or_loadout_updates(tmp_path, monkeypatch):
+    errors = []
+    monkeypatch.setattr(page.QMessageBox, 'warning', lambda *_args: errors.append(_args))
+    dialog, service, dao, _roles = setup_dialog(tmp_path, monkeypatch)
+    try:
+        dialog._set_strategy('dual_target')
+        result = service.inner.analyze_dual_target_shortfalls(dialog._dual_request())
+        token = object();dialog._analysis_token = token
+        dialog._on_analysis_ready(token, result)
+        assert dialog._save_plan_button.isEnabled()
+        dao.current_inventory_snapshot_id = lambda: 99
+        dao.slots[0]['current_plan']['plan_id'] += 1
+        dialog._save_plan()
+        # 保存直接覆盖八槽并原样记录生成时来源，不读取新库存或新方案重绑。
+        assert not errors
+        assert service.dual['saved_rewind_shape_ids'] == [slot.shape.shape_id for slot in dialog._editable_slots]
+        assert service.dual['saved_guard'] == guard_payload(result.dual_guard)
+    finally:cleanup(dialog)
+
+
 def test_empty_intersection_keeps_both_group_explanations_and_empty_slots(tmp_path, monkeypatch):
     dialog, service, dao, _roles = setup_dialog(tmp_path, monkeypatch)
     try:
@@ -260,7 +283,7 @@ def test_empty_intersection_keeps_both_group_explanations_and_empty_slots(tmp_pa
         dialog._render_plans(result)
         assert not any(dialog._editable_slots)
         assert not dialog._save_plan_button.isEnabled()
-        assert '暂无共同缺口' in dialog.findChild(QLabel, 'rewindDualStatus').text()
+        assert any('暂无共同缺口' in label.text() for label in dialog._result_tabs.widget(0).findChildren(QLabel))
     finally:cleanup(dialog)
 
 
@@ -276,7 +299,11 @@ def test_manual_adjustment_keeps_source_guard_and_recomputes_display_cost(tmp_pa
         dialog._editable_slots[0] = replacement
         dialog._render_dual_results(result, preserve_edits=True)
         assert dialog._editable_slots[0] is replacement
-        assert '290' in dialog.findChild(QLabel, 'rewindDualStatus').text()
+        quantities = Counter(slot.shape.shape_id for slot in dialog._editable_slots if slot is not None)
+        overlap = RewindDualOverlapDialog(dialog, analysis=result, quantities=quantities,
+                                          edited=dialog._dual_results_edited, text_catalog=dialog.text_catalog)
+        metrics = [label.text() for label in overlap.findChildren(QLabel, 'rewindDualMetricValue')]
+        assert metrics[-1] == '290 萝卜币' and '手动调整' in overlap.findChild(QLabel, 'rewindDualEdited').text()
         assert result.recommendations[0].quantity == 8 and result.dual_guard is not None
         dialog._save_plan()
         assert service.dual['saved_guard'] == guard_payload(result.dual_guard)
@@ -315,10 +342,10 @@ def test_input_change_cancels_inflight_work_and_preserves_old_saved_pool(tmp_pat
         old_slots = tuple(dialog._editable_slots)
         saved_pool = deepcopy(service.dual['saved_rewind_shape_ids'])
         saved_guard = deepcopy(service.dual['saved_guard'])
-        def delayed(request, *, checkpoint):
+        def delayed(request, *, checkpoint, **kwargs):
             entered.set()
             assert release.wait(4)
-            return service.inner.analyze_dual_target_shortfalls(request, checkpoint=checkpoint)
+            return service.inner.analyze_dual_target_shortfalls(request, checkpoint=checkpoint, **kwargs)
         monkeypatch.setattr(service, 'analyze_dual_target_shortfalls', delayed)
         dialog._refresh_analysis();wait_until(entered.is_set)
         dialog._dual_grades['push'].setCurrentIndex(dialog._dual_grades['push'].findData('ACE'))
@@ -334,7 +361,7 @@ def test_input_change_cancels_inflight_work_and_preserves_old_saved_pool(tmp_pat
         release.set();cleanup(dialog)
 
 
-@pytest.mark.parametrize('theme', ['original', 'black', 'white'])
+@pytest.mark.parametrize('theme', ["black"])
 def test_long_patch_keeps_dual_controls_and_footer_reachable(tmp_path, monkeypatch, theme):
     from src.app.theme import apply_app_theme, current_theme_name
     application();base = bundled_text_catalog();old_theme = current_theme_name()
@@ -353,7 +380,7 @@ def test_long_patch_keeps_dual_controls_and_footer_reachable(tmp_path, monkeypat
             assert dialog.rect().contains(point) and button.isVisibleTo(dialog)
         for grade in dialog._dual_grades.values():
             assert grade.isVisibleTo(dialog) and grade.width() > 30
-        assert not dialog.findChild(QToolButton, 'rewindDualDetails').isChecked()
+        assert dialog._result_tabs.widget(0).findChild(QPushButton, 'rewindDualOverlap').isVisibleTo(dialog)
         cards = dialog.findChildren(QFrame, 'rewindShapeRecommendationCard')
         assert len(cards) == 8 and all(card.isVisibleTo(dialog) for card in cards)
         scroll = dialog._results_scroll

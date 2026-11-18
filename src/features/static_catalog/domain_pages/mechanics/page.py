@@ -226,7 +226,7 @@ class CombatMechanicsCatalogPage(QWidget):
 
     def select_family(self, family_key: str) -> None:
         if family_key not in FAMILY_BY_KEY:
-            raise ValueError(f"未知机制家族：{family_key!r}")
+            raise ValueError(f"未知机制家族：{family_key!r}")  # ui-text: internal
         self._family_key = family_key
         self.family_buttons[family_key].setChecked(True)
         combo_index = self.family_combo.findData(family_key)
@@ -240,7 +240,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self._navigation_listener()
 
     def _schedule_refresh(self) -> None:
-        QTimer.singleShot(0, self._refresh_gallery)
+        QTimer.singleShot(0, self, self._refresh_gallery)
 
     def _select_combo_family(self, index: int) -> None:
         family_key = self.family_combo.itemData(index)
@@ -396,7 +396,7 @@ class CombatMechanicsCatalogPage(QWidget):
         self.family_combo.setVisible(narrow)
         self.gallery_subtitle.setVisible(not narrow)
         self.search.setPlaceholderText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.resizeevent.search') if narrow else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.build_gallery_page.search'))
-        QTimer.singleShot(0, self._reflow_cards)
+        QTimer.singleShot(0, self, self._reflow_cards)
 
     def dispose(self) -> None:
         self._history.clear()

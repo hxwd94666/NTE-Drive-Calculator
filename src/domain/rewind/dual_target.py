@@ -13,8 +13,28 @@ from src.domain.rewind.rewind_shape_recommendation import (
 )
 
 
-class RewindInventoryChanged(ValueError):
-    """来源仍完整、仅当前库存指针改变；执行端可请求本次确认，保存端仍严格拒绝。"""
+SOURCE_CHANGE_KINDS = frozenset({'inventory', 'plan_replaced', 'slot_unavailable', 'source_unavailable'})
+
+
+@dataclass(frozen=True, slots=True)
+class RewindSourceChange:
+    """生成推荐后的一项依据更新；inventory 不带角色身份，其余按所选槽位定位。"""
+
+    kind: str
+    character_id: int | None = None
+    slot_id: int | None = None
+
+    def __post_init__(self):
+        if self.kind not in SOURCE_CHANGE_KINDS or (self.kind == 'inventory') != (self.character_id is None):
+            raise ValueError('倒带来源变化资料无效。')
+
+
+class RewindSourceChanged(ValueError):
+    """库存或所选配装在生成后已更新；保存照常覆盖，执行须由用户按本次所列变化确认。"""
+
+    def __init__(self, changes):
+        super().__init__('推荐生成后库存或所选配装已更新，请重新生成推荐。')
+        self.changes = frozenset(changes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +68,7 @@ class DualTargetRequest:
         if not isinstance(self.improve, GroupTarget) or not isinstance(self.push, GroupTarget):
             raise ValueError('两组目标资料无效。')
         if {ref.character_id for ref in self.improve.slots} & {ref.character_id for ref in self.push.slots}:
-            raise ValueError('提升组和冲分组不能包含同一角色。')
+            raise ValueError('低分组和高分组不能包含同一角色。')
         if type(self.selection_limit) is not int or not 1 <= self.selection_limit <= 8:
             raise ValueError('共同候选槽数应在 1～8 之间。')
 

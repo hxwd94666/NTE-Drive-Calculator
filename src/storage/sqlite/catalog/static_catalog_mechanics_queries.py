@@ -14,7 +14,7 @@ class StaticCatalogMechanicsQueries(StaticGameDataDao):
     def list_identity_candidates(self, *, per_kind_limit: int = 24) -> list[dict[str, Any]]:
         limit = int(per_kind_limit)
         if not 1 <= limit <= 100:
-            raise ValueError("per_kind_limit 必须在 1 到 100 之间")
+            raise ValueError("per_kind_limit 必须在 1 到 100 之间")  # ui-text: internal
         queries = (
             """
             SELECT 'gameplay_ability' AS entity_kind, ability.ability_id AS entity_key,
@@ -201,7 +201,7 @@ class StaticCatalogMechanicsQueries(StaticGameDataDao):
             return self._rows(
                 """SELECT '查看正式伤害项' AS label,
                           'skill_damage' AS target_kind, damage_id AS target_key
-                   FROM skill_damage WHERE ability_id = ? ORDER BY damage_id""",
+                   FROM skill_damage WHERE ability_id = ? ORDER BY damage_id""",  # ui-text: internal
                 (key,),
             )
         if kind == "skill_damage":
@@ -224,7 +224,7 @@ class StaticCatalogMechanicsQueries(StaticGameDataDao):
                              effect.class_path, 1, instr(effect.class_path, '.') - 1
                          )
                        WHERE effect.gameplay_effect_id = ?
-                   ) ORDER BY ordinal""",
+                   ) ORDER BY ordinal""",  # ui-text: internal
                 (key, key, key),
             )
         if kind == "gameplay_effect":
@@ -242,7 +242,7 @@ class StaticCatalogMechanicsQueries(StaticGameDataDao):
                              effect.class_path, 1, instr(effect.class_path, '.') - 1
                          )
                        WHERE effect.gameplay_effect_id = ?
-                   ) ORDER BY ordinal""",
+                   ) ORDER BY ordinal""",  # ui-text: internal
                 (key, key),
             )
         if kind == "buff":
@@ -257,7 +257,7 @@ class StaticCatalogMechanicsQueries(StaticGameDataDao):
                      )
                    JOIN skill_damage AS damage
                      ON damage.damage_id = effect.gameplay_effect_id
-                   WHERE buff.asset_path = ? ORDER BY damage.damage_id""",
+                   WHERE buff.asset_path = ? ORDER BY damage.damage_id""",  # ui-text: internal
                 (key,),
             )
         return []

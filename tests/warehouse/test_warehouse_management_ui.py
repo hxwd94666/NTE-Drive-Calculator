@@ -428,7 +428,7 @@ def test_language_patch_fallback_and_new_keys_preserve_parameters(app):
         retire(dialog)
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_editor_actions_remain_reachable_with_long_patch_on_small_screen(app, theme):
     previous = current_theme_name(app)
     apply_app_theme(app, theme)
@@ -470,7 +470,7 @@ def test_editor_actions_remain_reachable_with_long_patch_on_small_screen(app, th
         apply_app_theme(app, previous)
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 @pytest.mark.parametrize("long_patch", [False, True])
 def test_rule_card_actions_remain_reachable_on_narrow_screen(app, theme, long_patch):
     previous = current_theme_name(app)

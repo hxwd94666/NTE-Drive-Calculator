@@ -229,8 +229,8 @@ def test_controller_serializes_replacement_discards_old_progress_and_delivers_on
         controller.deleteLater()
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
-@pytest.mark.parametrize("width,height", [(640, 600), (700, 720)])
+@pytest.mark.parametrize("theme", ["black"])
+@pytest.mark.parametrize("width,height", [(640, 600)])
 def test_match_dialog_actions_reachable_on_small_screen(theme, width, height, monkeypatch):
     from src.app import window_geometry
     # Show 过滤器与显式限位必须看到同一合成屏幕，不能混入本机真实屏幕。

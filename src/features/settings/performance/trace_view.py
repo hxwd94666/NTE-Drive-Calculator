@@ -27,7 +27,7 @@ class PerformanceTraceView(QWidget):
         grid = QGridLayout()
         self.choices = []
         for i, label in enumerate(LABELS):
-            box = QCheckBox(label)
+            box = QCheckBox(ui_enum_text(self.text_catalog, label))
             box.setToolTip(SERVICES[i])
             box.setChecked(i == 0)
             grid.addWidget(box, i // 4, i % 4)
@@ -57,7 +57,7 @@ class PerformanceTraceView(QWidget):
         try:
             self.controller.start_trace(sum(1 << i for i, box in enumerate(self.choices) if box.isChecked()))
         except (PermissionError, ValueError) as error:
-            self.status.setText(str(error))
+            self.status.setText(ui_enum_text(self.text_catalog, str(error)))
 
     def render(self, value):
         # 保存、失败和停止未确认分别展示；嵌套阶段不在界面相加。
@@ -70,13 +70,14 @@ class PerformanceTraceView(QWidget):
                  'saved': '已停止并保存', 'failed': '采样未完整完成', 'unconfirmed': '停止未确认'}.get(value.get('state'), '等待组件')
         if running and value.get('stopping'):
             state = '正在停止并落盘'
-        text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.settings.performance.trace_view.render.text', state=f'{state}', value=f"{value.get('written', 0)}", value_2=f"{value.get('dropped', 0)}")
+        catalog = getattr(self, 'text_catalog', None)
+        text = resolve_text_catalog(catalog).render('frontend.settings.performance.trace_view.render.text', state=f'{ui_enum_text(catalog, state)}', value=f"{value.get('written', 0)}", value_2=f"{value.get('dropped', 0)}")
         if value.get('error'):
-            text += '\n' + value['error']
+            text += '\n' + ui_enum_text(catalog, value['error'])
         if value.get('log_path'):
-            text += '\nCalc 摘要：' + value['log_path']
+            text += '\n' + ui_enum_text(catalog, 'Calc 摘要：') + value['log_path']
         if value.get('path'):
-            text += '\n原始采样：' + value['path']
+            text += '\n' + ui_enum_text(catalog, '原始采样：') + value['path']
         self.status.setText(text)
         rows = []
         for summary in value.get('summaries', []):
@@ -85,8 +86,8 @@ class PerformanceTraceView(QWidget):
                 if result['n']:
                     label = ui_enum_text(getattr(self, 'text_catalog', None), PHASE_LABELS).get(phase, phase)
                     if phase == 'body' and source != 'hud_frame':
-                        label = '本次服务总计'
-                    rows.append((f'{LABELS[SERVICES.index(source)]} / {label}', result))
+                        label = ui_enum_text(catalog, '本次服务总计')
+                    rows.append((f'{ui_enum_text(catalog, LABELS[SERVICES.index(source)])} / {label}', result))
         self.table.setRowCount(len(rows))
         for i, (name, result) in enumerate(rows):
             cells = [name, str(result['n']), *(f"{result[k]/1000:.3f}" for k in ('p95', 'p99', 'max'))]

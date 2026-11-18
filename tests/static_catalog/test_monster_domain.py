@@ -97,7 +97,8 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
         self.assertEqual(36, self._page("official_illustrated").total)
         self.assertEqual(10170, self._page("template_profile").total)
         self.assertEqual(7, self._page("world_boss").total)
-        self.assertEqual(32, self._page("feast").total)
+        # 关卡 7 为双目标，每个目标各 4 个难度：8 关共 36 个可选组合。
+        self.assertEqual(36, self._page("feast").total)
         self.assertEqual(246, self._page("clone").total)
         self.assertEqual(78, self._page("high_risk").total)
 
@@ -463,6 +464,8 @@ class StaticCatalogMonsterDomainTests(unittest.TestCase):
                         setup.stage_id,
                         setup.default_difficulty_id,
                         selected_option_ids=(option.option_id,),
+                        # 多目标关卡没有默认目标，须显式选择；未选时详情有意返回 None。
+                        boss_monster_id=setup.boss_monster_id or setup.targets[0].monster_id,
                     )
                     option_values.extend(next(
                         section.values for section in detail.sections

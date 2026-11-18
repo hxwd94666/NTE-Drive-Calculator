@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.history.records import BattleReportHistoryEntry
 from src.domain.teams.models import Team
 
@@ -43,7 +44,7 @@ class ReportRange:
     @property
     def label(self):
         if self.scope == "range":
-            return f"指定时段 {self.start_us / 1_000_000:g}–{self.end_us / 1_000_000:g} 秒"
+            return localized_text(None, 'auto.domain.teams.report_matching.label.f66d5c297', '指定时段 {value}–{value_2} 秒', value=f'{self.start_us / 1_000_000:g}', value_2=f'{self.end_us / 1_000_000:g}')
         return {"all": "整场", "first": "上半场", "second": "下半场"}[self.scope]
 
     def selector_fields(self):

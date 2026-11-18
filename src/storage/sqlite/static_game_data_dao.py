@@ -92,12 +92,12 @@ def resolve_static_database(database_path: str | Path | None = None) -> Path:
         resolved = Path(database_path).expanduser().resolve()
         if resolved.is_file():
             return resolved
-        raise StaticGameDataError(f"静态数据库不存在：{resolved}")
+        raise StaticGameDataError(f"静态数据库不存在：{resolved}")  # ui-text: internal
     for candidate in static_database_candidates():
         if candidate.is_file():
             return candidate
     checked = "、".join(str(path) for path in static_database_candidates())
-    raise StaticGameDataError(f"找不到静态数据库；已检查：{checked}")
+    raise StaticGameDataError(f"找不到静态数据库；已检查：{checked}")  # ui-text: internal
 
 
 from src.storage.sqlite.catalog.static_game_data_queries import StaticGameDataError, StaticGameDataQueriesMixin
@@ -122,7 +122,7 @@ class StaticGameDataDao(StaticGameDataQueriesMixin):
             else None
         )
         if expected_version is not None and expected_version <= 0:
-            raise ValueError("expected_schema_version 必须为正整数")
+            raise ValueError("expected_schema_version 必须为正整数")  # ui-text: internal
         self._schema_version = SCHEMA_VERSION
         self.database_path = resolve_static_database(database_path)
         norm_key = os.path.normcase(str(self.database_path))
@@ -150,7 +150,7 @@ class StaticGameDataDao(StaticGameDataQueriesMixin):
                     except sqlite3.Error as exc:
                         raise StaticGameDataError(
                             f"无法打开静态数据库：{self.database_path}"
-                        ) from exc
+                        ) from exc  # ui-text: internal
                     _configure_static_connection(conn)
                     _SHARED_STATIC_CONNECTIONS[norm_key] = conn
                     self._connection = conn
@@ -161,7 +161,7 @@ class StaticGameDataDao(StaticGameDataQueriesMixin):
             except sqlite3.Error as exc:
                 raise StaticGameDataError(
                     f"无法打开静态数据库：{self.database_path}"
-                ) from exc
+                ) from exc  # ui-text: internal
             _configure_static_connection(self._connection)
 
         try:
@@ -182,7 +182,7 @@ class StaticGameDataDao(StaticGameDataQueriesMixin):
             self.close(force=True)
             raise StaticGameDataError(
                 f"不支持的静态数据库结构版本：{version!r}；需要 {expected_version}"
-            )
+            )  # ui-text: internal
         if expected_version is None and resolved_version not in range(
             MINIMUM_SUPPORTED_SCHEMA_VERSION, SCHEMA_VERSION + 1,
         ):
@@ -190,7 +190,7 @@ class StaticGameDataDao(StaticGameDataQueriesMixin):
             raise StaticGameDataError(
                 f"不支持的静态数据库结构版本：{version!r}；支持 "
                 f"{MINIMUM_SUPPORTED_SCHEMA_VERSION} 至 {SCHEMA_VERSION}"
-            )
+            )  # ui-text: internal
         self._schema_version = resolved_version
 
     @property

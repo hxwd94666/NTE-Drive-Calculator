@@ -613,7 +613,7 @@ class StaticGameDataExtendedQueriesMixin(ForkPermanentPropertyProjectionMixin):
     ) -> dict[str, Any] | None:
         """返回普通或 999 夜属性包及分元素抗性。"""
         if profile_set not in ("standard", "night_999"):
-            raise ValueError("profile_set 必须是 standard 或 night_999")
+            raise ValueError("profile_set 必须是 standard 或 night_999")  # ui-text: internal
         profile = self._one(
             """
             SELECT profile_set, pack_id, defense_base, defense_up, defense_add,

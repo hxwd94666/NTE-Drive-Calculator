@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.domain.battle_report.analysis.composition import BattleRangeRoleSummary
 from src.features.battle_report.analysis.view import BattleLongAnalysisView
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleReportCompositionUiTests(unittest.TestCase):

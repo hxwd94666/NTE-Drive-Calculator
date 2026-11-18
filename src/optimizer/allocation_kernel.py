@@ -16,6 +16,7 @@ from collections.abc import Callable
 import re
 from typing import Mapping, Sequence
 
+from src.domain.localization.catalog import localized_text
 from src.models.equipment import Drive, Tape
 from src.domain.equipment.properties.suit_identity import tape_matches_suit_target
 from src.optimizer.dispatcher import DispatcherEngine
@@ -320,7 +321,7 @@ class AllocationKernel:
             ]
             if not set_cores:
                 plan["missing_core_reason"] = (
-                    f"固定快照中没有套装为 {target_set or '任意套装'} 的卡带"
+                    localized_text(None, 'auto.optimizer.allocation_kernel.annotate_missing_core_reasons.fb6b86625', '固定快照中没有套装为 {value} 的卡带', value=f"{target_set or '任意套装'}")
                 )
                 continue
             allowed_mains = tuple(request.core_main_filters.get(role) or ())
@@ -336,8 +337,7 @@ class AllocationKernel:
             ]
             if not main_cores:
                 plan["missing_core_reason"] = (
-                    f"固定快照中没有同时满足 {target_set or '任意套装'}"
-                    f"与 {'/'.join(allowed_mains)} 主词条的卡带"
+                    localized_text(None, 'auto.optimizer.allocation_kernel.annotate_missing_core_reasons.f16d0a94a', '固定快照中没有同时满足 {value}与 {value_2} 主词条的卡带', value=f"{target_set or '任意套装'}", value_2=f"{'/'.join(allowed_mains)}")
                 )
                 continue
             screened = [
@@ -355,7 +355,7 @@ class AllocationKernel:
             ]
             if not available:
                 plan["missing_core_reason"] = (
-                    f"满足条件的 {len(screened)} 张唯一卡带已分配给其他角色"
+                    localized_text(None, 'auto.optimizer.allocation_kernel.annotate_missing_core_reasons.fa7a4c244', '满足条件的 {count} 张唯一卡带已分配给其他角色', count=f'{len(screened)}')
                 )
             elif request.crit_rate_caps.get(role) is not None or request.property_limits.get(role):
                 plan["missing_core_reason"] = (
@@ -394,7 +394,7 @@ class AllocationKernel:
         )
         drives = [item for item in plan_items if isinstance(item, Drive)]
         if blueprint and len(drives) != expected_modules:
-            return f"图纸需要 {expected_modules} 个驱动，当前方案仅分配 {len(drives)} 个"
+            return localized_text(None, 'auto.optimizer.allocation_kernel.diagnostic_reason.f49c13440', '图纸需要 {expected_modules} 个驱动，当前方案仅分配 {count} 个', expected_modules=f'{expected_modules}', count=f'{len(drives)}')
         if len({item.uid for item in plan_items}) != len(plan_items):
             return "方案包含重复驱动 UID，无法安全分配"
         if self._violates_limits(
@@ -428,8 +428,7 @@ class AllocationKernel:
                 for candidate in blueprints
             )
             return (
-                f"缺少 {shape} 驱动：图纸至少需要 {required} 个，"
-                f"当前可用 {available_shapes.get(shape, 0)} 个（还缺 {count} 个）"
+                localized_text(None, 'auto.optimizer.allocation_kernel.diagnostic_reason.f9a6efe71', '缺少 {shape} 驱动：图纸至少需要 {required} 个，当前可用 {value} 个（还缺 {count} 个）', shape=f'{shape}', required=f'{required}', value=f'{available_shapes.get(shape, 0)}', count=f'{count}')
             )
 
         for group in request.priority_groups or ():

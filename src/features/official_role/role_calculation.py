@@ -250,7 +250,7 @@ def _build_margin_group(
     graduation_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_margin_group.graduation_label'))
     graduation_label.setObjectName("officialRoleGraduationRate")
     graduation_label.setStyleSheet("font-weight:bold;color:#ffaa00;font-size:14px;")
-    graduation_label.setToolTip(_graduation_tooltip(detail))
+    graduation_label.setToolTip(_graduation_tooltip(detail, getattr(window, 'text_catalog', None)))
     header.addWidget(graduation_label)
     damage_label = plain_label(resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.official_role.build_margin_group.damage_label'))
     damage_label.setObjectName("officialRoleDamageScore")
@@ -278,6 +278,7 @@ def _build_margin_group(
                 margins=margins,
                 base_property_weights=detail.get("property_weights") or {},
                 base_main_property_weights=detail.get("main_property_weights") or {},
+                calculator=calculator,
             )
             editor["marginal_property_weights"] = final_weights["property_weights"]
             editor["marginal_main_property_weights"] = final_weights["main_property_weights"]

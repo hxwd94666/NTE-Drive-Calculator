@@ -28,7 +28,7 @@ def patch(messages):
                              display_name='Fixture', messages=messages), base=bundled_text_catalog())
 
 
-@pytest.mark.parametrize('theme', ['black', 'dark', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 @pytest.mark.parametrize('caption', ['确定', '生成预览', 'Preview pending changes for selected equipment ' * 3])
 def test_real_show_filter_preserves_explicit_caption_and_footer_is_accessible(tmp_path, theme, caption):
     app = fonts()

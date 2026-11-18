@@ -131,7 +131,7 @@ class StaticCatalogMechanicsService:
     ) -> tuple[MechanicsCard, ...]:
         family = FAMILY_BY_KEY.get(str(family_key))
         if family is None:
-            raise ValueError(f"未知机制家族：{family_key!r}")
+            raise ValueError(f"未知机制家族：{family_key!r}")  # ui-text: internal
         needle = str(query).strip().casefold()
         cards = self._formula_cards(family.key, needle)
         return tuple(sorted(cards, key=self._card_sort_key)[:limit])
@@ -160,7 +160,7 @@ class StaticCatalogMechanicsService:
             if not isinstance(raw, CatalogDetail):
                 raise LookupError("效果详情不可用")
             return self._effect_detail(raw, record_id)
-        raise ValueError(f"不支持的战斗机制记录：{kind!r}")
+        raise ValueError(f"不支持的战斗机制记录：{kind!r}")  # ui-text: internal
 
     def _formula_cards(self, family_key: str, needle: str) -> list[MechanicsCard]:
         rows = []

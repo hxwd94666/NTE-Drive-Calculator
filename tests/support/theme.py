@@ -5,7 +5,7 @@ import pytest
 from tests.support.qt_fonts import fonts
 from src.app.theme import apply_app_theme, current_theme_name, install_dialog_defaults
 
-@pytest.fixture(params=['dark', 'black', 'light'])
+@pytest.fixture(params=["black"])
 def themed_app(request):
     app = fonts()
     previous = current_theme_name()

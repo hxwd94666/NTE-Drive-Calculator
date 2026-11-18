@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.storage.sqlite.user_data_support import (
     UserDataError,
     UserDataValidationError,
@@ -107,7 +108,7 @@ class EquipmentApplyJobDaoMixin(UserDataDaoMixinHost):
                 (raw_snapshot_id, now),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建装配任务后未返回 job_id")
+                raise UserDataError("创建装配任务后未返回 job_id")  # ui-text: internal
             job_id = int(cursor.lastrowid)
             for ordinal, raw_role in enumerate(prepared_roles):
                 role = _plain_object(raw_role, f"prepared_roles[{ordinal}]")
@@ -172,22 +173,22 @@ class EquipmentApplyJobDaoMixin(UserDataDaoMixinHost):
         if status == "running":
             connection.execute("UPDATE equipment_apply_job_item SET status = 'running', attempt_count = attempt_count + 1, started_at_utc = ?, last_error = NULL WHERE job_item_id = ?", (now, raw_item_id))
             connection.execute("UPDATE equipment_apply_job SET status = 'running', started_at_utc = COALESCE(started_at_utc, ?), last_error = NULL WHERE job_id = ?", (now, item["job_id"]))
-            message, level = f"开始处理角色 [{item['role_name']}]", "info"
+            message, level = localized_text(None, 'auto.storage.sqlite.equipment.equipment_apply_job_dao.mark_equipment_apply_job_item.fbe031b3b', '开始处理角色 [{value}]', value=f"{item['role_name']}"), "info"
         elif status == "succeeded":
             connection.execute("UPDATE equipment_apply_job_item SET status = 'succeeded', before_snapshot_id = ?, after_snapshot_id = ?, completed_at_utc = ?, last_error = NULL WHERE job_item_id = ?", (before_snapshot_id, after_snapshot_id, now, raw_item_id))
             message, level = (
-                (f"角色 [{item['role_name']}] 装配已确认", "info")
+                (localized_text(None, 'auto.storage.sqlite.equipment.equipment_apply_job_dao.mark_equipment_apply_job_item.f69e38aa2', '角色 [{value}] 装配已确认', value=f"{item['role_name']}"), "info")
                 if verified
-                else (f"角色 [{item['role_name']}] 装配指令已下发，待下次稳定背包同步更新", "info")
+                else (localized_text(None, 'auto.storage.sqlite.equipment.equipment_apply_job_dao.mark_equipment_apply_job_item.f1d228c88', '角色 [{value}] 装配指令已下发，待下次稳定背包同步更新', value=f"{item['role_name']}"), "info")
             )
             if skipped_count:
                 # succeeded表示本次可用子集处理完毕，不宣称已保存的原方案完整落地。
                 state = "可用装备已确认" if verified else "可用装备指令已下发，等待复核"
-                message = f"角色 [{item['role_name']}] 部分装配：{state}，已跳过 {skipped_count} 件"
+                message = localized_text(None, 'auto.storage.sqlite.equipment.equipment_apply_job_dao.mark_equipment_apply_job_item.fb4a9e38d', '角色 [{value}] 部分装配：{state}，已跳过 {skipped_count} 件', value=f"{item['role_name']}", state=f'{state}', skipped_count=f'{skipped_count}')
         else:
             connection.execute("UPDATE equipment_apply_job_item SET status = 'failed', completed_at_utc = ?, last_error = ? WHERE job_item_id = ?", (now, str(error or "未知错误"), raw_item_id))
             connection.execute("UPDATE equipment_apply_job SET status = 'failed', last_error = ? WHERE job_id = ?", (str(error or "未知错误"), item["job_id"]))
-            message, level = f"角色 [{item['role_name']}] 失败：{error or '未知错误'}", "error"
+            message, level = localized_text(None, 'auto.storage.sqlite.equipment.equipment_apply_job_dao.mark_equipment_apply_job_item.fe8e55544', '角色 [{value}] 失败：{value_2}', value=f"{item['role_name']}", value_2=f"{error or '未知错误'}"), "error"
         connection.execute("INSERT INTO equipment_apply_job_log(job_id, job_item_id, created_at_utc, level, message) VALUES (?, ?, ?, ?, ?)", (item["job_id"], raw_item_id, now, level, message))
         connection.commit()
 

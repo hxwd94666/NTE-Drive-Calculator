@@ -1,4 +1,5 @@
 # 在后台执行显式组件更新，界面只解释前置条件和已确认的操作结果。
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from pathlib import Path
 
@@ -77,7 +78,7 @@ class NativePluginUpdateController(QObject):
             if not directory.is_absolute():
                 raise RuntimeError('游戏组件目录尚未确认。')
         except Exception as error:
-            QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), str(error))
+            QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
             return
         if QMessageBox.question(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'),
             plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox_2')),
@@ -96,14 +97,14 @@ class NativePluginUpdateController(QObject):
                 raise RuntimeError('游戏进程或组件目录已改变，请重新发起更新。')
         except Exception as error:
             if not self._closing and self.generation() == expected:
-                QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), str(error))
+                QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
             return
         worker = _UpdateWorker(None, self)
         try:
             self.maintenance.begin()
         except Exception as error:
             worker.deleteLater()
-            QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), str(error))
+            QMessageBox.warning(owner, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.request.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
             return
 
         def work():

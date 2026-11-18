@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt, Signal
@@ -354,7 +355,7 @@ class CharacterDetailView(QWidget):
             elif "male" in actor_path:
                 label = "男性形象"
             else:
-                label = f"形象 {index}"
+                label = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.profile.render_variants.fe49b6a59', '形象 {index}', index=f'{index}')
             button = QPushButton(ui_enum_text(getattr(self, 'text_catalog', None), label), self.identity_panel)
             button.setCheckable(True)
             button.setChecked(character_id == active_character_id)
@@ -394,7 +395,7 @@ class CharacterDetailView(QWidget):
                 continue
             panel_grid.addWidget(self._detail_tile(
                 f"Lv.{level}",
-                f"生命 {_number(point.hp_base)}  ·  攻击 {_number(point.atk_base)}  ·  防御 {_number(point.def_base)}",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.profile.render_overview.f908e1a44', '生命 {value}  ·  攻击 {value_2}  ·  防御 {value_3}', value=f'{_number(point.hp_base)}', value_2=f'{_number(point.atk_base)}', value_3=f'{_number(point.def_base)}'),
             ), panel_index // panel_columns, panel_index % panel_columns)
             panel_index += 1
         for column in range(panel_columns):
@@ -412,7 +413,7 @@ class CharacterDetailView(QWidget):
         if bonus is None:
             self.affinity_layout.addWidget(self._muted("当前正式数据未提供好感度属性"))
         else:
-            hero = self._panel(f"好感度 Lv.{bonus.required_level} 奖励")
+            hero = self._panel(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.profile.render_affinity.feb6175b8', '好感度 Lv.{required_level} 奖励', required_level=f'{bonus.required_level}'))
             for item in bonus.properties:
                 value = item.value * 100 if item.show_percent else item.value
                 suffix = "%" if item.show_percent else ""

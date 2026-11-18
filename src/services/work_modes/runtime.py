@@ -8,6 +8,7 @@ from threading import RLock
 from time import monotonic
 from typing import Callable
 
+from src.domain.localization.catalog import localized_text
 from src.domain.preferences.work_mode import CheckState, WorkModeProbe
 from src.integrations.analysis_core.analysis_core_release import create_bundled_analysis_client
 from src.integrations.components.game_component_bundle import inspect_game_component_bundle
@@ -57,7 +58,7 @@ def _cleanup_error_detail(error: Exception) -> str:
     else:
         reason = str(error) or type(error).__name__
     filename = getattr(cause, "filename", None)
-    evidence = ([f"文件：{Path(filename).name}"] if filename else []) + ([f"系统错误 {code}"] if code is not None else [])
+    evidence = ([localized_text(None, 'auto.services.work_modes.runtime.cleanup_error_detail.f7e1a6b77', '文件：{name}', name=f'{Path(filename).name}')] if filename else []) + ([localized_text(None, 'auto.services.work_modes.runtime.cleanup_error_detail.fdf452ecd', '系统错误 {code}', code=f'{code}')] if code is not None else [])
     return "组件清理失败：" + reason + ("（" + "；".join(evidence) + "）" if evidence else "")
 
 

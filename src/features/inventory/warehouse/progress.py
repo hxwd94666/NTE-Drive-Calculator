@@ -41,7 +41,8 @@ def show_warehouse_state_progress(
     close_warehouse_state_progress(window)
     messages: SimpleQueue[str] = SimpleQueue()
     dialog = QProgressDialog(
-        f"正在准备写入 {change_count} 件装备状态…",
+        resolve_text_catalog(getattr(window, 'text_catalog', None)).render(
+            'ui.inventory.warehouse_state_progress.preparing', count=f'{change_count}'),
         "",
         0,
         0,

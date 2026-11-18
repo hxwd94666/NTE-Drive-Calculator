@@ -1,4 +1,5 @@
 # 持有队伍页和当前编辑弹窗；账号切换撤销旧草稿，失败保留可重试编辑内容。
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import resolve_text_catalog, set_button_text
 import sqlite3
 
@@ -54,7 +55,7 @@ class TeamController(QObject):
                 roles = service.roles()
                 warning = ""
             except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
-                roles, warning = (), f"角色资料暂不可用：{error}。已保存队伍仍保留。"
+                roles, warning = (), localized_text(getattr(self, 'text_catalog', None), 'auto.features.teams.controller.refresh.f2f5c8705', '角色资料暂不可用：{error}。已保存队伍仍保留。', error=f'{error}')
             service.checkpoint()
             self._teams = {team.team_id: team for team in teams}
             self._roles = {role.character_id: role.name for role in roles}
@@ -133,7 +134,9 @@ class TeamController(QObject):
         if team is None:
             return
         service = self._service_provider()
-        box = QMessageBox(QMessageBox.Warning, "删除队伍", f"删除队伍“{team.name}”？\n角色、配装和战报不会被删除。",
+        catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
+        box = QMessageBox(QMessageBox.Warning, catalog.render('teams.menu.delete'),
+                          catalog.render('ui.teams.delete.confirm', name=f'{team.name}'),
                           QMessageBox.Yes | QMessageBox.Cancel, self.page)
         box.setTextFormat(Qt.PlainText)
         box.setTextFormat(Qt.PlainText)

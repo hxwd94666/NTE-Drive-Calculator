@@ -10,6 +10,7 @@ from src.domain.battle_report.capture.summary import BattleAbyssSummary, BattleQ
 from src.domain.battle_report.capture.state import BattleCaptureState
 from src.features.battle_report.capture.comparison_panel import BattleCaptureComparisonPanel
 from src.features.battle_report.page import BattleReportPage
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 def _state(

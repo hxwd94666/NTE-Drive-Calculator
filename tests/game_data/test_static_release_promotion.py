@@ -41,6 +41,13 @@ NTE_TEST_TIER = "core"
 
 
 class StaticReleasePromotionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 本模块守护晋升的文件原子性与回滚；手写最小库不含套装来源。
+        # 套装常驻审查门禁由 tests/allocation/test_suit_permanent_* 用正式来源专项覆盖。
+        patcher = patch("tools.game_data.static_database_suit_permanent.validate_suit_permanent")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_source_hash_match_does_not_allow_paths_outside_content_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

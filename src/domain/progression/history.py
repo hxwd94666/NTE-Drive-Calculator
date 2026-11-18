@@ -72,7 +72,7 @@ def utc_time(value: object) -> str | None:
 
 def unique(values: list[dict[str, Any]], field: str) -> None:
     if len({row[field] for row in values}) != len(values):
-        raise ValueError(f"养成历史包含重复 {field}")
+        raise ValueError(f"养成历史包含重复 {field}")  # ui-text: internal
 
 
 def _state(value: dict[str, Any]) -> None:

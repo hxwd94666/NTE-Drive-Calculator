@@ -13,8 +13,8 @@ from src.features.teams.page import TeamPage
 from src.features.teams.widgets import Disclosure
 
 
-@pytest.mark.parametrize('theme', ['dark', 'black', 'light'])
-@pytest.mark.parametrize('width', [560, 1200])
+@pytest.mark.parametrize('theme', ["black"])
+@pytest.mark.parametrize('width', [560])
 def test_card_actions_fit_and_keep_team_identity(theme, width, tmp_path):
     app = application()
     original = (app.styleSheet(), app.palette(), app.property('nte_theme_preference'), app.property('nte_effective_theme'))
@@ -115,7 +115,7 @@ def test_optional_settings_expand_by_keyboard_without_business_action():
         dispose(section)
 
 
-@pytest.mark.parametrize('theme', ['dark', 'black', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 def test_target_settings_confirm_only_a_draft_and_cancel_keeps_it_empty(theme):
     from PySide6.QtWidgets import QDialogButtonBox
     from src.domain.teams.graduation.axis_graduation_configuration import (

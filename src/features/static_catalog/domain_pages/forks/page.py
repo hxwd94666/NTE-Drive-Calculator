@@ -513,7 +513,7 @@ class ForkCatalogPage(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        QTimer.singleShot(0, self._layout_sections)
+        QTimer.singleShot(0, self, self._layout_sections)
 
     def open_fork(self, fork_id: str) -> None:
         detail = self._fork_service.get_fork(str(fork_id))

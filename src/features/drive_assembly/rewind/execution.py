@@ -42,6 +42,8 @@ class RewindExecutionRequest:
     qualities: tuple[str, ...] = ("gold",)
     drive_customization: str = "none"
     shape_ids: tuple[str, ...] = ()
+    # 每个品质最多进行的十连次数（正整数）；未列出的品质按识别余额可做的整十连次数执行。
+    ten_limits: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +100,7 @@ def execute_rewind_request(
     ) or ("gold",)
     primary_quality = selected_qualities[0]
     difficulty = QUALITY_TO_DIFFICULTY[primary_quality]
+    limits = dict(request.ten_limits)
 
     try:
         with use_ocr_session(should_stop=stop_checker, engine=ocr_engine) as ocr:
@@ -135,14 +138,18 @@ def execute_rewind_request(
                     controls = _absolute_controls(relative, selected_rect)
                     currency = _read_currency(image, relative["currency_counter_region"], ocr)
                     if currency is None:
-                        raise RuntimeError(f"未识别到 {quality_difficulty} 的倒带货币数量")
+                        raise RuntimeError(f"未识别到 {quality_difficulty} 的倒带货币数量")  # ui-text: internal
                     ten_cost = REWIND_COST_PER_TEN
                     if uses_custom_price:
                         custom_cost = _read_currency(image, relative["custom_ten_cost_region"], ocr)
                         if custom_cost is None or custom_cost <= 0:
-                            raise RuntimeError(f"未识别到 {quality_difficulty} 的定制十连价格")
+                            raise RuntimeError(f"未识别到 {quality_difficulty} 的定制十连价格")  # ui-text: internal
                         ten_cost = custom_cost
                     ten_count = max(0, currency // ten_cost)
+                    # 用户上限只会减少次数：余额不足时以余额为准，绝不超过识别到的可做次数。
+                    limit = limits.get(quality)
+                    if limit is not None:
+                        ten_count = min(ten_count, limit)
                     draws = ten_count * REWIND_DRAWS_PER_TEN
                     remaining = currency - ten_count * ten_cost
                     total_currency += currency
@@ -210,9 +217,9 @@ def close_rewind_input_backend(
     detail = "；".join(f"{stage}: {type(error).__name__}: {error}" for stage, error in errors)
     # 保留首要故障；独立附注收尾错误。正常业务也不能把收尾失败报为成功。
     if primary_error is not None:
-        primary_error.add_note(f"倒带输入收尾失败：{detail}")
+        primary_error.add_note(f"倒带输入收尾失败：{detail}")  # ui-text: internal
         return
-    raise RuntimeError(f"倒带输入收尾失败：{detail}") from errors[0][1]
+    raise RuntimeError(f"倒带输入收尾失败：{detail}") from errors[0][1]  # ui-text: internal
 
 
 def _dismiss_rewind_result(
@@ -286,6 +293,11 @@ def _validate_rewind_request(request: RewindExecutionRequest) -> None:
         raise ValueError(f"unknown rewind drive customization mode: {request.drive_customization}")
     if request.drive_customization == "apply_plan" and len(request.shape_ids) != 8:
         raise ValueError("应用倒带方案需要恰好 8 个驱动候选")
+    seen: set[str] = set()
+    for quality, limit in request.ten_limits:
+        if quality not in QUALITY_TO_DIFFICULTY or quality in seen or type(limit) is not int or limit <= 0:
+            raise ValueError("倒带十连次数上限无效")
+        seen.add(quality)
 
 
 def _shape_control_name(shape_id: str) -> str:
@@ -294,7 +306,7 @@ def _shape_control_name(shape_id: str) -> str:
         "H_2", "V_2", "H_3", "V_3", "H_4", "V_4",
         "Trap_4_H", "Trap_4_V", "L_3_BL", "L_3_TL", "L_3_TR", "L_3_BR",
     }:
-        raise ValueError(f"未映射的倒带驱动形状: {shape_id}")
+        raise ValueError(f"未映射的倒带驱动形状: {shape_id}")  # ui-text: internal
     return normalized
 
 

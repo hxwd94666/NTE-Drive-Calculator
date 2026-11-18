@@ -185,7 +185,7 @@ class CustomCharacterDaoMixin:
                     (name,),
                 ).fetchone()
                 if existing is not None:
-                    raise UserDataValidationError(f"自建角色名称已存在：{name}")
+                    raise UserDataValidationError(f"自建角色名称已存在：{name}")  # ui-text: internal
                 row = connection.execute(
                     "SELECT MAX(character_id) AS maximum FROM custom_character"
                 ).fetchone()

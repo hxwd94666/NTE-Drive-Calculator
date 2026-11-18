@@ -8,6 +8,7 @@ from src.domain.battle_report.replay.models import BattleHitReplayFactor, Battle
 from src.domain.battle_report.analysis.composition import BattleRangeSkillSummary
 from src.features.battle_report.analysis.view import BattleLongAnalysisView
 from src.features.battle_report.timeline.layout import TimelineSelection
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleHitNavigationUiTests(unittest.TestCase):

@@ -2,6 +2,7 @@
 """Residual fork rules that must not fabricate unavailable runtime state."""
 
 from __future__ import annotations
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.forks.parameters import effect_parameter
 
 from typing import Any
@@ -107,8 +108,7 @@ def _rules_dustbin(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
         factory,
         suffix="dustbin-topple-reduction-trigger",
         name=(
-            f"危险游戏：削减倾陷值后倾陷强度（持续 {values[1]:g} 秒，"
-            f"冷却 {values[2]:g} 秒；缺少削韧事件）"
+            localized_text(None, 'auto.services.battle_report.forks.residual_completion.rules_dustbin.f57281728', '危险游戏：削减倾陷值后倾陷强度（持续 {value} 秒，冷却 {value_2} 秒；缺少削韧事件）', value=f'{values[1]:g}', value_2=f'{values[2]:g}')
         ),
         modifiers=(_modifier("UnbalIntensityAdd", values[0]),),
     ),)
@@ -142,8 +142,7 @@ def _rules_jingmo(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
             factory,
             suffix="jingmo-active-damage",
             name=(
-                f"茶花会：随机主动攻击（冷却 {values[3]:g} 秒；"
-                "缺少玩家生命变化与主动事件）"
+                localized_text(None, 'auto.services.battle_report.forks.residual_completion.rules_jingmo.fde229470', '茶花会：随机主动攻击（冷却 {value} 秒；缺少玩家生命变化与主动事件）', value=f'{values[3]:g}')
             ),
             modifiers=(
                 _modifier("HPCurrentReductionRatio", values[1]),
@@ -181,8 +180,7 @@ def _rules_energy(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
         factory,
         suffix="energy-after-e",
         name=(
-            f"灵感大逃杀：E 后终结能量（冷却 {values[1]:g} 秒；"
-            "固定轴不补造后续 Q）"
+            localized_text(None, 'auto.services.battle_report.forks.residual_completion.rules_energy.f4aa13f39', '灵感大逃杀：E 后终结能量（冷却 {value} 秒；固定轴不补造后续 Q）', value=f'{values[1]:g}')
         ),
         modifiers=(_modifier("UltraEnergyAdd", values[0]),),
     ),)
@@ -195,8 +193,7 @@ def _rules_mamen(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
         factory,
         suffix="mamen-fons-stack",
         name=(
-            f"思考喵：每 {values[0]:g} 方斯一层光伤"
-            "（战报没有方斯事实，用户默认十层）"
+            localized_text(None, 'auto.services.battle_report.forks.residual_completion.rules_mamen.f77351be5', '思考喵：每 {value} 方斯一层光伤（战报没有方斯事实，用户默认十层）', value=f'{values[0]:g}')
         ),
         modifiers=(_modifier("DamageUpCosmosBase", values[1]),),
         scope="self",
@@ -234,8 +231,7 @@ def _rules_vine(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
         factory,
         suffix="vine-kill-heal",
         name=(
-            f"笑口常开：击杀回复（冷却 {values[1]:g} 秒；"
-            "战报没有正式击杀事件）"
+            localized_text(None, 'auto.services.battle_report.forks.residual_completion.rules_vine.f5566822c', '笑口常开：击杀回复（冷却 {value} 秒；战报没有正式击杀事件）', value=f'{values[1]:g}')
         ),
         modifiers=(_modifier("HPCurrentRestoreRatio", values[0]),),
     ),)

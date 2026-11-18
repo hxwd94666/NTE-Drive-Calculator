@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.domain.battle_report.capture.state import BattleCaptureState
 from src.features.battle_report.page import BattleReportPage
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleReportCapturePageTests(unittest.TestCase):

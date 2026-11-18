@@ -50,7 +50,7 @@ class AllocationContextError(RuntimeError):
 def _required_text(value: Any, label: str) -> str:
     text = str(value or "").strip()
     if not text:
-        raise AllocationContextError(f"{label} 不能为空")
+        raise AllocationContextError(f"{label} 不能为空")  # ui-text: internal
     return text
 
 
@@ -76,7 +76,7 @@ def _geometry_key(value: Any, label: str) -> str:
 def _official_attribute_id(value: Any, known_attribute_ids: set[str], label: str) -> str:
     attribute_id = _required_text(value, label)
     if attribute_id not in known_attribute_ids:
-        raise AllocationContextError(f"静态数据库没有官方属性 ID：{attribute_id}")
+        raise AllocationContextError(f"静态数据库没有官方属性 ID：{attribute_id}")  # ui-text: internal
     return attribute_id
 
 
@@ -138,12 +138,12 @@ def _candidate(
             matches.sort(key=lambda value: str(value.get("item_id") or ""))
         template = matches[0] if matches else None
     if template is None:
-        raise AllocationContextError(f"静态数据库没有官方装备模板：{item_id}")
+        raise AllocationContextError(f"静态数据库没有官方装备模板：{item_id}")  # ui-text: internal
     if kind != _required_text(template.get("kind"), "官方装备模板 kind"):
-        raise AllocationContextError(f"背包物品 {item_id} 的 kind 与官方模板不一致")
+        raise AllocationContextError(f"背包物品 {item_id} 的 kind 与官方模板不一致")  # ui-text: internal
     suit_id = _optional_text(row.get("suit_id"))
     if suit_id is not None and suit_id not in known_suit_ids:
-        raise AllocationContextError(f"静态数据库没有官方套装 ID：{suit_id}")
+        raise AllocationContextError(f"静态数据库没有官方套装 ID：{suit_id}")  # ui-text: internal
     geometry = _optional_text(row.get("geometry"))
     frozen_geometry = geometry
     if kind == "module":
@@ -151,13 +151,13 @@ def _candidate(
         template_geometry_id = _required_text(template.get("geometry_id"), "官方模块 geometry_id")
         template_geometry = _geometry_key(template_geometry_id, "官方模块 geometry_id")
         if candidate_geometry not in known_geometry_keys:
-            raise AllocationContextError(f"静态数据库没有官方形状 ID：{geometry}")
+            raise AllocationContextError(f"静态数据库没有官方形状 ID：{geometry}")  # ui-text: internal
         if candidate_geometry != template_geometry:
-            raise AllocationContextError(f"背包模块 {item_id} 的 geometry 与官方模板不一致")
+            raise AllocationContextError(f"背包模块 {item_id} 的 geometry 与官方模板不一致")  # ui-text: internal
         frozen_geometry = template_geometry_id
     equipped_character_id = _optional_int(row.get("equipped_character_id"))
     if equipped_character_id is not None and equipped_character_id not in known_character_ids:
-        raise AllocationContextError(f"静态数据库没有已装备角色：{equipped_character_id}")
+        raise AllocationContextError(f"静态数据库没有已装备角色：{equipped_character_id}")  # ui-text: internal
     return AllocationCandidate(
         uid_slot=int(row["uid_slot"]),
         uid_serial=int(row["uid_serial"]),
@@ -188,14 +188,14 @@ def _suit_constraint(
 ) -> SuitConstraint:
     suit = suits_by_id.get(suit_id)
     if suit is None:
-        raise AllocationContextError(f"静态数据库没有官方套装 ID：{suit_id}")
+        raise AllocationContextError(f"静态数据库没有官方套装 ID：{suit_id}")  # ui-text: internal
     required_shape_ids = tuple(
         _required_text(shape_id, "套装 required_shape_id")
         for shape_id in suit.get("required_shape_ids") or ()
     )
     for shape_id in required_shape_ids:
         if _geometry_key(shape_id, "套装 required_shape_id") not in known_geometry_keys:
-            raise AllocationContextError(f"静态数据库没有官方形状 ID：{shape_id}")
+            raise AllocationContextError(f"静态数据库没有官方形状 ID：{shape_id}")  # ui-text: internal
     return SuitConstraint(
         suit_id=suit_id,
         required_shape_ids=required_shape_ids,
@@ -216,10 +216,10 @@ def _role_equipment_constraints(
 
     character_id = int(role["character_id"])
     if character_id not in known_character_ids:
-        raise AllocationContextError(f"静态数据库没有角色 {character_id}")
+        raise AllocationContextError(f"静态数据库没有角色 {character_id}")  # ui-text: internal
     blueprint = static_dao.get_equipment_plan(character_id)
     if blueprint is None:
-        raise AllocationContextError(f"角色 {character_id} 没有官方角色底盘")
+        raise AllocationContextError(f"角色 {character_id} 没有官方角色底盘")  # ui-text: internal
     cells = tuple(
         BlueprintCell(row=int(cell["row"]), column=int(cell["column"]))
         for cell in blueprint.get("cells") or ()
@@ -229,7 +229,7 @@ def _role_equipment_constraints(
         row < 1 or row > 5 or column < 1 or column > 5
         for row, column in positions
     ):
-        raise AllocationContextError(f"角色 {character_id} 的官方底盘必须包含 20 个唯一合法格位")
+        raise AllocationContextError(f"角色 {character_id} 的官方底盘必须包含 20 个唯一合法格位")  # ui-text: internal
     return RoleEquipmentConstraints(character_id=character_id, cells=cells)
 
 
@@ -247,7 +247,7 @@ def _custom_role_equipment_constraints(
         row < 1 or row > 5 or column < 1 or column > 5
         for row, column in positions
     ):
-        raise AllocationContextError(f"自建角色 {character_id} 的底盘必须包含 20 个唯一合法格位")
+        raise AllocationContextError(f"自建角色 {character_id} 的底盘必须包含 20 个唯一合法格位")  # ui-text: internal
     return RoleEquipmentConstraints(character_id=character_id, cells=enabled_cells)
 
 
@@ -326,7 +326,7 @@ def _role_preference(
     target_suit_id = _optional_text(row.get("target_suit_id"))
     suit_requirement_mode = _required_text(row.get("suit_requirement_mode"), "suit_requirement_mode")
     if target_suit_id is not None and target_suit_id not in known_suit_ids:
-        raise AllocationContextError(f"静态数据库没有官方套装 ID：{target_suit_id}")
+        raise AllocationContextError(f"静态数据库没有官方套装 ID：{target_suit_id}")  # ui-text: internal
     return AllocationRolePreference(
         character_id=int(row["character_id"]),
         ordinal=int(row["ordinal"]),
@@ -410,26 +410,26 @@ def build_allocation_context(
     """
 
     if not isinstance(scoring_rules, AllocationScoringRules):
-        raise TypeError("上下文构造必须传入已冻结评分规则")
+        raise TypeError("上下文构造必须传入已冻结评分规则")  # ui-text: internal
     pinned_snapshot_id = int(snapshot_id)
     pinned_profile_id = int(profile_id)
     pinned_profile_version = int(profile_version)
     pinned_solver_version = _required_text(solver_version, "solver_version")
     if min(pinned_snapshot_id, pinned_profile_id, pinned_profile_version) < 1:
-        raise AllocationContextError("snapshot_id、profile_id 和 profile_version 必须大于 0")
+        raise AllocationContextError("snapshot_id、profile_id 和 profile_version 必须大于 0")  # ui-text: internal
 
     account = user_dao.profile()
     try:
         snapshot, inventory_rows = user_dao.export_inventory_snapshot(pinned_snapshot_id)
     except Exception as exc:
-        raise AllocationContextError(f"无法固定背包快照：{pinned_snapshot_id}") from exc
+        raise AllocationContextError(f"无法固定背包快照：{pinned_snapshot_id}") from exc  # ui-text: internal
     profile = user_dao.get_optimization_profile(
         pinned_profile_id, version_number=pinned_profile_version
     )
     if profile is None or profile.get("version") is None:
         raise AllocationContextError(
             f"优化偏好版本不存在：profile_id={pinned_profile_id}, version={pinned_profile_version}"
-        )
+        )  # ui-text: internal
     version = profile["version"]
     static_summary = static_dao.summary()
     dataset = static_summary.get("dataset") or {}

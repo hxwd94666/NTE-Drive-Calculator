@@ -138,8 +138,10 @@ def test_new_capability_does_not_become_an_existing_packaging_requirement(tmp_pa
     assert client.supports_team_axis_graduation_equipment_advice == (
         "team_axis_graduation_equipment_advice_v2" in meta["capabilities"])
     # 发行验收允许缺少新建议能力的既有协议组件；不把本机尚未晋升当作产品不变量。
+    # 基线能力随发行门禁扩充（worker、直伤、分段耗时），仍不含新的毕业装备建议能力。
     legacy_caps = ["battle_page_v1", "main_static_catalog_v1", "allocation_v2", "allocation_blueprints_v1",
-                   "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1"]
+                   "damage_allocation_v1", "equipment_scoring_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1",
+                   "analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"]
     legacy = {**meta, "sha256": hashlib.sha256(exe.read_bytes()).hexdigest(), "capabilities": legacy_caps}
     legacy_manifest = tmp_path / "component.json"
     legacy_manifest.write_text(json.dumps(legacy), encoding="utf8")

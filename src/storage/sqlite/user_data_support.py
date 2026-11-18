@@ -111,17 +111,17 @@ def _json_object(value: Mapping[str, Any], label: str) -> str:
             allow_nan=False,
         )
     except (TypeError, ValueError) as error:
-        raise UserDataValidationError(f"{label} 无法序列化") from error
+        raise UserDataValidationError(f"{label} 无法序列化") from error  # ui-text: internal
 
 
 def _microseconds(value: Any, label: str) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise UserDataValidationError(f"{label} 必须是数字")
+        raise UserDataValidationError(f"{label} 必须是数字")  # ui-text: internal
     normalized = float(value)
     if not math.isfinite(normalized):
-        raise UserDataValidationError(f"{label} 必须是有限数字")
+        raise UserDataValidationError(f"{label} 必须是有限数字")  # ui-text: internal
     return int(round(normalized * 1_000_000.0))
 
 
@@ -169,15 +169,15 @@ def _mark_duplicate_modules(items: Sequence[dict[str, Any]]) -> None:
 
 def _plain_object(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
-        raise UserDataValidationError(f"{label} 必须是对象")
+        raise UserDataValidationError(f"{label} 必须是对象")  # ui-text: internal
     return dict(value)
 
 
 def _integer(value: Any, label: str, *, minimum: int | None = None) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise UserDataValidationError(f"{label} 必须是整数")
+        raise UserDataValidationError(f"{label} 必须是整数")  # ui-text: internal
     if minimum is not None and value < minimum:
-        raise UserDataValidationError(f"{label} 不能小于 {minimum}")
+        raise UserDataValidationError(f"{label} 不能小于 {minimum}")  # ui-text: internal
     return value
 
 
@@ -189,12 +189,12 @@ def _finite_number(
     maximum: float | None = None,
 ) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise UserDataValidationError(f"{label} 必须是数字")
+        raise UserDataValidationError(f"{label} 必须是数字")  # ui-text: internal
     normalized = float(value)
     if not math.isfinite(normalized):
-        raise UserDataValidationError(f"{label} 必须是有限数字")
+        raise UserDataValidationError(f"{label} 必须是有限数字")  # ui-text: internal
     if minimum is not None and normalized < minimum:
-        raise UserDataValidationError(f"{label} 不能小于 {minimum:g}")
+        raise UserDataValidationError(f"{label} 不能小于 {minimum:g}")  # ui-text: internal
     if maximum is not None and normalized > maximum:
-        raise UserDataValidationError(f"{label} 不能大于 {maximum:g}")
+        raise UserDataValidationError(f"{label} 不能大于 {maximum:g}")  # ui-text: internal
     return normalized

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QThread, QTimer
 from PySide6.QtWidgets import QApplication
 
 from src.features.battle_report.analysis.loading import (
@@ -128,6 +128,12 @@ class AnalysisRequestCoalescingTests(unittest.TestCase):
                 host._load_analysis(12, detail_level='hit')
                 QTimer.singleShot(2000, loop.quit)
                 loop.exec()
+                # 进度先结束，线程物理退场后才释放引用；负载下两者可能相隔多轮事件，按条件有界等待。
+                from time import monotonic
+                deadline = monotonic() + 2
+                while host._analysis_load_worker is not None and monotonic() < deadline:
+                    self.app.processEvents()
+                    QThread.msleep(5)
                 self.app.processEvents()
             self.assertIsNone(host._analysis_load_worker)
             page.end_analysis_details.assert_called_once()

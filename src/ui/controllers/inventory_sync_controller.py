@@ -69,7 +69,7 @@ def _start_inventory_sync(self, *, automatic: bool = False):
         if isinstance(error, (NteCoreError, OSError)):
             self.operation_unavailable("背包同步", str(error), target="detection")
         else:
-            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.render.title'), str(error))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.render.title'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
 
 
 def _start_inventory_sync_authorized(self, *, automatic: bool, source: str):
@@ -162,7 +162,7 @@ def _open_raw_capture_directory(self):
     try:
         require_operation(getattr(self, "operation_guard", None), "diagnostics")
     except PermissionError as error:
-        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.open_raw_capture_directory.qmessagebox'), str(error))
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.controllers.open_raw_capture_directory.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(error)))
         return
     directory = (
         self.app_context.account.log_dir / "nte_core" / "raw_capture"

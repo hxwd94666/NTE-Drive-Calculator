@@ -2,6 +2,8 @@
 from __future__ import annotations
 from html import escape
 
+from src.domain.localization.catalog import localized_text
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog, rich_label
 from concurrent.futures import CancelledError
 from copy import deepcopy
@@ -176,7 +178,7 @@ def save_allocation(owner, *, show_message=True, on_saved=None, text_catalog=Non
                 diff = diffs.get(role, {})
                 rows.append(dict(
                     role_name=role, role_state=allocation_role_state_from_plan(plan), character_id=character_id,
-                    snapshot_id=snapshot_id, name=f"计算方案：{role}", score=float(plan.get("score", 0.0) or 0.0),
+                    snapshot_id=snapshot_id, name=localized_text(text_catalog, 'auto.features.allocation.execution.save_workflow.prepare_and_save.f653f78e9', '计算方案：{role}', role=f'{role}'), score=float(plan.get("score", 0.0) or 0.0),
                     slot_id=slot_id, axis_preview_source=plan.get("axis_preview_source"),
                     baseline_preview_source=plan.get("baseline_preview_source"),
                     team_enhancement_preview=plan.get("team_enhancement_preview"),
@@ -253,7 +255,7 @@ def save_allocation(owner, *, show_message=True, on_saved=None, text_catalog=Non
         if saved_count:
             QMessageBox.warning(owner.dialog_parent, resolve_text_catalog(text_catalog).render('rewind.execution.save_plan.save_plan_button'), plain_tooltip(resolve_text_catalog(text_catalog).render('ui.allocation.save_allocation.qmessagebox', error=f'{error}')))
             return True
-        QMessageBox.critical(owner.dialog_parent, resolve_text_catalog(text_catalog).render('roles.page.save_profiles.qmessagebox_2'), str(error))
+        QMessageBox.critical(owner.dialog_parent, resolve_text_catalog(text_catalog).render('roles.page.save_profiles.qmessagebox_2'), ui_enum_text(text_catalog, str(error)))
         return False
     finally:
         if dialog is not None:

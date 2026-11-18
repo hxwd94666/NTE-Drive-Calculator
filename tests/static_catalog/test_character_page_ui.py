@@ -31,6 +31,7 @@ from src.storage.sqlite.catalog.static_catalog_character_queries import (
     StaticCatalogCharacterQueries,
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 NTE_TEST_TIER = "core"

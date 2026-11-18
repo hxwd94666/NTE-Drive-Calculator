@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Callable
 
+from src.domain.localization.catalog import localized_text
 from src.services.static_catalog.monsters.display import NAME_UNAVAILABLE
 from src.services.static_catalog.monsters.models import (
     CatalogValue,
@@ -81,7 +82,7 @@ def build_feast_setup(
         schedule_label=schedule_label,
         stage_id=str(row["stage_id"]),
         title=_name(row.get("name_zh")),
-        boss_name=f"多目标（{len(targets)}）" if len(targets) > 1 else _name(
+        boss_name=localized_text(None, 'auto.services.static_catalog.monsters.feast.build_feast_setup.fc6a2887f', '多目标（{count}）', count=f'{len(targets)}') if len(targets) > 1 else _name(
             next(
                 (
                     item.get("boss_name_zh")
@@ -121,7 +122,7 @@ def feast_mechanism_note(row: dict[str, Any]) -> str:
     if not any(option.get("effect_kind") in {"mechanism_goal", "mechanism"} for option in row.get("options", ())):
         return ""
     cap = row.get("mechanism_score_limit")
-    limit = f"来源声明挑战目标分值上限 {cap}；" if cap is not None else "挑战目标分值上限未知；"
+    limit = localized_text(None, 'auto.services.static_catalog.monsters.feast.feast_mechanism_note.fa9ef0233', '来源声明挑战目标分值上限 {cap}；', cap=f'{cap}') if cap is not None else "挑战目标分值上限未知；"
     return limit + "选择仅记录场景条件，完成状态与结算得分未判定；条件效果不计入常驻画像。"
 
 

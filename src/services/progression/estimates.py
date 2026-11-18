@@ -2,6 +2,7 @@
 from dataclasses import replace
 from typing import Iterable
 
+from src.domain.localization.catalog import localized_text
 from src.domain.progression.stamina import (
     FarmingStage, MaterialYield, ProgressionStaminaResult, StaminaPlanStatus,
 )
@@ -26,7 +27,7 @@ def add_boss_estimates(
     quantity, coins = coefficients
     additions = tuple(
         FarmingStage(f"boss-estimate:{item_id}:{identification_level}",
-                     f"世界 Boss（{item_id}，鉴别 {identification_level}，平均产出估算）",
+                     localized_text(None, 'auto.services.progression.estimates.add_boss_estimates.f48d37562', '世界 Boss（{item_id}，鉴别 {identification_level}，平均产出估算）', item_id=f'{item_id}', identification_level=f'{identification_level}'),
                      1, identification_level, 60,
                      (MaterialYield(item_id, quantity), MaterialYield("Gold", coins)),
                      ESTIMATE_VERSION)

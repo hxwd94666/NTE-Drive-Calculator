@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from src.features.static_catalog.domain_pages.equipment.catalog_model import (
@@ -104,6 +105,8 @@ class StaticCatalogEquipmentPageUiTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.page.close()
         self.page.deleteLater()
+        # 无事件循环时须显式完成本例请求的延迟删除，否则整页控件一直存活。
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.terminology_dao.close()
         self.app.processEvents()
 

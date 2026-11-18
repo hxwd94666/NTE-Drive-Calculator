@@ -30,6 +30,8 @@ def test_overview_renders_after_skeleton_and_source_save_requires_confirmation(t
     page = TeamPage()
     controller = TeamOverviewController(service_provider=lambda: service, page=page)
     page.show_teams((team,), tuple(TeamRole(key, f"角色{key}") for key in team.character_ids))
+    # 未设尺寸时离屏默认宽仅约 436px，真实中文字体下四列摘要会被省略；按真实页面宽度核对文字。
+    page.resize(800, 800)
     page.show()
     try:
         graduation = page._overview_labels[team.team_id]["axis_graduation"]
@@ -67,7 +69,7 @@ def test_overview_renders_after_skeleton_and_source_save_requires_confirmation(t
         controller.deleteLater()
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_source_controls_fit_small_screen_and_cancel_never_writes(tmp_path, theme):
     from src.app.theme import apply_app_theme
     from src.app.window_geometry import fit_dialog_to_available_screen

@@ -49,7 +49,7 @@ class MainWindowLifecycleMixin:
                 or self.native_plugin_update_controller.is_running()
                 or self.calc_update_controller.is_running()):
             e.ignore()
-            QTimer.singleShot(25, self.close)
+            QTimer.singleShot(25, self, self.close)
             return
         if hasattr(self.scanning_controller, "role_selector"):
             try:

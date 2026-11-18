@@ -1,4 +1,6 @@
 # 维护规则列表的用户编辑、复制和删除决定，不隐式保存或执行游戏操作。
+from src.ui.common.enum_text import ui_enum_text
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 import copy
 from PySide6.QtWidgets import QDialog, QMessageBox
@@ -55,7 +57,7 @@ class PreserveRuleActionsMixin:
         duplicate.pop("intelligent", None)  # 副本归用户所有，重新生成不能替换它。
         if duplicate.get("smart_kind"):
             duplicate["enabled"] = False  # 同种动态策略只允许启用一条。
-        duplicate["name"] = f"{duplicate.get('name') or '未命名规则'} 副本"
+        duplicate["name"] = localized_text(getattr(self, 'text_catalog', None), 'auto.ui.equipment_management.rule_actions.duplicate_preserve_rule.f5258bebc', '{value} 副本', value=f"{duplicate.get('name') or ui_enum_text(getattr(self, 'text_catalog', None), '未命名规则')}")
         self._preserve_rules.insert(index + 1, duplicate)
         self._render_preserve_rules()
 

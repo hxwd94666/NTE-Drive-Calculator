@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from PySide6.QtCore import QTimer
@@ -384,7 +385,7 @@ def _optimize_saved_equipment(
             text_catalog=getattr(self, 'text_catalog', None),
         )
     except Exception as exc:
-        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.optimize_saved_equipment.qmessagebox'), str(exc))
+        QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.optimize_saved_equipment.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
         return
     if exclude_used_by_others:
         candidates = [candidate for candidate in candidates if not candidate.get("_used_by")]
@@ -419,7 +420,7 @@ def _optimize_saved_equipment(
                 item.get(EQUIP_SUB_STATS, {}), item.get(EQUIP_SHAPE_ID, ""), weights, item.get(EQUIP_QUALITY, "Gold")
             )
         )
-        title = f"优化替换 - {current.get(EQUIP_SHAPE_ID) or '驱动'}"
+        title = localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.equipment.optimization.plan_optimizer.optimize_saved_equipment.f31a9edd7', '优化替换 - {value}', value=f"{current.get(EQUIP_SHAPE_ID) or ui_enum_text(getattr(self, 'text_catalog', None), '驱动')}")
     else:
         score = lambda item: float(
             presentation.score_tape(
@@ -431,7 +432,7 @@ def _optimize_saved_equipment(
                 item.get("main_value"),
             )
         )
-        title = f"替换{core_term} - {current.get(EQUIP_SET_NAME) or core_term}"
+        title = localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.equipment.optimization.plan_optimizer.optimize_saved_equipment.fa47b4e7b', '替换{core_term} - {value}', core_term=f'{core_term}', value=f'{current.get(EQUIP_SET_NAME) or core_term}')
     current_score = score(current)
     current_margin = None
     ranked = sorted(
@@ -464,7 +465,7 @@ def _optimize_saved_equipment(
         "自建角色仅按当前词条与卡带主属性权重评分排序"
         if is_custom_role
         else (
-        f"当前直伤收益：{current_margin:+.2f}%（候选按直伤收益排序）"
+        localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.equipment.optimization.plan_optimizer.optimize_saved_equipment.f51ff334d', '当前直伤收益：{current_margin}%（候选按直伤收益排序）', current_margin=f'{current_margin:+.2f}')
         if rank_by_damage and current_margin is not None
         else "候选按当前词条配装权重评分排序"
         )
@@ -563,7 +564,7 @@ def _optimize_saved_equipment(
                             dao, "save_replacement_plan_to_slot", None
                         )
                         save_kwargs = {
-                            "name": str(plan.get("name") or f"优化方案：{role_name}"),
+                            "name": str(plan.get("name") or localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.equipment.optimization.plan_optimizer.apply_replacement.f270894ef', '优化方案：{role_name}', role_name=f'{role_name}')),
                             "assignments": assignments,
                             "source_snapshot_id": int(plan["source_snapshot_id"]),
                             "status": "saved",
@@ -587,7 +588,7 @@ def _optimize_saved_equipment(
                                 **save_kwargs,
                             )
             except Exception as exc:
-                QMessageBox.warning(dialog, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.apply_replacement.qmessagebox_2'), str(exc))
+                QMessageBox.warning(dialog, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.apply_replacement.qmessagebox_2'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
                 return
             dialog.accept()
             self.invalidate_saved_equipment_cache()

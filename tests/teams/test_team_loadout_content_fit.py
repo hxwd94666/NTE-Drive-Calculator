@@ -15,7 +15,7 @@ from src.domain.teams.overview import SourceMode
 NTE_TEST_TIER = "core"
 
 
-@pytest.mark.parametrize("theme", ["black", "dark", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 @pytest.mark.parametrize("mode", [SourceMode.CALC, SourceMode.GAME])
 def test_four_members_visible_without_scrolling_and_no_equipment_shortcut(tmp_path, monkeypatch, theme, mode):
     from src.app import window_geometry

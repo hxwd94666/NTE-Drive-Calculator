@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -65,16 +66,20 @@ def test_saved_custom_role_identity_reaches_equipment_navigator(
             return [{"character_id": 1001, "name_zh": "正式"}]
 
     monkeypatch.setattr(equipment_display_loaders, "UserDataDao", UserDao)
-    monkeypatch.setattr(equipment_display_loaders, "StaticGameDataDao", StaticDao)
     monkeypatch.setattr(
         equipment_display_loaders,
         "_sqlite_plan_display_state",
         lambda *_args, **_kwargs: {ROLE_TOTAL_SCORE: 0.0},
     )
 
+    # 静态资料经正式只读单元借用；替身只提供本例需要的静态 DAO 与发行路径。
+    static_path = tmp_path / "static.sqlite3"
+    read_unit = SimpleNamespace(dao=StaticDao(), release=SimpleNamespace(database_path=static_path),
+                                require_source=lambda *_args: None)
     states = equipment_display_loaders._load_sqlite_equipment_display_states(
         tmp_path / "account.sqlite3",
-        static_database_path=tmp_path / "static.sqlite3",
+        static_database_path=static_path,
+        static_read_unit=read_unit,
     )
     roles = sorted_equipment_role_states(states)
 

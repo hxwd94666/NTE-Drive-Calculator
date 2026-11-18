@@ -31,7 +31,7 @@ def validate_team_group(teams):
     used = set()
     for team in teams:
         if len(team.character_ids) != 4 or len(set(team.character_ids)) != 4:
-            raise ValueError(f"请先在队伍菜单补齐“{team.name}”的四名成员")
+            raise ValueError(f"请先在队伍菜单补齐“{team.name}”的四名成员")  # ui-text: internal
         if used.intersection(team.character_ids):
             raise ValueError("两支队伍包含重复角色，请选择人物互斥的队伍")
         used.update(team.character_ids)
@@ -56,7 +56,7 @@ def select_team_axes(service, choices, configured):
     bindings = []
     for team, record_id, scope, anchor, *bounds in configured:
         if any(len(by_id.get(key, ())) != 1 for key in team.character_ids):
-            raise ValueError(f"“{team.name}”有成员未在当前计算角色目录中唯一匹配，请检查角色配置")
+            raise ValueError(f"“{team.name}”有成员未在当前计算角色目录中唯一匹配，请检查角色配置")  # ui-text: internal
         roles = tuple(by_id[key][0] for key in team.character_ids)
         local_choices = replace(choices, selected_roles=roles)
         axis = service.select(local_choices, battle_record_id=record_id, selected_role="__all_groups__",

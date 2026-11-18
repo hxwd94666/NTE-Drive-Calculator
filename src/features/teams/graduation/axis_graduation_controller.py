@@ -465,7 +465,7 @@ class TeamAxisGraduationController(QObject):
             return
         # finished信号不替代物理join；TLS收尾未完时异步再查，不阻塞GUI或提前销毁QThread。
         if not worker.wait(0):
-            QTimer.singleShot(10, self._retire)
+            QTimer.singleShot(10, self, self._retire)
             return
         self._worker = None
         worker.deleteLater()

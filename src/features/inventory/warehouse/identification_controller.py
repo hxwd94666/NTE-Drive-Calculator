@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from typing import Any
 from functools import partial
@@ -140,7 +141,7 @@ def _submit_identification(owner, snapshot_id, uids, deliver, *, text_catalog=No
         snapshot_id=snapshot_id, uids=uids), parent=owner)
     owner._warehouse_identification_worker = worker
     worker.result_ready.connect(received)
-    worker.error.connect(lambda error: QMessageBox.warning(owner, resolve_text_catalog(text_catalog).render('ui.inventory.submit_identification.qmessagebox'), str(error)) if current() else None)
+    worker.error.connect(lambda error: QMessageBox.warning(owner, resolve_text_catalog(text_catalog).render('ui.inventory.submit_identification.qmessagebox'), ui_enum_text(text_catalog, str(error))) if current() else None)
     worker.start()
 
 

@@ -28,7 +28,7 @@ class PuzzleCombinatorics:
         remain_area = 20 - set_area
 
         if remain_area < 0:
-            raise ValueError(f"套装总面积 ({set_area}格) 已超过底盘上限 (20格)！")
+            raise ValueError(f"套装总面积 ({set_area}格) 已超过底盘上限 (20格)！")  # ui-text: internal
         if remain_area == 0:
             return [[]]
 
@@ -50,7 +50,7 @@ class PuzzleCombinatorics:
         find_combinations(remain_area, [], 0)
 
         if not all_valid_combos:
-            raise ValueError(f"无法用现有的形状库凑出刚好等于 {remain_area} 格的散件组合！")
+            raise ValueError(f"无法用现有的形状库凑出刚好等于 {remain_area} 格的散件组合！")  # ui-text: internal
 
         combo_scores = []
         for combo in all_valid_combos:

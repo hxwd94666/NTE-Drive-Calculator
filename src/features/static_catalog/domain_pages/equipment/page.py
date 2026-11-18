@@ -1,6 +1,7 @@
 # 游戏资料库空幕与驱动独立卡片页面。
 """Player-facing release catalog with an optional frozen inventory projection."""
 from __future__ import annotations
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from src.ui.common.enum_text import ui_enum_text
 from collections.abc import Mapping
@@ -141,9 +142,9 @@ class ExpandableCard(QFrame):
         self._refresh_toggle_text()
     def _refresh_toggle_text(self) -> None:
         text = (
-            f"收起  {self._title}"
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.page.refresh_toggle_text.fe6d2b012', '收起  {title}', title=f'{self._title}')
             if self._expanded
-            else f"展开  {self._title}  ·  {self._summary}"
+            else localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.page.refresh_toggle_text.fcde67b9b', '展开  {title}  ·  {summary}', title=f'{self._title}', summary=f'{self._summary}')
         )
         width = max(80, self.toggle.width() - 18)
         self.toggle.setText(
@@ -276,7 +277,7 @@ class EquipmentDetailView(QScrollArea):
         selector.currentIndexChanged.connect(select_curve)
         select_curve(selector.currentIndex())
         self.layout.addWidget(strength)
-        rules = ExpandableCard("词条生成规则", f"{record.main_count} 条基础属性 · 最多 {record.sub_count} 条副属性", self.host)
+        rules = ExpandableCard("词条生成规则", localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.page.show_equipment.f2193fb10', '{main_count} 条基础属性 · 最多 {sub_count} 条副属性', main_count=f'{record.main_count}', sub_count=f'{record.sub_count}'), self.host)
         rules.body_layout.addWidget(_text(
             resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_equipment.caption_3'), rules.body,
         ))
@@ -299,7 +300,7 @@ class EquipmentDetailView(QScrollArea):
             return
         summary = ExpandableCard(
             "强化经验",
-            f"{len(experience.levels)} 级 · 累计 {experience.total:,}",
+            localized_text(text_catalog, 'auto.features.static_catalog.domain_pages.equipment.page.add_strength_experience.f63fd4ad1', '{count} 级 · 累计 {total}', count=f'{len(experience.levels)}', total=f'{experience.total:,}'),
             strength,
         )
         running_total = 0
@@ -321,13 +322,13 @@ class EquipmentDetailView(QScrollArea):
             panel_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_owned_instances.caption'), panel, muted=True))
             self.layout.addWidget(panel)
             return
-        expanded = ExpandableCard("我的同款", f"稳定仓库中有 {len(items)} 件", self.host)
+        expanded = ExpandableCard("我的同款", localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.page.add_owned_instances.fa34ab32f', '稳定仓库中有 {count} 件', count=f'{len(items)}'), self.host)
         if not items:
             expanded.body_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_owned_instances.caption_2'), expanded.body, muted=True))
         for number, item in enumerate(items, 1):
             main_name, main_value = item.main_stats[0] if item.main_stats else ("", None)
             card = self._presentation.equipment_card(
-                f"第 {number} 件 · {'等级未知' if not item.level_known else f'Lv.{item.level}'}",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.page.add_owned_instances.fe36477f1', '第 {number} 件 · {value}', number=f'{number}', value=f"{ui_enum_text(getattr(self, 'text_catalog', None), '等级未知') if not item.level_known else f'Lv.{item.level}'}"),
                 main_name, dict(item.sub_stats), item.shape_id, item.instance_key, {},
                 quality=item.quality, is_discarded=item.discarded, card_variant="inventory",
                 item_icon_path=self._asset_catalog.inventory_item_icon(record.kind, record.item_id),
@@ -348,7 +349,7 @@ class EquipmentDetailView(QScrollArea):
         self._reset()
         hero, hero_layout = _card(self.host, suit.name)
         hero_layout.addWidget(_text(
-            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_suit.caption', value=f'{len(suit.required_shape_ids)}', value_2=f"{self._owned_summary(self._controller.owned_count(suit_id=suit.suit_id), '空幕')}"), hero,
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_suit.caption', value=f'{len(suit.required_shape_ids)}', value_2=f"{self._owned_summary(self._controller.owned_count(suit_id=suit.suit_id), '空幕', text_catalog=getattr(self, 'text_catalog', None))}"), hero,
         ))
         self.layout.addWidget(hero)
         self._add_suit_sections(suit)
@@ -376,7 +377,7 @@ class EquipmentDetailView(QScrollArea):
             summary = effect.description.split("。", 1)[0]
             if len(summary) > 34:
                 summary = summary[:34] + "…"
-            panel = ExpandableCard(f"{effect.required_count} 件套", summary, effects)
+            panel = ExpandableCard(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.page.add_suit_sections.f6c454739', '{required_count} 件套', required_count=f'{effect.required_count}'), summary, effects)
             panel.body_layout.addWidget(_text(effect.description, panel.body))
             for property_id, modifier_value in effect.modifiers:
                 label, percent = self._controller.property_info(property_id)
@@ -394,7 +395,7 @@ class EquipmentDetailView(QScrollArea):
         self.layout.addWidget(effects)
     def _add_graduations(self, suit_id: str) -> None:
         links = self._controller.graduations(suit_id)
-        related = ExpandableCard("推荐角色", f"{len(links)} 份毕业模板采用该套装", self.host)
+        related = ExpandableCard("推荐角色", localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.page.add_graduations.f66647220', '{count} 份毕业模板采用该套装', count=f'{len(links)}'), self.host)
         if not links:
             related.body_layout.addWidget(_text(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.add_graduations.caption'), related.body, muted=True))
         for link in links:
@@ -409,7 +410,7 @@ class EquipmentDetailView(QScrollArea):
         row = QHBoxLayout()
         row.addWidget(ShapeGlyph(shape, hero, text_catalog=getattr(self, 'text_catalog', None)))
         row.addWidget(_text(
-            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_shape.caption', area=f'{shape.area}', value=f"{self._owned_summary(self._controller.owned_count(shape_id=shape.shape_id), '该形状驱动')}"),
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.show_shape.caption', area=f'{shape.area}', value=f"{self._owned_summary(self._controller.owned_count(shape_id=shape.shape_id), '该形状驱动', text_catalog=getattr(self, 'text_catalog', None))}"),
             hero,
         ), 1)
         hero_layout.addLayout(row)
@@ -422,10 +423,10 @@ class EquipmentDetailView(QScrollArea):
         self.layout.addStretch(1)
 
     @staticmethod
-    def _owned_summary(count: int | None, noun: str) -> str:
+    def _owned_summary(count: int | None, noun: str, *, text_catalog=None) -> str:
         if count is None:
             return "当前账号库存暂不可用"
-        return f"当前拥有 {count} 件{noun}"
+        return localized_text(text_catalog, 'auto.features.static_catalog.domain_pages.equipment.page.owned_summary.fbaf0e3e0', '当前拥有 {count} 件{noun}', count=f'{count}', noun=f'{noun}')
 class EquipmentCatalogPage(QWidget):
     """Independent player archive; account inventory is an injected projection."""
     def __init__(self, *, controller: EquipmentCatalogPageController, asset_catalog: GameUiAssetCatalog,
@@ -602,7 +603,7 @@ class EquipmentCatalogPage(QWidget):
         title.setStyleSheet(themed_style("color:#f0f6fc;font-size:16px;font-weight:900"))
         layout.addWidget(title)
         layout.addWidget(_text(
-            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.suit_card.caption', value=f'{len(suit.required_shape_ids)}', value_2=f'{self._ownership_text(owned)}'),
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.suit_card.caption', value=f'{len(suit.required_shape_ids)}', value_2=f'{self._ownership_text(owned, text_catalog=getattr(self, "text_catalog", None))}'),
             card, muted=True,
         ))
         button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.suit_card.button'), card)
@@ -616,7 +617,7 @@ class EquipmentCatalogPage(QWidget):
         layout = QVBoxLayout(card)
         layout.addWidget(ShapeGlyph(shape, card, text_catalog=getattr(self, 'text_catalog', None)))
         layout.addWidget(_text(
-            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.shape_card.caption', name=f'{shape.name}', area=f'{shape.area}', value=f'{self._ownership_text(owned)}'),
+            resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.shape_card.caption', name=f'{shape.name}', area=f'{shape.area}', value=f'{self._ownership_text(owned, text_catalog=getattr(self, "text_catalog", None))}'),
             card, muted=True,
         ))
         button = TextActionButton(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.shape_card.button'), card)
@@ -664,10 +665,10 @@ class EquipmentCatalogPage(QWidget):
         self.show_gallery()
         return True
     @staticmethod
-    def _ownership_text(count: int | None) -> str:
+    def _ownership_text(count: int | None, *, text_catalog=None) -> str:
         if count is None:
             return "库存暂不可用"
-        return "未拥有" if count == 0 else f"已拥有 {count} 件"
+        return "未拥有" if count == 0 else localized_text(text_catalog, 'auto.features.static_catalog.domain_pages.equipment.page.ownership_text.fee6eb8db', '已拥有 {count} 件', count=f'{count}')
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
         super().resizeEvent(event)
         if hasattr(self, "grid") and hasattr(self, "category_key"):

@@ -110,7 +110,7 @@ def test_save_notification_follows_commit_and_precedes_render_only_for_current_a
         return 1
     monkeypatch.setattr(workflow, 'save_allocation_plans', persist)
     class Progress:
-        def __init__(self, _parent):
+        def __init__(self, _parent, **_kwargs):
             pass
         def run(self, task, _owner):
             result = task(lambda _stage: None)
@@ -199,7 +199,7 @@ def test_real_allocation_owner_forwards_save_event_through_scanning_public_signa
     event = SavedPlansChanged(3, 'overview', str(root/'unused.sqlite3'), (1003,), (), (7,))
     observed = []
     controller.allocation_saved.connect(observed.append)
-    def saved(owner, *, show_message, on_saved):
+    def saved(owner, *, show_message, on_saved, **_kwargs):
         assert not show_message
         on_saved(event)
         return True

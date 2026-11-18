@@ -42,7 +42,7 @@ def select_runtime_data_root(
                 probe.write(b"ok")
                 probe.flush()
         except OSError as error:
-            raise DistributionError(f"便携数据目录不可写：{root}；请修复权限，数据位置未切换。") from error
+            raise DistributionError(f"便携数据目录不可写：{root}；请修复权限，数据位置未切换。") from error  # ui-text: internal
         return root
     packaged = bool(getattr(sys, "frozen", False)) if packaged is None else packaged
     candidates = [Path(app_dir)]

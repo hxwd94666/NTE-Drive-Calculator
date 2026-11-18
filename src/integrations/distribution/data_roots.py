@@ -22,7 +22,7 @@ def _locator(distribution: Distribution, selection_home: Path | None) -> Path:
         raise DistributionError("当前发行方式未声明平台外部数据根。")
     home = selection_home or (Path(os.environ["LOCALAPPDATA"]) if os.environ.get("LOCALAPPDATA") else None)
     if home is None or not home.is_absolute():
-        raise DistributionError("外部数据根选择记录的位置未明确，请恢复本机 LocalAppData。")
+        raise DistributionError("外部数据根选择记录的位置未明确，请恢复本机 LocalAppData。")  # ui-text: internal
     return home / "NTE Drive Calc" / "portable-roots" / f"{distribution.data_root_key}.json"
 
 
@@ -36,7 +36,7 @@ def _read(path: Path) -> dict:
             raise ValueError("record shape")
         return value
     except (OSError, ValueError) as error:
-        raise DistributionError(f"数据根记录缺失或损坏：{path}；请显式恢复数据位置选择。") from error
+        raise DistributionError(f"数据根记录缺失或损坏：{path}；请显式恢复数据位置选择。") from error  # ui-text: internal
 
 
 def select_external_data_root(distribution: Distribution, chosen_path: Path,
@@ -53,7 +53,7 @@ def select_external_data_root(distribution: Distribution, chosen_path: Path,
         if locator.exists():
             existing = resolve_external_data_root(distribution, selection_home=selection_home)
             if existing != root:
-                raise DistributionError(f"已有外部数据根为 {existing}；先恢复原选择，不自动改绑。")
+                raise DistributionError(f"已有外部数据根为 {existing}；先恢复原选择，不自动改绑。")  # ui-text: internal
             return existing
         history = locator.with_suffix(".selected.json")
         if history.exists():
@@ -85,7 +85,7 @@ def resolve_external_data_root(distribution: Distribution, *, selection_home: Pa
     try:
         record = _read(_locator(distribution, selection_home))
     except DistributionError as error:
-        raise DistributionError(f'{error} 首次使用请运行 --portable-data-root "<程序目录外的数据绝对路径>"；已有数据请先恢复原选择记录。') from error
+        raise DistributionError(f'{error} 首次使用请运行 --portable-data-root "<程序目录外的数据绝对路径>"；已有数据请先恢复原选择记录。') from error  # ui-text: internal
     root = Path(str(record.get("path", "")))
     if not root.is_absolute() or record.get("data_root_key") != distribution.data_root_key:
         raise DistributionError("外部数据根身份冲突，请恢复原选择记录。")

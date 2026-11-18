@@ -161,7 +161,7 @@ def _counterfactual_detail(counterfactual, *, text_catalog=None) -> str:
             "当前时段有效伤害：{damage}", damage=f"{counterfactual.baseline_damage:,.2f}"),
         localized_text(
             text_catalog, "battle_report.buff_evidence.counterfactual.damage_coverage",
-            "伤害覆盖率：{coverage}", coverage=damage_coverage_text(counterfactual.damage_coverage)),
+            "伤害覆盖率：{coverage}", coverage=damage_coverage_text(counterfactual.damage_coverage, text_catalog=text_catalog)),
         localized_text(
             text_catalog, "battle_report.buff_evidence.counterfactual.affected_hits",
             "覆盖逐击：{hits}", hits=f"{counterfactual.affected_hits:,}"),
@@ -364,7 +364,7 @@ class BattleBuffEvidencePanel(QWidget):
                 )),
                 f"{duration:.3f}s / {total_duration:.3f}s = {coverage_percent:.1f}%",
                 "—" if counterfactual is None else f"{counterfactual.affected_hits:,}",
-                "—" if counterfactual is None else damage_coverage_text(counterfactual.damage_coverage),
+                "—" if counterfactual is None else damage_coverage_text(counterfactual.damage_coverage, text_catalog=getattr(self, 'text_catalog', None)),
                 _gain_percent(counterfactual),
                 ui_enum_text(text_catalog, "查看"),
             )

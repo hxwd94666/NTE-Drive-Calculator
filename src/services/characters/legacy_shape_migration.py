@@ -41,10 +41,10 @@ def _matching_baseline(
     try:
         payload = json.loads(baseline_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"无法读取旧版额外形状迁移基线：{baseline_path}") from exc
+        raise RuntimeError(f"无法读取旧版额外形状迁移基线：{baseline_path}") from exc  # ui-text: internal
     baselines = payload.get("baselines") if isinstance(payload, dict) else None
     if not isinstance(baselines, list):
-        raise RuntimeError(f"旧版额外形状迁移基线格式无效：{baseline_path}")
+        raise RuntimeError(f"旧版额外形状迁移基线格式无效：{baseline_path}")  # ui-text: internal
     exact = next(
         (
             baseline
@@ -185,7 +185,7 @@ def _migrate_legacy_static_shape_bonuses(
         raise RuntimeError(
             "旧版额外形状差异无法映射到新版静态库："
             f"logical_keys={unsupported_keys}，properties={unsupported_properties}"
-        )
+        )  # ui-text: internal
 
     details = {
         "legacy_database_path": str(legacy_path),

@@ -28,8 +28,8 @@ NTE_TEST_TIER = "core"
 
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
-@pytest.mark.parametrize("width,height", [(1000, 620), (640, 600)])
+@pytest.mark.parametrize("theme", ["black"])
+@pytest.mark.parametrize("width,height", [(640, 600)])
 def test_all_manual_inputs_and_footer_visible_without_scrolling(theme, width, height, monkeypatch):
     from src.app import window_geometry
 

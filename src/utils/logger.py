@@ -149,6 +149,40 @@ def _add_session_sink(log_dir: Path) -> tuple[int, Path]:
 _file_sink_id: int | None = None
 _session_sink_id: int | None = None
 _session_log_path: Path | None = None
+_crash_dump_stream = None
+
+
+def enable_crash_dump(log_dir: Path, *, mode: str = "w") -> None:
+    """faulthandler 句柄归当前账号日志目录；换目录先接管新文件再关闭旧句柄。
+
+    Windows 下打开的文件会阻止改名其所在账号目录，导入/删除前必须随账号切走。
+    """
+    import faulthandler
+
+    global _crash_dump_stream
+    directory = Path(log_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    stream = open(directory / "crash_dump.log", mode, encoding="utf-8")
+    try:
+        faulthandler.enable(file=stream)
+    except BaseException:
+        stream.close()
+        raise
+    previous, _crash_dump_stream = _crash_dump_stream, stream
+    if previous is not None:
+        previous.close()
+
+
+def disable_crash_dump() -> None:
+    """撤下 faulthandler 文件句柄；进程退场或测试收尾使用。"""
+    import faulthandler
+
+    global _crash_dump_stream
+    if _crash_dump_stream is None:
+        return
+    faulthandler.disable()
+    _crash_dump_stream.close()
+    _crash_dump_stream = None
 
 
 def _context_text(context: Mapping[str, object] | None) -> str:
@@ -219,9 +253,12 @@ def set_log_dir(
         try:
             logger.remove(_file_sink_id)
         except ValueError as exc:
-            sys.stderr.write(f"切换日志目录时移除旧日志 sink 失败，继续添加新 sink: {exc}\n")
+            sys.stderr.write(f"切换日志目录时移除旧日志 sink 失败，继续添加新 sink: {exc}\n")  # ui-text: internal
     LOG_DIR = new_dir
     _file_sink_id = _add_runtime_sink(LOG_DIR)
+    if _crash_dump_stream is not None:
+        # 账号切换追加写入，不清掉目标账号上次进程留下的崩溃现场。
+        enable_crash_dump(LOG_DIR, mode="a")
     if session_was_enabled and reopen_session:
         _session_sink_id, _session_log_path = _add_session_sink(LOG_DIR)
         logger.info(
@@ -234,7 +271,9 @@ __all__ = [
     "CONSOLE_LOG_LEVEL",
     "LOG_DIR",
     "TEST_PROCESS",
+    "disable_crash_dump",
     "disable_session_log",
+    "enable_crash_dump",
     "enable_session_log",
     "is_session_log_enabled",
     "logger",

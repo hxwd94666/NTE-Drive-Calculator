@@ -72,9 +72,9 @@ class InventorySyncService:
         native_furniture_apply: Callable[..., bool] | None = None,
     ) -> None:
         if settle_seconds is not None and settle_seconds <= 0:
-            raise ValueError("settle_seconds 必须大于 0")
+            raise ValueError("settle_seconds 必须大于 0")  # ui-text: internal
         if poll_seconds <= 0:
-            raise ValueError("poll_seconds 必须大于 0")
+            raise ValueError("poll_seconds 必须大于 0")  # ui-text: internal
         self.database_path = Path(database_path).expanduser().resolve()
         self.account_id = account_id
         self.account_name = account_name
@@ -752,7 +752,7 @@ class InventorySyncService:
             while self._state.phase != phase:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError(f"等待背包同步状态 {phase} 超时")
+                    raise TimeoutError(f"等待背包同步状态 {phase} 超时")  # ui-text: internal
                 self._state_condition.wait(remaining)
             return self._state
 

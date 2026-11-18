@@ -710,7 +710,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
                     plot_left,
                     plot_width,
                 ),
-            )
+            text_catalog=getattr(self, 'text_catalog', None))
         return self._layout_cache
 
     def _required_content_width(self) -> int:

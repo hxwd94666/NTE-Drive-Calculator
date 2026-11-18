@@ -10,6 +10,7 @@ from threading import Event
 from time import monotonic
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.native_core.nte_core import equipment_request_failure_kind
 from src.integrations.runtime.operation_guard import OperationGuard, require_operation
 from src.observability.context import OperationContext
@@ -311,7 +312,7 @@ class BulkEquipmentApplyService:
     ) -> tuple[list[dict], int | None, dict | None]:
         job = user_dao.get_equipment_apply_job(job_id)
         if job is None:
-            raise RuntimeError(f"装配任务 {job_id} 不存在")
+            raise RuntimeError(f"装配任务 {job_id} 不存在")  # ui-text: internal
         user_dao.reset_failed_equipment_apply_job_items(job_id)
         prepared = []
         for row in job["items"]:
@@ -433,7 +434,7 @@ class BulkEquipmentApplyService:
                 raise RuntimeError(
                     f"装配前检查 [{role_name}] 失败，视觉扫描库存没有本地组件可用的原生 UID。"
                     "请改用自动装配；极速装配仅支持抓包稳定快照。"
-                )
+                )  # ui-text: internal
             try:
                 plan = apply_service.validate_plan_for_fast_apply(
                     plan["plan_id"],
@@ -601,7 +602,7 @@ class BulkEquipmentApplyService:
                 progress_callback,
                 current=index - 1,
                 total=len(prepared),
-                message=f"正在下发 [{role_name}] 的装配指令…",
+                message=localized_text(None, 'auto.services.equipment.assembly.bulk_apply.execute_prepared.f17c1a0a1', '正在下发 [{role_name}] 的装配指令…', role_name=f'{role_name}'),
             )
             emit_role_progress(progress_callback, role, "operating")
             user_dao.mark_equipment_apply_job_item(
@@ -658,7 +659,7 @@ class BulkEquipmentApplyService:
                     progress_callback,
                     current=index,
                     total=len(prepared),
-                    message=(f"[{role_name}] 可用装备已确认" if result.verified else f"[{role_name}] 指令已下发")
+                    message=(localized_text(None, 'auto.services.equipment.assembly.bulk_apply.execute_prepared.fad1d7f1a', '[{role_name}] 可用装备已确认', role_name=f'{role_name}') if result.verified else localized_text(None, 'auto.services.equipment.assembly.bulk_apply.execute_prepared.fd0cb79f3', '[{role_name}] 指令已下发', role_name=f'{role_name}'))
                     + ("（部分装配，已跳过缺件）" if role.get("skipped_assignments") else ""),
                 )
             except Exception as exc:
@@ -682,7 +683,7 @@ class BulkEquipmentApplyService:
                     progress_callback,
                     current=index - 1,
                     total=len(prepared),
-                    message=f"[{role_name}] 下发失败",
+                    message=localized_text(None, 'auto.services.equipment.assembly.bulk_apply.execute_prepared.f29dd1bd4', '[{role_name}] 下发失败', role_name=f'{role_name}'),
                 )
                 return {
                     "job_id": job_id,

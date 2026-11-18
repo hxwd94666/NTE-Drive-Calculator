@@ -102,10 +102,9 @@ def dot_final_basis(row: dict[str, Any]) -> str:
     kinds = "、".join(DOT_KIND_NAMES[kind] for kind in row["active_kinds"])
     recent = row["recent_only"]
     return (
-        "早雾突破 2 被动「可以吃吗？」；目标结算前已处于浊燃；"
-        f"活跃 DOT 种类为 {kinds}，共 {row['active_dot_kind_count']} 种；"
-        "1 + min(种类数 × 25%, 100%)"
+        localized_text(None, 'auto.services.battle_report.mechanics.dot_evidence.dot_final_basis.fc30def09', '早雾突破 2 被动「可以吃吗？」；目标结算前已处于浊燃；活跃 DOT 种类为 {kinds}，共 {value} 种；1 + min(种类数 × 25%, 100%)', kinds=f'{kinds}', value=f"{row['active_dot_kind_count']}")
         + ("；其中 " + "、".join(DOT_KIND_NAMES[kind] for kind in recent)
            + " 由本击前 1.5 秒内近期正式跳伤确认，不据此刷新其完整持续时间"
            if recent else "")
     )
+from src.domain.localization.catalog import localized_text

@@ -4,7 +4,7 @@ Build the Windows installer for NTE Drive Calc.
 
 Requirements:
     - A PyInstaller app bundle in dist/NTE_Drive_Calc
-    - Inno Setup 6 installed, --iscc provided, or INNO_SETUP_ISCC pointing to ISCC.exe
+    - Inno Setup 6 or newer installed, --iscc provided, or INNO_SETUP_ISCC pointing to ISCC.exe
 
 Typical usage:
     .\.venv\Scripts\python.exe build_installer.py
@@ -19,6 +19,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -28,7 +29,14 @@ from pathlib import Path
 from tools import build_cli
 from tools.release.app_bundle_validation import validate_app_bundle
 from tools.release.managed_paths import plain_member_stat
-from tools.release.installer_integrity import finalize_installer_artifact, prepare_installer_output
+from tools.release.installer_integrity import (
+    ELEVATED_BUILD_ARGUMENT,
+    builder_is_admin,
+    disable_console_quick_edit,
+    finalize_installer_artifact,
+    prepare_installer_output,
+    request_elevated_build,
+)
 from src.app.version import windows_numeric_version
 from src.integrations.components.game_component_bundle import inspect_game_component_bundle
 from src.integrations.components.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, native_deployment_paths
@@ -158,11 +166,20 @@ def _find_iscc(explicit_path: Path | None = None) -> Path | None:
             raise FileNotFoundError(f"Inno Setup compiler not found: {explicit_path}")
         return explicit_path
 
-    candidates = [
-        os.environ.get("INNO_SETUP_ISCC"),
-        shutil.which("ISCC.exe"),
-        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Inno Setup 6" / "ISCC.exe"),
-    ]
+    # Inno Setup 安装程序不改 PATH；除环境变量与 PATH 外，再查机器级与用户级默认安装目录下的
+    # “Inno Setup <主版本>”，取最高版本（最低 6），不把查找写死为某一个大版本。
+    roots = [Path(os.environ[name]) for name in ("ProgramFiles", "ProgramFiles(x86)") if os.environ.get(name)]
+    if os.environ.get("LOCALAPPDATA"):
+        roots.append(Path(os.environ["LOCALAPPDATA"]) / "Programs")
+    installed = sorted(
+        ((int(match.group(1)), folder / "ISCC.exe")
+         for root in roots if root.is_dir()
+         for folder in root.glob("Inno Setup *")
+         if (match := re.fullmatch(r"Inno Setup (\d+)", folder.name)) and int(match.group(1)) >= 6),
+        key=lambda item: item[0], reverse=True,
+    )
+    candidates = [os.environ.get("INNO_SETUP_ISCC"), shutil.which("ISCC.exe"),
+                  *(str(path) for _version, path in installed)]
     for candidate in candidates:
         if candidate and Path(candidate).exists():
             return Path(candidate)
@@ -523,7 +540,16 @@ def main() -> int:
         default=None,
         help="Path to a ViGEmBus .exe or .msi installer; may also use NTE_VIGEM_INSTALLER.",
     )
+    parser.add_argument(ELEVATED_BUILD_ARGUMENT, action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+
+    # 成品须由管理员构建；先于耗时的打包步骤请求一次 UAC 确认，在新的管理员窗口里重跑。
+    if not args.generate_only and not args.elevated_build and not builder_is_admin():
+        if request_elevated_build(sys.argv):
+            build_cli.info("构建需要管理员权限：已请求系统确认，构建会在新打开的管理员窗口中继续，请在那里查看结果。")
+            return 0
+        build_cli.fail("构建需要管理员权限，但系统确认已取消或未能启动；未创建目录，未修改任何文件。")
+        return 1
 
     try:
         _configure_output_root(args.output_root)
@@ -543,6 +569,12 @@ def main() -> int:
             local_config,
             "vigem_installer",
         )
+        # 编译器缺失时在耗时的应用打包之前就停止，而不是打包完成后才发现。
+        iscc = None if args.generate_only else _find_iscc(args.iscc)
+        if not args.generate_only and not iscc:
+            build_cli.warn("Inno Setup compiler was not found.")
+            build_cli.warn("Install Inno Setup 6 or newer, or set INNO_SETUP_ISCC to ISCC.exe.")
+            return 2
         _ensure_app_bundle(skip_app_build=args.skip_app_build)
         asset_copies = prepare_installer_asset_stage(
             APP_INTERNAL, INSTALL_STAGE_INTERNAL, OUTPUT_ROOT,
@@ -568,13 +600,6 @@ def main() -> int:
             build_cli.ok("Generate-only mode complete.")
             return 0
 
-        iscc = _find_iscc(args.iscc)
-        if not iscc:
-            build_cli.warn("Inno Setup compiler was not found.")
-            build_cli.warn("Install Inno Setup 6, or set INNO_SETUP_ISCC to ISCC.exe.")
-            build_cli.warn("Then run: .\\.venv\\Scripts\\python.exe build_installer.py --skip-app-build")
-            return 2
-
         _run([str(iscc), str(ISS_PATH)])
         setup = OUTPUT_DIR / f"NTE_Drive_Calc_Setup_{args.version}.exe"
         if not setup.exists():
@@ -592,4 +617,14 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if ELEVATED_BUILD_ARGUMENT in sys.argv[1:]:
+        # 仅 UAC 重开的独立窗口：关闭快速编辑，避免误点进入“选择”模式挂起构建输出。
+        disable_console_quick_edit()
+    code = main()
+    if ELEVATED_BUILD_ARGUMENT in sys.argv[1:]:
+        # 管理员窗口在构建结束时停住，便于查看结果；只影响 UAC 重开的独立窗口。
+        try:
+            input("构建结束，按回车键关闭窗口…")
+        except EOFError:
+            pass
+    raise SystemExit(code)

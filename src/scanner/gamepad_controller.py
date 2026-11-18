@@ -5,6 +5,7 @@ import gc
 import os
 from pathlib import Path
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.vision.capture_files import (
     capture_output_lease, create_capture_directory, freeze_capture_stage,
     prepare_capture_publication, publish_capture_files,
@@ -157,7 +158,7 @@ def _format_vigem_error(exc: Exception) -> str:
         "1. 先重启电脑，再重新打开本程序。\n"
         "2. 如果仍然报错，打开开始菜单里的 NTE Drive Calc -> Install ViGEmBus Driver 重新安装/修复驱动。\n"
         "3. 修复后再次重启电脑。\n\n"
-        f"原始错误: {raw}"
+        f"原始错误: {raw}"  # ui-text: internal
     )
 
 
@@ -485,7 +486,7 @@ class GamepadScanner:
         reasons = []
         for index, rules in enumerate(self._profile().vision.detail_page_rule_groups, start=1):
             matched, reason = self._evaluate_vision_rules(image, rules)
-            group_reason = f"详情规则组{index}: {reason}"
+            group_reason = localized_text(None, 'auto.scanner.gamepad_controller.looks_like_detail_page.fea03910b', '详情规则组{index}: {reason}', index=f'{index}', reason=f'{reason}')
             if matched:
                 return True, group_reason
             reasons.append(group_reason)
@@ -730,7 +731,7 @@ class GamepadScanner:
             raise ValueError("全量扫描需要先填写库存数量。")
         total_drives = int(total_drives)
         if not 0 < total_drives <= self.MAX_INVENTORY_COUNT:
-            raise ValueError(f"库存数量必须在 1-{self.MAX_INVENTORY_COUNT} 之间。")
+            raise ValueError(f"库存数量必须在 1-{self.MAX_INVENTORY_COUNT} 之间。")  # ui-text: internal
 
         self._drag_inventory_list_to_top()
         if self._stopped:

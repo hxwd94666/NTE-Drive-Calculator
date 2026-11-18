@@ -6,6 +6,7 @@ import threading
 import time
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.native_core.nte_core_protocol import (
     NATIVE_CAPTURE_TRANSIENT_REASONS, NteCoreProcessError,
     is_native_capture_not_ready, native_capture_readiness_message,
@@ -62,7 +63,7 @@ def stop_capture_with_timeout(client: Any, timeout_seconds: float) -> Mapping[st
         abort = getattr(client, "abort", None)
         if callable(abort):
             abort()
-        raise RuntimeError(f"nte-core 停止超时（{timeout_seconds:g} 秒）")
+        raise RuntimeError(f"nte-core 停止超时（{timeout_seconds:g} 秒）")  # ui-text: internal
     if not outcome:
         raise RuntimeError("nte-core 停止线程未返回结果")
     result = outcome[0]
@@ -74,7 +75,7 @@ def stop_capture_with_timeout(client: Any, timeout_seconds: float) -> Mapping[st
 class BattleCaptureStartError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.domain_code = code
-        super().__init__(f"战报抓包启动失败（{code}），请重新检测环境。")
+        super().__init__(localized_text(None, 'auto.services.battle_report.capture.lifecycle.init.f87299ce5', '战报抓包启动失败（{code}），请重新检测环境。', code=f'{code}'))
 
 
 def supports_packet_wait(client: Any, source: str) -> bool:

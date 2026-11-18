@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from pathlib import Path
 
@@ -89,8 +90,8 @@ class FeastCatalogBrowserMixin:
             if setup is None:
                 continue
             cards.append(BrowseCard(
-                f"挑战 {setup.challenge_ordinal} · {setup.title}",
-                f"{setup.boss_name} · {len(setup.difficulties)} 个难度",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.feast_browser.open_feast_period.fe83e50d4', '挑战 {challenge_ordinal} · {title}', challenge_ordinal=f'{setup.challenge_ordinal}', title=f'{setup.title}'),
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.feast_browser.open_feast_period.f252ba932', '{boss_name} · {count} 个难度', boss_name=f'{setup.boss_name}', count=f'{len(setup.difficulties)}'),
                 "挑战对象",
                 self._feast_setup_icon(setup),
                 lambda checked=False, value=setup: self._open_feast_stage(value),
@@ -100,11 +101,11 @@ class FeastCatalogBrowserMixin:
         text = self.text_catalog.render
         unknown = period.release_state == "unscheduled"
         self._show_state(BrowseState(
-            text("catalog.feast.source_heading") if unknown else f"争锋赏宴 · {period.display_label}",
-            text("catalog.feast.source_description") if unknown else f"{period.schedule_label} · 选择挑战后查看难度、条件与敌方画像。",
+            text("catalog.feast.source_heading") if unknown else localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.feast_browser.open_feast_period.fa6a4c729', '争锋赏宴 · {display_label}', display_label=f'{period.display_label}'),
+            text("catalog.feast.source_description") if unknown else localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.feast_browser.open_feast_period.fd67748cd', '{schedule_label} · 选择挑战后查看难度、条件与敌方画像。', schedule_label=f'{period.schedule_label}'),
             (BrowseSection(
                 "挑战对象", (text("catalog.feast.source_challenges_note", count=len(cards)) if unknown
-                             else f"共 {len(cards)} 个，按当期正式顺序展示。"),
+                             else localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.feast_browser.open_feast_period.f8ac36841', '共 {count} 个，按当期正式顺序展示。', count=f'{len(cards)}')),
                 tuple(cards),
             ),),
         ), push=True)

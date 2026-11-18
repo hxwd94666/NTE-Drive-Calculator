@@ -48,6 +48,20 @@ def _dispose_widget(widget) -> None:
     QApplication.processEvents()
 
 
+def _wait_page_tasks_finished(*owners, timeout_ms: int = 5000) -> None:
+    from time import monotonic
+
+    from PySide6.QtTest import QTest
+
+    from src.app.page_tasks import close_page_tasks
+
+    # close_page_tasks 只撤销读取并报告是否仍在运行；线程退场要靠事件循环推进。
+    deadline = monotonic() + timeout_ms / 1000
+    while any(close_page_tasks(owner) for owner in owners):
+        assert monotonic() < deadline, "页面任务线程未在时限内退场"
+        QTest.qWait(10)
+
+
 def test_cultivation_context_identity_ignores_database_access_time(tmp_path) -> None:
     from src.features.toolbox.toolbox_navigation import (
         cultivation_context_identity,
@@ -128,6 +142,9 @@ def test_toolbox_opens_cultivation_as_page_and_preserves_same_session_draft() ->
     QApplication.processEvents()
     assert toolbox._cultivation_navigation.page is not first_page
     assert len(services) == 2
+    # 销毁前先撤销草稿并等页面读取线程物理退场；直接销毁运行中的 QThread 会让 Qt abort 整个测试进程。
+    toolbox.shutdown()
+    _wait_page_tasks_finished(root, owner)
     _dispose_widget(root)
     _dispose_widget(owner)
 

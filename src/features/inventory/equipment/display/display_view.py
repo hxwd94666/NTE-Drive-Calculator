@@ -58,7 +58,7 @@ def _equipment_paths(window) -> tuple[Path, Path, Path]:
         )
         asset_root = getattr(window, "game_ui_asset_root", None)
         if database_path is None or static_database_path is None or asset_root is None:
-            raise RuntimeError("配装展示缺少 AppContext 或显式路径依赖")
+            raise RuntimeError("配装展示缺少 AppContext 或显式路径依赖")  # ui-text: internal
         return (
             Path(database_path),
             Path(static_database_path),

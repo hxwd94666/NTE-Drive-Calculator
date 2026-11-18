@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 import re
 
@@ -102,7 +104,7 @@ class CharacterBuildView(QWidget):
             identity_label="空幕",
         )
         summary.addWidget(self._chip(f"{core.display_name} · Lv.{plan.core_level}"))
-        summary.addWidget(self._chip(f"驱动模板 · Lv.{plan.module_level}"))
+        summary.addWidget(self._chip(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.builds.plan_card.f7fadc07a', '驱动模板 · Lv.{module_level}', module_level=f'{plan.module_level}')))
         summary.addStretch(1)
         card.layout().addLayout(summary)
         matrix = [["0" for _column in range(5)] for _row in range(5)]
@@ -115,7 +117,7 @@ class CharacterBuildView(QWidget):
             Qt.AlignmentFlag.AlignHCenter,
         )
         modules = "、".join(
-            f"{module.display_name or '名称暂未提供'} {module.grid_count} 格"
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.builds.plan_card.fb289d213', '{value} {grid_count} 格', value=f"{module.display_name or ui_enum_text(getattr(self, 'text_catalog', None), '名称暂未提供')}", grid_count=f'{module.grid_count}')
             for module in plan.modules
         )
         card.layout().addWidget(self._info("驱动配置", modules))
@@ -175,7 +177,7 @@ class CharacterBuildView(QWidget):
         if bonus is None:
             card.layout().addWidget(self._muted("当前正式数据未提供额外形状"))
             return card
-        card.layout().addWidget(self._chip(f"{bonus.shape_grid_count} 格额外形状"))
+        card.layout().addWidget(self._chip(localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.builds.shape_card.f8980393d', '{shape_grid_count} 格额外形状', shape_grid_count=f'{bonus.shape_grid_count}')))
         for prop in bonus.properties:
             value = "当前正式数据未提供"
             if prop.value is not None:
@@ -210,7 +212,7 @@ class CharacterBuildView(QWidget):
             "驱动模板", "、".join(drive_stats) or "名称暂未提供",
         ))
         card.layout().addWidget(self._info(
-            "底盘目标", f"{graduation.drive_area} 格 · 额外形状 {graduation.extra_shape_count} 个",
+            "底盘目标", localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.builds.graduation_card.fb11315fa', '{drive_area} 格 · 额外形状 {extra_shape_count} 个', drive_area=f'{graduation.drive_area}', extra_shape_count=f'{graduation.extra_shape_count}'),
         ))
         return card
 
@@ -224,7 +226,7 @@ class CharacterBuildView(QWidget):
         for prop, weight, main_weight in weights.properties:
             card.layout().addWidget(self._info(
                 self._property_name(prop),
-                f"综合 {_number(weight * 100)}% · 主词条 {_number(main_weight * 100)}%",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.builds.weights_card.ffb59e045', '综合 {value}% · 主词条 {value_2}%', value=f'{_number(weight * 100)}', value_2=f'{_number(main_weight * 100)}'),
             ))
         return card
 
@@ -242,9 +244,8 @@ class CharacterBuildView(QWidget):
                 for slot, skill_id, level in stage.recommended_skills
             ) or "名称暂未提供"
             card.layout().addWidget(self._info(
-                f"阶段 {stage.ordinal + 1}",
-                f"人物 Lv.{stage.character_level} · 弧盘 Lv.{stage.fork_level} · "
-                f"空幕 Lv.{stage.core_level} · 驱动 Lv.{stage.equipment_level}\n{skills}",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.builds.stages_card.f362e315b', '阶段 {value}', value=f'{stage.ordinal + 1}'),
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.characters.builds.stages_card.f4eabf271', '人物 Lv.{character_level} · 弧盘 Lv.{fork_level} · 空幕 Lv.{core_level} · 驱动 Lv.{equipment_level}\n{skills}', character_level=f'{stage.character_level}', fork_level=f'{stage.fork_level}', core_level=f'{stage.core_level}', equipment_level=f'{stage.equipment_level}', skills=f'{skills}'),
             ))
         return card
 

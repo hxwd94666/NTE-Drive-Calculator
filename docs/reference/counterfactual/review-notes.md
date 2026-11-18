@@ -9,7 +9,7 @@
 100%；缺少依赖的收益仍保持 `partial` 或 `unavailable`。
 
 公共伤害公式、噩梦/DOT、环合、倾陷和最大生命等已经确认的系统规则继续以
-[伤害计算规则](../damage-calculation.md) 为唯一权威位置，本文件不复制同一事实。
+[伤害计算规则](../damage/README.md) 为唯一权威位置，本文件不复制同一事实。
 
 ## SDK-20260904：运行时对象差异复核
 
@@ -85,28 +85,7 @@
 
 ## 角色审计索引
 
-- [早雾](reviews/role-1003.md)
-- [安魂曲](reviews/role-1004.md)
-- [翳](reviews/role-1008.md)
-- [娜娜莉](reviews/role-1010.md)
-- [薄荷](reviews/role-1019.md)
-- [哈尼娅](reviews/role-1020.md)
-- [埃德嘉](reviews/role-1021.md)
-- [白藏](reviews/role-1023.md)
-- [哈索尔](reviews/role-1025.md)
-- [阿德勒](reviews/role-1033.md)
-- [残虹](reviews/role-1036.md)
-- [法帝娅](reviews/role-1039.md)
-- [「零」（1046/1051）](reviews/role-1046.md)
-- [浔](reviews/role-1052.md)
-- [达芙蒂尔](reviews/role-1054.md)
-- [九原](reviews/role-1055.md)
-- [海月](reviews/role-1070.md)
-- [卡厄斯](reviews/role-1071.md)
-- [灵可](reviews/role-1072.md)
-- [小吱](reviews/role-1073.md)
-- [伊洛伊](reviews/role-1075.md)
-- [真红](reviews/role-1076.md)
+逐角色审计合并在[逐角色反事实审计](role-reviews.md)，按角色 ID 排序。
 
 ## 弧盘精炼审计
 

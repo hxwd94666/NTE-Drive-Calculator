@@ -2,6 +2,7 @@
 """Damage-first completion rules for the fork audit catalog."""
 
 from __future__ import annotations
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.forks.parameters import effect_parameter
 
 from collections.abc import Callable, Sequence
@@ -191,8 +192,7 @@ def _rules_rose(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
             factory,
             suffix="rose-topple-extension",
             name=(
-                f"最后一朵玫瑰：单次倾陷延长 {topple_extension:g} 秒"
-                "（缺少逐目标倾陷生命周期写入能力）"
+                localized_text(None, 'auto.services.battle_report.forks.damage_completion.rules_rose.ffa4c2299', '最后一朵玫瑰：单次倾陷延长 {topple_extension} 秒（缺少逐目标倾陷生命周期写入能力）', topple_extension=f'{topple_extension:g}')
             ),
             scope="unknown",
             modifiers=(_modifier("ToppleDurationAdd", topple_extension),),
@@ -355,8 +355,7 @@ def _rules_whale(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
             factory,
             suffix="whale-topple-kill-heal",
             name=(
-                f"鲸之歌：倾陷击杀回复最大生命的 {heal * 100:g}%"
-                f"（冷却 {cooldown:g} 秒；缺少正式击杀事件）"
+                localized_text(None, 'auto.services.battle_report.forks.damage_completion.rules_whale.f3562ed1a', '鲸之歌：倾陷击杀回复最大生命的 {value}%（冷却 {cooldown} 秒；缺少正式击杀事件）', value=f'{heal * 100:g}', cooldown=f'{cooldown:g}')
             ),
             scope="unknown",
             modifiers=(_modifier("HPCurrentRestoreRatio", heal),),
@@ -600,9 +599,7 @@ def _rules_rishi(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
             factory,
             suffix="rishi-eclipse-resource",
             name=(
-                f"休息日：日蚀持续 {duration:g} 秒、每次击杀回复 {energy:g} "
-                f"终结能量、最多 {stack_limit:g} 次（冷却 {cooldown:g} 秒；"
-                "缺少主动与击杀事件）"
+                localized_text(None, 'auto.services.battle_report.forks.damage_completion.rules_rishi.f5926af63', '休息日：日蚀持续 {duration} 秒、每次击杀回复 {energy} 终结能量、最多 {stack_limit} 次（冷却 {cooldown} 秒；缺少主动与击杀事件）', duration=f'{duration:g}', energy=f'{energy:g}', stack_limit=f'{stack_limit:g}', cooldown=f'{cooldown:g}')
             ),
             scope="unknown",
             modifiers=(_modifier("UltraEnergyAdd", energy),),

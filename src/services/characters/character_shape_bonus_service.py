@@ -121,7 +121,7 @@ def _save_public_character_shape_bonus(
     if character is not None:
         raise ValueError(
             f"官方角色 {raw_character_id} 的额外形状由静态资源库管理，不可编辑"
-        )
+        )  # ui-text: internal
     raise ValueError("额外形状只允许通过自创角色保存入口编辑")
 
 
@@ -166,7 +166,7 @@ def _reset_public_character_shape_bonus(
     with StaticGameDataDao(database_path) as static_dao:
         logical_key = static_dao.get_logical_character_key(raw_character_id)
         if not logical_key:
-            raise ValueError(f"公共静态数据库没有角色 {raw_character_id} 的逻辑角色标识")
+            raise ValueError(f"公共静态数据库没有角色 {raw_character_id} 的逻辑角色标识")  # ui-text: internal
         with SharedDataDao(resolve_shared_database(shared_database_path)) as shared_dao:
             shared_dao.delete_shape_bonus_override(logical_key)
         return get_effective_character_shape_bonus(

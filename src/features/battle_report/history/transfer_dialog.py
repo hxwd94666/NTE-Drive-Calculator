@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from datetime import datetime, timezone
 
@@ -180,8 +181,7 @@ class BattleReportTransferDialog(QDialog):
             self.table.setItem(row, 2, self._item(entry.gameplay_label))
             self.table.setItem(row, 3, self._item(entry.scope_label))
             completeness = (
-                f"{entry.completeness_label} · {entry.cursor_label} · "
-                f"摘要 {entry.total_hits} 命中"
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.history.transfer_dialog.set_entries.fc85dd9d1', '{completeness_label} · {cursor_label} · 摘要 {total_hits} 命中', completeness_label=f'{entry.completeness_label}', cursor_label=f'{entry.cursor_label}', total_hits=f'{entry.total_hits}')
             )
             self.table.setItem(row, 4, self._item(completeness))
             self.table.setItem(row, 5, self._item(entry.retention_label))

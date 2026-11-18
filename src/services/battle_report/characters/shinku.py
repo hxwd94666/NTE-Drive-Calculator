@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from math import isfinite
 from typing import Any
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.native.state_payload import HIT_FIELDS, state_rows, state_row
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.services.battle_report.characters.state_compute import compute_character_state
@@ -41,10 +42,10 @@ def _curve_value(static_dao: Any, curve_id: str) -> float:
         "points"
     ) or ())
     if len(points) != 1 or not isinstance(points[0].get("value"), (int, float)):
-        raise ValueError(f"真红升腾曲线 {curve_id} 缺少唯一数值证据")
+        raise ValueError(f"真红升腾曲线 {curve_id} 缺少唯一数值证据")  # ui-text: internal
     value = float(points[0]["value"])
     if not isfinite(value) or value < 0.0:
-        raise ValueError(f"真红升腾曲线 {curve_id} 数值无效")
+        raise ValueError(f"真红升腾曲线 {curve_id} 数值无效")  # ui-text: internal
     return value
 
 
@@ -112,7 +113,7 @@ class BattleShinkuRageBuffService:
             if native is not None and (type(value) not in (int, float) or not isfinite(value)):
                 raise ValueError("invalid_character_state_result")
             basis = (
-                f"正式曲线 Shinku_Rage_DmgUp={config.damage_up:g}"
+                f"正式曲线 Shinku_Rage_DmgUp={config.damage_up:g}"  # ui-text: internal
                 + (
                     f" + Shinku_Rage_DmgUpEx_L3={config.resonance_damage_up:g}"
                     if resonance else ""
@@ -283,15 +284,11 @@ def _estimate_one(
     cap = 16 if "Effect4" in selected else 8
     stacks = min(cap, stacks)
     return _WatchEstimate(stacks, (
-        f"威慑凝视弱推断：以前次真红主动命中/凝视消费 {anchor.event_id} "
-        f"为重置锚，按本场停表投影扣除后的空窗 {active_us / 1_000_000:.3f} 秒；"
-        "假设空窗内无未命中主动攻击、无额外未记录极限闪避，"
-        "并假设满两秒进入时获得首层、随后每满一秒增加一层。"
+        localized_text(None, 'auto.services.battle_report.characters.shinku.estimate_one.f21de399f', '威慑凝视弱推断：以前次真红主动命中/凝视消费 {event_id} 为重置锚，按本场停表投影扣除后的空窗 {value} 秒；假设空窗内无未命中主动攻击、无额外未记录极限闪避，并假设满两秒进入时获得首层、随后每满一秒增加一层。', event_id=f'{anchor.event_id}', value=f'{active_us / 1_000_000:.3f}')
         + ("本次同批极限反击提供一次额外闪避层的弱锚。" if trigger_evade else "")
         + ("第3项觉醒启用，切人不清层并允许后台增长；" if retains_off_field else
            "第3项觉醒未启用，未发现打断本段的前台切人弱锚；")
-        + f"按冻结觉醒取上限 {cap} 层，估算 {stacks} 层。"
-        "这不是 Core 实测层数；未命中攻击、切换和首层相位仍可能使估算偏移。"
+        + localized_text(None, 'auto.services.battle_report.characters.shinku.estimate_one.f9572a0bb', '按冻结觉醒取上限 {cap} 层，估算 {stacks} 层。这不是 Core 实测层数；未命中攻击、切换和首层相位仍可能使估算偏移。', cap=f'{cap}', stacks=f'{stacks}')
     ))
 
 

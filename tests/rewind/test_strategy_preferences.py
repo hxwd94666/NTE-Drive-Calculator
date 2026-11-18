@@ -138,7 +138,7 @@ def test_old_json_import_after_new_empty_schema_seeds_once_without_questions(tmp
     assert first.load_preferences('focused')['target_grade'] == 'D'
 
 
-def test_generated_plan_rechecks_frozen_source_inside_transaction(tmp_path):
+def test_generated_plan_save_overwrites_after_inventory_update_but_rejects_static_change(tmp_path):
     path = tmp_path / 'one.sqlite3'
     ref, _ = create_account(path, 'one')
     first = service(path)
@@ -149,9 +149,19 @@ def test_generated_plan_rechecks_frozen_source_inside_transaction(tmp_path):
     analysis = RewindShapeAnalysis(snapshot, 'fixture', 1, 8, (), strategy='balanced',
         selected_slots=(ref,), static_identity=first.static_identity(), selected_source_snapshots=((ref.slot_id, source),))
     value = dict(first.load_preferences('balanced'), saved_rewind_shape_ids=[SHAPE] * 8)
-    saved = first.save_preferences(value, save_plan=True, analysis=analysis, expected_slots=(ref,), static_identity=first.static_identity())
+    with UserDataDao(path) as dao:
+        # 生成后背包已同步出新快照：保存照常覆盖，冻结来源仍指向生成时快照。
+        newer = dao.import_inventory_snapshot({"method": "event.inventory.snapshot", "params": {
+            "complete": True, "generation": 1, "sequence": 2, "observed_at_unix_ms": 1_784_308_900_000,
+            "item_count": 0, "items": []}})
+    assert newer != snapshot
+    saved = first.save_preferences(value, save_plan=True, analysis=analysis)
     assert saved['saved_guard']['snapshot_id'] == snapshot
     assert saved['saved_inputs']['slots'][0]['plan_id'] == ref.plan_id
+    resaved = first.save_preferences(dict(saved, saved_rewind_shape_ids=['EquipmentGeometry_Hen4'] * 8), save_plan=True)
+    assert resaved['saved_rewind_shape_ids'] == ['EquipmentGeometry_Hen4'] * 8
+    assert resaved['saved_guard'] == saved['saved_guard'] and resaved['plan_origin'] == 'generated'
+    saved = resaved
     first.static_identity = lambda: ('changed', 1, 1)
     with pytest.raises(ValueError):
         first.save_preferences({**saved}, save_plan=True, analysis=analysis)
@@ -178,3 +188,18 @@ def test_first_legacy_import_does_not_override_already_edited_profiles(tmp_path)
         assert 'rewind_recommendation' not in values
     assert first.load_preferences('focused') == saved
     assert 'target_grade' not in first.load_preferences('balanced')
+
+
+@pytest.mark.parametrize('limits', [{'gold': 0}, {'gold': -2}, {'gold': True}, {'red': 1}, {'gold': 1.5}, [3], {'gold': 10000}])
+def test_ten_limits_are_saved_per_strategy_and_invalid_values_are_rejected(tmp_path, limits):
+    path = tmp_path / 'user.sqlite3'
+    legacy_account(path)
+    current = service(path)
+    balanced = current.load_preferences('balanced')
+    current.save_preferences({**balanced, 'rewind_ten_limits': {'blue': 2, 'gold': 5}})
+    assert current.load_preferences('balanced')['rewind_ten_limits'] == {'blue': 2, 'gold': 5}
+    assert 'rewind_ten_limits' not in current.load_preferences('focused')
+    saved = current.load_preferences('balanced')
+    with pytest.raises(ValueError, match='invalid_rewind_profile'):
+        current.save_preferences({**saved, 'rewind_ten_limits': limits})
+    assert current.load_preferences('balanced')['rewind_ten_limits'] == {'blue': 2, 'gold': 5}

@@ -19,7 +19,8 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 NTE_TEST_TIER = "integration"
 
 
-@pytest.mark.parametrize("relative", ["data/game_static.sqlite3", "data/role_catalog/game_static.sqlite3"])
+# 养成计算器优先读取发行附带的独立角色目录；主静态库仅在缺目录时回退，不再单独做整目录容量压测。
+@pytest.mark.parametrize("relative", ["data/role_catalog/game_static.sqlite3"])
 def test_entire_selectable_catalog_fits_budget_and_records_storage_sizes(tmp_path, relative):
     dataset = Path(__file__).resolve().parents[3] / relative
     assert dataset.is_file(), "发行资料缺失，容量验收尚未具备输入"

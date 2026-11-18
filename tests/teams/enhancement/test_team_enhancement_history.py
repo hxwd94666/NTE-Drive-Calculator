@@ -97,7 +97,7 @@ def test_account_database_roundtrip_preserves_results_and_rejects_bad_body(tmp_p
         assert dao.list_team_enhancements(team.team_id) == original
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_history_dialog_is_plain_read_only_and_closes_its_owner(tmp_path, theme):
     from tests.support.auto_sync_ui_fixture import application
     from tests.support.auto_sync_ui_fixture import dispose

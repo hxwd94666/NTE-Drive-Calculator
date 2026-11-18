@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,7 +198,7 @@ class MonsterDetailView(QWidget):
             "轨外赛季 Buff": "本期赛季规则",
         }.get(options.title, "场景增益 / 限制")
         self.body.addWidget(section_title(
-            heading, f"{len(values)} 项规则，效果说明直接在当前页面展开" if values else "正式效果说明",
+            heading, localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.detail_view.add_scene_options.f01ae3a1c', '{count} 项规则，效果说明直接在当前页面展开', count=f'{len(values)}') if values else "正式效果说明",
         ))
         if options.note:
             description = plain_label(options.note, self.host)

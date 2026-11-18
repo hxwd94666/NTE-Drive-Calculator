@@ -209,7 +209,7 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
             labels = ", ".join(
                 f"({slot}, {serial})" for slot, serial in conflicting_uids[:3]
             )
-            raise UserDataValidationError(f"不能借用锁定方案中的装备：{labels}")
+            raise UserDataValidationError(f"不能借用锁定方案中的装备：{labels}")  # ui-text: internal
 
     def assert_loadout_slot_save_allowed(
         self,
@@ -268,4 +268,4 @@ class LoadoutPlanLockDaoMixin(UserDataDaoMixinHost):
         collisions = sorted(claimed_uids.intersection(locked_uids))
         if collisions:
             label = ", ".join(f"({slot}, {serial})" for slot, serial in collisions[:3])
-            raise UserDataValidationError(f"不能借用锁定槽位方案中的装备：{label}")
+            raise UserDataValidationError(f"不能借用锁定槽位方案中的装备：{label}")  # ui-text: internal

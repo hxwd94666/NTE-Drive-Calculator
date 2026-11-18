@@ -1,4 +1,5 @@
 # 仓库独立任务 owner 冻结账号与草稿，统一提交设置后生成预览，等待本 owner 线程物理结束才关窗。
+from src.ui.common.enum_text import ui_enum_text
 from src.observability.stage_timings import StageTimings, timed_call
 from concurrent.futures import CancelledError
 from copy import deepcopy
@@ -125,7 +126,7 @@ class WarehouseManagementController(QObject):
                 raise ValueError(self.catalog.render("warehouse.management.conflict.stale"))
             guard.require_current()
         except ValueError as exc:
-            QMessageBox.warning(self.parent(), self.catalog.render("warehouse.management.conflict.title"), str(exc))
+            QMessageBox.warning(self.parent(), self.catalog.render("warehouse.management.conflict.title"), ui_enum_text(self.catalog, str(exc)))
             return
         request = self.request()
         dialog = WarehouseConflictDialog(self.catalog, deepcopy(conflicts), self.parent())

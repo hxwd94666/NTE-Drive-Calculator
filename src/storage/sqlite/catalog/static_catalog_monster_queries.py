@@ -138,7 +138,7 @@ catalog_entry AS (
     JOIN high_risk_commission_difficulty AS hd USING (commission_id)
     CROSS JOIN dataset AS d
 )
-"""
+"""  # ui-text: internal
 
 
 class StaticCatalogMonsterQueries(

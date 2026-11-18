@@ -52,7 +52,7 @@ Domain / Optimizer       DAO / Integration
 
 `src/ui/app.py` 是 GUI 组合根。`AppContext`、`EquipmentPresentation` 和 `GlobalHotkeyManager` 经启动组合或窗口组合创建
 并显式注入。MainWindow 的目标职责是导航、账号切换和生命周期；当前尚有功能 mixin 和窗口字段消费者，
-按[架构重构方案](roadmap/architecture-post-refactor-review.md)逐批接管。新增 Feature 使用明确依赖，不照搬遗留字段扫描或页号定位。
+按[架构重构方案](roadmap.md)逐批接管。新增 Feature 使用明确依赖，不照搬遗留字段扫描或页号定位。
 
 `TrayController` 由窗口组合根持有，拥有关闭方式选择和托盘入口；最小化与取消不触发业务 owner 收尾。
 原生关闭事件选择退出后继续该事件，不递归发起关闭；标题栏入口发起普通关闭，统一复用草稿确认与物理退场门禁。
@@ -65,6 +65,8 @@ Windows GUI 启动由 `src/ui/startup/process_privileges.py` 核验当前进程�
 不再以管理员组成员或提升标记代替 High 等级。token 只读探测与系统 `runas` 重启归
 `src/integrations/runtime/windows_privileges.py`；权限不足只请求一次正常管理员确认，保留源码/打包入口、参数及工作目录。
 新进程重新核验；取消、探测失败或重启后仍不足均停止，不准备账号、不启动输入，不循环重启或修改系统安全策略。
+重启后仍不足时只提示从开始菜单或桌面快捷方式直接启动：系统关闭 UAC 时 `runas` 沿用父进程令牌，
+被安装器或安全软件以受限权限启动的进程重试管理员运行无效，界面不展开技术原因。
 权限前置提示使用发行中文文本目录，尚未读取本机语言偏好；已获 High 等级的启动不重复请求。
 普通导入不初始化账号、连接 SQLite 或设置 NTE 路径变量；日志导入只准备控制台 sink，账号文件 sink 由显式日志生命周期创建。
 GUI 启动由 src/ui/startup/gui_startup.py 在 QApplication 创建前显式保持原 Windows SystemAware 初始化；不再依赖鼠标库导入的隐式进程状态变化。
@@ -77,7 +79,7 @@ GUI 启动由 src/ui/startup/gui_startup.py 在 QApplication 创建前显式保�
 `src/integrations/official_role/workshop_weight_http.py` 只在实际后台请求时加载 QtNetwork，局部网络对象和事件循环
 归该线程，以有限总时限、取消及响应体积门禁读取，DeferredDelete 在创建线程收尾。
 无请求的冷启动不加载 QtNetwork；按需导入不表示发行可裁除，构建与精确裁剪仍保留对应运行输入。
-隔离证据、实际应用综合烟测及真实 TLS／发行待验收范围见[首批架构验收](validation/architecture-renewal-day1.md#29-当前验证边界与剩余门禁)。
+隔离证据、实际应用综合烟测及真实 TLS／发行待验收范围见首批架构验收。
 
 性能采样的外部边界归 `src/integrations/performance/`：帧采样与 Windows 会话寿命各自成模块，
 两类有界诊断日志共用编码/容量写入实现，本机偏好单独保存。`src/services/performance/` 拥有监控与细分采样任务，
@@ -239,7 +241,7 @@ SQL 查询归 `src/storage/sqlite/catalog/static_game_data_queries.py`，runtime
 收集错误、子进程失败及零测试保留非零状态；养成函数式用例直接发现，旧 `load_tests` 子进程桥接已删除。
 基础权重与自建角色关键集合归 `tests/characters/`，官方角色保留集合归 `tests/characters/official/`；
 层级、资源定位和动态 patch 目标随各自归包更新。测试按关键行为保留，不为旧路径保留生产兼容入口。
-历史检查边界见[首批验收](validation/architecture-renewal-day1.md)，当前整改与验收范围见[复审方案](roadmap/architecture-post-refactor-review.md)。
+历史检查边界见首批验收，当前整改与验收范围见[复审方案](roadmap.md)。
 
 ### 2.2 仓库读取领域与状态投影
 
@@ -265,7 +267,7 @@ SQL 查询归 `src/storage/sqlite/catalog/static_game_data_queries.py`，runtime
 主读取与视觉卡带路径回退显式传入冻结来源；其余绘制/筛选全局回退和旧外部写 owner 仍待后续收敛。
 
 仓库保留验证归 `tests/inventory/`，旧路径、相对导入、动态 patch 和质量 allowlist 同批迁移；
-纯像素颜色及源码字符串两例删除，来源/状态/后验确认关键验证保留。实际证据见[首批验收](validation/architecture-renewal-day1.md)。
+纯像素颜色及源码字符串两例删除，来源/状态/后验确认关键验证保留。实际证据见首批验收。
 
 ### 2.3 配装领域与纯身份规则
 
@@ -308,7 +310,7 @@ DAO 在同一写事务内复核冻结范围后修改槽位/指针，清空未锁
 
 配装保留验证归 `tests/equipment/`，分配首片八模块归 `tests/allocation/`；跨域测试只迁生产引用。
 共享比较夹具随本域消费者迁移，其余跨域夹具来源保持；库存投影显式标为 core，八模块均进入默认门禁。
-实际有界验证、重复参数删除与未覆盖范围见[首批验收](validation/architecture-renewal-day1.md#8-配装领域归组与无消费者旧入口清理)。
+实际有界验证、重复参数删除与未覆盖范围见首批验收。
 
 ### 2.4 本机偏好与文本目录
 
@@ -324,7 +326,7 @@ DAO 在同一写事务内复核冻结范围后修改槽位/指针，清空未锁
 后台 callable 不反向持有视图 QObject，提交不会被取消、合并或自动重发。
 
 界面目录不进入评分、账号库、OCR 模型选择或扫描词库。识别输入配置的后续边界见
-[语言预备方案](roadmap/architecture-post-refactor-review.md#鉴定与扫描的功能内语言预备)，当前产品行为见
+[语言预备方案](roadmap.md)，当前产品行为见
 [界面语言补丁](features/localization.md)。
 
 ### 2.5 视觉输入与共用识别
@@ -387,8 +389,8 @@ release 出错仍尝试 close，主故障保留并附独立收尾错误，正常
 初始捕获或识别作用域进入失败若早于后端创建，不为收尾提前创建资源；缺显式 OperationGuard 仍拒绝新输入。
 同步原生识别物理返回前不关闭 owner，返回后取消拒绝后续输入。MSS 自建用 with，借入不关闭。
 非 OCR 旧截图/重试策略不据此宣称全局完成。OCR 支持声明、依赖组与消费者选择已接管，验收界限见
-[OCR 支持集合](validation/architecture-renewal-day1.md#23-质量引用收口与-ocr-支持集合)；其他语言仍仅有
-[功能内语言预备](roadmap/architecture-post-refactor-review.md#鉴定与扫描的功能内语言预备)。
+OCR 支持集合；其他语言仍仅有
+[功能内语言预备](roadmap.md)。
 
 `services/scanning/pipeline.py`统一捕获、单解析线程及汇总；图片文件读取与装备状态检测归
 `integrations/vision/equipment_state_detection.py`。后续规则评估共用
@@ -505,7 +507,7 @@ Service 继续按同一正式形状规则归一化，未知形状不计入。所
 `tests/static_catalog/` 保护真实搜索、分页、跨来源、正式身份、养成、路由、取消与关闭；
 删除纯源码拼写、颜色和尺寸装饰断言，不删除可操作性或内容完整性的行为保护。
 术语门禁递归读取新功能目录，避免归包后因旧文件名通配而静默漏检。
-本批验证与仍未交付范围见[首批验收](validation/architecture-renewal-day1.md)。
+本批验证与仍未交付范围见首批验收。
 
 ### 2.9 战报采集服务
 
@@ -739,7 +741,7 @@ DAO 生命周期仍由调用方管理。评分规则仍经既有 `StatCatalog` �
 逐件确认、批量候选、冻结历史分数和取消链保持原口径。`allocation_solver.py` 与
 `legacy_allocation_static_catalog.py` 保留完整真实公共 owner；不建立 shim、重导出或第二求解入口。
 Context、catalog 和失败保留用例归 `tests/allocation/`；跨域真实夹具和暂挂模块保持原身份。
-局部执行与整仓／实机缺口见[配装验收](validation/architecture-renewal-day1.md#8-配装领域归组与无消费者旧入口清理)。
+局部执行与整仓／实机缺口见配装验收。
 
 ### 2.16 账号设置、命名与模式检测
 
@@ -835,7 +837,7 @@ previous／baseline 升级入口继续保留；共享历史差异不提升为官
 页面模型以正式角色 ID 为 key，显示名只用于标签和搜索；同名官方/自建角色独立编辑。
 旧 `ConfigurationControllerMixin`、JSON 编辑参数及窗口编辑转发已删除；导航 key、界面布局和操作含义保持。
 账号切换先保护已接受写入，再停止读取并立即清空旧账号投影；晚到读取不能回填新页面。
-隔离流程与回退证据见[首批架构验收](validation/architecture-renewal-day1.md)，不据此宣称全项目或真实窗口验收完成。
+隔离流程与回退证据见首批架构验收，不据此宣称全项目或真实窗口验收完成。
 工作台摘要和计算目录分别由独立 Controller 持有；计算目录的变化探针、窄业务指纹及目录读取属于 Service，
 账号依赖字段在 DAO 一致性读取边界内取值，跨连接目录组装以读取前后依赖身份复核并最多重试一次。
 详细交付行为见[页面响应性](features.md#页面响应性与后台任务)。

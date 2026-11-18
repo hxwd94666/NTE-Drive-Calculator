@@ -9,7 +9,7 @@ from uuid import uuid4
 from src.domain.equipment.geometry.shapes import OFFICIAL_SHAPE_LABELS
 from src.domain.rewind.rewind_loadout import positive_id
 from src.domain.rewind.strategy_preferences import (EXECUTION_FIELDS, META_FIELDS, PLAN_FIELDS,
-    UI_KEY, flatten_profile, strategy_key)
+    TEN_LIMIT_MAXIMUM, TEN_LIMIT_QUALITIES, UI_KEY, flatten_profile, strategy_key)
 
 
 def load(service, strategy=None):
@@ -44,6 +44,17 @@ def _validate_slots(value, dao):
             slot = dao.get_loadout_slot(slot_id) if slot_id is not None else None
             if slot is not None and slot['character_id'] != int(identifier):
                 raise ValueError('invalid_rewind_slots')
+
+
+def _validate_ten_limits(value):
+    """十连次数上限只接受蓝紫金的正整数；0 或不填由界面省略，不写入无效值。"""
+    if 'rewind_ten_limits' not in value:
+        return
+    limits = value['rewind_ten_limits']
+    if not isinstance(limits, dict) or any(
+            key not in TEN_LIMIT_QUALITIES or type(count) is not int or not 0 < count <= TEN_LIMIT_MAXIMUM
+            for key, count in limits.items()):
+        raise ValueError('invalid_rewind_profile')
 
 
 def _plan(value, previous, analysis, guard):
@@ -86,8 +97,7 @@ def _plan(value, previous, analysis, guard):
     return result
 
 
-def save(service, value, *, strategy=None, save_plan=False, expected_slots=(), static_identity=None,
-         analysis=None, guard=None, checkpoint=lambda: None):
+def save(service, value, *, strategy=None, save_plan=False, analysis=None, guard=None, checkpoint=lambda: None):
     fields = deepcopy(value)
     if not isinstance(fields, dict):
         raise ValueError('invalid_rewind_profile')
@@ -110,20 +120,14 @@ def save(service, value, *, strategy=None, save_plan=False, expected_slots=(), s
             from src.services.rewind.dual_recommendation import parse_guard
             guard = parse_guard(current['saved_plan']['saved_guard'])
         _validate_slots(fields, dao)
+        _validate_ten_limits(fields)
         if 'groups' in fields:
             from src.services.rewind.dual_recommendation import _validate_group_preferences
             _validate_group_preferences(fields, dao)
-        if expected_slots:
-            if static_identity != service.static_identity():
-                raise ValueError('rewind_source_changed')
-            for ref in expected_slots:
-                slot = dao.get_loadout_slot(ref.slot_id)
-                if (not slot or slot.get('is_archived') or slot['character_id'] != ref.character_id
-                        or (slot.get('current_plan') or {}).get('plan_id') != ref.plan_id):
-                    raise ValueError('rewind_source_changed')
-        if guard is not None:
-            from src.services.rewind.dual_recommendation import _validate_guard
-            _validate_guard(service, dao, guard, checkpoint)
+        # 保存只覆盖本策略八槽并原样记录生成时的冻结来源；库存或所选配装此后更新不阻止保存，
+        # 由执行入口按变化请求确认。静态换版会使形状解释失效，仍拒绝。
+        if guard is not None and guard.static_identity != service.static_identity():
+            raise ValueError('rewind_source_changed')
         updated = deepcopy(current)
         updated['draft'].update({k: v for k, v in fields.items() if k not in PLAN_FIELDS | EXECUTION_FIELDS | META_FIELDS})
         if fields.get('slot_selection_version') == 2:
@@ -135,8 +139,6 @@ def save(service, value, *, strategy=None, save_plan=False, expected_slots=(), s
         updated.update(revision=current['revision'] + 1, seed='edited')
         dao.compare_and_replace_application_setting_copy(key, updated, expected=current, missing_value={}, check=checkpoint)
         checkpoint()
-        if expected_slots and static_identity != service.static_identity():
-            raise ValueError('rewind_source_changed')
         if guard is not None and guard.static_identity != service.static_identity():
             raise ValueError('rewind_source_changed')
     return flatten_profile(updated, strategy)

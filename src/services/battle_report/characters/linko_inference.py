@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend, available_battle_compute
 
 from src.domain.battle_report.timeline.events import (
@@ -559,9 +560,7 @@ class BattleLinkoCoattackInferenceService:
                 trigger_kind="skill",
                 confidence="中",
                 basis=(
-                    "完整有序的灵可 E 四段逐击后，在唯一静态动画响应窗口内"
-                    "出现首个同目标队友 QTE，且没有跨越时停或其他已认领 QTE"
-                    f"{type6_basis}。"
+                    localized_text(None, 'auto.services.battle_report.characters.linko_inference.infer.f8529e203', '完整有序的灵可 E 四段逐击后，在唯一静态动画响应窗口内出现首个同目标队友 QTE，且没有跨越时停或其他已认领 QTE{type6_basis}。', type6_basis=f'{type6_basis}')
                 ),
                 evidence_event_ids=(
                     *action.evidence_event_ids,

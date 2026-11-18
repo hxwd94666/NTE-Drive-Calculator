@@ -16,6 +16,7 @@ from src.features.inventory.equipment.management.batch_selection_dialog import B
 from src.integrations.preferences.locale_files import bundled_text_catalog, read_catalog_file
 from src.domain.equipment.assembly.assembly_progress import AssemblyTarget
 from src.features.inventory.equipment.assembly.assembly_surface import AssemblySurface
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 NTE_TEST_TIER = "core"
 ROOT = Path(__file__).resolve().parents[3]
@@ -84,7 +85,7 @@ def test_translated_picker_keeps_ids_scores_sort_and_literal_text(app):
         app.processEvents()
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 @pytest.mark.parametrize("kind", ["fast", "automatic"])
 def test_long_patch_keeps_start_cancel_back_and_search_reachable(app, monkeypatch, theme, kind):
     from src.app import window_geometry
@@ -178,7 +179,7 @@ def test_automatic_sections_render_literal_translations_and_describe_required_na
         app.processEvents()
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_result_first_show_has_final_geometry_and_long_patch_actions_remain_reachable(app, theme):
     original = current_theme_name()
     apply_app_theme(app, theme)

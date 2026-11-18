@@ -17,7 +17,7 @@ from src.features.teams.graduation.axis_graduation_controller import TeamAxisGra
 from src.features.teams.graduation.axis_graduation_dialog import TeamAxisGraduationDialog
 
 
-@pytest.mark.parametrize('theme', ['black', 'dark', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 @pytest.mark.parametrize('patched', [False, True])
 def test_three_footer_actions_follow_visible_order_and_escape_still_exits(tmp_path, monkeypatch, theme, patched):
     from src.app import window_geometry

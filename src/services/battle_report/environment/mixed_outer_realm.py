@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.environment.outer_realm_period import BattleOuterRealmPeriod
 
 
@@ -80,7 +81,7 @@ def infer_mixed_outer_realm(
         outer_realm_period is None or outer_realm_period.config_id != config_id
     ):
         return None
-    marker = f"第{int(floor)}层"
+    marker = localized_text(None, 'auto.services.battle_report.environment.mixed_outer_realm.infer_mixed_outer_realm.fa47afccd', '第{value}层', value=f'{int(floor)}')
     prefix = resolved[0].environment_name.partition(marker)[0]
     partial = bool(unresolved)
     unresolved_text = "、".join("上半" if half == "upper" else "下半" for half in unresolved)

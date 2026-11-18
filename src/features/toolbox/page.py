@@ -39,6 +39,7 @@ from src.services.rewind.recommendation import (
     RewindTargetRole,
 )
 from src.features.toolbox.rewind.execution_dialog import RewindExecutionOptions
+from src.domain.rewind.strategy_preferences import parse_ten_limits
 from src.features.toolbox.rewind.execution_ui import RewindExecutionUiMixin
 from src.features.toolbox.rewind.selection_ui import RewindSelectionUiMixin
 from src.features.toolbox.rewind.dual_ui import RewindDualTargetUiMixin
@@ -229,6 +230,7 @@ class _RewindRecommendationDialog(RewindProfileUiMixin, RewindDualTargetUiMixin,
         self._rewind_options = RewindExecutionOptions(
             qualities=tuple(str(value) for value in preferences.get("rewind_qualities", ("gold",))),
             drive_customization=str(preferences.get("rewind_drive_customization", "none")),
+            ten_limits=parse_ten_limits(preferences.get("rewind_ten_limits")),
         )
         self._saved_rewind_shape_ids = tuple(str(value) for value in preferences.get("saved_rewind_shape_ids", ()))
         self._saved_rewind_slots = tuple(preferences.get("saved_rewind_slots", ()))
@@ -561,12 +563,18 @@ class _RewindRecommendationDialog(RewindProfileUiMixin, RewindDualTargetUiMixin,
             for recommendation in plan.recommendations
         ) or analysis.recommendations
         self._set_replacement_inventory_counts(dict(analysis.owned_shape_counts))
+        self._refresh_candidate_gaps(analysis, dual=False)
         self._apply_recommendations(recommendations)
         description = {
             "balanced": resolve_text_catalog(self.text_catalog).render('rewind.results.balanced'),
             "focused": resolve_text_catalog(self.text_catalog).render('rewind.results.focused'),
         }.get(analysis.strategy, resolve_text_catalog(self.text_catalog).render('rewind.results.generated'))
-        self._render_rewind_slots(resolve_text_catalog(self.text_catalog).render('rewind.results.recommended'), description)
+        if analysis.notice:
+            # 超出八种形状时没有推荐，提示放在标题说明里，八个空槽仍可手选。
+            title, description = resolve_text_catalog(self.text_catalog).render('rewind.results.notice'), analysis.notice
+        else:
+            title = resolve_text_catalog(self.text_catalog).render('rewind.results.recommended')
+        self._render_rewind_slots(title, description)
 
 
 def build_toolbox_page(window) -> QWidget:

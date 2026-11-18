@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote
 
+from src.domain.localization.catalog import localized_text
 from src.services.static_catalog.monsters.display import (
     NAME_UNAVAILABLE,
     display_fight_stage,
@@ -57,7 +58,7 @@ class StaticCatalogOuterRealmDetailMixin:
             _key("outer_realm", config_id, level_id, fight_stage),
             domain="encounter", play_mode="outer_realm", title_value=title,
             fallback=NAME_UNAVAILABLE,
-            subtitle=f"轨外之境 · {_RELEASE_LABELS[state]} · {half_label}",
+            subtitle=localized_text(None, 'auto.services.static_catalog.monsters.outer_realm.outer_detail.fc2ef7dc5', '轨外之境 · {value} · {half_label}', value=f'{_RELEASE_LABELS[state]}', half_label=f'{half_label}'),
             primary_id=config_id, secondary_id=fight_stage, release_state=state,
             secondary_label=half_label,
         )
@@ -79,7 +80,7 @@ class StaticCatalogOuterRealmDetailMixin:
         ))]
         relations: list[CatalogRelation] = []
         for index, member in enumerate(row.get("members", ()), 1):
-            section_title = f"刷怪槽位 {index}"
+            section_title = localized_text(None, 'auto.services.static_catalog.monsters.outer_realm.outer_detail.f7216d613', '刷怪槽位 {index}', index=f'{index}')
             sections.append(CatalogSection(section_title, (
                 self._value("刷怪池 ID", member.get("monster_pool_id"), copyable=True),
                 self._value("刷怪顺序", member.get("spawn_ordinal")),
@@ -94,10 +95,10 @@ class StaticCatalogOuterRealmDetailMixin:
             )))
             sections.append(self._combat_profile_section(
                 member.get("profile"), level=member.get("monster_level"),
-                title=f"{section_title} 公式画像",
+                title=localized_text(None, 'auto.services.static_catalog.monsters.outer_realm.outer_detail.fb09eb134', '{section_title} 公式画像', section_title=f'{section_title}'),
             ))
             relations.append(CatalogRelation(
-                f"{section_title} 敌方档案",
+                localized_text(None, 'auto.services.static_catalog.monsters.outer_realm.outer_detail.fbd798063', '{section_title} 敌方档案', section_title=f'{section_title}'),
                 _key(
                     "outer_member", config_id, level_id, fight_stage,
                     member.get("spawn_ordinal"), member.get("monster_pool_id"),
@@ -140,7 +141,7 @@ class StaticCatalogOuterRealmDetailMixin:
             ),
             domain="monster", play_mode="outer_realm",
             title_value=row.get("monster_name_zh"), fallback=NAME_UNAVAILABLE,
-            subtitle=f"轨外之境 · {_RELEASE_LABELS[state]} · {half_label}",
+            subtitle=localized_text(None, 'auto.services.static_catalog.monsters.outer_realm.outer_member_detail.fc2ef7dc5', '轨外之境 · {value} · {half_label}', value=f'{_RELEASE_LABELS[state]}', half_label=f'{half_label}'),
             primary_id=object_name or monster_pool_id,
             secondary_id=path, release_state=state,
             secondary_label=half_label,

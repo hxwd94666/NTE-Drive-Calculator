@@ -18,7 +18,7 @@ def equipment_paths(window) -> tuple[Path, Path, Path]:
             or static_database_path is None
             or asset_dir is None
         ):
-            raise RuntimeError("配装展示缺少 AppContext 或显式路径依赖")
+            raise RuntimeError("配装展示缺少 AppContext 或显式路径依赖")  # ui-text: internal
         return (
             Path(database_path),
             Path(static_database_path),

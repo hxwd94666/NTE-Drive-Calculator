@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from unittest.mock import patch
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget
 
 from src.domain.catalog.static_catalog import (
@@ -118,6 +119,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         page.close()
         self.assertEqual([True], closed)
         owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_registered_domain_is_available_without_legacy_provider_and_routes_links(self) -> None:
         class ProviderOnlyController(_Controller):
@@ -167,6 +169,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         self.assertEqual(["formula|defense"], mechanics[0].opened)
         page.close()
         owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_explicit_cross_domain_link_has_reversible_history(self) -> None:
         class DomainPage(QWidget):
@@ -222,6 +225,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         self.assertEqual([], page._navigation_history)
         page.close()
         owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_domain_navigation_contract_uses_the_single_shell_back_button(self) -> None:
         class DomainPage(QWidget):
@@ -278,6 +282,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         self.assertIs(page._domain_pages["character"], page._stack.currentWidget())
         page.close()
         owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_unavailable_links_keep_origin_for_rejection_and_exception(self) -> None:
         # 同一导航回退责任覆盖明确拒绝和异常，不重复搭建两套页面夹具。
@@ -311,6 +316,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
                 self.assertNotIn("raw internal missing key", str(messages))
                 page.close()
                 owner.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
     def test_dedicated_page_build_failure_returns_to_menu(self) -> None:
@@ -343,6 +349,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
         self.assertEqual([("无法打开角色图鉴", "broken dedicated page")], errors)
         page.close()
         owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def test_close_attempts_every_owner_when_earlier_close_fails(self) -> None:
         class FailingController(_Controller):
@@ -375,6 +382,7 @@ class StaticCatalogMenuUiTests(unittest.TestCase):
             page.close()
         self.assertEqual(["first", "second"], closed)
         owner.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 if __name__ == "__main__":

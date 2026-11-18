@@ -28,7 +28,7 @@ class ComponentUpgradeGuideMixin:
             return
         self._upgrade_cleanup_resume = False
         self._upgrade_cleanup_assessed = False
-        QTimer.singleShot(0, self._show_upgrade_when_idle)
+        QTimer.singleShot(0, self, self._show_upgrade_when_idle)
 
     def _upgrade_progress_path(self):
         return self.window.app_context.paths.config_dir / "component_upgrade_pending"
@@ -52,7 +52,7 @@ class ComponentUpgradeGuideMixin:
         if self._closed:
             return
         if QApplication.activeModalWidget() is not None:
-            QTimer.singleShot(1000, self._show_upgrade_when_idle)
+            QTimer.singleShot(1000, self, self._show_upgrade_when_idle)
             return
         self.show_upgrade_guide()
 

@@ -25,7 +25,7 @@ def normalize_native_profile_patches(profiles: Sequence[Mapping[str, Any]]) -> t
             raise UserDataValidationError("正式角色状态条目无效")
         character_id = row.get("character_id")
         if type(character_id) is not int or character_id <= 0 or character_id in seen:
-            raise UserDataValidationError("角色状态必须使用唯一的正式 character_id")
+            raise UserDataValidationError("角色状态必须使用唯一的正式 character_id")  # ui-text: internal
         seen.add(character_id)
         patch = {"character_id": character_id}
         for name, low, high in (("character_level", 1, 80), ("breakthrough_stage", 0, 6)):
@@ -33,7 +33,7 @@ def normalize_native_profile_patches(profiles: Sequence[Mapping[str, Any]]) -> t
             if value is None:
                 continue
             if type(value) is not int or not low <= value <= high:
-                raise UserDataValidationError(f"角色状态 {name} 超出合法范围")
+                raise UserDataValidationError(f"角色状态 {name} 超出合法范围")  # ui-text: internal
             patch[name] = value
         awakening = row.get("awakening_level")
         if awakening is not None:

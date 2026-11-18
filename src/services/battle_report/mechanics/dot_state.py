@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.mechanics.dot_evidence import BattleDotStackState, DOT_KIND_NAMES, dot_basis, dot_final_basis
 from src.services.battle_report.native.state_payload import HIT_FIELDS, state_rows
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
@@ -576,7 +577,7 @@ def reconstruct_dot_stack_states(
                 and state.count <= 0
             )
             if coefficient_is_lower_bound:
-                label = f"{DOT_KIND_NAMES[current_kind]}观测下限"
+                label = localized_text(None, 'auto.services.battle_report.mechanics.dot_state.reconstruct_dot_stack_states.f0ee7da69', '{value}观测下限', value=f'{DOT_KIND_NAMES[current_kind]}')
             modeled_kinds = {
                 kind
                 for kind, count in (

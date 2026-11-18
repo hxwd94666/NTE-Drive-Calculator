@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from src.features.input_operation_entry import (
     request_input_entry,
@@ -56,7 +57,7 @@ def _is_equipment_plugin_unavailable_error(error: object) -> bool:
 
 def _equipment_failure_details(
     failure_kind: str,
-    error: object,
+    error: object, *, text_catalog=None,
 ) -> str:
     """Render one concrete failure category without conflating pipe states."""
 
@@ -66,7 +67,7 @@ def _equipment_failure_details(
     if failure_kind == "cancelled":
         return "已停止后续装配，已经下发的操作不会回滚；请核对游戏内实际装备。"
     if failure_kind == "plugin_unavailable":
-        return f"原生装备通道不可用：{message}。请在工作模式检测详情中核对当前原生组件连接与装备能力。"
+        return localized_text(text_catalog, 'auto.features.inventory.equipment.assembly.assembly_controller.equipment_failure_details.fa38f95ed', '原生装备通道不可用：{message}。请在工作模式检测详情中核对当前原生组件连接与装备能力。', message=f'{message}')
     if failure_kind == "plugin_busy":
         return "装备执行仍繁忙或正在等待同步就绪，本次请求尚未派发；已完成的步骤不会回滚。"
     if failure_kind == "outcome_unknown":
@@ -74,11 +75,11 @@ def _equipment_failure_details(
     if failure_kind == "core_request_timeout":
         return "nte-core 的请求响应等待超时；这不是命名管道缺失的检测结果。"
     if failure_kind == "request_rejected":
-        return f"装备插件已收到请求但拒绝执行：{message}"
+        return localized_text(text_catalog, 'auto.features.inventory.equipment.assembly.assembly_controller.equipment_failure_details.fdd6ddb2d', '装备插件已收到请求但拒绝执行：{message}', message=f'{message}')
     if failure_kind == "snapshot_timeout":
         return "装配请求已经下发，但没有在等待时间内取得新的稳定背包快照。"
     if failure_kind == "snapshot_error":
-        return f"装配请求已经下发，但背包同步复核失败：{message}"
+        return localized_text(text_catalog, 'auto.features.inventory.equipment.assembly.assembly_controller.equipment_failure_details.f937e5efb', '装配请求已经下发，但背包同步复核失败：{message}', message=f'{message}')
     if failure_kind == "loadout_mismatch":
         return message
     return message

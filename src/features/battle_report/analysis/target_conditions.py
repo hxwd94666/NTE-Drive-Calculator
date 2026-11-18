@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from typing import Any
@@ -388,7 +389,7 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
             team_level = int(difficulty.get("team_level") or 0)
             label = resolve_text_catalog(getattr(self, 'text_catalog', None)).render('frontend.battle_report.analysis.target_conditions.clone_activity_changed.text', value=f"{level or int(difficulty['difficulty_ordinal']) + 1}")
             if team_level:
-                label += f"（推荐队伍 Lv.{team_level}）"
+                label += localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.analysis.target_conditions.clone_activity_changed.fc2cdd7fb', '（推荐队伍 Lv.{team_level}）', team_level=f'{team_level}')
             self.clone_difficulty_combo.addItem(label, difficulty)
         if isinstance(previous, dict):
             self._set_combo_data(
@@ -450,7 +451,7 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         targets_text += "\n完整上下半战报保存任一分区后，会自动确认本层两个分区。"
         buff = config.get("season_buff") or {}
         if buff:
-            targets_text += f"\n赛季 Buff：{buff['buff_name_zh']}——{buff['description_zh']}"
+            targets_text += localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.analysis.target_conditions.outer_half_changed.f8ed4c4e8', '\n赛季 Buff：{value}——{value_2}', value=f"{buff['buff_name_zh']}", value_2=f"{buff['description_zh']}")
         self.outer_targets_label.setText(ui_enum_text(getattr(self, 'text_catalog', None), targets_text))
         self._emit_preset()
 
@@ -620,28 +621,28 @@ class BattleTargetConditionSelector(FeastConditionMixin, QGroupBox):
         }
 
     @staticmethod
-    def _environment_name(kind: str, ref: str) -> str:
+    def _environment_name(kind: str, ref: str, *, text_catalog=None) -> str:
         if str(ref).startswith("clone|"):
             return "材料 / 养成副本"
         if kind == "outer_realm":
             parts = str(ref).split("|")
             if len(parts) >= 3 and parts[1].isdigit():
-                return f"轨外之境第{int(parts[1])}层{'上半' if 'FirstHalf' in parts[2] else '下半'}"
+                return localized_text(text_catalog, 'auto.features.battle_report.analysis.target_conditions.environment_name.fc608f9b8', '轨外之境第{value}层{value_2}', value=f'{int(parts[1])}', value_2=f"{ui_enum_text(text_catalog, '上半') if 'FirstHalf' in parts[2] else ui_enum_text(text_catalog, '下半')}")
         return {"open_world": "大世界", "feast": "争锋赏宴"}.get(kind, "战斗环境")
 
     @staticmethod
-    def _option_label(option: dict[str, Any]) -> str:
+    def _option_label(option: dict[str, Any], *, text_catalog=None) -> str:
         effect = str(option.get("effect_kind") or "")
         if effect in {"mechanism_goal", "mechanism"}:
-            return f"{option.get('description_zh') or '目标说明暂未提供'}（目标分值 {option.get('score', 0)}，未判定完成）"
+            return localized_text(text_catalog, 'auto.features.battle_report.analysis.target_conditions.option_label.f8ee88aab', '{value}（目标分值 {value_2}，未判定完成）', value=f"{option.get('description_zh') or ui_enum_text(text_catalog, '目标说明暂未提供')}", value_2=f"{option.get('score', 0)}")
         if effect == "time_limit":
-            text = f"{option.get('limit_seconds', 0)} 秒"
+            text = localized_text(text_catalog, 'auto.features.battle_report.analysis.target_conditions.option_label.fa6211d7f', '{value} 秒', value=f"{option.get('limit_seconds', 0)}")
         elif effect in {"health_up", "attack_up", "resistance_up"}:
             text = f"+{float(option.get('add_value') or 0.0) * 100:.0f}%"
         else:
             text = str(option.get("description_zh") or option["option_id"])
         score = option.get('score')
-        return f"{text}（积分 {score if score is not None else '未知'}）"
+        return localized_text(text_catalog, 'auto.features.battle_report.analysis.target_conditions.option_label.ff82a0665', '{text}（积分 {value}）', text=f'{text}', value=f"{score if score is not None else ui_enum_text(text_catalog, '未知')}")
 
     @staticmethod
     def _set_combo_data(combo: NoWheelComboBox, wanted: object, key: str | None = None) -> None:

@@ -11,6 +11,8 @@ from src.features.drive_assembly.assembly_session import (
     execute_selected_role_from_current_game_page,
     is_role_detail_startup_recognition,
     role_recognition_candidates,
+)
+from src.features.drive_assembly.assembly_plan_review import (
     summarize_assembly_plan,
     verify_blueprint_against_screenshot,
 )

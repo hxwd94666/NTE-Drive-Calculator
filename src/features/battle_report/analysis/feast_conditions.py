@@ -65,8 +65,8 @@ class FeastConditionMixin:
                 combo = NoWheelComboBox()
                 combo.addItem(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.feast_stage_changed.combo'), None)
                 for option in category.get("options") or ():
-                    combo.addItem(self._option_label(option), option)
-                    combo.setItemData(combo.count() - 1, self._option_label(option), Qt.ItemDataRole.ToolTipRole)
+                    combo.addItem(self._option_label(option, text_catalog=getattr(self, 'text_catalog', None)), option)
+                    combo.setItemData(combo.count() - 1, self._option_label(option, text_catalog=getattr(self, 'text_catalog', None)), Qt.ItemDataRole.ToolTipRole)
                 combo.currentIndexChanged.connect(self._emit_preset)
                 self._feast_option_combos[str(category["category_ordinal"])] = combo
                 self.feast_options_layout.addRow(category["name_zh"], combo)

@@ -56,7 +56,7 @@ class StaticGameDataCombatBlueprintQueriesMixin(StaticDataDaoMixinHost):
         effect_id = str(gameplay_effect_id).strip()
         normalized_tag = str(tag_name).strip()
         if not effect_id or not normalized_tag:
-            raise ValueError("gameplay_effect_id 和 tag_name 不能为空")
+            raise ValueError("gameplay_effect_id 和 tag_name 不能为空")  # ui-text: internal
         row = self._one(
             """
             SELECT 1 AS matched
@@ -98,7 +98,7 @@ class StaticGameDataCombatBlueprintQueriesMixin(StaticDataDaoMixinHost):
 
         normalized = str(asset_path).strip()
         if not normalized:
-            raise ValueError("asset_path 不能为空")
+            raise ValueError("asset_path 不能为空")  # ui-text: internal
         asset = self._one(
             """
             SELECT asset_path, asset_name, asset_type, asset_kind,

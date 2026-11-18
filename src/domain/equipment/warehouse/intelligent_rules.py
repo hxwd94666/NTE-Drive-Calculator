@@ -3,6 +3,7 @@ from copy import deepcopy
 import hashlib
 import json
 
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.scoring.grade_limits import GRADE_MIN_RATIOS
 
 RULE_SCHEME_VERSION = 3
@@ -93,23 +94,23 @@ def generated_rules(options, *, strong_set_name, all_sets=None, all_shapes=None,
     support = {'伤害增加%', '环合强度', '攻击力%'}
     # 用户确认的优质四词条组合不受数量截断；未证实主属性严重不适配时保守保留。
     for stat, label in [('攻击力%', '攻击'), ('环合强度', '环合')]:
-        condition('combo:premium:tape:' + stat, f'全套装空幕双暴增伤{label}保护', [],
+        condition('combo:premium:tape:' + stat, localized_text(None, 'auto.domain.equipment.warehouse.intelligent_rules.generated_rules.f6cd83c0d', '全套装空幕双暴增伤{label}保护', label=f'{label}'), [],
                   crit | {'伤害增加%', stat}, crit, 4)
     condition('combo:premium:tape:倾陷强度', '全套装倾陷主属性双暴增伤倾陷保护', ['倾陷强度'],
               crit | {'伤害增加%', '倾陷强度'}, crit, 4)
     for stat, label in [('攻击力%', '攻击'), ('环合强度', '环合'), ('倾陷强度', '倾陷'),
                         ('生命值%', '生命'), ('防御力%', '防御')]:
-        condition('combo:premium:drive:' + stat, f'驱动双暴增伤{label}保护', [],
+        condition('combo:premium:drive:' + stat, localized_text(None, 'auto.domain.equipment.warehouse.intelligent_rules.generated_rules.fc8c93491', '驱动双暴增伤{label}保护', label=f'{label}'), [],
                   crit | {'伤害增加%', stat}, crit, 4, kind='drive')
     for stat, label in [('环合强度', '环合'), ('倾陷强度', '倾陷')]:
-        condition('combo:premium:drive:attack:' + stat, f'驱动双暴攻击{label}保护', [],
+        condition('combo:premium:drive:attack:' + stat, localized_text(None, 'auto.domain.equipment.warehouse.intelligent_rules.generated_rules.f176ea0b7', '驱动双暴攻击{label}保护', label=f'{label}'), [],
                   crit | {'攻击力%', stat}, crit, 4, kind='drive')
     if strong_set_name:
         condition('combo:light', '光套双暴及有效副词条储备', [], crit | support, crit, 3, [strong_set_name])
     if support_set_name:
         for stat, label in [('攻击力%', '攻击'), ('防御力%', '防御'), ('生命值%', '生命'),
                             ('环合强度', '环合'), ('倾陷强度', '倾陷')]:
-            condition('combo:sonic:' + stat, f'音速辅助双暴增伤{label}保护', [],
+            condition('combo:sonic:' + stat, localized_text(None, 'auto.domain.equipment.warehouse.intelligent_rules.generated_rules.f3d80f73a', '音速辅助双暴增伤{label}保护', label=f'{label}'), [],
                       crit | {'伤害增加%', stat}, crit | {'伤害增加%'}, 4, [support_set_name])
     condition('combo:offense', '输出主属性双暴储备', ['暴击率%', '暴击伤害%', '攻击力%'], crit | support, crit, 3)
     for main, stats, label in [('生命值%', ['生命值%', '生命值'], '生命'), ('防御力%', ['防御力%', '防御力'], '防御')]:
@@ -168,9 +169,9 @@ def policy_from_rules(rules):
 def dynamic_summary(rule):
     kind = rule['smart_kind']
     suffix = ('最低评级：' + rule['grade'] if kind == 'grade' else
-              f"{'额外备用候选' if kind == 'current_drive' else '每用途候选'}：{rule['reserve']} 件"
+              localized_text(None, 'auto.domain.equipment.warehouse.intelligent_rules.dynamic_summary.f57e938de', '{value}：{value_2} 件', value=f"{'额外备用候选' if kind == 'current_drive' else '每用途候选'}", value_2=f"{rule['reserve']}")
               if kind in {'current_tape', 'current_drive', 'future'} else '')
     if kind == 'future':
         target = rule.get('target_inventory_size', 1000)
-        suffix += f'；目标保留总量：{target} 件（保护优先）' if target else '；总量不限'
+        suffix += localized_text(None, 'auto.domain.equipment.warehouse.intelligent_rules.dynamic_summary.fe0ba98fc', '；目标保留总量：{target} 件（保护优先）', target=f'{target}') if target else '；总量不限'
     return KINDS[kind][1] + (' ' + suffix if suffix else '')

@@ -1,7 +1,7 @@
 # 验证倒带分组操作、结果详情和小屏幕底栏可达，不操作游戏。
 import pytest
 from PySide6.QtCore import QPoint, QRect
-from PySide6.QtWidgets import QFrame, QScrollArea, QToolButton
+from PySide6.QtWidgets import QFrame, QPushButton, QScrollArea
 
 from tests.rewind.test_dual_target_ui import cleanup, setup_dialog
 from tests.support.theme import settle
@@ -53,7 +53,7 @@ def test_default_rewind_window_keeps_both_slot_rows_and_footer_visible(tmp_path,
         cleanup(dialog)
 
 
-def test_dual_results_have_one_scroll_owner_and_details_remain_reachable(tmp_path, monkeypatch, themed_app):
+def test_dual_results_have_one_scroll_owner_and_overview_entry_remains_reachable(tmp_path, monkeypatch, themed_app):
     app = themed_app
     monkeypatch.setattr(window_geometry, '_available_geometry', lambda _: QRect(0, 0, 1920, 1080))
     dialog, service, _dao, _roles = setup_dialog(tmp_path, monkeypatch)
@@ -65,8 +65,8 @@ def test_dual_results_have_one_scroll_owner_and_details_remain_reachable(tmp_pat
         assert dialog._results_scroll.findChildren(QScrollArea) == []
         cards = dialog.findChildren(QFrame, 'rewindShapeRecommendationCard')
         assert len(cards) == 8
-        toggle = dialog.findChild(QToolButton, 'rewindDualDetails')
-        toggle.click();settle(app)
+        # 共同缺口说明与来源明细已移入“共同缺口”弹窗，结果区只保留其入口。
+        assert dialog._result_tabs.widget(0).findChild(QPushButton, 'rewindDualOverlap').isVisibleTo(dialog)
         dialog._results_scroll.ensureWidgetVisible(cards[-1]);settle(app)
         viewport = dialog._results_scroll.viewport()
         assert viewport.rect().contains(cards[-1].mapTo(viewport, cards[-1].rect().center()))

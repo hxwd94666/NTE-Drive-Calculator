@@ -76,7 +76,7 @@ class TeamEnhancementHistoryDialog(ExplicitActionDialog):
         self.footer = CompactFooter(leading=self.more, buttons=self.buttons)
         outer.addWidget(self.footer)
         self._initial_fit = InitialContentFit(self, body=body, footer=self.footer, width=720)
-        QTimer.singleShot(0, self._load)
+        QTimer.singleShot(0, self, self._load)
 
     def _load(self):
         if self._closing is not None or self._offset is None or self._reader.is_running():

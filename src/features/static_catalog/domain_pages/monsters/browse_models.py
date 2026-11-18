@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 from urllib.parse import unquote
 
+from src.domain.localization.catalog import localized_text
 from src.services.static_catalog.monsters.service import CatalogEntry
 
 
@@ -87,17 +88,17 @@ def object_name(path: str) -> str:
     return name[:-2] if name.endswith("_C") else name
 
 
-def period_label(config_id: str) -> str:
+def period_label(config_id: str, *, text_catalog=None) -> str:
     ordinal = str(config_id).rsplit("_", 1)[-1]
-    return f"第 {ordinal} 期" if ordinal.isdigit() else "正式期数"
+    return localized_text(text_catalog, 'auto.features.static_catalog.domain_pages.monsters.browse_models.period_label.f8a2998e3', '第 {ordinal} 期', ordinal=f'{ordinal}') if ordinal.isdigit() else "正式期数"
 
 
-def home_badge(mode: str, entries: Iterable[CatalogEntry]) -> str:
+def home_badge(mode: str, entries: Iterable[CatalogEntry], *, text_catalog=None) -> str:
     """Summarize one home category without duplicating records in the view."""
 
     if mode == "outer_realm":
         count = len({entry.primary_id for entry in entries})
-        return f"{count} 期正式配置"
+        return localized_text(text_catalog, 'auto.features.static_catalog.domain_pages.monsters.browse_models.home_badge.f4c433398', '{count} 期正式配置', count=f'{count}')
     labels = {
         "official_illustrated": "名大世界敌人",
         "feast": "名挑战对象",

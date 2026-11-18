@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.services.inventory.scanning.vision_snapshot import import_vision_inventory
 from src.services.recognition.resources import check_recognition_resources
 from src.integrations.vision.recognition.image_resources import RecognitionImageProfile
@@ -19,7 +20,7 @@ from src.integrations.vision.recognition.resources import RecognitionResources, 
 class IncompleteVisionScanError(RuntimeError):
     def __init__(self, *, expected_count: int, parsed_count: int, failed_count: int) -> None:
         super().__init__(
-            f"预计 {expected_count} 件，完整解析 {parsed_count} 件，失败 {failed_count} 件。"
+            localized_text(None, 'auto.services.inventory.scanning.visual_scan_commit.init.fa73adc40', '预计 {expected_count} 件，完整解析 {parsed_count} 件，失败 {failed_count} 件。', expected_count=f'{expected_count}', parsed_count=f'{parsed_count}', failed_count=f'{failed_count}')
         )
         self.expected_count = expected_count
         self.parsed_count = parsed_count
@@ -48,9 +49,9 @@ def append_tape_main_warning(summary: str, items: Sequence[Mapping[str, Any]]) -
     numbers = _unknown_tape_main_numbers(items)
     if not numbers:
         return summary
-    listed = "、".join(f"{number}号" for number in numbers[:2])
+    listed = "、".join(localized_text(None, 'auto.services.inventory.scanning.visual_scan_commit.append_tape_main_warning.ffceb2e4c', '{number}号', number=f'{number}') for number in numbers[:2])
     suffix = "……" if len(numbers) > 2 else ""
-    return f"{summary}\n卡带主词条解析失败：{len(numbers)}个（{listed}{suffix}）。"
+    return localized_text(None, 'auto.services.inventory.scanning.visual_scan_commit.append_tape_main_warning.f6c52224e', '{summary}\n卡带主词条解析失败：{count}个（{listed}{suffix}）。', summary=f'{summary}', count=f'{len(numbers)}', listed=f'{listed}', suffix=f'{suffix}')
 
 
 def _check_capture_cancel(stats: Mapping[str, Any]) -> None:

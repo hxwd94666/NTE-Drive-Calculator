@@ -222,7 +222,6 @@ def test_gui_system_exit_releases_runtime_lease(tmp_path, monkeypatch):
 def test_explicit_gui_bootstrap_prepares_dpi_before_qapplication(tmp_path, monkeypatch):
     import faulthandler
     from types import SimpleNamespace
-    from unittest.mock import mock_open
     from src.ui.startup import gui_startup
 
     events = []
@@ -244,7 +243,7 @@ def test_explicit_gui_bootstrap_prepares_dpi_before_qapplication(tmp_path, monke
 
     monkeypatch.setattr(gui_startup, "QApplication", Application)
     monkeypatch.setattr(gui_startup, "prepare_process_dpi_awareness", lambda: events.append("dpi"))
-    monkeypatch.setattr(gui_startup, "open", mock_open(), raising=False)
+    monkeypatch.setattr(gui_startup, "enable_crash_dump", lambda *args, **kwargs: None)
     monkeypatch.setattr(faulthandler, "enable", lambda *args, **kwargs: None)
     monkeypatch.setattr(sys, "excepthook", sys.excepthook)
     import threading

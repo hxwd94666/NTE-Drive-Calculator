@@ -51,9 +51,9 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
         battle_record_id: int,
     ) -> dict[str, Any] | None:
         if isinstance(battle_record_id, bool) or not isinstance(battle_record_id, int):
-            raise UserDataValidationError("battle_record_id 必须是整数")
+            raise UserDataValidationError("battle_record_id 必须是整数")  # ui-text: internal
         if battle_record_id < 1:
-            raise UserDataValidationError("battle_record_id 不能小于 1")
+            raise UserDataValidationError("battle_record_id 不能小于 1")  # ui-text: internal
         connection = self._db()
         record = connection.execute(
             "SELECT * FROM battle_record WHERE battle_record_id = ?",
@@ -120,7 +120,7 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
         normalized = [self._normalize_transfer_report(item) for item in reports]
         operation_ids = [item["capture_operation_id"] for item in normalized]
         if len(set(operation_ids)) != len(operation_ids):
-            raise UserDataValidationError("战报包包含重复 capture_operation_id")
+            raise UserDataValidationError("战报包包含重复 capture_operation_id")  # ui-text: internal
 
         connection = self._db()
         imported_ids: list[int] = []
@@ -146,7 +146,7 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
                     or self._raw_evidence_identity(local) != self._raw_evidence_identity(item["tables"])
                 ):
                     raise UserDataValidationError(
-                        "本地已有同 capture_operation_id 的不同战报或原始逐击证据，已拒绝覆盖"
+                        "本地已有同 capture_operation_id 的不同战报或原始逐击证据，已拒绝覆盖"  # ui-text: internal
                     )
                 skipped += 1
             self._validate_retention_capacity(connection, pending)
@@ -193,15 +193,15 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
         for table in _RECORD_TABLES:
             raw_rows = raw_tables.get(table, [])
             if isinstance(raw_rows, (str, bytes)) or not isinstance(raw_rows, Sequence):
-                raise UserDataValidationError(f"{table} 必须是数组")
+                raise UserDataValidationError(f"{table} 必须是数组")  # ui-text: internal
             rows = []
             for raw_row in raw_rows:
                 if not isinstance(raw_row, Mapping):
-                    raise UserDataValidationError(f"{table} 包含无效数据行")
+                    raise UserDataValidationError(f"{table} 包含无效数据行")  # ui-text: internal
                 rows.append(dict(raw_row))
             tables[table] = rows
         if len(tables["battle_record"]) != 1:
-            raise UserDataValidationError("每条导出战报必须包含一个 battle_record")
+            raise UserDataValidationError("每条导出战报必须包含一个 battle_record")  # ui-text: internal
         if len(tables["battle_record_retention"]) != 1:
             raise UserDataValidationError("每条导出战报必须包含一个保留状态")
         record = tables["battle_record"][0]
@@ -247,13 +247,13 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
     def _validate_record_graph(tables: Mapping[str, list[dict[str, Any]]]) -> None:
         record_id = tables["battle_record"][0].get("battle_record_id")
         if isinstance(record_id, bool) or not isinstance(record_id, int) or record_id < 1:
-            raise UserDataValidationError("来源 battle_record_id 无效")
+            raise UserDataValidationError("来源 battle_record_id 无效")  # ui-text: internal
         for table, rows in tables.items():
             if table in {"battle_hit_evidence", "battle_time_stop_interval"}:
                 continue
             for row in rows:
                 if row.get("battle_record_id") != record_id:
-                    raise UserDataValidationError(f"{table} 的战报外键不一致")
+                    raise UserDataValidationError(f"{table} 的战报外键不一致")  # ui-text: internal
         captures = tables["battle_axis_capture"]
         if len(captures) > 1:
             raise UserDataValidationError("单场战报不能包含多个 axis capture")
@@ -263,7 +263,7 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
             return
         capture_id = captures[0].get("capture_id")
         if isinstance(capture_id, bool) or not isinstance(capture_id, int):
-            raise UserDataValidationError("来源 capture_id 无效")
+            raise UserDataValidationError("来源 capture_id 无效")  # ui-text: internal
         if (
             str(captures[0].get("capture_operation_id") or "")
             != str(tables["battle_record"][0].get("capture_operation_id") or "")
@@ -272,7 +272,7 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
             raise UserDataValidationError("逐击轴与战报身份或完成状态不一致")
         for table in ("battle_hit_evidence", "battle_time_stop_interval"):
             if any(row.get("capture_id") != capture_id for row in tables[table]):
-                raise UserDataValidationError(f"{table} 的 capture 外键不一致")
+                raise UserDataValidationError(f"{table} 的 capture 外键不一致")  # ui-text: internal
         raw_record = captures[0].get("raw_record_json")
         raw_record_sha256 = captures[0].get("raw_record_sha256")
         if raw_record not in (None, ""):
@@ -322,11 +322,11 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
         if current_total + len(pending) > BATTLE_REPORT_MAX_RECORDS:
             raise UserDataValidationError(
                 f"导入后战报将超过 {BATTLE_REPORT_MAX_RECORDS} 条，请先删除不需要的记录"
-            )
+            )  # ui-text: internal
         if current_manual + pending_manual > BATTLE_REPORT_MAX_MANUAL_RECORDS:
             raise UserDataValidationError(
                 f"导入后手动战报将超过 {BATTLE_REPORT_MAX_MANUAL_RECORDS} 条，请先取消部分保存"
-            )
+            )  # ui-text: internal
 
     def _insert_transfer_report(
         self,
@@ -339,7 +339,7 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
         record_row.pop("battle_record_id", None)
         record_id = self._insert_row(connection, "battle_record", record_row)
         if record_id is None:
-            raise UserDataError("导入战报后未返回 battle_record_id")
+            raise UserDataError("导入战报后未返回 battle_record_id")  # ui-text: internal
 
         capture_id_map: dict[int, int] = {}
         for table in _INSERT_ORDER[1:]:
@@ -347,20 +347,20 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
                 row = dict(source)
                 if "battle_record_id" in row:
                     if int(row["battle_record_id"]) != source_record_id:
-                        raise UserDataValidationError(f"{table} 的战报外键不一致")
+                        raise UserDataValidationError(f"{table} 的战报外键不一致")  # ui-text: internal
                     row["battle_record_id"] = int(record_id)
                 if table == "battle_axis_capture":
                     source_capture_id = int(row.pop("capture_id"))
                     row["source_inventory_snapshot_id"] = None
                     new_capture_id = self._insert_row(connection, table, row)
                     if new_capture_id is None:
-                        raise UserDataError("导入逐击轴后未返回 capture_id")
+                        raise UserDataError("导入逐击轴后未返回 capture_id")  # ui-text: internal
                     capture_id_map[source_capture_id] = int(new_capture_id)
                     continue
                 if table in {"battle_hit_evidence", "battle_time_stop_interval"}:
                     source_capture_id = int(row["capture_id"])
                     if source_capture_id not in capture_id_map:
-                        raise UserDataValidationError(f"{table} 缺少来源 capture")
+                        raise UserDataValidationError(f"{table} 缺少来源 capture")  # ui-text: internal
                     row["capture_id"] = capture_id_map[source_capture_id]
                 if table == "battle_build_snapshot":
                     row["source_inventory_snapshot_id"] = None
@@ -381,9 +381,9 @@ class BattleReportTransferDaoMixin(UserDataDaoMixinHost):
         }
         unknown = set(row) - local_columns
         if unknown:
-            raise UserDataValidationError(f"{table} 包含当前版本不支持的字段")
+            raise UserDataValidationError(f"{table} 包含当前版本不支持的字段")  # ui-text: internal
         if not row:
-            raise UserDataValidationError(f"{table} 数据行不能为空")
+            raise UserDataValidationError(f"{table} 数据行不能为空")  # ui-text: internal
         columns = tuple(row)
         placeholders = ",".join("?" for _ in columns)
         names = ",".join(f'"{name}"' for name in columns)

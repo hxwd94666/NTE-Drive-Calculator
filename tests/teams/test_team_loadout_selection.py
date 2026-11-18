@@ -93,7 +93,8 @@ def test_v50_upgrade_freezes_original_choice_and_preserves_explicit_modes(tmp_pa
         # 成员2无槽位继续缺项；升级只冻结一次，此后新增槽位不自动改绑。
         dao.create_loadout_slot(2, "后建主力", slot_key="primary")
         assert dao.get_team_source(teams[0].team_id) == first
-        assert dao.list_teams() == tuple(teams)
+        # 同一毫秒内创建的队伍按随机 team_id 排序；这里只核对升级未改动队伍本身。
+        assert sorted(dao.list_teams(), key=lambda team: team.team_id) == sorted(teams, key=lambda team: team.team_id)
         assert dao._db().execute("PRAGMA foreign_key_check").fetchall() == []
         assert dao._db().execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert list((tmp_path / ".migration-backups").glob("user-data-v50-*.sqlite3"))

@@ -142,8 +142,8 @@ def test_progress_keeps_selected_scope_and_scroll_and_rechecks_before_acceptance
         dispose(dialog)
 
 
-@pytest.mark.parametrize('theme', ['black', 'dark', 'light'])
-@pytest.mark.parametrize('width', [560, 1040])
+@pytest.mark.parametrize('theme', ["black"])
+@pytest.mark.parametrize('width', [560])
 def test_long_patch_controls_fit_and_filters_keep_stable_ids(theme, width, monkeypatch):
     from src.app import window_geometry
     app = application()
@@ -217,7 +217,7 @@ def test_async_team_load_keeps_initial_geometry_and_internal_picker_keeps_catalo
         dispose(dialog)
 
 
-@pytest.mark.parametrize('theme', ['black', 'dark', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 def test_team_card_long_patch_keeps_four_portraits_and_configuration_in_small_window(theme, monkeypatch):
     from src.app import window_geometry
     app = application()

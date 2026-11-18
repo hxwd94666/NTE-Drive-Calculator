@@ -21,7 +21,7 @@ from src.storage.sqlite.user_data_dao import (
 def normalize_account_name(value: object) -> str:
     name = str(value).strip()
     if not name:
-        raise UserDataValidationError("account_name 不能为空")
+        raise UserDataValidationError("account_name 不能为空")  # ui-text: internal
     return name
 
 

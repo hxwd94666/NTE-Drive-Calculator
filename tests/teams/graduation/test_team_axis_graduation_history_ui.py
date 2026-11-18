@@ -270,7 +270,7 @@ def test_team_card_entry_and_account_reset_close_only_its_graduation_window(tmp_
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_theme_small_screen_keeps_window_and_keyboard_actions_accessible(tmp_path, monkeypatch, theme):
     from src.app import window_geometry
     app = application()

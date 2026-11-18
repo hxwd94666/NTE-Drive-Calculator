@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.scoring.allocation_rating import loadout_total_grade
 from src.domain.rewind.rewind_loadout import RewindSlotReference, finite_score
 from src.domain.names.role_name_order import role_name_sort_key
@@ -28,7 +29,7 @@ def rewind_role_sort_key(role: RewindTargetRole):
 
 
 def rewind_role_card_presentation(
-    role: RewindTargetRole, selected_reference: RewindSlotReference | None,
+    role: RewindTargetRole, selected_reference: RewindSlotReference | None, *, text_catalog=None,
 ) -> RewindRoleCardPresentation:
     slot = next((row for row in role.slots if row.reference == selected_reference), None)
     score = slot.score if slot else None
@@ -48,11 +49,11 @@ def rewind_role_card_presentation(
     else:
         caption = slot.slot_name
     if slot is not None:
-        exact_score = f"{score:g}分（{grade}）" if score is not None else score_text
+        exact_score = localized_text(text_catalog, 'auto.features.toolbox.rewind.role_selection.rewind_role_card_presentation.fb73f0f86', '{score}分（{grade}）', score=f'{score:g}', grade=f'{grade}') if score is not None else score_text
         detail = f"{role.name}\n{slot.slot_name}：{exact_score}\n{slot.reason}"
     else:
         detail = f"{role.name}\n{score_text}\n{caption}"
-    slot_detail = f"切换 {role.name} 的配装槽位\n{detail}" if role.slots else detail
+    slot_detail = localized_text(text_catalog, 'auto.features.toolbox.rewind.role_selection.rewind_role_card_presentation.f322f38ae', '切换 {name} 的配装槽位\n{detail}', name=f'{role.name}', detail=f'{detail}') if role.slots else detail
     return RewindRoleCardPresentation(score, score_text, grade, caption, detail, slot_detail, bool(role.slots))
 
 

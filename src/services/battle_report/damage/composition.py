@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.domain.battle_report.capture.summary import BattleCharacterSummary, BattleSkillSummary
 from src.domain.battle_report.analysis.composition import (
@@ -109,7 +110,7 @@ _NAMED_CONTINUOUS_DIRECT_CHANNELS = {
 _REACTION_CHANNELS = {key for key, _label in _REACTION_LABELS.values()}
 
 _COARSE_REACTION_LABELS = {
-    key: f"环合·{label}" if key != "reaction_unknown" else label
+    key: localized_text(None, 'auto.services.battle_report.damage.composition.module.f70ff4cd6', '环合·{label}', label=f'{label}') if key != "reaction_unknown" else label
     for key, label in _REACTION_LABELS.values()
 }
 

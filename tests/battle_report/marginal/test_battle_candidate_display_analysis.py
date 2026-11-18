@@ -17,6 +17,7 @@ from src.integrations.analysis_core.nte_analysis_core import NativeAnalysisError
 from src.services.battle_report.build.counterfactual import BattleBuildCounterfactualService
 from src.services.battle_report.build.timeline_projection import BattleBuildTimelineProjectionService
 from tests.battle_report.marginal.test_benefits import _snapshot
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class CandidateDisplayAnalysisTests(unittest.TestCase):

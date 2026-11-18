@@ -102,7 +102,7 @@ class ScanParseCoordinator:
         )
         self.capture_queue_maxsize = int(capture_queue_maxsize)
         if self.capture_queue_maxsize < 0:
-            raise ValueError("capture_queue_maxsize 不能小于 0")
+            raise ValueError("capture_queue_maxsize 不能小于 0")  # ui-text: internal
         self.state_detector = state_detector or (lambda _path: "normal")
         self.sleep_fn = sleep_fn
         self._scan_done_emitted = False
@@ -154,7 +154,7 @@ class ScanParseCoordinator:
 
         def on_capture(path: str, index: int, total: int) -> None:
             if parse_errors:
-                raise RuntimeError(f"流水线解析线程异常: {parse_errors[0]}") from parse_errors[0]
+                raise RuntimeError(f"流水线解析线程异常: {parse_errors[0]}") from parse_errors[0]  # ui-text: internal
             payload = (path, index, total)
             if captured_queue is not None:
                 depth_before_put = captured_queue.qsize()
@@ -196,7 +196,7 @@ class ScanParseCoordinator:
                     self.sleep_fn(self.low_load_parse_delay_seconds)
 
         if parse_errors:
-            raise RuntimeError(f"流水线解析线程异常: {parse_errors[0]}") from parse_errors[0]
+            raise RuntimeError(f"流水线解析线程异常: {parse_errors[0]}") from parse_errors[0]  # ui-text: internal
 
         result.end_to_end_ms = (time.perf_counter() - pipeline_start) * 1000.0
         self._log_batch(result)

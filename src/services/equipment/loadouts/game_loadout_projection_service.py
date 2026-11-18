@@ -379,7 +379,7 @@ class GameLoadoutProjectionService:
                 projection = request.projection
                 current_items = items_by_character.get(projection.character_id, [])
                 if _equipment_fingerprint(current_items) != projection.equipment_fingerprint:
-                    raise GameLoadoutProjectionError(f"[{projection.role_name}] 的游戏内装备已经变化，请刷新后重试。")
+                    raise GameLoadoutProjectionError(f"[{projection.role_name}] 的游戏内装备已经变化，请刷新后重试。")  # ui-text: internal
 
         def validate_transaction():
             validate_source()
@@ -396,7 +396,7 @@ class GameLoadoutProjectionService:
             if not projection.importable:
                 raise GameLoadoutProjectionError(
                     projection.reason or f"[{projection.role_name}] 当前游戏内方案不可导入。"
-                )
+                )  # ui-text: internal
             if projection.character_id in character_ids:
                 raise GameLoadoutProjectionError("批量导入中不能重复包含同一角色。")
             character_ids.add(projection.character_id)
@@ -407,11 +407,11 @@ class GameLoadoutProjectionService:
             if exact_score is None:
                 raise GameLoadoutProjectionError(
                     f"[{projection.role_name}] 导入方案缺少完整的逐件评分。"
-                )
+                )  # ui-text: internal
             if abs(float(request.score) - exact_score) > 1e-6:
                 raise GameLoadoutProjectionError(
                     f"[{projection.role_name}] 的方案总分与逐件评分不一致。"
-                )
+                )  # ui-text: internal
             plans.append({
                 "slot_id": request.slot_id,
                 "create_slot_name": request.create_slot_name,
@@ -455,7 +455,7 @@ class GameLoadoutProjectionService:
                 return self.user_dao.save_calculated_loadout_plans(plans,
                     checkpoint=check, validate=validate_transaction, commit_context=commit_context)
             except Exception as exc:
-                raise GameLoadoutProjectionError(f"保存指定配装槽位失败：{exc}") from exc
+                raise GameLoadoutProjectionError(f"保存指定配装槽位失败：{exc}") from exc  # ui-text: internal
         slot_ids = [plan.get("slot_id") for plan in plans]
         if any(slot_id is not None for slot_id in slot_ids) or any(request.create_slot_name for request in requests):
             if any(request.slot_id is None and not request.create_slot_name for request in requests):
@@ -466,7 +466,7 @@ class GameLoadoutProjectionService:
                 return tuple(int(plan_id) for plan_id in self.user_dao.save_plans_to_slots(
                     plans, checkpoint=checkpoint, validate=validate_transaction, commit_context=commit_context))
             except Exception as exc:
-                raise GameLoadoutProjectionError(f"保存指定配装槽位失败：{exc}") from exc
+                raise GameLoadoutProjectionError(f"保存指定配装槽位失败：{exc}") from exc  # ui-text: internal
         return tuple(
             int(plan_id)
             for plan_id in self.user_dao.replace_active_loadout_plans(

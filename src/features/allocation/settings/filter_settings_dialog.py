@@ -174,6 +174,6 @@ class AllocationFilterSettingsDialog(QDialog):
         try:
             self.settings()
         except AllocationFilterValidationError as exc:
-            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.accept_valid_settings.qmessagebox'), str(exc))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.allocation.accept_valid_settings.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
             return
         self.accept()

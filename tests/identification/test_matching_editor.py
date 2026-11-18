@@ -20,6 +20,7 @@ from src.domain.equipment.eligibility.management_settings import MatchingScope
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.ui.role_suit_matching.controller import RoleSuitMatchingController
 from src.ui.role_suit_matching.dialog import MatchingEditorDialog
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 @pytest.fixture
@@ -305,9 +306,12 @@ def test_editor_actions_and_keyboard_navigation_remain_reachable_on_small_screen
     dialog = MatchingEditorDialog(catalog(tmp_path))
     try:
         dialog.load(data({"version": 1, "extra_suits": {"1001": ["B"]}}))
-        fit_dialog_to_available_screen(dialog, QSize(610, 440), available_geometry=QRect(0, 0, 760, 560))
-        dialog.show()
-        app.processEvents()
+        small = QRect(0, 0, 760, 560)
+        fit_dialog_to_available_screen(dialog, QSize(610, 440), available_geometry=small)
+        # 已安装的对话框默认限位会在显示时按真实屏幕重新限位；显示期间固定为同一小屏。
+        with patch("src.app.window_geometry._available_geometry", lambda _dialog: small):
+            dialog.show()
+            app.processEvents()
         for button in dialog.findChildren(QPushButton):
             if button.isVisible():
                 assert not button.visibleRegion().isEmpty(), button.text()

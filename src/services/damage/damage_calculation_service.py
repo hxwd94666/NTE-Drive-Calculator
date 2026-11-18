@@ -407,7 +407,7 @@ def _enemy_defense_offset(scene: DamageScene) -> float:
         return 90.0
     if scene is DamageScene.OPEN_WORLD:
         return 100.0
-    raise ValueError(f"不支持的战斗场景：{scene}")
+    raise ValueError(f"不支持的战斗场景：{scene}")  # ui-text: internal
 
 
 def calculate_enemy_defense(
@@ -428,7 +428,7 @@ def calculate_enemy_defense_from_profile(
     """Use the bound monster pack instead of inferring defense from display level."""
 
     if profile.defense_base < 0:
-        raise ValueError("敌方 DefBase 不能为负数。")
+        raise ValueError("敌方 DefBase 不能为负数。")  # ui-text: internal
     raw_defense = calculate_attribute_value(
         profile.defense_base,
         profile.defense_up,

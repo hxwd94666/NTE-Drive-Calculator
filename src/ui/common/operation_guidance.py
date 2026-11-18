@@ -47,6 +47,8 @@ def prompt_operation_settings(
 ) -> None:
     """仅显式点击导航才离开当前弹窗；不提升权限、不续跑原操作。"""
     origin = QApplication.activeModalWidget()
+    # 调用方传入的固定说明与服务错误原文在此统一投影；未登记的诊断原文保持不变。
+    title, feature, detail, action_text = (ui_enum_text(text_catalog, value) for value in (title, feature, detail, action_text))
     dialog = QDialog(parent)
     dialog.setWindowTitle(title)
     layout = QVBoxLayout(dialog)
@@ -79,7 +81,7 @@ def allow_operation_entry(parent, policy, capability: str, feature: str, navigat
     if entry_is_allowed(policy, capability):
         return True
     mode = ui_enum_text(text_catalog, _MODE_LABELS)[policy.settings.mode.value]
-    detail = resolve_text_catalog(text_catalog).render('frontend.common.operation_guidance.allow_operation_entry.text') + mode + resolve_text_catalog(text_catalog).render('frontend.common.operation_guidance.allow_operation_entry.text_2') + _REQUIREMENTS[capability]
+    detail = resolve_text_catalog(text_catalog).render('frontend.common.operation_guidance.allow_operation_entry.text') + mode + resolve_text_catalog(text_catalog).render('frontend.common.operation_guidance.allow_operation_entry.text_2') + ui_enum_text(text_catalog, _REQUIREMENTS[capability])
     prompt_operation_settings(parent, title=resolve_text_catalog(text_catalog).render('ui.common.allow_operation_entry.caption'), feature=feature, detail=detail,
                               navigate=navigate, target="mode", text_catalog=text_catalog)
     return False
@@ -97,7 +99,7 @@ def explain_operation_unavailable(parent, feature: str, detail: str, navigate, t
     destination = "组件部署设置" if target == "deployment" else "当前检测信息；需要时请点击重新检测"
     prompt_operation_settings(
         parent, title=resolve_text_catalog(text_catalog).render('ui.common.explain_operation_unavailable.caption'), feature=feature,
-        detail=detail + resolve_text_catalog(text_catalog).render('ui.common.explain_operation_unavailable.caption_2') + destination + "。",
+        detail=ui_enum_text(text_catalog, detail) + resolve_text_catalog(text_catalog).render('ui.common.explain_operation_unavailable.caption_2') + ui_enum_text(text_catalog, destination) + "。",
         navigate=navigate, target=target,
         text_catalog=text_catalog,
     )

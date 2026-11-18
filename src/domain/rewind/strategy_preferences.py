@@ -9,7 +9,7 @@ PROFILE_PREFIX = 'rewind_strategy_'
 UI_KEY = 'rewind_strategy_ui'
 PLAN_FIELDS = frozenset({'saved_rewind_shape_ids', 'saved_rewind_slots', 'plan_origin',
                          'saved_guard', 'saved_request', 'saved_inputs', 'saved_at_utc'})
-EXECUTION_FIELDS = frozenset({'rewind_qualities', 'rewind_drive_customization'})
+EXECUTION_FIELDS = frozenset({'rewind_qualities', 'rewind_drive_customization', 'rewind_ten_limits'})
 META_FIELDS = frozenset({'strategy', '_revision'})
 
 
@@ -65,3 +65,14 @@ def initial_profiles(legacy=None, dual=None):
     profile = split_profile(seed, seed='legacy' if legacy or dual else 'empty')
     return {strategy: deepcopy(profile) for strategy in STRATEGIES}
 
+
+TEN_LIMIT_QUALITIES = ("blue", "purple", "gold")
+TEN_LIMIT_MAXIMUM = 9999
+
+
+def parse_ten_limits(value) -> tuple[tuple[str, int], ...]:
+    """读取账号偏好中的 {品质: 次数}；损坏、非正整数或未知品质按“不填”处理，按蓝紫金顺序冻结。"""
+    if not isinstance(value, dict):
+        return ()
+    return tuple((quality, value[quality]) for quality in TEN_LIMIT_QUALITIES
+                 if type(value.get(quality)) is int and 0 < value[quality] <= TEN_LIMIT_MAXIMUM)

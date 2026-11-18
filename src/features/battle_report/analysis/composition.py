@@ -127,7 +127,7 @@ class BattleAnalysisCompositionMixin:
                 resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_damage_composition.composition_status_label')
             )
             if self._topple_detail_requested_analysis is not analysis:
-                QTimer.singleShot(0, self._request_topple_attribution)
+                QTimer.singleShot(0, self, self._request_topple_attribution)
         elif composition.unresolved_topple_attribution:
             self.composition_status_label.setText(
                 resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_damage_composition.composition_status_label_2')

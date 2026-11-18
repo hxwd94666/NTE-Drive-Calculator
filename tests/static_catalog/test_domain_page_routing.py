@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 from src.features.static_catalog.controller import StaticCatalogController
@@ -68,6 +69,8 @@ class StaticCatalogDomainPageRoutingTests(unittest.TestCase):
         )
         page_holder["page"] = page
         host = page.build()
+        # addCleanup 后进先出：先关页面并请求删除，最后完成本例请求的延迟删除。
+        self.addCleanup(QCoreApplication.sendPostedEvents, None, QEvent.Type.DeferredDelete)
         self.addCleanup(owner.deleteLater)
         self.addCleanup(host.deleteLater)
         self.addCleanup(page.close)

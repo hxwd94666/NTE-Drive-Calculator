@@ -96,7 +96,7 @@ def character_awakening_damage_multiplier(
             return None, "觉醒六强化 E/Q 缺少正式 Shinku_RageSkillDmgCoefL6 曲线"
         return 1.0 + shinku_rage_skill_coefficient, (
             "觉醒六「赤龙的藏宝地」：正式强化 E/Q CoefModify "
-            f"+{shinku_rage_skill_coefficient:.0%}"
+            f"+{shinku_rage_skill_coefficient:.0%}"  # ui-text: internal
         )
     if (
         int(character.get("character_id") or 0) == 1055

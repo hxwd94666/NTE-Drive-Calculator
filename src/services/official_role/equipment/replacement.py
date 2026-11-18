@@ -7,6 +7,7 @@ from pathlib import Path
 from math import isfinite
 from typing import Any, Mapping, Callable
 
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.loadouts.loadout_plan_scores import (
     assignment_score_key,
     exact_assignment_score_total,
@@ -284,6 +285,7 @@ def _calculate_replacement_values(detail, context_key, target, values, calculato
         margins=baseline,
         base_property_weights=detail.get("property_weights") or {},
         base_main_property_weights=detail.get("main_property_weights") or {},
+        calculator=calculator,
     )
     current_gain = calculate_official_role_item_gain(
         full_level_detail,
@@ -470,7 +472,7 @@ def save_official_role_replacement(
             if checkpoint is not None:
                 checkpoint()
             save_kwargs = {
-                "name": f"替换优化：{role_name}", "assignments": assignments,
+                "name": localized_text(None, 'auto.services.official_role.equipment.replacement.save_official_role_replacement.fcc5f5b43', '替换优化：{role_name}', role_name=f'{role_name}'), "assignments": assignments,
                 "source_snapshot_id": int(plan["source_snapshot_id"]),
                 "status": "incomplete" if any(is_virtual_equipment_assignment(row) for row in assignments) else "saved",
                 "score": saved_score, "payload": payload,

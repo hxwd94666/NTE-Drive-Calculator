@@ -172,7 +172,7 @@ class BattleRolePageImportService:
                         or character.get("character_id")
                         or "未知角色"
                     )
-                    raise ValueError(f"{name}的角色页当前空幕/驱动不可用")
+                    raise ValueError(f"{name}的角色页当前空幕/驱动不可用")  # ui-text: internal
                 profile.update({
                     "equipment_context_key": "current",
                     "equipment_context_title": str(

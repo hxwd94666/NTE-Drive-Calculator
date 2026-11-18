@@ -79,7 +79,11 @@ def test_avatar_hold_then_cancel_keeps_role_and_next_click_still_works(selector,
     button = button_for(selector, "A")
     pos = avatar_position(button)
     QTest.mousePress(button, Qt.LeftButton, pos=pos)
-    QTest.qWait(QApplication.startDragTime() + 40)
+    # 长按计时器在 startDragTime 后触发；负载下事件可能延迟，按实际开始拖拽为准并设上限，不靠固定余量。
+    from time import monotonic
+    deadline = monotonic() + QApplication.startDragTime() / 1000 + 2
+    while not calls and monotonic() < deadline:
+        QTest.qWait(5)
     QTest.mouseRelease(button, Qt.LeftButton, pos=pos)
     assert calls == [("A", "0", Qt.MoveAction)]
     assert selector.get_selected() == ["A", "B", "C"]

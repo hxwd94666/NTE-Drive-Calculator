@@ -3,6 +3,7 @@ from threading import Event, RLock, Thread
 from time import monotonic
 from uuid import uuid4
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.performance.journals import TraceJournal, validate_trace
 from src.integrations.native_core.nte_core_protocol import NteCoreRpcError
 
@@ -131,7 +132,7 @@ class PerformanceTrace:
                 except Exception as stop_error:
                     with self.lock:
                         if self.key == key:
-                            detail = f'停止未确认：{stop_error}；停止续期后由组件租约收尾'
+                            detail = localized_text(None, 'auto.services.performance.trace.run.f91c6045f', '停止未确认：{stop_error}；停止续期后由组件租约收尾', stop_error=f'{stop_error}')
                             self.value.update(state='unconfirmed', error=f'{failure}\n{detail}' if failure else detail)
             if journal:
                 journal.close()

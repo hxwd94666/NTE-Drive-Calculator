@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog
 from src.ui.common.enum_text import ui_enum_text
 from pathlib import Path
@@ -316,7 +317,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         title = season.entry.subtitle if season else _period_label(representative.primary_id)
         return BrowseCard(
             title,
-            f"{len(rows) // 2} 层 · 按大陆服开放时间更新",
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.rotation_card.f64b4ac34', '{value} 层 · 按大陆服开放时间更新', value=f'{len(rows) // 2}'),
             state_label.get(representative.release_state, representative.release_state),
             self._first_icon(rows),
             lambda checked=False, values=rows: self._open_rotation(values),
@@ -344,7 +345,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         cards = []
         for level, rows in levels.items():
             cards.append(BrowseCard(
-                f"第 {level} 层 · {rows[0].title}",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.open_rotation.fa56dba8e', '第 {level} 层 · {title}', level=f'{level}', title=f'{rows[0].title}'),
                 " / ".join(row.secondary_label or "名称暂未提供" for row in rows),
                 "层数",
                 self._first_icon(rows),
@@ -353,9 +354,9 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
                 difficulty=level,
                 period=period_label,
             ))
-        sections.append(BrowseSection("层数", f"{len(cards)} 层", tuple(cards)))
+        sections.append(BrowseSection("层数", localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.open_rotation.f860490a5', '{count} 层', count=f'{len(cards)}'), tuple(cards)))
         self._show_state(BrowseState(
-            f"轨外之境 · {period_label}", "选择层数后查看上下半场与正式刷怪槽位。",
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.open_rotation.fbea08ead', '轨外之境 · {period_label}', period_label=f'{period_label}'), "选择层数后查看上下半场与正式刷怪槽位。",
             tuple(sections),
         ), push=True)
 
@@ -370,7 +371,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             ))
         self._show_state(BrowseState(
             entries[0].title,
-            f"{_period_label(entries[0].primary_id)} · 第 {_key_parts(entries[0].key)[2]} 层",
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.open_outer_level.f416cdf28', '{value} · 第 {value_2} 层', value=f'{_period_label(entries[0].primary_id)}', value_2=f'{_key_parts(entries[0].key)[2]}'),
             tuple(sections),
         ), push=True)
 
@@ -384,14 +385,14 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             else (lambda checked=False, rows=entries: self._open_tiers(mode, rows))
         )
         return BrowseCard(
-            entry.title, f"{len(entries)} 个难度 / 档位" if len(entries) > 1 else entry.subtitle,
+            entry.title, localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.entity_card.ff5da7670', '{count} 个难度 / 档位', count=f'{len(entries)}') if len(entries) > 1 else entry.subtitle,
             ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS)[mode], self._first_icon(entries), action, formal_id=formal_id,
             category=self._entry_category(entry), region=self._entry_region(entry),
         )
 
     def _open_tiers(self, mode: str, entries: tuple[CatalogEntry, ...]) -> None:
         cards = tuple(BrowseCard(
-            f"难度 / 档位 {_key_parts(entry.key)[2]}", entry.subtitle, "正式档位",
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.open_tiers.fea2b17de', '难度 / 档位 {value}', value=f'{_key_parts(entry.key)[2]}'), entry.subtitle, "正式档位",
             self._formal_icon(self._controller.detail(entry.key)),
             lambda checked=False, row=entry: self._open_encounter(row),
             formal_id=entry.primary_id,
@@ -401,7 +402,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         ) for entry in entries)
         self._show_state(BrowseState(
             entries[0].title, "选择正式难度 / 档位",
-            (BrowseSection("难度 / 档位", f"共 {len(cards)} 档", cards),),
+            (BrowseSection("难度 / 档位", localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.open_tiers.f1f72b5e7', '共 {count} 档', count=f'{len(cards)}'), cards),),
         ), push=True)
 
     def _open_encounter(self, entry: CatalogEntry) -> None:
@@ -454,7 +455,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             fields = {value.label: value.value for value in section.values}
             path = fields.get("怪物类路径") or fields.get("类路径") or fields.get("模板路径") or ""
             formal_id = fields.get("模板 ID") or fields.get("Boss 模板 ID") or _object_name(path)
-            target = self._match_member_relation(detail, section.title)
+            target = self._match_member_relation(detail, section.title, text_catalog=getattr(self, 'text_catalog', None))
             if not target:
                 target = self._match_profile_relation(detail, formal_id)
             target_detail = self._controller.detail(target) if target else None
@@ -469,11 +470,11 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
             encounter_difficulty = self._controller.value(detail, "难度")
             layer = self._controller.value(detail, "层")
             if monster_level:
-                level_label = f"等级 {monster_level}"
+                level_label = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.monster_cards.fae782f31', '等级 {monster_level}', monster_level=f'{monster_level}')
             elif encounter_difficulty:
-                level_label = f"难度 {encounter_difficulty}"
+                level_label = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.monster_cards.fbbe46164', '难度 {encounter_difficulty}', encounter_difficulty=f'{encounter_difficulty}')
             elif layer:
-                level_label = f"第 {layer} 层"
+                level_label = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.monster_cards.fed2dd438', '第 {layer} 层', layer=f'{layer}')
             else:
                 level_label = ""
             context = MonsterContext(
@@ -491,7 +492,7 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
                 },
             )
             cards.append(BrowseCard(
-                localized_name, f"{section.title} · 数量 {fields.get('数量', '暂无数据')}",
+                localized_name, localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.monsters.page.monster_cards.fc4a4f461', '{title} · 数量 {value}', title=f'{section.title}', value=f"{fields.get(ui_enum_text(getattr(self, 'text_catalog', None), '数量'), ui_enum_text(getattr(self, 'text_catalog', None), '暂无数据'))}"),
                 ui_enum_text(getattr(self, 'text_catalog', None), _PLAY_LABELS).get(entry.play_mode, entry.play_mode),
                 self._formal_icon(target_detail),
                 (lambda checked=False, value=target_detail, ctx=context: self.open_detail(value, ctx))
@@ -520,8 +521,8 @@ class MonsterCatalogPage(FeastCatalogBrowserMixin, QWidget):
         return self._controller.value(detail, "地区 / 位置") or ""
 
     @staticmethod
-    def _match_member_relation(detail: CatalogDetail, section_title: str) -> str:
-        label = f"{section_title} 敌方档案"
+    def _match_member_relation(detail: CatalogDetail, section_title: str, *, text_catalog=None) -> str:
+        label = localized_text(text_catalog, 'auto.features.static_catalog.domain_pages.monsters.page.match_member_relation.fbd798063', '{section_title} 敌方档案', section_title=f'{section_title}')
         for relation in detail.relations:
             if relation.label == label and relation.target_key.startswith("outer_member|"):
                 return relation.target_key

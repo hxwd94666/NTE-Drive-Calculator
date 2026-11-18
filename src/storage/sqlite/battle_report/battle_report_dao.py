@@ -82,10 +82,10 @@ _HISTORY_SELECT = """
 
 def _non_negative_number(value: Any, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise UserDataValidationError(f"{label} 必须是数字")
+        raise UserDataValidationError(f"{label} 必须是数字")  # ui-text: internal
     number = float(value)
     if not math.isfinite(number) or number < 0:
-        raise UserDataValidationError(f"{label} 必须是有限非负数")
+        raise UserDataValidationError(f"{label} 必须是有限非负数")  # ui-text: internal
     return number
 
 
@@ -99,11 +99,11 @@ def _optional_sha256(value: Any, label: str) -> str | None:
     if normalized is None:
         return None
     if len(normalized) != 64:
-        raise UserDataValidationError(f"{label} 必须是 64 位 SHA-256")
+        raise UserDataValidationError(f"{label} 必须是 64 位 SHA-256")  # ui-text: internal
     try:
         int(normalized, 16)
     except ValueError as error:
-        raise UserDataValidationError(f"{label} 必须是十六进制 SHA-256") from error
+        raise UserDataValidationError(f"{label} 必须是十六进制 SHA-256") from error  # ui-text: internal
     return normalized.upper()
 
 
@@ -177,7 +177,7 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
         context_kind = _required_text(combat_context_kind, "combat_context_kind")
         if context_kind not in {"abyss", "non_abyss"}:
             raise UserDataValidationError(
-                "combat_context_kind 必须是 abyss 或 non_abyss"
+                "combat_context_kind 必须是 abyss 或 non_abyss"  # ui-text: internal
             )
         normalized_floor = (
             None
@@ -185,7 +185,7 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
             else _integer(abyss_floor, "abyss_floor", minimum=1)
         )
         if context_kind == "non_abyss" and normalized_floor is not None:
-            raise UserDataValidationError("非深渊战报不能保存 abyss_floor")
+            raise UserDataValidationError("非深渊战报不能保存 abyss_floor")  # ui-text: internal
         if bool(abyss_detected) != (context_kind == "abyss"):
             raise UserDataValidationError("深渊识别状态与战斗上下文不一致")
 
@@ -197,9 +197,9 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
         try:
             decoded_payload = json.loads(raw_json)
         except (TypeError, json.JSONDecodeError) as error:
-            raise UserDataValidationError("raw_summary_json 不是有效 JSON") from error
+            raise UserDataValidationError("raw_summary_json 不是有效 JSON") from error  # ui-text: internal
         if not isinstance(decoded_payload, Mapping):
-            raise UserDataValidationError("raw_summary_json 顶层必须是对象")
+            raise UserDataValidationError("raw_summary_json 顶层必须是对象")  # ui-text: internal
         expected_sha256 = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
         supplied_sha256 = _required_text(raw_summary_sha256, "raw_summary_sha256")
         if supplied_sha256 != expected_sha256:
@@ -251,7 +251,7 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
             if existing is not None:
                 if str(existing["raw_summary_sha256"]) != supplied_sha256:
                     raise UserDataValidationError(
-                        "同一 capture_operation_id 对应了不同战报 payload"
+                        "同一 capture_operation_id 对应了不同战报 payload"  # ui-text: internal
                     )
                 record_id = int(existing["battle_record_id"])
                 self._upsert_battle_report_page_state(
@@ -317,7 +317,7 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
                 ),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建战报后未返回 battle_record_id")
+                raise UserDataError("创建战报后未返回 battle_record_id")  # ui-text: internal
             record_id = int(cursor.lastrowid)
             connection.execute(
                 """
@@ -363,7 +363,7 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
         if normalized_limit > BATTLE_REPORT_MAX_RECORDS:
             raise UserDataValidationError(
                 f"limit 不能超过 {BATTLE_REPORT_MAX_RECORDS}"
-            )
+            )  # ui-text: internal
         normalized_offset = _integer(offset, "offset", minimum=0)
         rows = self._rows(
             _HISTORY_SELECT
@@ -546,7 +546,7 @@ class BattleReportDaoMixin(UserDataDaoMixinHost):
         normalized_scope = _required_text(detail_scope, "detail_scope")
         if normalized_scope not in _DETAIL_SCOPES:
             raise UserDataValidationError(
-                "detail_scope 必须是 current、first 或 second"
+                "detail_scope 必须是 current、first 或 second"  # ui-text: internal
             )
         if normalized_id is not None and self._one(
             "SELECT battle_record_id FROM battle_record WHERE battle_record_id = ?",

@@ -67,12 +67,26 @@ def admin_restart_command() -> tuple[str, str, str]:
     # 标记只限制自动重启次数，不授予权限；子进程仍从 token 重新核验。
     args = [arg for arg in args if arg != ADMIN_RESTART_ARGUMENT]
     args.append(ADMIN_RESTART_ARGUMENT)
-    return sys.executable, subprocess.list2cmdline(args), os.getcwd()
+    return _gui_interpreter(), subprocess.list2cmdline(args), os.getcwd()
+
+
+def _gui_interpreter() -> str:
+    """源码运行时提升后的进程改用同目录 pythonw.exe：提升进程无法接回 IDE 控制台，
+    用 python.exe 会额外弹出独立控制台窗口；日志仍写入账号日志文件。打包程序不变。"""
+    executable = Path(sys.executable)
+    if getattr(sys, "frozen", False) or executable.name.casefold() != "python.exe":
+        return sys.executable
+    windowed = executable.with_name("pythonw.exe")
+    return str(windowed) if windowed.is_file() else sys.executable
 
 
 def request_admin_restart() -> bool:
     """仅请求系统 runas 确认；取消/启动失败返回 False，不修改 token 或系统策略。"""
-    executable, parameters, directory = admin_restart_command()
+    return request_elevated_process(*admin_restart_command())
+
+
+def request_elevated_process(executable: str, parameters: str, directory: str) -> bool:
+    """经系统 UAC 确认以管理员身份启动指定命令；用户取消或启动失败返回 False。"""
     shell32 = ctypes.WinDLL("shell32", use_last_error=True)
     shell32.ShellExecuteW.argtypes = [
         wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR,

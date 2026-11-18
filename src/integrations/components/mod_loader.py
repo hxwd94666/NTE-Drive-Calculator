@@ -104,7 +104,7 @@ def packaged_mod_loader(application_root: str | Path) -> Path:
     raise ModLoaderRuntimeError(
         f"未找到 {MOD_LOADER_FILENAME}；已检查：{checked}。"
         "可以把可信来源的同名 Loader 放回应用目录后重试"
-    )
+    )  # ui-text: internal
 
 
 def _unique_capability_pairs(pairs):
@@ -271,7 +271,7 @@ class ModLoaderRuntime:
         loader = packaged_mod_loader(self._application_root)
         payload = Path(payload_path).resolve()
         if not payload.is_file():
-            raise ModLoaderRuntimeError(f"Mod Loader payload 不存在：{payload}")
+            raise ModLoaderRuntimeError(f"Mod Loader payload 不存在：{payload}")  # ui-text: internal
         launcher = Path(launcher_path).expanduser().resolve()
         if (
             not launcher.is_file()
@@ -305,7 +305,7 @@ class ModLoaderRuntime:
             if not event_handle:
                 raise ModLoaderRuntimeError(
                     f"无法创建 Loader 停止事件，Windows 错误 {ctypes.get_last_error()}"
-                )
+                )  # ui-text: internal
 
             parameters = mod_loader_arguments(payload_path=payload, event_name=event_name,
                                                owner_pid=os.getpid(), payload_load_mode=payload_load_mode)
@@ -350,7 +350,7 @@ class ModLoaderRuntime:
                 raise ModLoaderRuntimeError(
                     f"无法启动 Mod Loader，Windows 错误 {launch_error}。"
                     f"可以用可信来源的 {MOD_LOADER_FILENAME} 覆盖现有文件后重试"
-                )
+                )  # ui-text: internal
 
             get_process_id = kernel32.GetProcessId
             get_process_id.argtypes = (wintypes.HANDLE,)
@@ -388,7 +388,7 @@ class ModLoaderRuntime:
             if not set_event(wintypes.HANDLE(stop_event_handle)):
                 raise ModLoaderRuntimeError(
                     f"无法通知 Mod Loader 停止，Windows 错误 {ctypes.get_last_error()}"
-                )
+                )  # ui-text: internal
             result = wait_for_single_object(
                 wintypes.HANDLE(process_handle),
                 max(0, int(timeout_ms)),
@@ -401,11 +401,11 @@ class ModLoaderRuntime:
                 raise ModLoaderRuntimeError(
                     "等待 Mod Loader 退出失败，Windows 错误 "
                     f"{ctypes.get_last_error()}"
-                )
+                )  # ui-text: internal
             if result != _WAIT_OBJECT_0:
                 raise ModLoaderRuntimeError(
                     f"等待 Mod Loader 退出失败，Windows 结果 {result}"
-                )
+                )  # ui-text: internal
             self._close_handles_locked()
             return True
 
@@ -431,10 +431,10 @@ class ModLoaderRuntime:
             raise ModLoaderRuntimeError(
                 "无法检查 Mod Loader 进程状态，Windows 错误 "
                 f"{ctypes.get_last_error()}"
-            )
+            )  # ui-text: internal
         raise ModLoaderRuntimeError(
             f"无法检查 Mod Loader 进程状态，Windows 结果 {result}"
-        )
+        )  # ui-text: internal
 
     def _close_handles_locked(self) -> None:
         if os.name == "nt":

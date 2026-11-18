@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 from dataclasses import dataclass
 from typing import Mapping, Sequence
@@ -252,7 +253,7 @@ class BattleMarginalCharacterPanel(QFrame):
         self.table.setRowCount(2)
         self.table.setColumnCount(len(properties) + 1)
         self.table.setHorizontalHeaderLabels((resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.participant.self'), *tuple(
-            f"{row.label}（本系）"
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.marginal.character_panel.render.f8da6c8d4', '{label}（本系）', label=f'{row.label}')
             if row.property_id == current_element_property else row.label
             for row in properties
         )))

@@ -7,6 +7,7 @@ import json
 import sqlite3
 from typing import Any, Iterable, NoReturn, Protocol, cast
 
+from src.domain.localization.catalog import localized_text
 from src.domain.catalog.static_catalog_terminology import (
     ForkCampaignRecord,
     LocalizedTermRecord,
@@ -80,7 +81,7 @@ class StaticGameDataTerminologyQueriesMixin(_TerminologyQuerySource):
                 return None
             names = self._decode_names(
                 row.get("names_json"),
-                description=f"物品 {canonical_id!r}",
+                description=localized_text(None, 'auto.storage.sqlite.catalog.static_game_data_terminology_queries.lookup_localized_term.fb0d8652d', '物品 {canonical_id}', canonical_id=f'{canonical_id!r}'),
             )
             return self._record(
                 entity_kind="item",
@@ -109,7 +110,7 @@ class StaticGameDataTerminologyQueriesMixin(_TerminologyQuerySource):
                 return None
             names = self._decode_names(
                 row.get("names_json"),
-                description=f"物品品质 {requested_id!r}",
+                description=localized_text(None, 'auto.storage.sqlite.catalog.static_game_data_terminology_queries.lookup_localized_term.fd55f0bbf', '物品品质 {requested_id}', requested_id=f'{requested_id!r}'),
             )
             return self._record(
                 entity_kind=kind,
@@ -142,7 +143,7 @@ class StaticGameDataTerminologyQueriesMixin(_TerminologyQuerySource):
             )
             if title is None:
                 self._raise_static_data_error(
-                    f"弧盘限定卡池 {row['pool_id']!r} 缺少中央标题术语"
+                    localized_text(None, 'auto.storage.sqlite.catalog.static_game_data_terminology_queries.list_fork_campaigns.f2d85fefa', '弧盘限定卡池 {value} 缺少中央标题术语', value=f"{row['pool_id']!r}")
                 )
             records.append(ForkCampaignRecord(
                 pool_id=str(row["pool_id"]),
@@ -270,11 +271,11 @@ class StaticGameDataTerminologyQueriesMixin(_TerminologyQuerySource):
             names = json.loads(str(raw_names or "{}"))
         except json.JSONDecodeError:
             self._raise_static_data_error(
-                f"{description} 的本地化名称不是有效 JSON"
+                localized_text(None, 'auto.storage.sqlite.catalog.static_game_data_terminology_queries.decode_names.f2d253337', '{description} 的本地化名称不是有效 JSON', description=f'{description}')
             )
         if not isinstance(names, dict):
             self._raise_static_data_error(
-                f"{description} 的本地化名称必须是对象"
+                localized_text(None, 'auto.storage.sqlite.catalog.static_game_data_terminology_queries.decode_names.f013b3cdb', '{description} 的本地化名称必须是对象', description=f'{description}')
             )
         return {
             str(locale): str(name)

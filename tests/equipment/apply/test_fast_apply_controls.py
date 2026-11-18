@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QProgressBar, QWidget
 from src.features.inventory.equipment.assembly import assembly_controller as controller
 from src.features.inventory.equipment.assembly.assembly_surface import AssemblySurface
 from src.domain.equipment.assembly.assembly_progress import AssemblyTarget
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class PendingWorker(QObject):
@@ -71,7 +72,8 @@ def apply_session(app, monkeypatch, tmp_path):
 @pytest.mark.parametrize("action", ["close", "escape"])
 def test_progress_close_cancels_without_reopening(apply_session, app, action):
     owner, dialog, cancel = apply_session
-    assert dialog.stop_button.isVisible()
+    # 极速装配不提供底部停止按钮，以窗口关闭键或全局停止键停止后续派发（docs/features.md）。
+    assert dialog.isVisible() and not dialog.stop_button.isVisible()
     assert not cancel.is_set()
     if action == "escape":
         QTest.keyClick(dialog, Qt.Key_Escape)

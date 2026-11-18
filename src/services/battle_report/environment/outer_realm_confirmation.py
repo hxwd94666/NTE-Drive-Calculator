@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.targets.profile_snapshot import (
     battle_target_profile_snapshots,
 )
@@ -118,7 +119,7 @@ def complete_outer_realm_confirmation(
     }
     result.update({
         "environment_ref": f"{parts[0]}|{floor}|mixed",
-        "environment_name": f"轨外之境第{floor}层上下半",
+        "environment_name": localized_text(None, 'auto.services.battle_report.environment.outer_realm_confirmation.complete_outer_realm_confirmation.f8888ef7c', '轨外之境第{floor}层上下半', floor=f'{floor}'),
         "selected_target_ids": target_ids,
         "selected_target_profiles": [
             dict(existing_profiles.get(profile["selection_target_id"], profile))

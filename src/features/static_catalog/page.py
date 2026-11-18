@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
 from collections.abc import Callable
@@ -181,7 +182,7 @@ class StaticCatalogPage:
         if errors:
             raise RuntimeError(
                 f"关闭游戏资料库时有 {len(errors)} 个组件失败"
-            ) from errors[0]
+            ) from errors[0]  # ui-text: internal
 
     def _build_browser(self, parent: QWidget) -> QWidget:
         host = QWidget(parent)
@@ -460,11 +461,11 @@ class StaticCatalogPage:
     def _update_navigation_buttons(self) -> None:
         if self._navigation_history:
             previous = self._navigation_history[-1]
-            text = f"‹ 返回{previous.title}"
+            text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.page.update_navigation_buttons.f09725e51', '‹ 返回{title}', title=f'{previous.title}')
             tooltip = "返回刚才的页面并保留筛选、选中和滚动位置"
         elif local_label := self._local_back_label():
-            text = f"‹ 返回{local_label}"
-            tooltip = f"返回{local_label}"
+            text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.page.update_navigation_buttons.f0679975d', '‹ 返回{local_label}', local_label=f'{local_label}')
+            tooltip = localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.page.update_navigation_buttons.fa031dfc1', '返回{local_label}', local_label=f'{local_label}')
         else:
             text = "‹ 资料库"
             tooltip = "返回游戏资料库"

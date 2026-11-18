@@ -10,7 +10,7 @@ from src.integrations.preferences.json_store import PreferencesError, atomic_byt
 from src.integrations.runtime.bundled_resources import bundled_root
 
 # 完整前端目录保留有限增长空间；输入仍有字节、条目和单条文本三重上限。
-MAX_CATALOG_BYTES = 1024 * 1024
+MAX_CATALOG_BYTES = 4 * 1024 * 1024
 MAX_LOCAL_CATALOGS = 64
 
 

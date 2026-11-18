@@ -684,7 +684,7 @@ class RoleSelectorPreferencesMixin:
                 role in self.all_roles and value and not isinstance(value, str)
                 for role, value in mapping.items()
             ):
-                raise ValueError(f"{field} 中的角色关联必须是名称字符串")
+                raise ValueError(f"{field} 中的角色关联必须是名称字符串")  # ui-text: internal
         prepared = {}
         prepared["selected"], prepared["priority_links"] = load_priority_selection(data, self.all_roles)
         prepared["custom_sets"] = self._load_custom_set_overrides(data, selected=prepared["selected"])

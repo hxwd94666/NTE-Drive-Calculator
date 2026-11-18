@@ -25,9 +25,11 @@ def test_export_keeps_detailed_receipt_private_and_binds_public_manifest(tmp_pat
     receipt = {"sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
                "source_files": {"src/private_rule.rs": "a" * 64}, "source_base_commit": "b" * 40,
                "source_worktree_modified": True, "rustc": "fixture-rustc", "source_input_sha256": "c" * 64}
+    # 打包门禁要求的完整能力集合（含家具属性、worker、直伤与分段耗时）。
     version = {"engine_version": ENGINE_VERSION, "capabilities": [
-        "battle_page_v1", "main_static_catalog_v1", "allocation_v2", "damage_allocation_v1",
-        "equipment_scoring_v1", "allocation_blueprints_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1"]}
+        "battle_page_v1", "furniture_attributes_v1", "main_static_catalog_v1", "allocation_v2", "damage_allocation_v1",
+        "equipment_scoring_v1", "allocation_blueprints_v1", "battle_axis_team_v1", "battle_axis_fixed_team_v1",
+        "analysis_worker_v1", "direct_damage_v1", "analysis_stage_timings_v1"]}
     monkeypatch.setattr(packaging, "verify_build_record", lambda *_args: receipt)
     monkeypatch.setattr(packaging, "validate_catalog_inputs", lambda _path: None)
     monkeypatch.setattr(packaging, "NteAnalysisCoreClient", lambda *_a: SimpleNamespace(version=lambda: version))

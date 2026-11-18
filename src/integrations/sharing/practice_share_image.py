@@ -8,6 +8,7 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageOps
 
+from src.domain.localization.catalog import localized_text
 from src.domain.sharing.practice_share import PracticeEntry, PracticeSharePanel, PracticeValue
 from src.integrations.runtime.bundled_resources import bundled_root
 from src.integrations.sharing.loadout_share_assets import share_asset
@@ -38,7 +39,7 @@ def _cancel(cancelled: Callable[[], bool]) -> None:
 def _asset(name: str) -> Image.Image:
     image = _image(share_asset('level', name))
     if image is None:
-        raise FileNotFoundError(f'练度统计缺少本地纹理：{name}')
+        raise FileNotFoundError(f'练度统计缺少本地纹理：{name}')  # ui-text: internal
     return image
 
 
@@ -112,7 +113,7 @@ def _banner(canvas: Image.Image, total: int) -> None:
     draw.line((52, 140, 252, 140), fill=CYAN, width=6)
     _icon(canvas, bundled_root()/'assets/app_icon.png', (40, 164, 118, 118))
     _text(draw, (182, 208), 'NTE DRIVE CALC', 44)
-    _text(draw, (184, 260), f'游戏配装 · 共 {total} 名角色', 28, MUTED)
+    _text(draw, (184, 260), localized_text(None, 'auto.integrations.sharing.practice_share_image.banner.f1b98c025', '游戏配装 · 共 {total} 名角色', total=f'{total}'), 28, MUTED)
     _banner_info(canvas)
 
 
@@ -161,7 +162,7 @@ def _row(canvas: Image.Image, y: int, rank: int, entry: PracticeEntry) -> None:
     else:
         _grade(canvas, entry.grade, (1530, mid-27), 54)
         _score_number(canvas, entry, (1745, mid-10))
-    set_text = f'· {entry.active_set_count}件' if entry.active_set_count is not None else '· —'
+    set_text = localized_text(None, 'auto.integrations.sharing.practice_share_image.row.f979fdd67', '· {active_set_count}件', active_set_count=f'{entry.active_set_count}') if entry.active_set_count is not None else '· —'
     _text(draw, (1745, mid+32), set_text, 24, MUTED, anchor='rm')
 
 

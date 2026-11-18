@@ -163,14 +163,14 @@ def resolve_buff_calculation(
             parameter_id=parameter_id,
             value=None,
             confidence="低",
-            reason=f"已登记参数 {parameter_id}，但当前效果定义没有对应数值",
+            reason=localized_text(None, 'auto.services.battle_report.buffs.semantics.resolve_buff_calculation.f7af06e7a', '已登记参数 {parameter_id}，但当前效果定义没有对应数值', parameter_id=f'{parameter_id}'),
         )
     return BattleBuffCalculationResolution(
         calculation_asset_path=path,
         parameter_id=parameter_id,
         value=value,
         confidence="中",
-        reason=f"由当前精炼效果参数 {parameter_id} 解析",
+        reason=localized_text(None, 'auto.services.battle_report.buffs.semantics.resolve_buff_calculation.fb86eb463', '由当前精炼效果参数 {parameter_id} 解析', parameter_id=f'{parameter_id}'),
     )
 
 
@@ -267,3 +267,4 @@ class BattleBuffTargetScopeService:
         if any(marker in target_type for marker in ("enemy", "monster", "hostile")):
             return "target"
         return "unknown"
+from src.domain.localization.catalog import localized_text

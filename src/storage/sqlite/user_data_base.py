@@ -36,14 +36,14 @@ class UserDataDaoCore:
         self.database_path = Path(database_path).expanduser().resolve()
         existed = self.database_path.is_file()
         if not existed and not account_id:
-            raise UserDataError("创建用户数据库时必须提供 account_id")
+            raise UserDataError("创建用户数据库时必须提供 account_id")  # ui-text: internal
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self._connection: sqlite3.Connection | None = sqlite3.connect(
                 self.database_path, timeout=10.0
             )
         except sqlite3.Error as exc:
-            raise UserDataError(f"无法打开用户数据库：{self.database_path}") from exc
+            raise UserDataError(f"无法打开用户数据库：{self.database_path}") from exc  # ui-text: internal
         self._connection.row_factory = sqlite3.Row
         self._transaction_serial = 0
         self._connection.execute("PRAGMA foreign_keys = ON")
@@ -171,7 +171,7 @@ class UserDataDaoCore:
 
     def _initialize(self, schema_path: Path, *, account_id: str, account_name: str) -> None:
         if not schema_path.is_file():
-            raise UserDataError(f"用户数据库结构文件不存在：{schema_path}")
+            raise UserDataError(f"用户数据库结构文件不存在：{schema_path}")  # ui-text: internal
         connection = self._db()
         try:
             connection.executescript(schema_path.read_text(encoding="utf-8"))
@@ -219,12 +219,12 @@ class UserDataDaoCore:
         if version > SCHEMA_VERSION:
             raise UserDataError(
                 f"用户数据库结构版本 {version} 高于当前程序支持的 {SCHEMA_VERSION}"
-            )
+            )  # ui-text: internal
         try:
             for target_version in range(version + 1, SCHEMA_VERSION + 1):
                 migration_path = USER_MIGRATIONS.get(target_version)
                 if migration_path is None or not migration_path.is_file():
-                    raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")
+                    raise UserDataError(f"缺少用户数据库迁移脚本：v{target_version}")  # ui-text: internal
                 migration_sql = migration_path.read_text(encoding="utf-8")
                 if backup_existing and target_version in {45, 47, 48, 49, 50, 51, 52, 53}:
                     # 养成历史与队伍资料各自升级前保全当时完整库；更早默认值迁移仍沿原事务。
@@ -257,7 +257,7 @@ class UserDataDaoCore:
                         if violations:
                             raise UserDataError(
                                 f"用户数据库迁移 v{target_version} 产生外键错误"
-                            )
+                            )  # ui-text: internal
                     connection.commit()
                 except BaseException:
                     connection.rollback()
@@ -318,7 +318,7 @@ class UserDataDaoCore:
         if version != SCHEMA_VERSION:
             raise UserDataError(
                 f"不支持的用户数据库结构版本：{version!r}；需要 {SCHEMA_VERSION}"
-            )
+            )  # ui-text: internal
 
     def _rows(self, sql: str, parameters: Iterable[Any] = ()) -> list[dict[str, Any]]:
         return [dict(row) for row in self._db().execute(sql, tuple(parameters))]

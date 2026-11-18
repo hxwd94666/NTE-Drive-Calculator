@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QEventLoop, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 from src.app.theme import apply_app_theme, install_dialog_defaults
-from src.utils.logger import logger
+from src.utils.logger import enable_crash_dump, logger
 
 # ── Entry
 def _global_exception_handler(exc_type, exc_value, exc_tb, *, text_catalog=None):
@@ -36,15 +36,8 @@ def prepare_process_dpi_awareness():
 
 def run_gui(app_context, global_theme_settings, window_factory, *, on_ready=None):
     """消费已经准备好的运行期依赖；Qt 初始化不再隐式创建默认账号。"""
-    import faulthandler
-
-    app_context.account.log_dir.mkdir(parents=True, exist_ok=True)
-    _fault_log = open(
-        str(app_context.account.log_dir / "crash_dump.log"),
-        "w",
-        encoding="utf-8",
-    )
-    faulthandler.enable(file=_fault_log)
+    # 崩溃转储随 set_log_dir 迁移到新账号，切换后旧账号目录不再被本进程占用。
+    enable_crash_dump(app_context.account.log_dir)
 
     sys.excepthook = _global_exception_handler
     threading.excepthook = lambda args: logger.error(

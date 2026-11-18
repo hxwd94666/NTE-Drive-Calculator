@@ -16,6 +16,7 @@ from src.features.inventory.equipment.assembly.assembly_surface import AssemblyS
 from src.domain.equipment.assembly.assembly_progress import AssemblyTarget
 from src.features.inventory.equipment.management.batch_selection_dialog import BatchSelectionDialog
 from src.features.inventory.equipment.assembly.slot_selection_dialog import select_assembly_slot_ids
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 NTE_TEST_TIER = "core"
 

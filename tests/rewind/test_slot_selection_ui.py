@@ -11,6 +11,7 @@ from src.domain.rewind.rewind_loadout import RewindSlotReference, RewindSlotSumm
 from src.features.toolbox.rewind.role_picker import _RoleSelectionDialog
 from src.features.toolbox.rewind.slot_picker import RewindSlotPicker
 from src.services.rewind.recommendation import RewindTargetRole
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 @pytest.fixture

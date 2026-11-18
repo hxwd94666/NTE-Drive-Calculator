@@ -11,6 +11,7 @@ import stat
 import tempfile
 from typing import Callable
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.components.native_plugin_bundle import (
     HOT_PLUGIN_LAYOUT, HOT_PLUGIN_LAYOUTS, NATIVE_PLUGIN_DEPLOYMENT_PATHS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS, TRAINING_DEPLOYMENT_PATHS, inspect_native_plugin_bundle,
 )
@@ -112,11 +113,11 @@ def _replace_file(source: Path, target: Path, digest: str, require_idle, *, suff
         if isinstance(error, OSError) and getattr(error, 'winerror', None) in {225, 226}:
             raise EquipmentPluginDeploymentError(
                 f'Windows 安全防护阻止部署 {target.name}，请查看系统保护历史并核查组件来源。'
-            ) from error
+            ) from error  # ui-text: internal
         if isinstance(error, FileNotFoundError):
             raise EquipmentPluginDeploymentError(
                 f'部署 {target.name} 时文件消失，写入结果无法核验；请检查系统保护历史和文件占用情况。'
-            ) from error
+            ) from error  # ui-text: internal
         raise
     finally:
         try:
@@ -332,7 +333,7 @@ def cleanup_manual_native_plugin(
             if not target.exists():
                 continue
             if _digest(target) != observed[relative]:
-                return NativePluginCleanupResult('conflict', f'{relative} 在核对后发生变化，已保留剩余组件。')
+                return NativePluginCleanupResult('conflict', localized_text(None, 'auto.integrations.components.native_files.cleanup_manual_native_plugin.f638da1a4', '{relative} 在核对后发生变化，已保留剩余组件。', relative=f'{relative}'))
             target.unlink()
     except EquipmentPluginDeploymentError as error:
         return NativePluginCleanupResult('conflict', str(error))
@@ -447,7 +448,7 @@ def update_native_plugins(*, application_root: Path, directory: Path, game_pid: 
             written.clear()
         except Exception as recovery_error:
             preserve_transaction = True
-            raise NativeHostOutcomeUnknown(f'更新未完成，回退未确认。保留事务目录：{staging}') from recovery_error
+            raise NativeHostOutcomeUnknown(f'更新未完成，回退未确认。保留事务目录：{staging}') from recovery_error  # ui-text: internal
         raise NativeHostError('更新未完成；已恢复之前确认的组件状态。' + str(error)) from error
     finally:
         # 只有确认完成才清理本次创建的精确事务目录；未知时保留现场。

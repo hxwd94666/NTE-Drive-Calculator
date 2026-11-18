@@ -44,7 +44,8 @@ def test_below_high_requests_one_restart_and_exits_old_process(environment, leve
 def test_restarted_process_still_checks_its_token(environment, monkeypatch):
     _, restart = environment
     monkeypatch.setattr(startup.sys, "argv", ["main.py", windows.ADMIN_RESTART_ARGUMENT])
-    with pytest.raises(startup.StartupPrivilegeError, match="权限等级仍然偏低"):
+    # 重启后仍不足（如系统关闭 UAC 时被其他程序以受限权限启动）只引导从快捷方式直接启动，不再循环重启。
+    with pytest.raises(startup.StartupPrivilegeError, match="开始菜单或桌面快捷方式"):
         startup.ensure_process_privileges()
     restart.assert_not_called()
 
@@ -99,6 +100,24 @@ def test_restart_preserves_interpreter_arguments_and_working_directory(tmp_path,
     assert executable == windows.sys.executable
     assert parameters == subprocess.list2cmdline(expected)
     assert directory == str(tmp_path)
+
+
+@pytest.mark.parametrize("frozen,has_windowed,expected_name", [
+    (False, True, "pythonw.exe"), (False, False, "python.exe"), (True, True, "python.exe"),
+])
+def test_source_restart_uses_windowed_interpreter_without_console(tmp_path, monkeypatch, frozen,
+                                                                  has_windowed, expected_name):
+    # 提升后的进程无法接回 IDE 控制台；源码运行改用同目录 pythonw.exe，避免额外弹出控制台窗口。
+    runtime = tmp_path / "venv" / "Scripts"
+    runtime.mkdir(parents=True)
+    (runtime / "python.exe").write_bytes(b"")
+    if has_windowed:
+        (runtime / "pythonw.exe").write_bytes(b"")
+    monkeypatch.setattr(windows.sys, "executable", str(runtime / "python.exe"))
+    monkeypatch.setattr(windows.sys, "frozen", frozen, raising=False)
+    monkeypatch.setattr(windows.sys, "argv", [str(tmp_path / "main.py"), "--gui"])
+    executable, _, _ = windows.admin_restart_command()
+    assert executable == str(runtime / expected_name)
 
 
 def test_restart_marker_is_not_duplicated(monkeypatch):

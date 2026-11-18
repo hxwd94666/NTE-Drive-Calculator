@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.timeline.events import (
     BattleAnalysisHit, BattleInferredAction, BattleInferredInput, BattleTimelineDamageGroup,
 )
@@ -23,7 +24,7 @@ def build_timeline_tooltip(
     selected: TimelineSelection,
     *,
     projected_time: Callable[[int], int],
-    hit_heading: str = "正式逐击",
+    hit_heading: str = "正式逐击", text_catalog=None,
 ) -> str:
     if selected.kind == "hit":
         hit = selected.payload
@@ -34,22 +35,18 @@ def build_timeline_tooltip(
             hit.ability_id,
         )
         source = (
-            f"\n来源技能：{hit.skill_name}"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.tooltip.build_timeline_tooltip.f08cf0324', '\n来源技能：{skill_name}', skill_name=f'{hit.skill_name}')
             if hit.skill_name not in {"", damage_name, "未识别技能"}
             else ""
         )
         return (
-            f"{hit_heading} · {format_time(projected_time(hit.relative_time_us))} · "
-            f"{hit.character_name}\n{damage_name}{source}\n"
-            f"逐击 ID：{hit.event_id}\n"
-            f"{render_battle_event_type(hit.classification, hit.attack_type, hit.damage_attribute)}"
-            f" · {hit.target_name} · {format_damage(hit.damage)}"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.tooltip.build_timeline_tooltip.f85cc4628', '{hit_heading} · {value} · {character_name}\n{damage_name}{source}\n逐击 ID：{event_id}\n{value_2} · {target_name} · {value_3}', hit_heading=f'{hit_heading}', value=f'{format_time(projected_time(hit.relative_time_us))}', character_name=f'{hit.character_name}', damage_name=f'{damage_name}', source=f'{source}', event_id=f'{hit.event_id}', value_2=f'{render_battle_event_type(hit.classification, hit.attack_type, hit.damage_attribute)}', target_name=f'{hit.target_name}', value_3=f'{format_damage(hit.damage)}')
         )
     if selected.kind == "damage_group":
         group = selected.payload
         assert isinstance(group, BattleTimelineDamageGroup)
         source = (
-            f"\n来源技能：{group.source_skill_name}"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.tooltip.build_timeline_tooltip.f8d129b24', '\n来源技能：{source_skill_name}', source_skill_name=f'{group.source_skill_name}')
             if group.source_skill_name
             not in {"", group.damage_name, "未识别技能"}
             else ""
@@ -74,37 +71,22 @@ def build_timeline_tooltip(
             else "横条粗细按整组伤害缩放；圆点大小按单击伤害缩放。"
         )
         return (
-            f"{title} · {group.character_name} · {group.channel_label}\n"
-            f"{group.damage_name}{source}\n"
-            f"{format_time(projected_time(group.start_us))}—"
-            f"{format_time(projected_time(group.end_us))} · "
-            f"{group.hits} 次 · {format_damage(group.damage)}{details}\n"
-            f"{footer}"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.tooltip.build_timeline_tooltip.f01d8e0dd', '{title} · {character_name} · {channel_label}\n{damage_name}{source}\n{value}—{value_2} · {hits} 次 · {value_3}{details}\n{footer}', title=f'{title}', character_name=f'{group.character_name}', channel_label=f'{group.channel_label}', damage_name=f'{group.damage_name}', source=f'{source}', value=f'{format_time(projected_time(group.start_us))}', value_2=f'{format_time(projected_time(group.end_us))}', hits=f'{group.hits}', value_3=f'{format_damage(group.damage)}', details=f'{details}', footer=f'{footer}')
         )
     if selected.kind == "action":
         action = selected.payload
         assert isinstance(action, BattleInferredAction)
         return (
-            f"推算动作 · {action.character_name} · 身份置信度{action.identity_confidence} / "
-            f"时间置信度{action.timing_confidence}\n"
-            f"{action.input_sequence} · {action.action_name}\n"
-            f"{format_time(projected_time(action.start_us))}—"
-            f"{format_time(projected_time(action.end_us))} · "
-            f"{action.hits} 击 · {format_damage(action.damage)}\n{action.inference_basis}"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.tooltip.build_timeline_tooltip.f98841b15', '推算动作 · {character_name} · 身份置信度{identity_confidence} / 时间置信度{timing_confidence}\n{input_sequence} · {action_name}\n{value}—{value_2} · {hits} 击 · {value_3}\n{inference_basis}', character_name=f'{action.character_name}', identity_confidence=f'{action.identity_confidence}', timing_confidence=f'{action.timing_confidence}', input_sequence=f'{action.input_sequence}', action_name=f'{action.action_name}', value=f'{format_time(projected_time(action.start_us))}', value_2=f'{format_time(projected_time(action.end_us))}', hits=f'{action.hits}', value_3=f'{format_damage(action.damage)}', inference_basis=f'{action.inference_basis}')
         )
     item = selected.payload
     assert isinstance(item, BattleInferredInput)
     if item.is_character_switch:
         return (
-            f"角色切换 · {item.character_name}\n"
-            f"{format_time(projected_time(item.start_us))} · "
-            f"时间置信度{item.timing_confidence}\n"
-            "头像表示切换结果；当前没有真实键盘槽位证据。"
+            localized_text(text_catalog, 'auto.features.battle_report.timeline.tooltip.build_timeline_tooltip.fc3b10624', '角色切换 · {character_name}\n{value} · 时间置信度{timing_confidence}\n头像表示切换结果；当前没有真实键盘槽位证据。', character_name=f'{item.character_name}', value=f'{format_time(projected_time(item.start_us))}', timing_confidence=f'{item.timing_confidence}')
         )
     return (
-        f"推算输入 · {item.character_name} · {item.display_text}\n"
-        f"{format_time(projected_time(item.start_us))}—"
-        f"{format_time(projected_time(item.end_us))} · 时间置信度{item.timing_confidence}\n"
+        localized_text(text_catalog, 'auto.features.battle_report.timeline.tooltip.build_timeline_tooltip.f5196df9c', '推算输入 · {character_name} · {display_text}\n{value}—{value_2} · 时间置信度{timing_confidence}\n', character_name=f'{item.character_name}', display_text=f'{item.display_text}', value=f'{format_time(projected_time(item.start_us))}', value_2=f'{format_time(projected_time(item.end_us))}', timing_confidence=f'{item.timing_confidence}')
         + (
             "静态长按程序表明伤害可发生在按住期间；松手边界仍是推算。"
             if item.hold_damage_mode == "during_hold"

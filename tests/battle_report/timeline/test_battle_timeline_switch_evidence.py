@@ -9,6 +9,7 @@ from src.features.battle_report.timeline.layout import build_timeline_layout
 from tests.battle_report.marginal.test_benefits import _snapshot
 from tests.battle_report.timeline.test_battle_timeline_layout import _action
 from tests.battle_report.analysis.test_battle_report_scope_ui import _hit
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class TimelineSwitchEvidenceTests(unittest.TestCase):

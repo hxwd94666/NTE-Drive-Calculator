@@ -39,22 +39,22 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
                 row.get("priority_group", 0), f"characters[{index}].priority_group", minimum=0
             )
             if character_id in seen_character_ids:
-                raise UserDataValidationError("characters 不能包含重复 character_id")
+                raise UserDataValidationError("characters 不能包含重复 character_id")  # ui-text: internal
             if ordinal in seen_ordinals:
                 raise UserDataValidationError("characters 不能包含重复 ordinal")
             seen_character_ids.add(character_id)
             seen_ordinals.add(ordinal)
             suit_requirement_mode = str(row.get("suit_requirement_mode", "none")).strip()
             if suit_requirement_mode not in SUIT_REQUIREMENT_MODES:
-                raise UserDataValidationError("suit_requirement_mode 必须是 none、two_piece 或 four_piece")
+                raise UserDataValidationError("suit_requirement_mode 必须是 none、two_piece 或 four_piece")  # ui-text: internal
             target_suit_id = cls._preference_text(row.get("target_suit_id"), "target_suit_id")
             if suit_requirement_mode != "none" and target_suit_id is None:
                 raise UserDataValidationError(
-                    "two_piece 或 four_piece 套装约束必须提供 target_suit_id"
+                    "two_piece 或 four_piece 套装约束必须提供 target_suit_id"  # ui-text: internal
                 )
             weights_source = row.get("property_weights", {})
             if not isinstance(weights_source, Mapping):
-                raise UserDataValidationError(f"characters[{index}].property_weights 必须是对象")
+                raise UserDataValidationError(f"characters[{index}].property_weights 必须是对象")  # ui-text: internal
             weights: dict[str, float] = {}
             for property_id, weight in weights_source.items():
                 normalized_property_id = cls._preference_text(property_id, "property_id", required=True)
@@ -62,24 +62,24 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
 
             priorities_source = row.get("substat_priorities", [])
             if not isinstance(priorities_source, Sequence) or isinstance(priorities_source, (str, bytes)):
-                raise UserDataValidationError(f"characters[{index}].substat_priorities 必须是列表")
+                raise UserDataValidationError(f"characters[{index}].substat_priorities 必须是列表")  # ui-text: internal
             priorities: list[str] = []
             for property_id in priorities_source:
                 normalized_property_id = cls._preference_text(property_id, "substat property_id", required=True)
                 if normalized_property_id in priorities:
-                    raise UserDataValidationError("substat_priorities 不能包含重复 property_id")
+                    raise UserDataValidationError("substat_priorities 不能包含重复 property_id")  # ui-text: internal
                 priorities.append(normalized_property_id)
 
             blacklist_source = row.get("substat_blacklist", [])
             if not isinstance(blacklist_source, Sequence) or isinstance(blacklist_source, (str, bytes)):
-                raise UserDataValidationError(f"characters[{index}].substat_blacklist 必须是列表")
+                raise UserDataValidationError(f"characters[{index}].substat_blacklist 必须是列表")  # ui-text: internal
             blacklist: list[str] = []
             for property_id in blacklist_source:
                 normalized_property_id = cls._preference_text(
                     property_id, "blacklist property_id", required=True
                 )
                 if normalized_property_id in blacklist:
-                    raise UserDataValidationError("substat_blacklist 不能包含重复 property_id")
+                    raise UserDataValidationError("substat_blacklist 不能包含重复 property_id")  # ui-text: internal
                 blacklist.append(normalized_property_id)
 
             equal_priority = row.get("equal_priority", False)
@@ -88,20 +88,20 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
             if not isinstance(equal_priority, bool):
                 raise UserDataValidationError(
                     f"characters[{index}].equal_priority 必须是布尔值"
-                )
+                )  # ui-text: internal
             if not isinstance(ignore_grade_limit, bool):
                 raise UserDataValidationError(
                     f"characters[{index}].ignore_grade_limit 必须是布尔值"
-                )
+                )  # ui-text: internal
             if not isinstance(blacklist_zero_weight, bool):
                 raise UserDataValidationError(
                     f"characters[{index}].blacklist_zero_weight 必须是布尔值"
-                )
+                )  # ui-text: internal
             min_grade_limit = str(row.get("min_grade_limit") or "A").upper()
             if min_grade_limit not in cls._GRADE_LIMITS:
                 raise UserDataValidationError(
                     f"characters[{index}].min_grade_limit 无效"
-                )
+                )  # ui-text: internal
             raw_crit_threshold = row.get("crit_threshold")
             crit_threshold = (
                 cls._preference_number(
@@ -114,11 +114,11 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
             if crit_threshold is not None and not 0.0 <= crit_threshold <= 100.0:
                 raise UserDataValidationError(
                     f"characters[{index}].crit_threshold 必须在 0 到 100 之间"
-                )
+                )  # ui-text: internal
 
             limits_source = row.get("property_limits", {})
             if not isinstance(limits_source, Mapping):
-                raise UserDataValidationError(f"characters[{index}].property_limits 必须是对象")
+                raise UserDataValidationError(f"characters[{index}].property_limits 必须是对象")  # ui-text: internal
             limits: dict[str, dict[str, float | None]] = {}
             for property_id, bounds in limits_source.items():
                 normalized_property_id = cls._preference_text(property_id, "property_id", required=True)
@@ -126,11 +126,11 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
                 minimum = bound_row.get("minimum")
                 maximum = bound_row.get("maximum")
                 if minimum is None and maximum is None:
-                    raise UserDataValidationError(f"{normalized_property_id} 至少需要 minimum 或 maximum")
+                    raise UserDataValidationError(f"{normalized_property_id} 至少需要 minimum 或 maximum")  # ui-text: internal
                 minimum_number = cls._preference_number(minimum, f"{normalized_property_id} minimum") if minimum is not None else None
                 maximum_number = cls._preference_number(maximum, f"{normalized_property_id} maximum") if maximum is not None else None
                 if minimum_number is not None and maximum_number is not None and minimum_number > maximum_number:
-                    raise UserDataValidationError(f"{normalized_property_id} minimum 不能大于 maximum")
+                    raise UserDataValidationError(f"{normalized_property_id} minimum 不能大于 maximum")  # ui-text: internal
                 limits[normalized_property_id] = {"minimum": minimum_number, "maximum": maximum_number}
 
             normalized.append({
@@ -236,7 +236,7 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
     def _optimization_strategy(value: Any) -> str:
         strategy = str(value).strip()
         if strategy not in ALLOCATION_STRATEGIES:
-            raise UserDataValidationError("allocation_strategy 无效")
+            raise UserDataValidationError("allocation_strategy 无效")  # ui-text: internal
         return strategy
 
     @staticmethod
@@ -258,7 +258,7 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
             (profile_id, next_version, allocation_strategy, _utc_now()),
         )
         if cursor.lastrowid is None:
-            raise UserDataError("创建优化档案版本后未返回 profile_version_id")
+            raise UserDataError("创建优化档案版本后未返回 profile_version_id")  # ui-text: internal
         profile_version_id = int(cursor.lastrowid)
         for character in characters:
             connection.execute(
@@ -339,7 +339,7 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
                 (profile_name, now, now),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建优化档案后未返回 profile_id")
+                raise UserDataError("创建优化档案后未返回 profile_id")  # ui-text: internal
             profile_id = int(cursor.lastrowid)
             self._insert_optimization_profile_version(
                 connection, profile_id, strategy, normalized_characters
@@ -347,7 +347,7 @@ class OptimizationProfileDaoMixin(CharacterProfileDaoMixin):
             connection.commit()
         except sqlite3.IntegrityError as exc:
             connection.rollback()
-            raise UserDataValidationError(f"优化偏好档案已存在：{profile_name}") from exc
+            raise UserDataValidationError(f"优化偏好档案已存在：{profile_name}") from exc  # ui-text: internal
         except sqlite3.Error as exc:
             connection.rollback()
             raise UserDataError("无法创建优化偏好档案") from exc

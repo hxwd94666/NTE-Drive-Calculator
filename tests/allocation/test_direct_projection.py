@@ -53,7 +53,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from allocation.direct_catalog_fixture import create_catalog_case, ROOT
+from tests.allocation.direct_catalog_fixture import create_catalog_case, ROOT
 from src.app.facade import NTEAppFacade
 from src.integrations.analysis_core.nte_analysis_core import NteAnalysisCoreClient
 

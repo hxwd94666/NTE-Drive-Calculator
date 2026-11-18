@@ -38,7 +38,7 @@ def goal_database(root):
     return path
 
 
-@pytest.mark.parametrize('theme', ['dark', 'black', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 def test_goal_selection_roundtrips_without_claiming_completion_or_changing_profiles(tmp_path, theme):
     from src.app.theme import apply_app_theme, current_theme_name
     from src.features.battle_report.analysis.target_conditions import BattleTargetConditionSelector

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 
+from src.ui.common.enum_text import ui_enum_text
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -286,11 +288,11 @@ def _format_panel_value(self, stat, value):
     return f"{number}{suffix}"
 
 
-def _display_bonus_stat_label(stat):
+def _display_bonus_stat_label(stat, *, text_catalog=None):
     """Compact attribute-damage labels without changing their calculation keys."""
     label = str(stat or "")
     if "属性" in label and "伤害" in label:
-        return f"{label.split('属性', 1)[0]}属性伤害"
+        return localized_text(text_catalog, 'auto.features.allocation.results.results_bonus_view.display_bonus_stat_label.f86a97d66', '{value}属性伤害', value=f"{label.split(ui_enum_text(text_catalog, '属性'), 1)[0]}")
     return label
 
 
@@ -702,7 +704,7 @@ def _bonus_row_widget(
     rl = QHBoxLayout(row)
     rl.setContentsMargins(6, 1, 6, 1)
     rl.setSpacing(6)
-    name = plain_label(_display_bonus_stat_label(stat))
+    name = plain_label(_display_bonus_stat_label(stat, text_catalog=getattr(self, 'text_catalog', None)))
     name.setWordWrap(True)
     name.setStyleSheet(self._bonus_stat_label_style(stat, role_name, mode, colored_stats))
     if display_text is not None:

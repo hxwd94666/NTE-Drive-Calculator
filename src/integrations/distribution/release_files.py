@@ -34,7 +34,7 @@ def release_path(value: object) -> str:
         raise ReleaseValidationError("发行清单路径越界或存在 Windows 路径别名。")
     if value not in {"NTE_Drive_Calc.exe", "distribution.json"} and not (
             len(parts) > 1 and parts[0] == "_internal"):
-        raise ReleaseValidationError(f"发行清单包含非程序所有路径：{value}")
+        raise ReleaseValidationError(f"发行清单包含非程序所有路径：{value}")  # ui-text: internal
     return value
 
 
@@ -83,7 +83,7 @@ def recheck_verified(verified: VerifiedRelease) -> None:
     try:
         for relative, identity in verified.fingerprints:
             if _fingerprint(checked_path(verified.app_dir, relative)) != identity:
-                raise ReleaseValidationError(f"整包校验后程序文件改变：{relative}")
+                raise ReleaseValidationError(f"整包校验后程序文件改变：{relative}")  # ui-text: internal
     except OSError as error:
         raise ReleaseValidationError("整包校验后程序文件缺失或被占用。") from error
 
@@ -117,7 +117,7 @@ def parse_release_manifest(value: object) -> ReleaseManifest:
         if (type(row["size"]) is not int or row["size"] < 0
                 or not isinstance(row["sha256"], str) or not re.fullmatch("[0-9a-f]{64}", row["sha256"])
                 or type(row["bootstrap"]) is not bool or row["bootstrap"] != bootstrap_path(path)):
-            raise ReleaseValidationError(f"发行文件大小、摘要或引导分类无效：{path}")
+            raise ReleaseValidationError(f"发行文件大小、摘要或引导分类无效：{path}")  # ui-text: internal
         rows.append(ReleaseFile(**row))
     if not {"nte_drive_calc.exe", "distribution.json"} <= seen:
         raise ReleaseValidationError("发行清单缺少入口或发行标识。")
@@ -136,7 +136,7 @@ def checked_path(root: Path, relative: str) -> Path:
         except FileNotFoundError:
             continue
         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
-            raise ReleaseValidationError(f"程序路径含链接或重解析点：{current}")
+            raise ReleaseValidationError(f"程序路径含链接或重解析点：{current}")  # ui-text: internal
     return current
 
 
@@ -174,13 +174,13 @@ def verify_release(app_dir: Path, distribution: Distribution) -> VerifiedRelease
         manifest = parse_release_manifest(read_json(manifest_path))
         for field in ("product", "build_id", "version", "architecture"):
             if getattr(manifest, field) != getattr(distribution, field):
-                raise ReleaseValidationError(f"发行标识与文件清单不一致：{field}")
+                raise ReleaseValidationError(f"发行标识与文件清单不一致：{field}")  # ui-text: internal
         fingerprints = [(distribution.release_manifest, manifest_identity)]
         for entry in manifest.files:
             path = checked_path(root, entry.path)
             identity = _fingerprint(path)
             if not path.is_file() or path.stat().st_size != entry.size or file_sha256(path) != entry.sha256:
-                raise ReleaseValidationError(f"程序文件缺失或摘要不匹配：{entry.path}；请退出后重新覆盖完整程序包。")
+                raise ReleaseValidationError(f"程序文件缺失或摘要不匹配：{entry.path}；请退出后重新覆盖完整程序包。")  # ui-text: internal
             fingerprints.append((entry.path, identity))
         if parse_distribution(read_json(root / "distribution.json")) != distribution:
             raise ReleaseValidationError("读取发行身份后文件发生改变。")

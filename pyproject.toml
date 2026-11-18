@@ -107,6 +107,12 @@ version = { attr = "src.app.version.__package_version__" }
 where = ["."]
 include = ["src*", "tools*"]
 
+[tool.pytest.ini_options]
+# 夹具常复制整份静态库（单例可达数百 MiB）；通过用例的临时目录随即回收，
+# 只保留失败用例现场及最近一次运行，避免 %TEMP%\pytest-of-<user> 跨次累积。
+tmp_path_retention_policy = "failed"
+tmp_path_retention_count = 1
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120

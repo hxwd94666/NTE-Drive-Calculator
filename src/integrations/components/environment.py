@@ -83,7 +83,7 @@ def game_executable(path: str | Path) -> Path:
     if not candidate.is_file() or candidate.name.casefold() != GAME_EXECUTABLE_NAME.casefold():
         raise EquipmentPluginDeploymentError(
             f"请选择游戏主程序 {GAME_EXECUTABLE_NAME}，而不是文件夹或其他可执行文件"
-        )
+        )  # ui-text: internal
     return candidate
 
 

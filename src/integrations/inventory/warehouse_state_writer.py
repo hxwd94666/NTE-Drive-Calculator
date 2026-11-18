@@ -108,7 +108,7 @@ class WarehouseStateWriter:
         equipment: Mapping[str, int],
     ) -> tuple[dict[str, Any], ...]:
         if target_state not in {"normal", "locked", "discarded"}:
-            raise WarehouseStateWriteError(f"未知目标状态：{target_state}")
+            raise WarehouseStateWriteError(f"未知目标状态：{target_state}")  # ui-text: internal
         discarded = bool(row.get("discarded"))
         locked = bool(row.get("locked"))
         operations: list[dict[str, Any]] = []

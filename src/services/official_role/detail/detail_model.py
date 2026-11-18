@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.services.official_role.panel.attributes import _theory_properties
 
 
@@ -93,7 +94,7 @@ def assemble_official_role_detail(inputs: Mapping[str, Any]) -> dict[str, Any]:
                 "available": bool(current_items),
             },
             "saved": {
-                "title": f"已保存配装 · {selected_slot_name}",
+                "title": localized_text(None, 'auto.services.official_role.detail.detail_model.assemble_official_role_detail.f023af3d2', '已保存配装 · {selected_slot_name}', selected_slot_name=f'{selected_slot_name}'),
                 "items": saved_items,
                 "calculation_items": saved_calculation_items,
                 "plan": saved_plan,

@@ -138,7 +138,7 @@ class OnboardingGuide:
 
         def open_help() -> None:
             dialog.accept()
-            QTimer.singleShot(0, self._on_help)
+            QTimer.singleShot(0, self._parent, self._on_help)
 
         help_button.clicked.connect(open_help)
         actions.addWidget(help_button)

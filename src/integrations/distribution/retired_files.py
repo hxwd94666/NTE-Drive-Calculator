@@ -76,7 +76,7 @@ def reconcile_release(app_dir: Path, maintenance_dir: Path, verified: VerifiedRe
         recheck_verified(verified)
         old = _accepted(Path(maintenance_dir))
         if old and old.build_id == verified.manifest.build_id and old != verified.manifest:
-            raise ReleaseValidationError("同一 build_id 对应不同文件；重新打包需要新的构建身份。")
+            raise ReleaseValidationError("同一 build_id 对应不同文件；重新打包需要新的构建身份。")  # ui-text: internal
         # Windows 覆盖保留旧物理大小写；清单身份按 casefold，删除仍用实际盘面路径。
         current_paths = {row.path.casefold() for row in verified.manifest.files}
         retired = {row.path.casefold(): row for row in old.files if row.path.casefold() not in current_paths} if old else {}
@@ -88,23 +88,23 @@ def reconcile_release(app_dir: Path, maintenance_dir: Path, verified: VerifiedRe
         unknown = extras - set(retired)
         dangerous = {p for p in unknown if p.startswith("_internal/") or bootstrap_path(p)}
         if dangerous:
-            raise ReleaseValidationError(f"未受管加载文件已保留：{sorted(dangerous)[0]}；请退出并由平台或人工前置维护，不自动接管旧加载链。")
+            raise ReleaseValidationError(f"未受管加载文件已保留：{sorted(dangerous)[0]}；请退出并由平台或人工前置维护，不自动接管旧加载链。")  # ui-text: internal
         retained = set(unknown)
         planned = []
         for identity in sorted(extras & set(retired)):
             relative = disk_paths[identity]
             row = retired[identity]
             if row.bootstrap:
-                raise ReleaseValidationError(f"退役引导文件需启动前清理：{relative}；当前程序不承诺修复已加载或损坏的加载链。")
+                raise ReleaseValidationError(f"退役引导文件需启动前清理：{relative}；当前程序不承诺修复已加载或损坏的加载链。")  # ui-text: internal
             path = checked_path(verified.app_dir, relative)
             if not path.is_file() or path.stat().st_size != row.size or file_sha256(path) != row.sha256:
-                raise ReleaseValidationError(f"退役文件已修改，保留并停止启动：{relative}")
+                raise ReleaseValidationError(f"退役文件已修改，保留并停止启动：{relative}")  # ui-text: internal
             planned.append((relative, row))
         removed = []
         for relative, row in planned:
             path = checked_path(verified.app_dir, relative)
             if path.stat().st_size != row.size or file_sha256(path) != row.sha256:
-                raise ReleaseValidationError(f"退役文件检查后改变，保留并停止启动：{relative}")
+                raise ReleaseValidationError(f"退役文件检查后改变，保留并停止启动：{relative}")  # ui-text: internal
             path.unlink()
             removed.append(relative)
         return RetirementResult(tuple(removed), old is None, tuple(sorted(retained)))

@@ -11,6 +11,7 @@ from src.features.battle_report.editing.dialog import (
     BattleBuildSnapshotEditorDialog,
 )
 from src.ui.common.widgets import NoWheelComboBox
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleBuildEditorActionTests(unittest.TestCase):

@@ -3,6 +3,7 @@ import numpy as np
 from typing import List, Dict
 from collections import Counter
 
+from src.domain.localization.catalog import localized_text
 from src.models.equipment import Drive, Tape
 from src.optimizer.contracts import AllocationResult, CandidatePool, CustomSetMap, StatPriorityConfigMap
 from src.utils.logger import logger
@@ -380,13 +381,12 @@ class RolePriorityGroupStrategyMixin:
                 slot_label = "套装必要" if first["type"] == "set" else "额外"
                 plan["valid"] = False
                 plan["reason"] = (
-                    f"同级组竞争后无剩余候选：缺少 {first['shape']} 驱动"
-                    f"（{slot_label}槽位，扩展候选 {matching_count} 个）"
+                    localized_text(None, 'auto.optimizer.strategies.role_priority_group_strategy.mark_partial_group_failures.f0ea63379', '同级组竞争后无剩余候选：缺少 {value} 驱动（{slot_label}槽位，扩展候选 {matching_count} 个）', value=f"{first['shape']}", slot_label=f'{slot_label}', matching_count=f'{matching_count}')
                 )
             elif not self._within_crit_rate_cap(role, items, crit_rate_caps):
                 cap = self._crit_rate_cap(role, crit_rate_caps)
                 plan["valid"] = False
-                plan["reason"] = f"暴击率上限 {cap:g}% 使冻结后的同级组方案无法成立"
+                plan["reason"] = localized_text(None, 'auto.optimizer.strategies.role_priority_group_strategy.mark_partial_group_failures.f2b0d4876', '暴击率上限 {cap}% 使冻结后的同级组方案无法成立', cap=f'{cap:g}')
             elif floor_failure := self._crit_floor_failure_reason(
                 role,
                 plan.get("assigned_tape"),

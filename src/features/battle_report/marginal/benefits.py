@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtWidgets import QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
@@ -102,7 +104,7 @@ def render_marginal_benefits(
         core_notice.show()
         fork_notice.show()
         return
-    _render_core(core_table, core_notice, benefits)
+    _render_core(core_table, core_notice, benefits, text_catalog=text_catalog)
     _render_fork(fork_table, fork_notice, benefits.fork, text_catalog=text_catalog)
 
 
@@ -110,6 +112,7 @@ def _render_core(
     table: QTableWidget,
     notice: QLabel,
     benefits: BattleMarginalBenefits,
+    *, text_catalog=None,
 ) -> None:
     rows = sorted(
         benefits.core_main_stats,
@@ -124,7 +127,7 @@ def _render_core(
     notice.setVisible(bool(benefits.core_notice))
     for row_index, row in enumerate(rows):
         values = (
-            f"{row.label}{'（当前同类）' if row.is_current else ''}",
+            f"{row.label}{ui_enum_text(text_catalog, '（当前同类）') if row.is_current else ''}",
             _property_value(row.value, row.is_percent),
             _gain(row.contribution.role_status, row.contribution.role_gain_percent),
             _gain(row.contribution.team_status, row.contribution.team_gain_percent),
@@ -132,10 +135,10 @@ def _render_core(
             _gain(row.replacement.team_status, row.replacement.team_gain_percent),
             _damage(row.contribution.projected_role_damage),
             _damage(row.contribution.projected_team_damage),
-            _status(row.contribution),
+            _status(row.contribution, text_catalog=text_catalog),
         )
-        tooltip = _delta_tooltip("相对无主属性", row.contribution)
-        tooltip += "\n" + _delta_tooltip("替换当前主属性", row.replacement)
+        tooltip = _delta_tooltip("相对无主属性", row.contribution, text_catalog=text_catalog)
+        tooltip += "\n" + _delta_tooltip("替换当前主属性", row.replacement, text_catalog=text_catalog)
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
             item.setToolTip(tooltip)
@@ -178,12 +181,12 @@ def _render_fork(
             fork.comprehensive.team_status,
             fork.comprehensive.team_gain_percent,
         ),
-        _status(fork.comprehensive),
+        _status(fork.comprehensive, text_catalog=text_catalog),
     )
     tooltip = "\n".join((
-        _delta_tooltip("弧盘常驻", fork.permanent),
-        _delta_tooltip("弧盘技能/机制", fork.skill),
-        _delta_tooltip("弧盘综合", fork.comprehensive),
+        _delta_tooltip("弧盘常驻", fork.permanent, text_catalog=text_catalog),
+        _delta_tooltip("弧盘技能/机制", fork.skill, text_catalog=text_catalog),
+        _delta_tooltip("弧盘综合", fork.comprehensive, text_catalog=text_catalog),
         _closure_text(fork),
     ))
     for column, value in enumerate(values):
@@ -214,30 +217,26 @@ def _gain(status: QuantificationStatus, value: float | None) -> str:
     return f"{value:+.2f}%"
 
 
-def _status(delta: BattleMarginalDelta, *, details: bool = False) -> str:
+def _status(delta: BattleMarginalDelta, *, details: bool = False, text_catalog=None) -> str:
     role = quantification_status_text(delta.role_status) if details or delta.role_status != "partial" else ""
     team = quantification_status_text(delta.team_status) if details or delta.team_status != "partial" else ""
-    return (
-        f"角色{role} "
-        f"{delta.role_coverage_percent:.1f}% / "
-        f"全队{team} "
-        f"{delta.team_coverage_percent:.1f}%"
-    )
+    return localized_text(
+        text_catalog, "battle_report.marginal.status.coverage", "角色{role} {role_percent}% / 全队{team} {team_percent}%",
+        role=role, role_percent=f"{delta.role_coverage_percent:.1f}", team=team,
+        team_percent=f"{delta.team_coverage_percent:.1f}")
 
 
-def _delta_tooltip(label: str, delta: BattleMarginalDelta) -> str:
+def _delta_tooltip(label: str, delta: BattleMarginalDelta, *, text_catalog=None) -> str:
     gaps = "\n".join(f"- {line}" for line in delta.gap_explanations)
-    text = f"{label}：{_status(delta, details=True)}。"
-    return text if not gaps else f"{text}\n缺失依赖：\n{gaps}"
+    text = f"{ui_enum_text(text_catalog, label)}：{_status(delta, details=True, text_catalog=text_catalog)}。"
+    return text if not gaps else localized_text(text_catalog, 'auto.features.battle_report.marginal.benefits.delta_tooltip.f715c3194', '{text}\n缺失依赖：\n{gaps}', text=f'{text}', gaps=f'{gaps}')
 
 
-def _closure_text(fork: BattleForkMarginal) -> str:
+def _closure_text(fork: BattleForkMarginal, *, text_catalog=None) -> str:
     if fork.closure_role_damage is None or fork.closure_team_damage is None:
         return "A/B/C 闭合：当前量化状态不足，未给出精确闭合差。"
     return (
-        "A/B/C 闭合差："
-        f"角色 {fork.closure_role_damage:+,.2f}，"
-        f"全队 {fork.closure_team_damage:+,.2f}。"
+        localized_text(text_catalog, 'auto.features.battle_report.marginal.benefits.closure_text.f6ff50046', 'A/B/C 闭合差：角色 {closure_role_damage}，全队 {closure_team_damage}。', closure_role_damage=f'{fork.closure_role_damage:+,.2f}', closure_team_damage=f'{fork.closure_team_damage:+,.2f}')
     )
 
 

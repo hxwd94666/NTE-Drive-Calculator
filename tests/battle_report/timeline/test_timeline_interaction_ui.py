@@ -5,6 +5,7 @@ from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtWidgets import QApplication
 from src.features.battle_report.analysis.view import BattleLongAnalysisView
 from src.features.battle_report.timeline.layout import TimelineLane, TimelinePaintedBar
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleTimelineInteractionUiTests(unittest.TestCase):

@@ -8,6 +8,7 @@ from threading import Event
 from time import monotonic, sleep
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.native_core.nte_core_protocol import NteCoreRpcError, is_mods_plugin_busy_error
 from src.integrations.runtime.operation_guard import require_operation
 from src.observability.context import OperationContext
@@ -35,7 +36,7 @@ class RecoveryStopped(RuntimeError):
         self.reason = reason
         self.step = step
         self.module_index = module_index
-        super().__init__(f"装配自动补救已停止：{reason}")
+        super().__init__(localized_text(None, 'auto.services.equipment.assembly.apply_recovery.init.fb3a6ef04', '装配自动补救已停止：{reason}', reason=f'{reason}'))
 
 
 class EquipmentApplyRecovery:
@@ -319,7 +320,7 @@ class EquipmentApplyRecovery:
                     if attempt == len(SHORT_DELAYS):
                         break
                     self.short_retry_count += 1
-                    self.progress(f"组件状态更新，正在自动重试当前装配指令（{attempt + 1}/5）…")
+                    self.progress(localized_text(None, 'auto.services.equipment.assembly.apply_recovery.dispatch.fe56fd9b9', '组件状态更新，正在自动重试当前装配指令（{value}/5）…', value=f'{attempt + 1}'))
                     self._event(
                         "command_retry",
                         step=step,

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from src.domain.localization.catalog import localized_text
 from src.features.static_catalog.contracts import (
     CatalogDetail,
     CatalogDomain,
@@ -78,7 +79,7 @@ class StaticCatalogMonsterProvider:
             if errors:
                 raise RuntimeError(
                     f"关闭怪物资料提供器时有 {len(errors)} 个组件失败"
-                ) from errors[0]
+                ) from errors[0]  # ui-text: internal
 
     def search(
         self,
@@ -110,7 +111,7 @@ class StaticCatalogMonsterProvider:
     ) -> CatalogDetail | None:
         self._validate_release(release)
         detail = self._service.get_detail(record_id)
-        return None if detail is None else self._detail(detail)
+        return None if detail is None else self._detail(detail, text_catalog=getattr(self, 'text_catalog', None))
 
     def _validate_release(self, release: StaticCatalogRelease) -> None:
         if self._closed:
@@ -136,7 +137,7 @@ class StaticCatalogMonsterProvider:
         )
 
     @classmethod
-    def _detail(cls, detail: MonsterDetail) -> CatalogDetail:
+    def _detail(cls, detail: MonsterDetail, *, text_catalog=None) -> CatalogDetail:
         sections: list[CatalogSection] = []
         for section in detail.sections:
             values: list[CatalogField] = []
@@ -152,7 +153,7 @@ class StaticCatalogMonsterProvider:
                 if value.note:
                     values.append(
                         CatalogField(
-                            label=f"{value.label}说明",
+                            label=localized_text(text_catalog, "static_catalog.monster.note_label", "{label}说明", label=f"{value.label}"),
                             value=value.note,
                             source=CatalogValueSource.PROJECT_ANNOTATION,
                         )
@@ -175,7 +176,7 @@ class StaticCatalogMonsterProvider:
             )
             if section.note:
                 detail_note = CatalogSection(
-                    title=f"{section.title}说明",
+                    title=localized_text(text_catalog, "static_catalog.monster.note_label", "{label}说明", label=f"{section.title}"),
                     fields=(
                         CatalogField(
                             label="说明",

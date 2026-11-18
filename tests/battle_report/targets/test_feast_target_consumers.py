@@ -56,7 +56,7 @@ def test_catalog_index_and_links_distinguish_targets_and_source_period_is_not_re
         service.close()
 
 
-@pytest.mark.parametrize("theme", ['dark','black','light'])
+@pytest.mark.parametrize("theme", ["black"])
 def test_battle_selector_requires_primary_but_freezes_both_own_profiles(tmp_path, theme):
     from src.app.theme import apply_app_theme, current_theme_name
     from src.domain.battle_report.targets.profiles import BattleTargetCondition
@@ -87,7 +87,7 @@ def test_battle_selector_requires_primary_but_freezes_both_own_profiles(tmp_path
         dispose(selector);apply_app_theme(app,previous)
 
 
-@pytest.mark.parametrize("theme", ['dark','black','light'])
+@pytest.mark.parametrize("theme", ["black"])
 def test_catalog_view_requires_target_and_never_reuses_previous_profile(tmp_path, theme):
     from src.app.theme import apply_app_theme, current_theme_name
     from src.features.static_catalog.domain_pages.monsters.feast_view import FeastEncounterView

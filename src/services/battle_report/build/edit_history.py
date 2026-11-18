@@ -130,7 +130,7 @@ class BattleBuildEditHistoryMixin:
                 if resolved is None:
                     raise UserDataError(
                         f"角色 {character['character_id']} 的旧战报弧盘突破阶段无法解析"
-                    )
+                    )  # ui-text: internal
                 # 旧副本的 NULL 只在同步边界解析；不回写战报原始或修改副本。
                 fork_breakthrough_stage = int(resolved["stage"])
             updates.append(OfficialRoleProfileUpdate(

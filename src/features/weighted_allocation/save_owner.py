@@ -194,7 +194,7 @@ class WeightedSaveOwner(QObject):
             if self._idle_callbacks.pop(token, None) is not None and timed_out is not None:
                 timed_out()
         QTimer.singleShot(timeout_ms, expire)
-        QTimer.singleShot(0, self._notify_idle)
+        QTimer.singleShot(0, self, self._notify_idle)
         return lambda: self._idle_callbacks.pop(token, None)
 
     def defer_transition(self, key, continuation, timed_out):

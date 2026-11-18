@@ -75,13 +75,13 @@ def execute_plan(
         selected_uids.add(uid_pair)
         item = by_uid.get(uid_pair)
         if item is None or item["kind"] != "module":
-            raise EquipmentApplyError(f"方案驱动 UID {uid_pair} 不在当前稳定背包中")
+            raise EquipmentApplyError(f"方案驱动 UID {uid_pair} 不在当前稳定背包中")  # ui-text: internal
         if assignment.get("rotation") not in (None, 0):
             raise EquipmentApplyError("nte-core 一键装配不接受旋转参数")
         row = assignment.get("target_row")
         column = assignment.get("target_column")
         if row not in range(1, 6) or column not in range(1, 6):
-            raise EquipmentApplyError(f"第 {index + 1} 个驱动位置必须在 1..5")
+            raise EquipmentApplyError(f"第 {index + 1} 个驱动位置必须在 1..5")  # ui-text: internal
         placements.append(
             {
                 "equipment": _item_uid(item),
@@ -97,7 +97,7 @@ def execute_plan(
             raise EquipmentApplyError("方案中存在重复装备 UID")
         core_item = by_uid.get(core_pair)
         if core_item is None or core_item["kind"] != "core":
-            raise EquipmentApplyError(f"方案核心 UID {core_pair} 不在当前稳定背包中")
+            raise EquipmentApplyError(f"方案核心 UID {core_pair} 不在当前稳定背包中")  # ui-text: internal
         if core_assignment.get("rotation") not in (None, 0):
             raise EquipmentApplyError("核心不能包含旋转参数")
 
@@ -240,7 +240,7 @@ def execute_plan(
         )
     )
     if mismatch is not None:
-        raise EquipmentApplyError(f"新快照未确认目标配装：{mismatch}")
+        raise EquipmentApplyError(f"新快照未确认目标配装：{mismatch}")  # ui-text: internal
     return EquipmentApplyResult(
         plan_id=plan["plan_id"],
         before_snapshot_id=before_snapshot_id,

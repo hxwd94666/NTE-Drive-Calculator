@@ -31,7 +31,7 @@ class StaticGameDataEquipmentQueriesMixin:
 
         raw_attribute_id = str(attribute_id).strip()
         if not raw_attribute_id:
-            raise ValueError("attribute_id 不能为空")
+            raise ValueError("attribute_id 不能为空")  # ui-text: internal
         return next(
             (
                 attribute
@@ -70,7 +70,7 @@ class StaticGameDataEquipmentQueriesMixin:
 
         raw_item_id = str(item_id).strip()
         if not raw_item_id:
-            raise ValueError("item_id 不能为空")
+            raise ValueError("item_id 不能为空")  # ui-text: internal
         return next(
             (
                 item

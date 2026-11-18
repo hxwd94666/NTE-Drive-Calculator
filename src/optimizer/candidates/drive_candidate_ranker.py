@@ -4,6 +4,7 @@ import numpy as np
 from concurrent.futures import CancelledError
 from typing import List, Dict
 
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.scoring.crit_threshold import (
     BASE_CRIT_RATE,
     DEFAULT_CRIT_THRESHOLD,
@@ -70,7 +71,7 @@ class BaseDispatchStrategy:
         raw_set = (custom_sets or {}).get(role, self.roles_db[role]["default_set"])
         target_set = self._resolve_set_name(raw_set)
         if target_set not in self.sets_db:
-            raise ValueError(f"错误：指定的套装 {raw_set} 不存在于 sets.json 中！")
+            raise ValueError(f"错误：指定的套装 {raw_set} 不存在于 sets.json 中！")  # ui-text: internal
         return target_set
 
     def _core_target_set(self, role: str, custom_sets: Dict[str, str]) -> str | None:
@@ -156,8 +157,7 @@ class BaseDispatchStrategy:
         if current + 1e-9 >= threshold:
             return None
         return (
-            f"没有达成暴击率最小值 {threshold:g}% 的方案"
-            f"（当前 {current:g}%）"
+            localized_text(None, 'auto.optimizer.candidates.drive_candidate_ranker.crit_floor_failure_reason.fe79825ee', '没有达成暴击率最小值 {threshold}% 的方案（当前 {current}%）', threshold=f'{threshold:g}', current=f'{current:g}')
         )
 
     def _item_has_stat(self, item, stat_key: str) -> bool:

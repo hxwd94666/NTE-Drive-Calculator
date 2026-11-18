@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
@@ -67,10 +68,10 @@ def display_buff_option(
 
     score = display_catalog_scalar(option.get("score"))
     if option.get("effect_kind") == "mechanism_goal":
-        return f"{option.get('description_zh') or '目标说明暂未提供'} · 目标分值 {score}（未判定完成）"
+        return localized_text(None, 'auto.services.static_catalog.monsters.display.display_buff_option.fa90978fd', '{value} · 目标分值 {score}（未判定完成）', value=f"{option.get('description_zh') or '目标说明暂未提供'}", score=f'{score}')
     if str(option.get("effect_kind") or "") == "time_limit":
         seconds = display_catalog_scalar(option.get("limit_seconds"))
-        return f"限时 {seconds} 秒 · 额外得分 {score}"
+        return localized_text(None, 'auto.services.static_catalog.monsters.display.display_buff_option.f1eb67b88', '限时 {seconds} 秒 · 额外得分 {score}', seconds=f'{seconds}', score=f'{score}')
     amount = display_catalog_scalar(option.get("add_value"))
     damage_type = str(option.get("damage_type") or "").strip()
     prefix = (
@@ -78,4 +79,4 @@ def display_buff_option(
         if damage_type
         else ""
     )
-    return f"{prefix}数值 {amount} · 额外得分 {score}"
+    return localized_text(None, 'auto.services.static_catalog.monsters.display.display_buff_option.fd5900904', '{prefix}数值 {amount} · 额外得分 {score}', prefix=f'{prefix}', amount=f'{amount}', score=f'{score}')

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from PySide6.QtCore import QSignalBlocker, Signal
@@ -97,25 +98,25 @@ class CultivationStaminaControls(QFrame):
         self.values_changed.emit()
 
 
-def stamina_summary_text(result: ProgressionStaminaResult | None) -> str:
+def stamina_summary_text(result: ProgressionStaminaResult | None, *, text_catalog=None) -> str:
     if result is None:
         return "估算体力未知"
     if result.total_stamina is not None:
-        return f"估算体力 {result.total_stamina:,}"
+        return localized_text(text_catalog, 'auto.features.toolbox.cultivation.stamina_ui.stamina_summary_text.fdf70af97', '估算体力 {total_stamina}', total_stamina=f'{result.total_stamina:,}')
     if any(is_world_boss_stamina_material(item_id) for item_id in result.unresolved_item_ids):
-        known = f"已知估算体力 {result.known_stamina:,} · " if result.known_stamina else ""
+        known = localized_text(text_catalog, 'auto.features.toolbox.cultivation.stamina_ui.stamina_summary_text.ff7a29407', '已知估算体力 {known_stamina} · ', known_stamina=f'{result.known_stamina:,}') if result.known_stamina else ""
         return known + "世界 Boss 平均产出资料缺失 · 总体力未知"
     if result.known_stamina:
-        return f"已知估算体力 {result.known_stamina:,} · 总体力未知"
+        return localized_text(text_catalog, 'auto.features.toolbox.cultivation.stamina_ui.stamina_summary_text.f0ffbf47a', '已知估算体力 {known_stamina} · 总体力未知', known_stamina=f'{result.known_stamina:,}')
     return "估算体力未知"
 
 
-def stamina_runs_text(result: ProgressionStaminaResult | None) -> str:
+def stamina_runs_text(result: ProgressionStaminaResult | None, *, text_catalog=None) -> str:
     if result is None:
         return ""
     if result.runs:
         return "估算刷取：" + "；".join(
-            f"{run.label} × {run.runs} 次（{run.total_stamina:,} 体力）"
+            localized_text(text_catalog, 'auto.features.toolbox.cultivation.stamina_ui.stamina_runs_text.f5b6d9604', '{label} × {runs} 次（{total_stamina} 体力）', label=f'{run.label}', runs=f'{run.runs}', total_stamina=f'{run.total_stamina:,}')
             for run in result.runs
         )
     if result.total_stamina == 0:

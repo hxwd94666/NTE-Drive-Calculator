@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import CancelledError
+from src.domain.localization.catalog import localized_text
 from src.domain.catalog.static_catalog import StaticCatalogRelease
 from src.integrations.static_catalog.static_catalog_release import (
     StaticCatalogReleaseError, StaticCatalogReleaseReader, static_catalog_commit_unit,
@@ -43,9 +44,9 @@ from src.storage.sqlite.user_data_dao import (
 
 BATTLE_REPORT_TRANSFER_FORMAT = "nte-drive-calculator.battle-report-package"
 BATTLE_REPORT_TRANSFER_VERSION = 2
-# 46–50只增改队伍及轴伤表，51调整队伍来源，52分离管理配置；均不改战报白名单行图。
-# 接受版本逐项审计，不随当前库版本自动放行未来包。
-SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS = frozenset({36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52})
+# 46–50只增改队伍及轴伤表，51调整队伍来源，52分离管理配置，53仅在设置副本中初始化倒带三策略（无 DDL）；
+# 均不改战报白名单行图。接受版本逐项审计，不随当前库版本自动放行未来包。
+SUPPORTED_SOURCE_USER_DATABASE_SCHEMAS = frozenset({36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53})
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +130,7 @@ class BattleReportTransferService:
         safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", name).strip(" ._")
         safe = safe[:48] or "当前账号"
         timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-        return f"战报-{safe}-{timestamp}{BATTLE_REPORT_BUNDLE_EXTENSION}"
+        return localized_text(None, 'auto.services.battle_report.history.transfer.suggested_filename.f854f1f61', '战报-{safe}-{timestamp}{battle_report_bundle_extension}', safe=f'{safe}', timestamp=f'{timestamp}', battle_report_bundle_extension=f'{BATTLE_REPORT_BUNDLE_EXTENSION}')
 
     def export_reports(
         self,
@@ -624,7 +625,7 @@ class BattleReportTransferService:
             )
             raise UserDataValidationError(
                 f"战报包用户数据库结构版本不兼容（当前支持 {supported}）"
-            )
+            )  # ui-text: internal
         if isinstance(reports, (str, bytes)) or not isinstance(reports, list) or not reports:
             raise UserDataValidationError("战报包中没有可导入记录")
         if not isinstance(manifest, Mapping) or manifest.get("report_count") != len(reports):
@@ -697,7 +698,7 @@ class BattleReportTransferService:
         if str(record.get("combat_context_kind")) != "abyss":
             return "非轨外场景"
         floor = record.get("abyss_floor")
-        return "轨外之境" if floor is None else f"轨外之境 · 第 {int(floor)} 层"
+        return "轨外之境" if floor is None else localized_text(None, 'auto.services.battle_report.history.transfer.gameplay_label.f549dfca5', '轨外之境 · 第 {value} 层', value=f'{int(floor)}')
 
     @staticmethod
     def _scope_label(record: Mapping[str, Any]) -> str:
@@ -717,7 +718,7 @@ class BattleReportTransferService:
         if complete is None:
             return "仅聚合摘要"
         stored = int(record.get("axis_stored_hits") or 0)
-        return ("逐击完整" if bool(complete) else "逐击不完整") + f" · {stored} 条"
+        return ("逐击完整" if bool(complete) else "逐击不完整") + localized_text(None, 'auto.services.battle_report.history.transfer.completeness_label.f82e26623', ' · {stored} 条', stored=f'{stored}')
 
     @staticmethod
     def _cursor_label(status: Mapping[str, Any] | None) -> str:

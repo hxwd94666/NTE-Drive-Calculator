@@ -6,6 +6,7 @@ from src.domain.official_role.models import WorldBonusSettings
 from src.features.official_role.furniture_controls import (
     apply_world_bonus_display, build_world_bonus_card, read_world_bonus_controls, world_bonus_controls,
 )
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 NTE_TEST_TIER = 'core'
@@ -79,7 +80,7 @@ def test_returning_to_loaded_draft_consumes_pending_furniture_recalculation(wind
 
 def test_background_refresh_reads_furniture_without_discarding_other_draft(window, monkeypatch):
     from types import SimpleNamespace
-    from PySide6.QtWidgets import QVBoxLayout
+    from PySide6.QtWidgets import QScrollArea, QVBoxLayout
     from src.features.official_role import role_shell
     settings = WorldBonusSettings(6., .016, 15.)
     dependencies = object()
@@ -88,6 +89,7 @@ def test_background_refresh_reads_furniture_without_discarding_other_draft(windo
     window._official_role_controller = controller
     window.app_context = object()
     window.my_role_form_layout = QVBoxLayout(window)
+    window.my_role_form_area = QScrollArea(window)
     window._my_role_dirty = True
     window._official_role_editors = {1: {'detail': {'profile': {'character_level': 42},
         'world_bonus': WorldBonusSettings().to_payload()}}}

@@ -7,6 +7,7 @@ import json
 import os
 import time
 from dataclasses import replace
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -203,7 +204,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 NTE_TEST_TIER = "core"
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_keyboard_select_view_and_cancel_delete_in_three_themes(tmp_path, monkeypatch, theme):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest

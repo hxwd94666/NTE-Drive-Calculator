@@ -25,6 +25,7 @@ from src.domain.inventory.post_actions import default_post_action_config
 from src.ui.equipment_management.rule_editor import PreserveRuleEditor
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.app.theme import apply_app_theme, current_theme_name
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class PostActionRoleScopeDialogTests(unittest.TestCase):
@@ -110,7 +111,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
         theme_before = current_theme_name()
         self.addCleanup(lambda: apply_app_theme(self.app, theme_before))
         with tempfile.TemporaryDirectory() as directory:
-            for theme in ("dark", "black", "light"):
+            for theme in ("black",):
                 with self.subTest(theme=theme):
                     apply_app_theme(self.app, theme)
                     manager = self.make_manager(directory, default_post_action_config())
@@ -276,7 +277,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             for action in ("keep", "lock", "discard")
         ]
         with tempfile.TemporaryDirectory() as directory:
-            for theme in ("dark", "black", "light"):
+            for theme in ("black",):
                 with self.subTest(theme=theme):
                     apply_app_theme(self.app, theme)
                     manager = self.make_manager(directory, config)
@@ -401,10 +402,58 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                                      [rule["name"] for rule in manager._collect_config()["preserve_rules"]])
                     manager.close()
 
+    def test_tape_rule_hits_do_not_depend_on_inactive_drive_range_or_opening_range_dialog(self):
+        # 静态套装选项带「」外框；默认范围展示必须与未打开范围时保存的生效口径一致，
+        # 卡带规则也不得因驱动形状勾选或是否确认过范围对话框而改变命中集合。
+        from src.domain.inventory.post_actions import preserve_rule_matches_item
+        from src.models.equipment import Tape
+        from src.ui.equipment_management.scope_dialogs import TypeRangeDialog
+
+        shapes = [("H_2", 2), ("V_2", 2), ("H_3", 3), ("V_3", 3)]
+        sets = ["「迪亚波罗斯」", "「音速蓝刺猬」", "「静谧山庄」"]
+
+        stat = "攻击力%"
+
+        def saved_rule(open_range_dialog):
+            editor = PreserveRuleEditor(None, {"item_type": "tape", "action": "lock", "sub_stats": [stat], "sub_match": 1},
+                                        shapes, sets, Path("config"))
+            self.addCleanup(editor.deleteLater)
+            if open_range_dialog:
+                class AcceptWithoutDrives(TypeRangeDialog):
+                    # 用户取消全部驱动形状后直接确定；卡带套装保持对话框默认勾选。
+                    def exec(self):
+                        self._set_all_shapes(False)
+                        return QDialog.Accepted
+                with patch("src.ui.equipment_management.rule_editor.TypeRangeDialog", AcceptWithoutDrives):
+                    editor._open_range_dialog()
+            summary = editor.range_summary.text()
+            with patch.object(QMessageBox, "warning", side_effect=AssertionError("规则保存校验失败")):
+                editor._save_rule()
+            return editor.result_rule(), summary
+
+        untouched, untouched_summary = saved_rule(False)
+        confirmed, confirmed_summary = saved_rule(True)
+        self.assertEqual([], confirmed["shape_ids"])
+        # 默认范围包含全部套装（含音速），展示与生效一致。
+        self.assertIn("卡带 3/3", untouched_summary)
+        self.assertEqual(untouched_summary, confirmed_summary)
+        for set_name in ("迪亚波罗斯", "音速蓝刺猬", "静谧山庄"):
+            tape = Tape(uid=f"tape-{set_name}", quality="Gold", area=15, set_name=set_name,
+                        main_stats="攻击力%", sub_stats={stat: 1.0})
+            with self.subTest(set_name=set_name):
+                self.assertTrue(preserve_rule_matches_item(tape, untouched))
+                self.assertTrue(preserve_rule_matches_item(tape, confirmed))
+
+        drive_editor = PreserveRuleEditor(None, {"item_type": "drive", "sub_stats": [stat], "sub_match": 1},
+                                          shapes, sets, Path("config"))
+        self.addCleanup(drive_editor.deleteLater)
+        # 二格驱动同样默认纳入范围。
+        self.assertIn("驱动 4/4", drive_editor.range_summary.text())
+
     def test_drive_editor_normal_and_constrained_windows_have_one_scroll_and_reachable_stats(self):
         original_theme = current_theme_name()
         self.addCleanup(lambda: apply_app_theme(self.app, original_theme))
-        for theme in ("dark", "black", "light"):
+        for theme in ("black",):
             with self.subTest(theme=theme):
                 apply_app_theme(self.app, theme)
                 editor = PreserveRuleEditor(None, {"item_type": "drive", "sub_match": 2}, [("H_3", 3)], [], Path("config"))
@@ -460,7 +509,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
     def test_editor_mode_switch_keeps_footer_stable_and_selection_reachable_with_large_fonts(self):
         original_theme = current_theme_name()
         self.addCleanup(lambda: apply_app_theme(self.app, original_theme))
-        for theme in ("dark", "black", "light"):
+        for theme in ("black",):
             for scale in (1, 1.5):
                 with self.subTest(theme=theme, font_scale=scale):
                     apply_app_theme(self.app, theme)

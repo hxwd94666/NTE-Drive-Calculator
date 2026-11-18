@@ -1,6 +1,7 @@
 # 独占 Calc 更新的请求、取消、账号代次、物理退场与单次安装器派发。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from dataclasses import dataclass, field
 from threading import Event
@@ -46,7 +47,7 @@ class _UpdateWorker(QThread):
             self.request.cancelled.set()
         except Exception as error:
             # urllib 错误及 traceback 可能含短期地址：不交给通用 WorkerThread 原文日志。
-            self.error = f"更新操作失败（{type(error).__name__}），请稍后重试。"
+            self.error = localized_text(getattr(self, 'text_catalog', None), 'auto.features.settings.updates.controller.run.ff34a727d', '更新操作失败（{name}），请稍后重试。', name=f'{type(error).__name__}')
 
 
 class CalcUpdateController(QObject):
@@ -110,12 +111,8 @@ class CalcUpdateController(QObject):
 
     def _portable_status(self):
         if self._update_channel == "platform":
-            return (f"当前版本: {APP_VERSION}（平台托管便携版）\n"
-                    "请在分发平台更新或修复，并先退出本程序；此处不检查或下载竞争更新。\n"
-                    "Mirror 当前仅提供安装器，不适用于便携版。")
-        return (f"当前版本: {APP_VERSION}（手动便携版）\n"
-                "请从可信发布渠道获取对应便携 ZIP，退出程序后完整覆盖，保留 userdata。\n"
-                "若渠道仅提供安装器，请等待便携包；Mirror 当前仅提供安装器，不作为便携更新。")
+            return (localized_text(getattr(self, 'text_catalog', None), 'auto.features.settings.updates.controller.portable_status.ffd201868', '当前版本: {app_version}（平台托管便携版）\n请在分发平台更新或修复，并先退出本程序；此处不检查或下载竞争更新。\nMirror 当前仅提供安装器，不适用于便携版。', app_version=f'{APP_VERSION}'))
+        return (localized_text(getattr(self, 'text_catalog', None), 'auto.features.settings.updates.controller.portable_status.f5f39c34b', '当前版本: {app_version}（手动便携版）\n请从可信发布渠道获取对应便携 ZIP，退出程序后完整覆盖，保留 userdata。\n若渠道仅提供安装器，请等待便携包；Mirror 当前仅提供安装器，不作为便携更新。', app_version=f'{APP_VERSION}'))
 
     def _current(self, request):
         return (not self._closed and not request.cancelled.is_set()
@@ -286,7 +283,9 @@ class CalcUpdateController(QObject):
                 self._status(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.address_ready.self_3'))
                 self._end(request)
                 return
-        progress = QProgressDialog("正在下载更新安装程序…", "取消", 0, 0, self.parent())
+        catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
+        progress = QProgressDialog(catalog.render('ui.settings.updates.downloading'), catalog.render('common.cancel'),
+                                   0, 0, self.parent())
         progress.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('settings.page.build_settings_page.mirror_download_btn'))
         progress.setWindowModality(Qt.WindowModal)
         progress.setAutoClose(False)

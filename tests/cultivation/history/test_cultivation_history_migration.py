@@ -34,7 +34,7 @@ def test_existing_v44_backup_and_history_migration(tmp_path, monkeypatch):
             versions.add(old.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0])
             assert old.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     # 养成历史和队伍简报各自升级前备份，完整保留两个可恢复边界。
-    assert versions == {44, 46, 47, 48, 49, 50, 51}
+    assert versions == {44, 46, 47, 48, 49, 50, 51, 52}
     with sqlite3.connect(database) as current:
         assert current.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] == SCHEMA_VERSION
 

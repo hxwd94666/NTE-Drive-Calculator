@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.results import BattleBuildHitCounterfactual
 from src.domain.battle_report.counterfactual.quantification import BattleCounterfactualRatio, BattleQuantificationGap
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
@@ -126,7 +127,7 @@ def _combine_ratios(
             included_dimension_ids=included,
             cancelled_dimension_ids=cancelled,
             gaps=gaps,
-            explanation=f"{explanation}仍有未解析依赖，结果按部分量化展示。",
+            explanation=localized_text(None, 'auto.services.battle_report.build.weave_counterfactual.combine_ratios.fb92a0f47', '{explanation}仍有未解析依赖，结果按部分量化展示。', explanation=f'{explanation}'),
         )
     return BattleCounterfactualRatio.complete(
         ratio,

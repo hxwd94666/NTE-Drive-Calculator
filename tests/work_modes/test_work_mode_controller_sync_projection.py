@@ -13,7 +13,7 @@ def test_native_saved_inventory_does_not_mark_packet_capture_ready(controller):
     )
     seen = []
     original = policy.build_report
-    policy.build_report = lambda value: seen.append(value) or original(value)
+    policy.build_report = lambda value, **kwargs: seen.append(value) or original(value, **kwargs)
     c._apply((policy.settings.revision, 1, probe, 0))
     assert not seen[0].packet_snapshot and not seen[0].packet_listening
     assert window.observed_sync_probes == seen

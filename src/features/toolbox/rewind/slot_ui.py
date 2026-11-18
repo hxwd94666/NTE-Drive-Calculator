@@ -25,17 +25,11 @@ from src.domain.rewind.rewind_shape_recommendation import RewindPricingRule, Rew
 from src.domain.inventory.warehouse_filter import warehouse_shape_order
 from src.features.inventory.warehouse.display.cards import warehouse_shape_pixmap
 from src.features.toolbox.rewind.execution_dialog import RewindShapeReplacementDialog
+from src.domain.rewind.shape_overview import summarize_shape_margins
 from src.domain.equipment.geometry.shapes import OFFICIAL_SHAPE_LABELS
 
 
 REWIND_SLOT_COUNT = 8
-
-
-def _format_quality_gap(value: float) -> str:
-    """Ceil the displayed gap to hundredths without changing the stored score."""
-    # 按十进制文本取整，避免乘以 100 的浮点误差把整百分位再次抬高。
-    rounded = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
-    return f"{rounded:.2f}"
 
 
 def all_rewind_shape_candidates() -> tuple[RewindShapeRecommendation, ...]:
@@ -125,6 +119,8 @@ class RewindSlotUiMixin:
         label.setWordWrap(True)
         label.setStyleSheet(themed_style("color:#8b949e;font-size:12px;padding:2px 4px"))
         header.addWidget(label, 1)
+        if self._strategy_key == 'dual_target':
+            header.addWidget(self._make_dual_overlap_button())
         clear_button = QPushButton(_ui_text('rewind.slots.render_rewind_slots.clear_button'))
         clear_button.setObjectName("rewindClearCandidates")
         clear_button.setEnabled(any(self._editable_slots))
@@ -195,6 +191,33 @@ class RewindSlotUiMixin:
             card.mousePressEvent = lambda _event, slot=index: self._edit_rewind_slot(slot)
             grid.addWidget(card, index // 4, index % 4)
 
+    def _current_margin_analysis(self):
+        """仅当前策略最近一次生成且未失效的结果带逐件余量；载入的已保存方案没有。"""
+        analysis = getattr(self, '_generated_analysis', None)
+        if analysis is None or getattr(self, '_recommendation_invalidated', False) or not analysis.drive_margins:
+            return None
+        return analysis
+
+    def _shape_score_totals(self):
+        """手选弹窗用的按形状缺分/多分；兼顾模式两组各按自己的目标计算后合计。"""
+        analysis = self._current_margin_analysis()
+        if analysis is None:
+            return None
+        return {row.shape_id: row.totals for row in summarize_shape_margins(analysis.drive_margins)}
+
+    def _refresh_candidate_gaps(self, analysis, *, dual: bool) -> None:
+        """生成后按本次冻结余量重置十二个候选的缺分/缺件，再由推荐结果覆盖推荐形状。
+
+        手选非推荐形状时八槽卡片显示的缺分与手选弹窗一致；上一次生成留下的旧值不会沿用。
+        兼顾模式的“缺件”只表示两组共同需求，非推荐形状一律清零。
+        """
+        totals = {} if dual else {row.shape_id: row.totals for row in summarize_shape_margins(analysis.drive_margins)}
+        self._replacement_candidates = tuple(
+            replace(candidate, suit_demand=totals[candidate.shape.shape_id].shortfall_count,
+                    quality_gap=totals[candidate.shape.shape_id].shortfall)
+            if candidate.shape.shape_id in totals else replace(candidate, suit_demand=0, quality_gap=0.0)
+            for candidate in self._replacement_candidates)
+
     def _edit_rewind_slot(self, slot_index: int) -> None:
         if slot_index < 0 or slot_index >= REWIND_SLOT_COUNT:
             return
@@ -206,6 +229,8 @@ class RewindSlotUiMixin:
                 if self._editable_slots[slot_index] is not None else None
             ),
             text_catalog=getattr(self, 'text_catalog', None),
+            scores=self._shape_score_totals(),
+            selected_shape_ids={slot.shape.shape_id for slot in self._editable_slots if slot is not None},
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -284,6 +309,10 @@ class RewindSlotUiMixin:
     def _rewind_metric_text(self, recommendation, probability):
         text = self.text_catalog.render
         if self._strategy_key == 'dual_target':
+            # 已保存方案与手动添加的形状没有本次共同需求，不显示“缺件 0”冒充统计结果。
+            if recommendation.suit_demand <= 0:
+                return text('rewind.dual.slot_metrics_stock', owned=recommendation.owned_count,
+                            share=f'{probability:.0%}')
             return text('rewind.dual.slot_metrics', count=recommendation.suit_demand,
                         owned=recommendation.owned_count, share=f'{probability:.0%}')
         return text('rewind.slots.populate_rewind_slot_grid.probability_label.state',

@@ -77,7 +77,7 @@ class StaticCatalogFormulaQueries:
             raise StaticGameDataError(
                 f"不支持的静态数据库结构版本：{version!r}；支持 "
                 f"{MINIMUM_SUPPORTED_SCHEMA_VERSION} 至 {SCHEMA_VERSION}"
-            )
+            )  # ui-text: internal
 
     def __enter__(self) -> "StaticCatalogFormulaQueries":
         return self
@@ -242,7 +242,7 @@ class StaticCatalogFormulaQueries:
             if tuple(tier for tier, _value in points) != tuple(range(16)):
                 raise StaticGameDataError(
                     f"环合曲线 {effect_id!r} 缺少完整源档 0–15"
-                )
+                )  # ui-text: internal
             curves.append(StaticReactionCurve(
                 source_effect_id=effect_id,
                 values=tuple(value for _tier, value in points),

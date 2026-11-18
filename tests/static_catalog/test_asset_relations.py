@@ -91,7 +91,9 @@ class StaticCatalogAssetRelationIntegrationTests(unittest.TestCase):
             domain_key="assets",
             record_id=record_id,
             relation_kind="references",
-            offset=self._reference_index(BLUEPRINT_PATH, lambda _row, fields: fields.get("target_available") == "否"),
+            # 目标资源或目录详情任一不可用都不生成跳转；当前发行数据由目录详情缺失体现门禁。
+            offset=self._reference_index(BLUEPRINT_PATH, lambda _row, fields: "否" in (
+                fields.get("target_available"), fields.get("catalog_detail_available"))),
             limit=1,
         )
 
@@ -105,7 +107,7 @@ class StaticCatalogAssetRelationIntegrationTests(unittest.TestCase):
         unavailable_values = {
             field.label: field.value for field in unavailable.rows[0].fields
         }
-        self.assertEqual(unavailable_values["target_available"], "否")
+        self.assertIn("否", (unavailable_values["target_available"], unavailable_values["catalog_detail_available"]))
         self.assertEqual(unavailable.rows[0].references, ())
 
     def test_montage_notify_count_and_rows_use_the_same_lazy_entry(self) -> None:

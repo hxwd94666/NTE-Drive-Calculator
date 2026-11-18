@@ -88,5 +88,5 @@ def selected_role_names(
                 matched_keys.add(logical_key)
         missing_count = len(selected_keys - matched_keys)
         if missing_count:
-            raise ValueError(f"弃置/锁定管理中有 {missing_count} 名指定角色缺少可用评分配置，请重新选择角色")
+            raise ValueError(f"弃置/锁定管理中有 {missing_count} 名指定角色缺少可用评分配置，请重新选择角色")  # ui-text: internal
     return names

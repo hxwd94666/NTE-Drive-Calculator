@@ -87,9 +87,9 @@ class StaticCatalogTerminologyService:
         normalized_id = str(stable_id or "").strip()
         normalized_locale = str(locale or "").strip().replace("_", "-")
         if not normalized_kind:
-            raise ValueError("entity_kind 不能为空")
+            raise ValueError("entity_kind 不能为空")  # ui-text: internal
         if not normalized_id:
-            raise ValueError("stable_id 不能为空")
+            raise ValueError("stable_id 不能为空")  # ui-text: internal
         if not normalized_locale:
             raise ValueError("locale 不能为空")
 
@@ -113,9 +113,9 @@ class StaticCatalogTerminologyService:
             raise ValueError(
                 "术语来源返回了不一致的 entity_kind："
                 f"{record.entity_kind!r} != {normalized_kind!r}"
-            )
+            )  # ui-text: internal
         if not str(record.canonical_id or "").strip():
-            raise ValueError("术语来源返回的 canonical_id 不能为空")
+            raise ValueError("术语来源返回的 canonical_id 不能为空")  # ui-text: internal
 
         selected = _select_name(
             _clean_names(record.names),

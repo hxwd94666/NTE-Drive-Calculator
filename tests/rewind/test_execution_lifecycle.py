@@ -10,7 +10,9 @@ from PySide6.QtCore import QCoreApplication, QEvent, QThread, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.app.context import AccountContext, AppContext
-from src.domain.rewind.dual_target import RewindInventoryChanged
+from src.domain.rewind.dual_target import RewindSourceChange, RewindSourceChanged
+
+INVENTORY = frozenset({RewindSourceChange('inventory')})
 from src.app.page_tasks import close_page_tasks
 from src.features.toolbox import page
 from src.features.toolbox.rewind import execution_ui
@@ -235,7 +237,7 @@ def test_saved_pool_source_is_checked_before_input_resource_creation(run_fixture
                                saved_guard={'fixture': 'immutable'})
     dialog._dual_preferences = dialog._preferences
     validations = []
-    def validate(guard, *, checkpoint, inventory_change_confirmed=False):
+    def validate(guard, *, checkpoint, accepted_changes=frozenset()):
         checkpoint()
         validations.append(guard)
         if phase == 'entry' or len(validations) == 2:
@@ -271,19 +273,20 @@ def test_inventory_changes_require_one_confirmation_and_never_replay_input(run_f
     saved_pool(state, strategy)
     validations, prompts = [], []
 
-    def validate(guard, *, checkpoint, inventory_change_confirmed=False):
+    def validate(guard, *, checkpoint, accepted_changes=frozenset()):
         checkpoint()
-        validations.append((guard, inventory_change_confirmed))
-        if not inventory_change_confirmed and (phase == 'entry' or len(validations) >= 2):
-            raise RewindInventoryChanged('inventory changed')
+        validations.append((guard, accepted_changes))
+        if not accepted_changes and (phase == 'entry' or len(validations) >= 2):
+            raise RewindSourceChanged(INVENTORY)
 
-    def confirm():
+    def confirm(changes):
+        assert changes == INVENTORY
         assert len(state.backends) == len(prompts) and state.hotkeys.active_owner is None
         prompts.append(True)
         return accept
 
     monkeypatch.setattr(state.service, 'validate_dual_target_guard', validate, raising=False)
-    monkeypatch.setattr(state.dialog, '_confirm_rewind_inventory_change', confirm)
+    monkeypatch.setattr(state.dialog, '_confirm_rewind_source_change', confirm)
     state.release.set()
     state.dialog._start_rewind_execution()
     until(state.app, lambda: len(prompts) == 1 and not state.dialog.is_rewind_running())
@@ -292,7 +295,7 @@ def test_inventory_changes_require_one_confirmation_and_never_replay_input(run_f
     assert state.hotkeys.active_owner is None
     if accept:
         assert state.requests[0].shape_ids == ('EquipmentGeometry_Hen4',) * 8
-        assert sum(confirmed for _, confirmed in validations) == 2
+        assert sum(accepted == INVENTORY for _, accepted in validations) == 2
         # 下次独立执行重新确认；没有持久的“忽略库存变化”状态。
         state.dialog._start_rewind_execution()
         until(state.app, lambda: len(prompts) == 2 and not state.dialog.is_rewind_running())
@@ -305,9 +308,9 @@ def test_confirmation_does_not_authorize_a_new_account_or_changed_plan(run_fixtu
 
     def validate(_guard, *, checkpoint, **_kwargs):
         checkpoint()
-        raise RewindInventoryChanged('inventory changed')
+        raise RewindSourceChanged(INVENTORY)
 
-    def confirm():
+    def confirm(_changes):
         if change == 'account':
             state.context.switch_account(replace(state.original, active_account_id='second',
                 user_database_path=state.original.account_data_root / 'other.sqlite3'))
@@ -318,7 +321,7 @@ def test_confirmation_does_not_authorize_a_new_account_or_changed_plan(run_fixtu
         return True
 
     monkeypatch.setattr(state.service, 'validate_dual_target_guard', validate, raising=False)
-    monkeypatch.setattr(state.dialog, '_confirm_rewind_inventory_change', confirm)
+    monkeypatch.setattr(state.dialog, '_confirm_rewind_source_change', confirm)
     warnings = []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *_args: warnings.append(_args))
     state.dialog._start_rewind_execution()
@@ -326,7 +329,7 @@ def test_confirmation_does_not_authorize_a_new_account_or_changed_plan(run_fixtu
     assert bool(warnings) == (change != 'account')
 
 
-def test_inventory_confirmation_is_plain_text_with_cancel_as_default(run_fixture, monkeypatch):
+def test_source_confirmation_lists_updates_as_plain_text_with_cancel_as_default(run_fixture, monkeypatch):
     seen = []
 
     def show(message):
@@ -338,8 +341,15 @@ def test_inventory_confirmation_is_plain_text_with_cancel_as_default(run_fixture
 
     monkeypatch.setattr(QMessageBox, 'exec', show)
     monkeypatch.setattr(QApplication, 'beep', lambda: None)
-    assert not run_fixture.dialog._confirm_rewind_inventory_change()
-    assert seen and '已保存' in seen[0]
+    run_fixture.dialog._role_names = {1004: '<b>角色甲</b>'}
+    changes = frozenset({RewindSourceChange('plan_replaced', 1004, 1), RewindSourceChange('inventory'),
+                         RewindSourceChange('slot_unavailable', 1005, 2)})
+    assert not run_fixture.dialog._confirm_rewind_source_change(changes)
+    lines = seen[0].splitlines()
+    assert '已保存' in seen[0]
+    # 库存在前、角色按正式 ID 排序；未知角色以 ID 显示，名称按纯文本插入。
+    assert lines[1:4] == ['· 背包库存已更新', '· <b>角色甲</b> 的所选配装已重新保存',
+                          '· 1005 的所选配装槽位已归档、删除或不再属于该角色']
 
 
 def test_account_change_discards_delayed_terminal_projection(run_fixture):
@@ -453,3 +463,14 @@ def test_background_game_gets_the_original_settle_time_before_any_target_check(r
     assert state.entered.is_set(), "startup checked/activated the game before the original foreground settle delay"
     assert state.errors == [] and state.target.current
     assert all(backend.released and backend.closed for backend in state.backends)
+
+
+def test_execution_request_carries_the_confirmed_ten_limits(run_fixture):
+    from src.features.toolbox.rewind.execution_dialog import RewindExecutionOptions
+    state = run_fixture
+    state.outcome = "success"
+    state.dialog._rewind_options = RewindExecutionOptions(("gold",), "none", (("gold", 3),))
+    state.release.set()
+    state.dialog._start_rewind_execution()
+    until(state.app, lambda: not state.dialog.is_rewind_running())
+    assert [request.ten_limits for request in state.requests] == [(("gold", 3),)]

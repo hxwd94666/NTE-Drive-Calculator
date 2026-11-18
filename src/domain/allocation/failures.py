@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any, TYPE_CHECKING
 
+from src.domain.localization.catalog import localized_text
 from src.models.equipment import Drive
 
 if TYPE_CHECKING:
@@ -89,19 +90,14 @@ def _shortage_reason(
             if hard_blacklist and raw_count >= needed else "候选"
         )
         return (
-            f"全部 {len(blueprints)} 张图纸各有驱动形状缺口；"
-            f"例如 {shape} 需要 {needed} 件，{cause} {eligible_count} 件。"
+            localized_text(None, 'auto.domain.allocation.failures.shortage_reason.f0d9e495f', '全部 {count} 张图纸各有驱动形状缺口；例如 {shape} 需要 {needed} 件，{cause} {eligible_count} 件。', count=f'{len(blueprints)}', shape=f'{shape}', needed=f'{needed}', cause=f'{cause}', eligible_count=f'{eligible_count}')
         )
     if hard_blacklist and raw_count >= needed:
         return (
-            f"必需 {shape} 驱动经副词条黑名单过滤后不足："
-            f"至少需要 {needed} 件，合格 {eligible_count} 件；"
-            "请调整黑名单或补充合格驱动。"
+            localized_text(None, 'auto.domain.allocation.failures.shortage_reason.f22d352d9', '必需 {shape} 驱动经副词条黑名单过滤后不足：至少需要 {needed} 件，合格 {eligible_count} 件；请调整黑名单或补充合格驱动。', shape=f'{shape}', needed=f'{needed}', eligible_count=f'{eligible_count}')
         )
     return (
-        f"本次候选缺少必需 {shape} 驱动："
-        f"至少需要 {needed} 件，候选 {raw_count} 件；"
-        "请检查筛选或补充该形状。"
+        localized_text(None, 'auto.domain.allocation.failures.shortage_reason.f384e8d3d', '本次候选缺少必需 {shape} 驱动：至少需要 {needed} 件，候选 {raw_count} 件；请检查筛选或补充该形状。', shape=f'{shape}', needed=f'{needed}', raw_count=f'{raw_count}')
     )
 
 
@@ -151,5 +147,5 @@ def allocation_failure_text(plan: Mapping[str, Any] | None) -> str:
     if plan.get("search_status") in {
         "bounded_unproven", "budget_exhausted", "candidate_truncated",
     } and progress.get("members", 0) > 1 and progress.get("completed", 0) > 0:
-        reason += f"（同级组已完成 {progress['completed']}/{progress['members']} 人）"
+        reason += localized_text(None, 'auto.domain.allocation.failures.allocation_failure_text.f67e4ff9a', '（同级组已完成 {value}/{value_2} 人）', value=f"{progress['completed']}", value_2=f"{progress['members']}")
     return reason

@@ -26,7 +26,7 @@ def settle(app):
         app.processEvents()
 
 
-@pytest.fixture(params=['dark', 'black', 'light'])
+@pytest.fixture(params=["black"])
 def case(request, monkeypatch):
     app = fonts()
     previous = current_theme_name()

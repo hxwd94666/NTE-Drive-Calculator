@@ -92,7 +92,7 @@ def _ref(
 def _formula_entries(
     snapshot: StaticFormulaEvidenceSnapshot,
 ) -> tuple[FormulaEntry, ...]:
-    contract = "docs/reference/damage-calculation.md"
+    contract = "docs/reference/damage/README.md"
     calculation = "src/services/damage/damage_calculation_service.py"
     replay = "src/services/battle_report/replay/service.py"
     static_note = (

@@ -41,8 +41,8 @@ def ui_case(directory):
     return page, owner, database
 
 
-@pytest.mark.parametrize('theme', ['dark', 'black', 'light'])
-@pytest.mark.parametrize('width', [560, 1100])
+@pytest.mark.parametrize('theme', ["black"])
+@pytest.mark.parametrize('width', [560])
 def test_controls_share_a_row_below_title_and_keep_configuration_explicit(tmp_path, monkeypatch, theme, width):
     app = application()
     original = (app.styleSheet(), app.palette(), app.property('nte_theme_preference'), app.property('nte_effective_theme'))

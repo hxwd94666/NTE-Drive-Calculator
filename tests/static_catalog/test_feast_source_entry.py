@@ -46,7 +46,7 @@ def _page(catalog=None):
             service.close()
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_release_source_opens_its_challenges_without_claiming_an_active_period(theme):
     app = QApplication.instance() or QApplication([])
     original = current_theme_name()

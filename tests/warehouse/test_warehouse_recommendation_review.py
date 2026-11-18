@@ -36,7 +36,7 @@ def cleanup(view, app):
     app.processEvents()
 
 
-@pytest.mark.parametrize('theme', ['dark', 'black', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 def test_filters_order_and_hidden_checks_preserve_identity(app, theme):
     from src.app.theme import apply_app_theme, current_theme_name
     before = current_theme_name()

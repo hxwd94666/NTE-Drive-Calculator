@@ -1,6 +1,7 @@
 # 构建独立觉醒等级、普通效果选择与共鸣显示控件。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, plain_tooltip, resolve_text_catalog
 import re
 from PySide6.QtWidgets import QCheckBox, QGroupBox, QLabel, QVBoxLayout
@@ -62,7 +63,7 @@ def _build_awakening_group(
     ]
     for index, effect in enumerate(normal_effects, start=1):
         effect_id = str(effect.get("effect_id") or "")
-        title = str(effect.get("title_zh") or f"觉醒 {index}")
+        title = str(effect.get("title_zh") or localized_text(getattr(window, 'text_catalog', None), 'auto.features.official_role.role_awakening.build_awakening_group.f8de2dc3e', '觉醒 {index}', index=f'{index}'))
         check = QCheckBox(f"{index}. {title}")
         check.setChecked(effect_id in selected_ids)
         layout.addWidget(check)
@@ -83,7 +84,7 @@ def _build_awakening_group(
         threshold = _resonance_threshold(effect)
         if threshold is None:
             continue
-        title = str(effect.get("title_zh") or f"{threshold} 觉效果")
+        title = str(effect.get("title_zh") or localized_text(getattr(window, 'text_catalog', None), 'auto.features.official_role.role_awakening.build_awakening_group.f07009404', '{threshold} 觉效果', threshold=f'{threshold}'))
         label = plain_label()
         label.setWordWrap(True)
         label.setContentsMargins(8, 0, 8, 0)
@@ -126,7 +127,7 @@ def _build_awakening_group(
         level = awakening_level.value()
         for effect, threshold, label in resonance_labels:
             active = level >= threshold
-            state = "已激活" if active else f"未激活（需要 {threshold} 觉）"
+            state = "已激活" if active else localized_text(getattr(window, 'text_catalog', None), 'auto.features.official_role.role_awakening.refresh_resonance.f9eb2cdc6', '未激活（需要 {threshold} 觉）', threshold=f'{threshold}')
             label.setText(
                 f"{state}｜{label.property('resonance_title')}\n"
                 f"{rendered_description(effect)}"

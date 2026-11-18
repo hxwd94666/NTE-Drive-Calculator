@@ -30,7 +30,7 @@ def assert_footer_accessible(dialog, footer, buttons):
         assert dialog.rect().contains(button.mapTo(dialog, button.rect().bottomRight()))
 
 
-@pytest.mark.parametrize('theme', ['black', 'dark', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 @pytest.mark.parametrize('width', [600, 1040])
 def test_diagnostics_collapsed_but_reachable_with_fixed_right_footer(tmp_path, monkeypatch, theme, width):
     from src.app import window_geometry

@@ -128,10 +128,11 @@ class NativeBuffProjectionPlanTests(unittest.TestCase):
             binary.write_bytes(b"synthetic binary placeholder")
             (root / "data").mkdir()
             (root / "data/manifest.json").write_text(json.dumps({"database": {"dataset_id": "frozen"}}))
+            # 三项家具输入是本版公共契约，任何可用组件都须声明 furniture_attributes_v1。
             for version, capabilities, supported in (
-                ("0.2.0", ["buff_projection_v1"], False),
-                (ENGINE_VERSION, ["buff_projection_plan_v1"], True),
-                (ENGINE_VERSION, ["buff_projection_v1"], False),
+                ("0.2.0", ["buff_projection_v1", "furniture_attributes_v1"], False),
+                (ENGINE_VERSION, ["buff_projection_plan_v1", "furniture_attributes_v1"], True),
+                (ENGINE_VERSION, ["buff_projection_v1", "furniture_attributes_v1"], False),
             ):
                 manifest = {"engine": "nte-analysis-core", "engine_version": version,
                             "capabilities": capabilities, "sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}

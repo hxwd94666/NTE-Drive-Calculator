@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.progression.stamina import FarmingStage, MaterialYield
 
 from src.storage.sqlite.protocols import StaticDataDaoMixinHost
@@ -12,7 +13,7 @@ from src.storage.sqlite.protocols import StaticDataDaoMixinHost
 
 def _integer(value: object, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"正式养成档位字段 {field} 不是整数")
+        raise ValueError(f"正式养成档位字段 {field} 不是整数")  # ui-text: internal
     return value
 
 
@@ -88,7 +89,7 @@ class StaticGameDataProgressionQueriesMixin(StaticDataDaoMixinHost):
             )
             stages.append(FarmingStage(
                 stage_id=f"{clone_id}:{difficulty_ordinal}",
-                label=f"{first['name_zh']} · 鉴别 {identification_level}",
+                label=localized_text(None, 'auto.storage.sqlite.catalog.static_game_data_progression_queries.list_progression_farming_stages.f0cc1ab87', '{value} · 鉴别 {identification_level}', value=f"{first['name_zh']}", identification_level=f'{identification_level}'),
                 minimum_hunter_level=_integer(first["team_level"], "team_level"),
                 minimum_identification_level=identification_level,
                 stamina_cost=_integer(first["stamina_cost"], "stamina_cost"),

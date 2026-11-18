@@ -55,7 +55,12 @@ class _Worker:
             process.wait()
             for pipe in (process.stdin, process.stdout):
                 if pipe is not None:
-                    pipe.close()
+                    try:
+                        pipe.close()
+                    except OSError:
+                        # 取消可能发生在写入中途：子进程已结束并回收，冲刷残留写缓冲会因管道断开失败；
+                        # 缓冲流在冲刷失败后仍关闭底层句柄，收尾不因此改写原取消或错误。
+                        pass
 
     @staticmethod
     def _send(pipe, payload):

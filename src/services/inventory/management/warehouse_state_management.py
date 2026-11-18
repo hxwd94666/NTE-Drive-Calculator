@@ -8,6 +8,7 @@ evaluation is not a fallback. It never relies on screenshot ordering.
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.observability.stage_timings import timed_call
 
 from collections.abc import Callable, Mapping
@@ -153,7 +154,7 @@ class WarehouseStateManagementService:
         changes: list[dict[str, Any]] = []
         for uid, target_state in targets.items():
             if target_state not in {"normal", "locked", "discarded"}:
-                raise WarehouseStateManagementError(f"仓库中包含未知目标状态：{target_state}")
+                raise WarehouseStateManagementError(f"仓库中包含未知目标状态：{target_state}")  # ui-text: internal
             row = by_uid.get(str(uid))
             if row is None:
                 raise WarehouseStateManagementError("已编辑的装备不在当前稳定背包快照中")
@@ -296,12 +297,12 @@ class WarehouseStateManagementService:
                 if prepared_changes:
                     self._report_progress(
                         progress_callback,
-                        f"正在连续提交 {total_changes} 件装备状态…",
+                        localized_text(None, 'auto.services.inventory.management.warehouse_state_management.apply.ff45e8a5f', '正在连续提交 {total_changes} 件装备状态…', total_changes=f'{total_changes}'),
                     )
                     def report_completed(completed: int, total: int) -> None:
                         self._report_progress(
                             progress_callback,
-                            f"正在向游戏提交装备状态：{completed}/{total}",
+                            localized_text(None, 'auto.services.inventory.management.warehouse_state_management.report_completed.f2d351a2c', '正在向游戏提交装备状态：{completed}/{total}', completed=f'{completed}', total=f'{total}'),
                         )
 
                     try:
@@ -461,8 +462,7 @@ class WarehouseStateManagementService:
                     )
                 else:
                     message = (
-                        f"已收到新快照 #{latest_snapshot_id}，但仍有 "
-                        f"{remaining_mismatches} 件状态尚未确认"
+                        localized_text(None, 'auto.services.inventory.management.warehouse_state_management.wait_for_confirmation.f3e5f184a', '已收到新快照 #{latest_snapshot_id}，但仍有 {remaining_mismatches} 件状态尚未确认', latest_snapshot_id=f'{latest_snapshot_id}', remaining_mismatches=f'{remaining_mismatches}')
                     )
                 return latest_snapshot_id, False, message
             try:
@@ -479,15 +479,14 @@ class WarehouseStateManagementService:
                     )
                 else:
                     message = (
-                        f"已收到新快照 #{latest_snapshot_id}，但仍有 "
-                        f"{remaining_mismatches} 件状态尚未确认"
+                        localized_text(None, 'auto.services.inventory.management.warehouse_state_management.wait_for_confirmation.f3e5f184a', '已收到新快照 #{latest_snapshot_id}，但仍有 {remaining_mismatches} 件状态尚未确认', latest_snapshot_id=f'{latest_snapshot_id}', remaining_mismatches=f'{remaining_mismatches}')
                     )
                 return latest_snapshot_id, False, message
             except Exception as exc:
                 return (
                     latest_snapshot_id,
                     False,
-                    f"等待新背包快照时同步服务异常（{type(exc).__name__}）",
+                    localized_text(None, 'auto.services.inventory.management.warehouse_state_management.wait_for_confirmation.fe659b0cd', '等待新背包快照时同步服务异常（{name}）', name=f'{type(exc).__name__}'),
                 )
 
             snapshot_id = getattr(state, "last_snapshot_id", None)
@@ -504,7 +503,7 @@ class WarehouseStateManagementService:
             cursor = snapshot_id
             self._report_progress(
                 progress_callback,
-                f"已收到新快照 #{snapshot_id}，正在核对修改结果…",
+                localized_text(None, 'auto.services.inventory.management.warehouse_state_management.wait_for_confirmation.fb05a6586', '已收到新快照 #{snapshot_id}，正在核对修改结果…', snapshot_id=f'{snapshot_id}'),
             )
             with self.dao_factory(self.database_path) as user_dao:
                 rows = user_dao.list_inventory_items(snapshot_id)
@@ -515,12 +514,12 @@ class WarehouseStateManagementService:
             if remaining_mismatches == 0:
                 self._report_progress(
                     progress_callback,
-                    f"新快照 #{snapshot_id} 已确认全部修改。",
+                    localized_text(None, 'auto.services.inventory.management.warehouse_state_management.wait_for_confirmation.f104852fd', '新快照 #{snapshot_id} 已确认全部修改。', snapshot_id=f'{snapshot_id}'),
                 )
                 return snapshot_id, True, None
             self._report_progress(
                 progress_callback,
-                f"快照 #{snapshot_id} 尚有 {remaining_mismatches} 件未确认，继续等待…",
+                localized_text(None, 'auto.services.inventory.management.warehouse_state_management.wait_for_confirmation.fc1f48d59', '快照 #{snapshot_id} 尚有 {remaining_mismatches} 件未确认，继续等待…', snapshot_id=f'{snapshot_id}', remaining_mismatches=f'{remaining_mismatches}'),
             )
 
     @staticmethod

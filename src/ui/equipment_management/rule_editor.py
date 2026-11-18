@@ -32,11 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.domain.inventory.post_actions import (
-    DEFAULT_EXCLUDED_SET_NAMES,
-    DEFAULT_EXCLUDED_SHAPE_IDS,
-    DEFAULT_PRESERVE_RULE,
-)
+from src.domain.inventory.post_actions import DEFAULT_PRESERVE_RULE
 from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
@@ -238,7 +234,8 @@ class PreserveRuleEditor(QDialog):
     def _queue_stat_geometry(self):
         if hasattr(self, "drive_sub_stat_list") and not getattr(self, "_grid_layout_pending", False):
             self._grid_layout_pending = True
-            QTimer.singleShot(0, self._refresh_drive_grid_item_sizes)
+            # 以编辑器为上下文：窗口在定时器触发前销毁时 Qt 自动取消回调，不访问已析构控件。
+            QTimer.singleShot(0, self, self._refresh_drive_grid_item_sizes)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -533,10 +530,11 @@ class PreserveRuleEditor(QDialog):
     def _range_defaults(self) -> tuple[list[str], list[str]]:
         shapes = self._range_values.get("shape_ids")
         sets = self._range_values.get("set_names")
+        # 未保存范围默认全选，与匹配端 None 包含全部的口径一致。
         if not isinstance(shapes, list):
-            shapes = [shape_id for shape_id, _area in self.shape_options if shape_id not in DEFAULT_EXCLUDED_SHAPE_IDS]
+            shapes = [shape_id for shape_id, _area in self.shape_options]
         if not isinstance(sets, list):
-            sets = [set_name for set_name in self.set_options if set_name not in DEFAULT_EXCLUDED_SET_NAMES]
+            sets = list(self.set_options)
         return shapes, sets
 
     def _refresh_range_summary(self) -> None:

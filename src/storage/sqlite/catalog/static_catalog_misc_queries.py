@@ -72,7 +72,7 @@ def _equipment_entries_sql() -> str:
                    COALESCE(template.core_suit_id, '')
         FROM character_graduation_template AS template
         LEFT JOIN character USING (character_id)
-    """
+    """  # ui-text: internal
 
 
 def _skill_entries_sql() -> str:
@@ -95,7 +95,7 @@ def _skill_entries_sql() -> str:
         FROM skill_damage AS damage
         LEFT JOIN gameplay_ability_catalog AS ability
           ON ability.ability_id = damage.ability_id
-    """
+    """  # ui-text: internal
 
 
 def _effect_entries_sql() -> str:
@@ -171,7 +171,7 @@ def _effect_entries_sql() -> str:
                        WHERE property.modifier_id = profile.modifier_id
                    ), '')
         FROM roguelike_modifier_profile AS profile
-    """
+    """  # ui-text: internal
 
 
 def _asset_entries_sql() -> str:
@@ -201,7 +201,7 @@ def _source_entries_sql() -> str:
                    row.content_sha256 || ' ' || file.relative_path
         FROM source_row AS row
         JOIN source_file AS file USING (source_file_id)
-    """
+    """  # ui-text: internal
 
 
 _SEARCH_SQL = {
@@ -230,7 +230,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
         normalized_limit = int(limit)
         normalized_offset = int(offset)
         if not 1 <= normalized_limit <= _MAX_PAGE_SIZE:
-            raise ValueError(f"limit 必须在 1 到 {_MAX_PAGE_SIZE} 之间")
+            raise ValueError(f"limit 必须在 1 到 {_MAX_PAGE_SIZE} 之间")  # ui-text: internal
         if normalized_offset < 0:
             raise ValueError("offset 不能为负数")
         return normalized_limit, normalized_offset
@@ -239,7 +239,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
     def _search_term(query: str) -> tuple[str, str]:
         normalized = str(query).strip()
         if len(normalized) > _MAX_QUERY_LENGTH:
-            raise ValueError(f"搜索词不能超过 {_MAX_QUERY_LENGTH} 个字符")
+            raise ValueError(f"搜索词不能超过 {_MAX_QUERY_LENGTH} 个字符")  # ui-text: internal
         escaped = (
             normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
@@ -257,7 +257,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
 
         entries_sql = _SEARCH_SQL.get(str(domain_key))
         if entries_sql is None:
-            raise ValueError(f"不支持的资料库领域：{domain_key!r}")
+            raise ValueError(f"不支持的资料库领域：{domain_key!r}")  # ui-text: internal
         page_size, page_offset = self._pagination(limit, offset)
         exact, pattern = self._search_term(query)
         cte = f"""
@@ -342,7 +342,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
                 """,
                 (int(source_file_id),),
             )
-        raise ValueError("source_row_id 和 source_file_id 至少提供一个")
+        raise ValueError("source_row_id 和 source_file_id 至少提供一个")  # ui-text: internal
 
     def list_source_file_rows(
         self,
@@ -381,7 +381,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
 
         key = str(entity_key).strip()
         if not key:
-            raise ValueError("entity_key 不能为空")
+            raise ValueError("entity_key 不能为空")  # ui-text: internal
         if entity_kind == "equipment_item":
             row = self._one("SELECT * FROM equipment_item WHERE item_id = ?", (key,))
             if row is not None:
@@ -507,7 +507,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
                 )
                 row["character_name_zh"] = (character or {}).get("name_zh")
             return row
-        raise ValueError(f"不支持的装备详情类型：{entity_kind!r}")
+        raise ValueError(f"不支持的装备详情类型：{entity_kind!r}")  # ui-text: internal
 
     @staticmethod
     def _literal_prefix(value: str) -> str:
@@ -522,7 +522,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
 
         key = str(entity_key).strip()
         if not key:
-            raise ValueError("entity_key 不能为空")
+            raise ValueError("entity_key 不能为空")  # ui-text: internal
         if entity_kind == "gameplay_ability":
             return self.get_gameplay_ability(key)
         if entity_kind == "skill_damage":
@@ -604,7 +604,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
             if row is not None:
                 row["owner_resolution_status"] = "unavailable"
             return row
-        raise ValueError(f"不支持的技能效果详情类型：{entity_kind!r}")
+        raise ValueError(f"不支持的技能效果详情类型：{entity_kind!r}")  # ui-text: internal
 
     def get_skill_damage_relation_coverage(self) -> dict[str, int]:
         """Count unresolved formal GA/GE targets without treating them as links."""
@@ -638,7 +638,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
     ) -> dict[str, Any] | None:
         key = str(entity_key).strip()
         if not key:
-            raise ValueError("entity_key 不能为空")
+            raise ValueError("entity_key 不能为空")  # ui-text: internal
         if entity_kind == "blueprint":
             row = self._one(
                 """
@@ -681,7 +681,7 @@ class StaticCatalogMiscQueriesMixin(StaticDataDaoMixinHost):
                     "combat_montage_notify", "asset_path", key
                 )
             return row
-        raise ValueError(f"不支持的资源详情类型：{entity_kind!r}")
+        raise ValueError(f"不支持的资源详情类型：{entity_kind!r}")  # ui-text: internal
 
     def _count_for(self, table: str, field: str, value: str) -> int:
         allowed = {

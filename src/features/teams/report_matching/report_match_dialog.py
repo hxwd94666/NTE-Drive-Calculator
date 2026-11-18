@@ -141,7 +141,7 @@ class TeamReportMatchDialog(ExplicitActionDialog):
         self._selection_changed()
         self._scope_changed()
         fit_dialog_to_available_screen(self, QSize(900, 500))
-        QTimer.singleShot(0, self.refresh)
+        QTimer.singleShot(0, self, self.refresh)
 
     def refresh(self):
         if self._closing_result is not None:

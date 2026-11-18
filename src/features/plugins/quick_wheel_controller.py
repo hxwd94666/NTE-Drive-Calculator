@@ -4,6 +4,7 @@ import secrets
 from time import monotonic
 
 from PySide6.QtCore import QObject, QTimer, Signal, Qt
+from src.domain.localization.catalog import localized_text
 from src.services.native_session.quick_wheel import QuickWheelConnectionChanged
 
 
@@ -158,7 +159,7 @@ class QuickWheelController(QObject):
         if revision != self._revision or context != self.context_key():
             # 迟到结果既不派发动作也不覆盖新偏好；下次轮询建立当前账号的新 owner。
             if self._closing:
-                QTimer.singleShot(0, self._poll)
+                QTimer.singleShot(0, self, self._poll)
             return
         try:
             result = future.result()
@@ -173,7 +174,7 @@ class QuickWheelController(QObject):
                 changed = isinstance(error, QuickWheelConnectionChanged)
                 self._retry_at = monotonic() + (0 if changed else max(5.1, self._retry_delay))
                 self._retry_delay = min(10.0, self._retry_delay * 2)
-                self.status = ('连接已恢复，正在恢复菜单' if changed else f'等待连接恢复：{error}')
+                self.status = ('连接已恢复，正在恢复菜单' if changed else localized_text(getattr(self, 'text_catalog', None), 'auto.features.plugins.quick_wheel_controller.receive.f0d4e1b58', '等待连接恢复：{error}', error=f'{error}'))
                 self._timer.start()
             self.changed.emit()
             return
@@ -199,7 +200,7 @@ class QuickWheelController(QObject):
                 self._dispatch(result.get('action', ''))
         self.changed.emit()
         if self._closing:
-            QTimer.singleShot(100, self._poll)
+            QTimer.singleShot(100, self, self._poll)
 
     def _dispatch(self, action):
         try:

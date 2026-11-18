@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
+from src.domain.localization.catalog import localized_text
 from src.storage.sqlite.user_data_support import UserDataError
 
 
@@ -96,11 +97,9 @@ class InventorySnapshotSaveError(UserDataError):
         sqlite_name = details.get("sqlite_errorname", "SQLite 错误名未提供")
         sqlite_code = details.get("sqlite_errorcode", "未知")
         rollback_detail = (
-            f"；回滚失败：{self.diagnostics['rollback_error']}"
+            localized_text(None, 'auto.storage.sqlite.inventory.inventory_save_error.init.f9a4d5005', '；回滚失败：{value}', value=f"{self.diagnostics['rollback_error']}")
             if rollback_error is not None else "；回滚完成"
         )
         super().__init__(
-            f"无法导入背包快照：{self.error_code}；阶段={stage}；"
-            f"{details['sqlite_exception_type']} / {sqlite_name} ({sqlite_code})；"
-            f"{details['sqlite_message']}{rollback_detail}"
+            localized_text(None, 'auto.storage.sqlite.inventory.inventory_save_error.init.fef923e0a', '无法导入背包快照：{error_code}；阶段={stage}；{value} / {sqlite_name} ({sqlite_code})；{value_2}{rollback_detail}', error_code=f'{self.error_code}', stage=f'{stage}', value=f"{details['sqlite_exception_type']}", sqlite_name=f'{sqlite_name}', sqlite_code=f'{sqlite_code}', value_2=f"{details['sqlite_message']}", rollback_detail=f'{rollback_detail}')
         )

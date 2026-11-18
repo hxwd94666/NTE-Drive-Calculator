@@ -39,6 +39,14 @@ def build_fixture(directory: Path, *, factory=sqlite3.Connection):
     connection.execute("INSERT INTO character_weight_recommendation(character_id,source_kind,source_updated_at_utc) VALUES (?, 'workshop_cache', ?)", (CHARACTER_ID, stamp))
     connection.executemany("INSERT INTO character_weight_recommendation_property VALUES (?, ?, 1, 1, ?)",
                            [(CHARACTER_ID, property_id, ordinal) for ordinal, (property_id, _) in enumerate(PROPERTIES)])
+    # 毕业基准的空幕取官方配装方案的默认套装；套装无激活效果，常驻属性来源已知且为空。
+    connection.execute("INSERT INTO equipment_suit(suit_id,name_zh,source_row_id) VALUES ('FixtureSuit','合成套装',1)")
+    connection.execute(
+        "INSERT INTO equipment_item(item_id,kind,quality,name_zh,suit_id,max_level,random_base_attribute_count,"
+        "random_sub_attribute_count,random_sub_attribute_max_count,is_guide_item,source_row_id) "
+        "VALUES ('fixture-core','core','orange','合成空幕','FixtureSuit',20,1,4,4,0,1)")
+    connection.execute("INSERT INTO equipment_plan(character_id,core_item_id,core_level,module_level,reference_score,source_row_id) "
+                       "VALUES (?, 'fixture-core', 20, 20, 0, 1)", (CHARACTER_ID,))
     connection.execute("INSERT INTO character_graduation_template(character_id,source_kind,core_main_property_id,drive_area,extra_shape_count,benchmark_damage,profile_json,equipment_json,generated_at_utc) VALUES (?, 'official_default','AtkUp',20,0,1,'{}','[]',?)", (CHARACTER_ID, stamp))
     connection.execute("CREATE TABLE build_owner_sentinel(value TEXT)")
     connection.execute("INSERT INTO build_owner_sentinel VALUES ('owner-original')")

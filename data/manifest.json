@@ -5,13 +5,13 @@
     "filename": "game_static.sqlite3",
     "dataset_id": "cn_retail_suit_20261113",
     "schema_version": 45,
-    "size_bytes": 99594240,
-    "sha256": "865EE52B7F58D340F0B60EB9BDE430E8E05E38553A86BBAC66013C2342073286",
-    "generated_at_utc": "2026-11-13T10:24:43+00:00",
+    "size_bytes": 99532800,
+    "sha256": "84E87CC970C496C50BCC22898938DB097069F3B9553268DA22468A656901010E",
+    "generated_at_utc": "2026-11-16T09:24:36+00:00",
     "source_payloads_omitted": true
   },
   "build_tool": {
     "path": "tools/game_data/build_static_database.py",
-    "importer_version": 63
+    "importer_version": 64
   }
 }

@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend, available_battle_compute
 
 from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
@@ -537,8 +538,7 @@ class BattleForkDamageStateService:
                         ),
                         stacks=1,
                         basis=(
-                            f"E 建立荒时迷宫并清零；队友 E/QTE 累积荒时；"
-                            f"本次 Q 消耗 {stacks} 层荒时，暴击伤害强化只覆盖该次 Q。"
+                            localized_text(None, 'auto.services.battle_report.forks.damage_state.infer_time.f9fd7438e', 'E 建立荒时迷宫并清零；队友 E/QTE 累积荒时；本次 Q 消耗 {stacks} 层荒时，暴击伤害强化只覆盖该次 Q。', stacks=f'{stacks}')
                         ),
                         action_ids=(*evidence_actions, *action.action_ids),
                         event_ids=(*evidence_events, *action.event_ids),
@@ -633,8 +633,7 @@ class BattleForkDamageStateService:
                     end_us=min(battle_end_us, expiry),
                     stacks=1,
                     basis=(
-                        f"普通攻击每 0.5 秒最多获得一层蜘识；Q 消耗 {stacks} 层，"
-                        "八层时追加额外全队攻击力。"
+                        localized_text(None, 'auto.services.battle_report.forks.damage_state.infer_spider.fb7468ea4', '普通攻击每 0.5 秒最多获得一层蜘识；Q 消耗 {stacks} 层，八层时追加额外全队攻击力。', stacks=f'{stacks}')
                     ),
                     action_ids=(action_id,),
                     event_ids=evidence_hits,

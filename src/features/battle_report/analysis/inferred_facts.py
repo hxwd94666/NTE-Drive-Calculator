@@ -28,8 +28,10 @@ class BattleInferredFactLabel(QLabel):
         self.setText(
             resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.render_facts.self')
             + "；".join(
-                f"角色 {fact.character_id} · {fact.fact_value} · "
-                f"{fact.source_gameplay_effect_id} · 置信度{fact.confidence}"
+                resolve_text_catalog(getattr(self, 'text_catalog', None)).render(
+                    "battle_report.inferred_fact.row", character_id=f"{fact.character_id}",
+                    value=f"{fact.fact_value}", effect=f"{fact.source_gameplay_effect_id}",
+                    confidence=f"{fact.confidence}")
                 for fact in facts
             )
         )

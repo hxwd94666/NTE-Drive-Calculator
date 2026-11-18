@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from math import floor
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction, BattleTreatmentEvent
 from src.domain.battle_report.buffs.models import BattleInferredBuffInterval
 from src.services.battle_report.timeline.clock import (
@@ -627,7 +628,7 @@ class BattleAuditedTreatmentAdapterService:
                     amount_basis=(
                         f"{maximum_health:g} × {recover_ratio:g}"
                         if maximum_health is not None
-                        else f"残虹结算时最大生命 × {recover_ratio:g}"
+                        else localized_text(None, 'auto.services.battle_report.treatment.audited.zankou_effect_three.f3072f4c1', '残虹结算时最大生命 × {recover_ratio}', recover_ratio=f'{recover_ratio:g}')
                     ),
                 ))
                 ordinal += 1

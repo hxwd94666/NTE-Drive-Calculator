@@ -2,6 +2,7 @@
 """Trigger-timed fork refinements that generic exported events cannot express."""
 
 from __future__ import annotations
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.forks.parameters import effect_parameter
 from src.services.battle_report.forks.clock import rule_active_time, raw_expiry
 
@@ -179,8 +180,7 @@ def _rules_castle(selected: Any, factory: type[Any]) -> tuple[Any, ...]:
         factory,
         suffix="castle-heal",
         name=(
-            "扭曲之城的呼唤：E 后治疗效率"
-            f"（说明参数 {declared_duration:g} 秒；当前运行时 50 秒）"
+            localized_text(None, 'auto.services.battle_report.forks.trigger_refinement.rules_castle.fc044a8f6', '扭曲之城的呼唤：E 后治疗效率（说明参数 {declared_duration} 秒；当前运行时 50 秒）', declared_duration=f'{declared_duration:g}')
         ),
         scope="self",
         event_type=CASTLE_E_EVENT,

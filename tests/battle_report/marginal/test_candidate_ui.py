@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QCoreApplication, QEvent, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
 from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, BattleQuantificationGap
@@ -27,6 +27,14 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
+
+    def _marginal_page(self) -> BattleMarginalPage:
+        # 本例创建的页面在用例结束时关闭并当场完成删除，避免整页控件跨用例存活。
+        page = BattleMarginalPage()
+        self.addCleanup(QCoreApplication.sendPostedEvents, None, QEvent.Type.DeferredDelete)
+        self.addCleanup(page.deleteLater)
+        self.addCleanup(page.close)
+        return page
 
     def test_change_summary_distinguishes_cap_breakthrough_states(self) -> None:
         detail = {
@@ -128,7 +136,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
             "src.features.battle_report.marginal.page.OfficialRoleProfileEditor",
             FakeEditor,
         ):
-            page = BattleMarginalPage()
+            page = self._marginal_page()
             page.recalculate_requested.connect(recalculation_requests.append)
             page.set_editor_data({
                 "details": [detail(1001), detail(1002)],
@@ -160,7 +168,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
 
     def test_partial_role_card_uses_full_axis_estimate_without_long_prefix(self) -> None:
-        page = BattleMarginalPage()
+        page = self._marginal_page()
         page.character_combo.addItem("测试角色", 1001)
         role = SimpleNamespace(
             character_id=1001,
@@ -187,7 +195,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
 
     def test_page_renders_read_only_unit_benefits(self) -> None:
-        page = BattleMarginalPage()
+        page = self._marginal_page()
         baseline = BattleCharacterBaseline(
             character_id=1001,
             character_name="测试角色",
@@ -251,7 +259,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         self.assertEqual("+0.40%", page.attribute_table.item(0, 4).text())
 
     def test_page_renders_team_buff_gain_by_beneficiary(self) -> None:
-        page = BattleMarginalPage()
+        page = self._marginal_page()
         page.character_combo.addItem("角色1", 1)
         quantification = BattleDamageQuantification.from_buckets(
             status="complete",
@@ -353,7 +361,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
     def test_partial_team_uses_quantified_contribution_for_complete_beneficiary(
         self,
     ) -> None:
-        page = BattleMarginalPage()
+        page = self._marginal_page()
         gap = BattleQuantificationGap(
             code="target_profile_missing",
             dimension_id="target_resistance",
@@ -416,7 +424,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
 
     def test_unavailable_known_beneficiary_is_not_labeled_unattributed(self) -> None:
-        page = BattleMarginalPage()
+        page = self._marginal_page()
         gap = BattleQuantificationGap(
             code="formula_family_unsupported",
             dimension_id="buff_projection",
@@ -475,7 +483,7 @@ class BattleMarginalCandidateUiTests(unittest.TestCase):
         )
 
     def test_page_renders_unavailable_attribute_as_dash_not_zero(self) -> None:
-        page = BattleMarginalPage()
+        page = self._marginal_page()
         gap = BattleQuantificationGap(
             code="target_profile_missing",
             dimension_id="target_defense",

@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
+from src.domain.localization.catalog import localized_text
 from src.domain.equipment.scoring.crit_threshold import (
     meets_preference_grade_limit,
     preference_config_active,
@@ -398,27 +399,23 @@ class CritConstraintRepairMixin(_CritConstraintRepairBase):
         if not observed:
             if floor > 0 and cap == float("inf"):
                 return (
-                    f"没有达成暴击率最小值 {floor:g}% 的方案"
-                    "（本次从零重配没有高质量完整方案）"
+                    localized_text(None, 'auto.optimizer.strategies.crit_constraint_repair.repair_failure_reason.f1e061b4e', '没有达成暴击率最小值 {floor}% 的方案（本次从零重配没有高质量完整方案）', floor=f'{floor:g}')
                 )
             if floor <= 0 and cap < float("inf"):
                 return (
-                    f"没有满足暴击率上限 {cap:g}% 的方案"
-                    "（本次从零重配没有高质量完整方案）"
+                    localized_text(None, 'auto.optimizer.strategies.crit_constraint_repair.repair_failure_reason.f69f33dbc', '没有满足暴击率上限 {cap}% 的方案（本次从零重配没有高质量完整方案）', cap=f'{cap:g}')
                 )
             return (
-                f"没有同时满足暴击率区间 {floor:g}%～{cap:g}% 的高质量方案"
-                "（本次从零重配没有高质量完整方案）"
+                localized_text(None, 'auto.optimizer.strategies.crit_constraint_repair.repair_failure_reason.f72513e70', '没有同时满足暴击率区间 {floor}%～{cap}% 的高质量方案（本次从零重配没有高质量完整方案）', floor=f'{floor:g}', cap=f'{cap:g}')
             )
         highest = max(observed)
         lowest = min(observed)
         if highest + 1e-9 < floor:
-            return f"没有达成暴击率最小值 {floor:g}% 的方案（本次从零重配最高达到 {highest:g}%）"
+            return localized_text(None, 'auto.optimizer.strategies.crit_constraint_repair.repair_failure_reason.f47731d19', '没有达成暴击率最小值 {floor}% 的方案（本次从零重配最高达到 {highest}%）', floor=f'{floor:g}', highest=f'{highest:g}')
         if lowest > cap + 1e-9:
-            return f"没有满足暴击率上限 {cap:g}% 的方案（本次从零重配最低为 {lowest:g}%）"
+            return localized_text(None, 'auto.optimizer.strategies.crit_constraint_repair.repair_failure_reason.fe5d235b6', '没有满足暴击率上限 {cap}% 的方案（本次从零重配最低为 {lowest}%）', cap=f'{cap:g}', lowest=f'{lowest:g}')
         return (
-            f"没有同时满足暴击率区间 {floor:g}%～{cap:g}% 的高质量方案"
-            f"（本次从零重配范围 {lowest:g}%～{highest:g}%）"
+            localized_text(None, 'auto.optimizer.strategies.crit_constraint_repair.repair_failure_reason.f7f70d744', '没有同时满足暴击率区间 {floor}%～{cap}% 的高质量方案（本次从零重配范围 {lowest}%～{highest}%）', floor=f'{floor:g}', cap=f'{cap:g}', lowest=f'{lowest:g}', highest=f'{highest:g}')
         )
 
     def _repair_role_plans(

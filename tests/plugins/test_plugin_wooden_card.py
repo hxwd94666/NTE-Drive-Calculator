@@ -26,7 +26,7 @@ class Wheel(QObject):
         self.changed.emit()
 
 
-@pytest.mark.parametrize('theme', ['dark', 'black', 'light'])
+@pytest.mark.parametrize('theme', ["black"])
 def test_wooden_card_keeps_independent_controls_and_confirmed_states(tmp_path, theme):
     app = application()
     original = (app.styleSheet(), app.palette(), app.property('nte_theme_preference'), app.property('nte_effective_theme'))

@@ -120,7 +120,8 @@ def test_panel_and_damage_use_same_suit_totals_and_preserve_original_items():
     values = {row.key: row.value for row in summaries["character"]}
     assert values["PanelAtk"] == pytest.approx(200 * 1.1 + 84 + 20)
     assert values["PanelHP"] == pytest.approx(1000 * 1.2 + 1120)
-    assert values["PanelDef"] == pytest.approx(100 * 1.15)
+    # 未给 world_bonus 时按默认满家具：妖刀攻击 +20（见上）与铠甲防御 +30 均计入面板。
+    assert values["PanelDef"] == pytest.approx(100 * 1.15 + 30)
     damage = _role_panel_damage_inputs(detail, "current")[0]
     assert (damage.attack_up, damage.health_up, damage.defense_up) == (.1, .2, .15)
     assert damage.resistance_penetrations == (.12,)

@@ -244,7 +244,8 @@ def warehouse_shape_pixmap(geometry_or_shape: Any, quality: str = "Gold", *, tex
     concrete inventory item.  In that case we still use the packaged game UI
     module icon, rather than the old ``config/templates`` shape artwork.
     """
-    shape = _shape_label(geometry_or_shape, text_catalog=text_catalog)
+    # 形状名是查找代表物品的业务键，必须用中文原名；译文只用于展示。
+    shape = _shape_label(geometry_or_shape)
     item_id = representative_module_item_id(shape, _quality_key(quality))
     path = _equipment_item_icon("module", item_id)
     return _equipment_item_pixmap(str(path or ""))

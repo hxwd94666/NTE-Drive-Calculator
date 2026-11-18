@@ -23,6 +23,7 @@ from src.services.battle_report.marginal.candidates import (
 from src.services.battle_report.damage.passive_counterfactual import (
     PASSIVE_COUNTERFACTUAL_MODEL_VERSION,
 )
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleBuildSnapshotRoutingTests(unittest.TestCase):
@@ -67,7 +68,7 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
             )
             ACTION_SAVE_AND_SYNC_CULTIVATION = "save_and_sync_cultivation"
 
-            def __init__(self, editor_data, parent) -> None:
+            def __init__(self, editor_data, parent, **_kwargs) -> None:
                 self.editor_data = editor_data
                 self.parent = parent
 
@@ -342,7 +343,7 @@ class BattleBuildSnapshotRoutingTests(unittest.TestCase):
             )
             ACTION_SAVE_AND_SYNC_CULTIVATION = "save_and_sync_cultivation"
 
-            def __init__(self, _editor_data, _parent) -> None:
+            def __init__(self, _editor_data, _parent, **_kwargs) -> None:
                 pass
 
             @staticmethod

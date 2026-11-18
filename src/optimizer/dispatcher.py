@@ -55,7 +55,7 @@ class DispatcherEngine:
         strategy = self.strategies.get(mode)
 
         if not strategy:
-            raise ValueError(f"未知的调度模式 [{mode}]，支持的模式: {list(STRATEGY_MODES)}")
+            raise ValueError(f"未知的调度模式 [{mode}]，支持的模式: {list(STRATEGY_MODES)}")  # ui-text: internal
 
         if mode == "role_priority":
             return strategy.execute(

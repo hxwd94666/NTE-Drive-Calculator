@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.native.team_state import compute_team_state
 from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 from src.domain.battle_report.timeline.events import BattleAnalysisHit, BattleInferredAction
@@ -183,7 +184,7 @@ class BattleDaffodillAwakeningService:
             result.append(BattleInferredBuffInterval(
                 interval_id=f"buff:daffodill:qte-e:{action.action_id}",
                 buff_asset_path="character-kit:1054:qte-e-enhancement",
-                buff_name=f"蜕变·E 强化（{stacks} 层）",
+                buff_name=localized_text(None, 'auto.services.battle_report.characters.daffodill.qte_e_intervals.f9577f436', '蜕变·E 强化（{stacks} 层）', stacks=f'{stacks}'),
                 source_effect_definition_id=(
                     "character_awaken:1054:Effect1"
                     if effect_one_enabled
@@ -371,7 +372,7 @@ class BattleDaffodillAwakeningService:
             result.append(BattleInferredBuffInterval(
                 interval_id=f"buff:daffodill:effect4:{hit.event_id}",
                 buff_asset_path="character_awaken:1054:Effect4",
-                buff_name=f"洞见·倾陷增伤（{window.stacks} 层）",
+                buff_name=localized_text(None, 'auto.services.battle_report.characters.daffodill.effect_four_intervals.f389874bc', '洞见·倾陷增伤（{stacks} 层）', stacks=f'{window.stacks}'),
                 source_effect_definition_id="character_awaken:1054:Effect4",
                 source_kind="confirmed_character_awakening_state",
                 source_character_id=DAFFODILL_CHARACTER_ID,
@@ -490,7 +491,7 @@ class BattleDaffodillAwakeningService:
             result.append(BattleInferredBuffInterval(
                 interval_id=f"derived:daffodill:effect5:{hit.event_id}",
                 buff_asset_path=DAFFODILL_EFFECT_FIVE_DEFINITION_ID,
-                buff_name=f"完美真相·候选追加结算（{window.stacks} 层）",
+                buff_name=localized_text(None, 'auto.services.battle_report.characters.daffodill.effect_five_intervals.fec764f03', '完美真相·候选追加结算（{stacks} 层）', stacks=f'{window.stacks}'),
                 source_effect_definition_id=DAFFODILL_EFFECT_FIVE_DEFINITION_ID,
                 source_kind="candidate_derived_awakening_settlement",
                 source_character_id=DAFFODILL_CHARACTER_ID,
@@ -540,7 +541,7 @@ def _native_intervals(
             action = actions[row["index"]]
             identity = "character-kit:1054:qte-e-enhancement"
             definition = "character_awaken:1054:Effect1" if "Effect1" in effects else identity
-            name, interval_id = f"蜕变·E 强化（{stacks} 层）", f"buff:daffodill:qte-e:{action.action_id}"
+            name, interval_id = localized_text(None, 'auto.services.battle_report.characters.daffodill.native_intervals.f9577f436', '蜕变·E 强化（{stacks} 层）', stacks=f'{stacks}'), f"buff:daffodill:qte-e:{action.action_id}"
             policy, trigger = "ConsumeAllOnEAction", "INFERRED_DAFFODILL_QTE_CONSUMED_BY_E"
             basis = ("每次已推算 QTE 累积一层、最多两层，并由下一次已推算 E 整组消耗；"
                      "固定轴只投影 E 通伤，不反推失衡条和倾陷时点。")
@@ -549,7 +550,7 @@ def _native_intervals(
         elif kind == "effect4":
             hit = hits[row["index"]]
             identity = definition = "character_awaken:1054:Effect4"
-            name, interval_id = f"洞见·倾陷增伤（{stacks} 层）", f"buff:daffodill:effect4:{hit.event_id}"
+            name, interval_id = localized_text(None, 'auto.services.battle_report.characters.daffodill.native_intervals.f389874bc', '洞见·倾陷增伤（{stacks} 层）', stacks=f'{stacks}'), f"buff:daffodill:effect4:{hit.event_id}"
             policy, trigger = "ObservedToppleSettlementCluster", "INFERRED_DAFFODILL_INSIGHT_TOPPLE"
             basis = ("Q 动作对同一目标建立洞见、最多两层；四觉每层只提高达芙蒂尔"
                      "本人的倾陷伤害。区间仅覆盖轴上已观测的同目标倾陷结算簇。")
@@ -557,7 +558,7 @@ def _native_intervals(
         elif kind == "effect5":
             hit = hits[row["index"]]
             identity = definition = "character_awaken:1054:Effect5"
-            name, interval_id = f"完美真相·候选追加结算（{stacks} 层）", f"derived:daffodill:effect5:{hit.event_id}"
+            name, interval_id = localized_text(None, 'auto.services.battle_report.characters.daffodill.native_intervals.fec764f03', '完美真相·候选追加结算（{stacks} 层）', stacks=f'{stacks}'), f"derived:daffodill:effect5:{hit.event_id}"
             policy, trigger = "InstantDerivedSettlementPerInsightStack", "CANDIDATE_DAFFODILL_EFFECT_FIVE_SETTLEMENT"
             basis = ("候选配置启用五觉；零觉基础洞察已额外结算一次，五觉再按原轴 Q "
                      "对同目标建立的每层洞察各追加一次。因此一层共两次，三觉叠至"

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Callable, Mapping
 from copy import deepcopy
@@ -125,8 +126,7 @@ def _show_prepared_replacement(window, detail, target, candidates, *, context_ke
             direct_damage_score=direct_damage_score,
             payload=payload,
             note=(
-                f"将从 {view.get('equipped_character_name')} 的持久化方案借用，"
-                "并在同一事务中为其原槽位补入金色占位装备。"
+                localized_text(getattr(window, 'text_catalog', None), 'auto.features.official_role.replacement_controller.card_data.f6b565951', '将从 {value} 的持久化方案借用，并在同一事务中为其原槽位补入金色占位装备。', value=f"{view.get('equipped_character_name')}")
                 if view.get("equipped_character_name")
                 else ""
             ),

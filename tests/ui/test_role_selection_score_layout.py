@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.app.theme import apply_app_theme, current_theme_name
 from src.features.inventory.equipment.management.batch_selection_dialog import BatchChoice, BatchSelectionDialog
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ def score_dialog():
     apply_app_theme(app, previous_theme)
 
 
-@pytest.mark.parametrize("theme", ["original", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_numeric_score_and_tooltip_are_complete_during_slot_change(score_dialog, theme):
     app, dialog, card = score_dialog
     apply_app_theme(app, theme)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.timeline.events import BattleAnalysisHit
 from src.domain.battle_report.buffs.models import BattleBuffModifierEvidence
 from src.services.battle_report.characters.awakening import awakening_enabled
@@ -227,9 +228,9 @@ def passive_requirement_applies(
             matched = str(actual).casefold() in values
             label = "目标覆纹状态"
         else:
-            return False, f"角色被动消费者条件 {key} 尚未支持"
+            return False, localized_text(None, 'auto.services.battle_report.characters.passives.passive_requirement_applies.f88a460ac', '角色被动消费者条件 {condition} 尚未支持', condition=f'{key}')
         if not matched:
-            return False, f"该角色被动只作用于指定{label}"
+            return False, localized_text(None, 'auto.services.battle_report.characters.passives.passive_requirement_applies.fada60671', '该角色被动只作用于指定{label}', label=f'{label}')
     return True, ""
 
 

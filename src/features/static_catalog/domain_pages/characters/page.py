@@ -417,11 +417,12 @@ class CharacterCatalogPage(QWidget):
         for character_id, card in self._cards.items():
             card.setVisible(character_id in visible)
         self.result_count.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.static_catalog.apply_filters.result_count', value=f'{len(visible)}'))
+        catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
         self.filter_summary.setText(" · ".join((
-            self._checked_text(self.availability_group, "全部角色"),
-            self._checked_text(self.element_group, "全属性"),
-            self._checked_text(self.quality_group, "全品质"),
-            self._checked_text(self.acquisition_group, "全获取"),
+            self._checked_text(self.availability_group, catalog.render("ui.static_catalog.characters.filter.all_roles")),
+            self._checked_text(self.element_group, catalog.render("ui.static_catalog.characters.filter.all_elements")),
+            self._checked_text(self.quality_group, catalog.render("ui.static_catalog.characters.filter.all_qualities")),
+            self._checked_text(self.acquisition_group, catalog.render("ui.static_catalog.characters.filter.all_acquisition")),
         )))
         self._relayout_cards(force=True)
 

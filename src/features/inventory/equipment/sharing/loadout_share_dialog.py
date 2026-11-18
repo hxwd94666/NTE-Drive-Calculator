@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import theme_color, themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.integrations.sharing.loadout_share_image import render_loadout_share_png, save_share_png
+from src.integrations.sharing.loadout_share_image import render_loadout_share_png, save_share_png, share_text_translation
+from src.ui.common.display_projection import project
 from src.services.equipment.sharing.loadout_share_service import (
     LoadoutShareRequest,
     build_loadout_share_panel,
@@ -69,6 +70,11 @@ class _ShareWorker(QThread):
         self.generate = generate
 
     def run(self) -> None:
+        # 图片文字不经过 Qt 控件，渲染期间显式套用显示边界投影；中文界面下为原样输出。
+        with share_text_translation(project):
+            self._run()
+
+    def _run(self) -> None:
         try:
             if self.generate is None:
                 panel = build_loadout_share_panel(self.request, cancelled=self.cancelled.is_set)

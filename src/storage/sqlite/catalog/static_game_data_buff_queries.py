@@ -22,7 +22,7 @@ class StaticGameDataBuffQueriesMixin(StaticDataDaoMixinHost):
         table_path = str(curve_table_asset_path).strip().removesuffix(".0")
         normalized_id = str(curve_id).strip()
         if not table_path or not normalized_id:
-            raise ValueError("curve_table_asset_path 和 curve_id 不能为空")
+            raise ValueError("curve_table_asset_path 和 curve_id 不能为空")  # ui-text: internal
         curve = self._one(
             """
             SELECT curve_table_asset_path, curve_id, interpolation_mode,
@@ -54,7 +54,7 @@ class StaticGameDataBuffQueriesMixin(StaticDataDaoMixinHost):
 
         normalized = str(modify_pack_id).strip()
         if not normalized:
-            raise ValueError("modify_pack_id 不能为空")
+            raise ValueError("modify_pack_id 不能为空")  # ui-text: internal
         pack = self._one(
             """
             SELECT modify_pack_id, conditions_json, source_row_id
@@ -80,7 +80,7 @@ class StaticGameDataBuffQueriesMixin(StaticDataDaoMixinHost):
 
         normalized = str(curve_id).strip()
         if not normalized:
-            raise ValueError("curve_id 不能为空")
+            raise ValueError("curve_id 不能为空")  # ui-text: internal
         curve = self._one(
             """
             SELECT curve_id, interpolation_mode, default_value,
@@ -142,7 +142,7 @@ class StaticGameDataBuffQueriesMixin(StaticDataDaoMixinHost):
 
         normalized = str(asset_path).strip()
         if not normalized:
-            raise ValueError("asset_path 不能为空")
+            raise ValueError("asset_path 不能为空")  # ui-text: internal
         definition = self._one(
             """
             SELECT asset_path, definition_id, definition_kind,

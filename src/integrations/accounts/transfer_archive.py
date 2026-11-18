@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import tempfile
+import time
 import zipfile
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -27,6 +28,29 @@ MAX_JSON_BYTES = 64 * 1024
 
 class AccountImportRecoveryError(RuntimeError):
     """发布补偿受阻时保留整个暂存目录，原件不参与自动清理。"""
+
+
+class AccountDirectoryBusyError(PermissionError):
+    """原账号目录仍被占用、尚未移动；原件、索引和当前会话均未改变。"""
+
+
+# Windows 杀毒/索引器的短暂占用通常在百毫秒级释放；总等待约 1.5 秒，不无限阻塞界面。
+DIRECTORY_BUSY_RETRY_DELAYS = (0.1, 0.2, 0.4, 0.8)
+
+
+def rename_directory_with_retry(source: Path, target: Path, *, overwrite: bool = True) -> None:
+    """只重试拒绝访问；目录尚未移动，重试不会重复已执行的副作用。"""
+    for delay in (*DIRECTORY_BUSY_RETRY_DELAYS, None):
+        try:
+            if overwrite:
+                source.replace(target)
+            else:
+                source.rename(target)
+            return
+        except PermissionError as error:
+            if delay is None:
+                raise AccountDirectoryBusyError(str(error)) from error
+            time.sleep(delay)
 
 
 def account_directory_identity(path: Path) -> tuple[int, int] | None:
@@ -160,7 +184,8 @@ def install_account_directory(staged: Path, target: Path, publish) -> None:
     moved = target.exists()
     installed = False
     if moved:
-        target.replace(backup)
+        # 失败时尚未触碰原件；索引未发布，调用方回切旧会话即可。
+        rename_directory_with_retry(target, backup)
     try:
         staged.replace(target)
         installed = True
@@ -174,5 +199,5 @@ def install_account_directory(staged: Path, target: Path, publish) -> None:
         except OSError as recovery_error:
             raise AccountImportRecoveryError(
                 f"账号恢复待完成，请保留当前目录和恢复原件：{backup.parent}"
-            ) from recovery_error
+            ) from recovery_error  # ui-text: internal
         raise

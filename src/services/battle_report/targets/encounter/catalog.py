@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.targets.encounter import BattleEncounterCandidate, BattleEncounterTargetPreset
 from src.services.battle_report.targets.observation import observed_number
 from src.services.battle_report.targets.feast_profiles import feast_target_profiles
@@ -104,7 +105,7 @@ def world_boss_candidates(
         result.append(candidate_factory(
             environment_kind="open_world",
             environment_ref=f"world_boss|{target.target_id}|{level}",
-            environment_name=f"异象追猎 · {target.target_name} · Lv.{level}",
+            environment_name=localized_text(None, 'auto.services.battle_report.targets.encounter.catalog.world_boss_candidates.f357e3dd7', '异象追猎 · {target_name} · Lv.{level}', target_name=f'{target.target_name}', level=f'{level}'),
             scope_half="",
             outer_realm_floor=None,
             difficulty_id=None,
@@ -200,8 +201,7 @@ class BattleEncounterCatalogService:
                         f"adv_vision|{commission_id}|{difficulty_id}"
                     ),
                     environment_name=(
-                        f"高危委托 · {rows[0].get('name_zh') or commission_id}"
-                        f" · 难度 {difficulty_id}"
+                        localized_text(None, 'auto.services.battle_report.targets.encounter.catalog.high_risk_candidates.f53e16c71', '高危委托 · {value} · 难度 {difficulty_id}', value=f"{rows[0].get('name_zh') or commission_id}", difficulty_id=f'{difficulty_id}')
                     ),
                     scope_half="",
                     outer_realm_floor=None,
@@ -273,9 +273,7 @@ class BattleEncounterCatalogService:
                     environment_kind="outer_realm",
                     environment_ref=f"{config_id}|{floor}|{stage}",
                     environment_name=(
-                        "轨外之境 · "
-                        f"{period_label_for_config(config_details[config_id])} · "
-                        f"第{floor}层{'上半' if half == 'upper' else '下半'}"
+                        localized_text(None, 'auto.services.battle_report.targets.encounter.catalog.outer_candidates.feb6c1325', '轨外之境 · {value} · 第{floor}层{value_2}', value=f'{period_label_for_config(config_details[config_id])}', floor=f'{floor}', value_2=f"{'上半' if half == 'upper' else '下半'}")
                     ),
                     scope_half=half,
                     outer_realm_floor=floor,
@@ -321,9 +319,7 @@ class BattleEncounterCatalogService:
                     environment_kind="clone",
                     environment_ref=f"clone|{category_id}|{clone_id}|{ordinal}",
                     environment_name=(
-                        f"{rows[0].get('category_name_zh') or '副本'} · "
-                        f"{rows[0].get('activity_name_zh') or clone_id} · "
-                        f"难度 {rows[0].get('difficulty_level') or ordinal + 1}"
+                        localized_text(None, 'auto.services.battle_report.targets.encounter.catalog.clone_candidates.fab5699bc', '{value} · {value_2} · 难度 {value_3}', value=f"{rows[0].get('category_name_zh') or '副本'}", value_2=f"{rows[0].get('activity_name_zh') or clone_id}", value_3=f"{rows[0].get('difficulty_level') or ordinal + 1}")
                     ),
                     scope_half="",
                     outer_realm_floor=None,
@@ -405,14 +401,13 @@ class BattleEncounterCatalogService:
                     if not targets or any(target is None for target in targets):
                         continue
                     option_suffix = (
-                        "" if not option_id else f" · 生命 +{health_up * 100:.0f}%"
+                        "" if not option_id else localized_text(None, 'auto.services.battle_report.targets.encounter.catalog.feast_candidates.f131d101d', ' · 生命 +{value}%', value=f'{health_up * 100:.0f}')
                     )
                     result.append(BattleEncounterCandidate(
                         environment_kind="feast",
                         environment_ref=str(stage.get("stage_id") or ""),
                         environment_name=(
-                            f"争锋赏宴 · {stage.get('name_zh') or stage.get('stage_id')}"
-                            f" · {members[0].get('name_zh') or difficulty_id}{option_suffix}"
+                            localized_text(None, 'auto.services.battle_report.targets.encounter.catalog.feast_candidates.fd875a0a9', '争锋赏宴 · {value} · {value_2}{option_suffix}', value=f"{stage.get('name_zh') or stage.get('stage_id')}", value_2=f"{members[0].get('name_zh') or difficulty_id}", option_suffix=f'{option_suffix}')
                         ),
                         scope_half="",
                         outer_realm_floor=None,

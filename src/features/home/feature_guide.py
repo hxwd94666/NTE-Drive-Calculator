@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from src.app.theme import themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
+from src.ui.common.enum_text import ui_enum_text
 
 
 @dataclass(frozen=True)
@@ -110,17 +111,19 @@ class FeatureGuideDialog(QDialog):
         super().__init__(parent)
         self.text_catalog = resolve_text_catalog(text_catalog)
         self.setObjectName("featureGuideDialog")
-        self.setWindowTitle(guide.title + resolve_text_catalog(text_catalog).render('ui.home.init.self_3'))
+        # 引导表保留中文原文作身份；展示时经冻结目录投影为译文。
+        tr = lambda text: ui_enum_text(self.text_catalog, text)  # noqa: E731
+        self.setWindowTitle(tr(guide.title) + resolve_text_catalog(text_catalog).render('ui.home.init.self_3'))
         self.setWindowModality(Qt.WindowModal)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 16)
         layout.setSpacing(14)
 
-        heading = plain_label(guide.title, self)
+        heading = plain_label(tr(guide.title), self)
         heading.setObjectName("featureGuideDialogTitle")
         heading.setStyleSheet(themed_style("font-size:18px;font-weight:700;color:#f0f6fc"))
         layout.addWidget(heading)
-        entry = plain_label(resolve_text_catalog(text_catalog).render('ui.home.init.entry') + guide.entry, self)
+        entry = plain_label(resolve_text_catalog(text_catalog).render('ui.home.init.entry') + tr(guide.entry), self)
         entry.setObjectName("featureGuideEntry")
         entry.setWordWrap(True)
         layout.addWidget(entry)
@@ -134,11 +137,11 @@ class FeatureGuideDialog(QDialog):
         content_layout.setSpacing(10)
         for section in guide.sections:
             if section.title:
-                title = plain_label(section.title + "：", content)
+                title = plain_label(tr(section.title) + "：", content)
                 title.setStyleSheet(themed_style("font-weight:700;color:#58a6ff"))
                 content_layout.addWidget(title)
             for index, line in enumerate(section.lines, 1):
-                label = plain_label(f"{index}. {line}" if section.numbered else line, content)
+                label = plain_label(f"{index}. {tr(line)}" if section.numbered else tr(line), content)
                 label.setWordWrap(True)
                 label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
                 content_layout.addWidget(label)
@@ -149,7 +152,7 @@ class FeatureGuideDialog(QDialog):
         actions = QHBoxLayout()
         actions.addStretch()
         for text, key in guide.destinations:
-            button = QPushButton(text, self)
+            button = QPushButton(tr(text), self)
             button.clicked.connect(lambda _checked=False, target=key: self._navigate(navigate, target))
             actions.addWidget(button)
         close = TextActionButton(resolve_text_catalog(text_catalog).render('common.close'), self)
@@ -198,9 +201,10 @@ def add_feature_guides(layout: QVBoxLayout, parent: QWidget, navigate: Callable[
     row = QHBoxLayout()
     row.setSpacing(10)
     for guide in FEATURE_GUIDES:
-        button = QPushButton(guide.title, parent)
+        title = ui_enum_text(text_catalog, guide.title)
+        button = QPushButton(title, parent)
         button.setObjectName("featureGuideButton")
-        button.setAccessibleName(guide.title + resolve_text_catalog(text_catalog).render('ui.home.add_feature_guides.button'))
+        button.setAccessibleName(title + resolve_text_catalog(text_catalog).render('ui.home.add_feature_guides.button'))
         button.setFixedWidth(88)
         button.clicked.connect(
             lambda _checked=False, item=guide: FeatureGuideDialog(parent, item, navigate, text_catalog=text_catalog).exec()

@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlencode, urlsplit
 
+from src.domain.localization.catalog import localized_text
 from src.app.version import version_order_key
 
 UPDATE_FAILURE_MESSAGE = "Mirror 酱更新服务请求失败，请稍后重试。"
@@ -109,7 +110,7 @@ def fetch_update_info(api_url, app_version, *, cdk="", timeout=UPDATE_CHECK_TIME
     except (ValueError, UnicodeDecodeError, urllib.error.URLError, TimeoutError, OSError) as exc:
         # 异常可能含 CDK/短期地址；此边界只返回类型，不传播网络原文到日志或弹窗。
         return {"has_release": False, "newer": False, "url": "", "message": UPDATE_FAILURE_MESSAGE,
-                "error": f"更新请求失败（{type(exc).__name__}）。"}
+                "error": localized_text(None, 'auto.integrations.updates.mirror.fetch_update_info.fa9a7c253', '更新请求失败（{name}）。', name=f'{type(exc).__name__}')}
 
 
 def _plain_stat(path, *, directory=False):

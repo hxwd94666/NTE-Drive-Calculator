@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.features.settings.performance.trace_view import PerformanceTraceView
+from src.ui.common.enum_text import ui_enum_text
 
 
 STATE_TEXT = {
@@ -35,9 +36,22 @@ _READ_STAGES = {
     "other_fields": "其他养成", "related_equipment": "关联装备", "row_finalize": "条目收尾",
     "verify": "完整性复核", "domain_roots": "数据根读取", "domain_identity": "数据身份", "domain_clone": "角色存档",
 }
-SERVICE_NAMES.update({prefix + key: owner + label for prefix, owner in
-                      (("snapshot.", "采集 · "), ("user.snapshot.", "账号读取 · "))
+_STAGE_OWNERS = (("user.snapshot.", "账号读取"), ("snapshot.", "采集"))
+SERVICE_NAMES.update({prefix + key: f"{owner} · {label}" for prefix, owner in _STAGE_OWNERS
                       for key, label in _READ_STAGES.items()})
+_CLOCK_PREFIX = "战斗时钟 · "
+
+
+def service_label(name, catalog=None):
+    """服务计时名按“归属 · 阶段”分段投影译文；未登记的协议名原样显示。"""
+    for prefix, owner in _STAGE_OWNERS:
+        stage = name[len(prefix):] if name.startswith(prefix) else None
+        if stage in _READ_STAGES:
+            return f"{ui_enum_text(catalog, owner)} · {ui_enum_text(catalog, _READ_STAGES[stage])}"
+    text = SERVICE_NAMES.get(name, name)
+    if text.startswith(_CLOCK_PREFIX):
+        return f"{ui_enum_text(catalog, '战斗时钟')} · {ui_enum_text(catalog, text[len(_CLOCK_PREFIX):])}"
+    return ui_enum_text(catalog, text)
 
 
 class CostPlot(QWidget):
@@ -139,11 +153,13 @@ class PerformanceDetails(QDialog):
         overlay = {"off": "悬浮窗已关闭", "closing": "正在关闭显示", "visible": "悬浮窗已绘制", "waiting": "已请求显示，等待游戏绘制",
                    "unsupported": "当前组件不支持性能悬浮窗，需要配套更新", "rejected": "当前游戏版本不支持性能绘制",
                    "unconfirmed": "悬浮窗状态未确认，等待连接恢复"}.get(value.get("overlay_state"), "等待组件")
-        summary = "四项悬浮窗及其日志已关闭。" if not value["enabled"] and value.get("overlay_state") == "off" else overlay + "；" + status_text(value)
+        catalog = getattr(self, 'text_catalog', None)
+        summary = (ui_enum_text(catalog, "四项悬浮窗及其日志已关闭。") if not value["enabled"] and value.get("overlay_state") == "off"
+                   else ui_enum_text(catalog, overlay) + "；" + status_text(value, catalog))
         frame_error = value.get("frames", {}).get("frame_error")
         if value["enabled"] and frame_error:
-            summary += "；" + frame_error
-        self.status.setText(value.get("preference_error") or summary + trace_status_suffix(value))
+            summary += "；" + ui_enum_text(catalog, frame_error)
+        self.status.setText(ui_enum_text(catalog, value.get("preference_error")) or summary + trace_status_suffix(value, catalog))
         metrics = value.get("frames", {})
         def number(key):
             v = metrics.get(key)
@@ -156,7 +172,7 @@ class PerformanceDetails(QDialog):
             self.service.blockSignals(True)
             self.service.clear()
             for name in names:
-                self.service.addItem(SERVICE_NAMES.get(name, name), name)
+                self.service.addItem(service_label(name, catalog), name)
             self.service.setCurrentIndex(max(0, self.service.findData(selected)))
             self.service.blockSignals(False)
         self.service.setEnabled(bool(names))
@@ -165,7 +181,7 @@ class PerformanceDetails(QDialog):
         self.plot.update()
         self.table.setRowCount(len(rows))
         for index, (name, row) in enumerate(rows.items()):
-            cells = (SERVICE_NAMES.get(name, name),
+            cells = (service_label(name, catalog),
                      str(row["interval_calls"]) if row["interval_calls"] is not None else "—",
                      f'{row["mean_ms"]:.3f}' if row["mean_ms"] is not None else "—",
                      f'{row["max_us"]/1000:.3f}' if row["calls"] else "—")
@@ -174,23 +190,23 @@ class PerformanceDetails(QDialog):
         self.path.setText(value["log_error"] or value["log_path"] or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.settings.render.path'))
 
 
-def trace_status_suffix(value):
+def trace_status_suffix(value, catalog=None):
     trace = value.get('trace', {})
     if trace.get('running'):
-        return '；细分采样正在运行并单独记录'
+        return '；' + ui_enum_text(catalog, '细分采样正在运行并单独记录')
     if trace.get('state') == 'saved':
-        return '；细分采样已停止并保存'
+        return '；' + ui_enum_text(catalog, '细分采样已停止并保存')
     if trace.get('state') in {'failed', 'unconfirmed'}:
-        return '；细分采样未完整确认，请查看细分采样页'
+        return '；' + ui_enum_text(catalog, '细分采样未完整确认，请查看细分采样页')
     return ''
 
 
-def status_text(value):
-    text = STATE_TEXT[value["state"]]
+def status_text(value, catalog=None):
+    text = ui_enum_text(catalog, STATE_TEXT[value["state"]])
     if value["automatic"]:
-        text += " · 由采集排错开启"
+        text += " · " + ui_enum_text(catalog, "由采集排错开启")
     if value["log_error"]:
-        text += " · " + value["log_error"]
+        text += " · " + ui_enum_text(catalog, value["log_error"])
     return text
 
 

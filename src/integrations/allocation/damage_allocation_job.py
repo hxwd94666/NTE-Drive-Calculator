@@ -134,7 +134,11 @@ def execute_damage_job(client, request, scorer, frozen, blueprints, unit, *, axi
 
 
 def _decode(client, request, scorer, sent, value, *, axis):
-    if freeze_postprocess_allocation_request(request, scorer) != sent["allocation_request"]:
+    # sent 已经过发送前的 JSON 往返；复核时以同一 JSON 规范形比较，
+    # 整数键（如套装件数 4）与字符串键 "4" 视为同一冻结输入，真实取值变化仍会被拒绝。
+    refrozen = json.loads(json.dumps(freeze_postprocess_allocation_request(request, scorer),
+                                     ensure_ascii=False, allow_nan=False, separators=(",", ":")))
+    if refrozen != sent["allocation_request"]:
         raise _error()
     failure = value.get("postprocess_failure")
     if failure is not None and (not getattr(client, "supports_damage_baseline_fallback", False)

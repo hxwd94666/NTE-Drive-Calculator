@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from collections.abc import Sequence
 
@@ -90,9 +91,9 @@ def _buff_value(
     return "—"
 
 
-def _buff_name(result: BattleBuffCounterfactualResult) -> str:
+def _buff_name(result: BattleBuffCounterfactualResult, *, text_catalog=None) -> str:
     if str(getattr(result, "method", "")).startswith("approximate_"):
-        return f"{result.buff_name}（估算）"
+        return localized_text(text_catalog, 'auto.features.battle_report.marginal.results.buff_name.f0a1f0065', '{buff_name}（估算）', buff_name=f'{result.buff_name}')
     return result.buff_name
 
 
@@ -111,14 +112,13 @@ def display_projection(
     return known
 
 
-def _quantification_tooltip(quantification) -> str:
+def _quantification_tooltip(quantification, *, text_catalog=None) -> str:
     gaps = "\n".join(f"- {gap.explanation}" for gap in quantification.gaps)
     coverage = quantified_coverage_text(quantification)
     text = (
-        f"变化状态：{quantification_status_text(quantification.status)}；"
-        f"量化率：{coverage}。"
+        localized_text(text_catalog, 'auto.features.battle_report.marginal.results.quantification_tooltip.fc9eb4bc9', '变化状态：{value}；量化率：{coverage}。', value=f'{quantification_status_text(quantification.status)}', coverage=f'{coverage}')
     )
-    return text if not gaps else f"{text}\n缺失依赖：\n{gaps}"
+    return text if not gaps else localized_text(text_catalog, 'auto.features.battle_report.marginal.results.quantification_tooltip.f715c3194', '{text}\n缺失依赖：\n{gaps}', text=f'{text}', gaps=f'{gaps}')
 
 
 def render_attribute_results(
@@ -165,7 +165,7 @@ def render_attribute_results(
             f"{getattr(result, 'related_team_share_percent', 0.0):.1f}%",
         )
         tooltip = (
-            resolve_text_catalog(text_catalog).render('frontend.battle_report.marginal.results.render_attribute_results.text', assumption=f'{result.assumption}', value=f'{quantification_status_text(result.role_denominator_status)}', value_2=f'{quantification_status_text(result.team_denominator_status)}', value_3=f'{_quantification_tooltip(result.quantification)}')
+            resolve_text_catalog(text_catalog).render('frontend.battle_report.marginal.results.render_attribute_results.text', assumption=f'{result.assumption}', value=f'{quantification_status_text(result.role_denominator_status)}', value_2=f'{quantification_status_text(result.team_denominator_status)}', value_3=f'{_quantification_tooltip(result.quantification, text_catalog=text_catalog)}')
         )
         if result.property_id.startswith("DamagePenetrate"):
             tooltip += (
@@ -271,7 +271,7 @@ def render_buff_benefit_results(
         )
         values = (
             result.source_character_name,
-            _buff_name(result),
+            _buff_name(result, text_catalog=text_catalog),
             beneficiary.character_name,
             _buff_value(
                 status=status,
@@ -294,13 +294,11 @@ def render_buff_benefit_results(
             _team_gain_text(result),
             damage_coverage_text(
                 getattr(beneficiary, "damage_coverage", None)
-            ),
-            damage_coverage_text(getattr(result, "damage_coverage", None)),
+            , text_catalog=text_catalog),
+            damage_coverage_text(getattr(result, "damage_coverage", None), text_catalog=text_catalog),
         )
         tooltip = (
-            f"{result.explanation}\n作用范围：{result.target_scope}；"
-            f"置信度：{result.confidence}。\n"
-            f"{_quantification_tooltip(beneficiary.quantification)}"
+            localized_text(text_catalog, 'auto.features.battle_report.marginal.results.render_buff_benefit_results.f9ac99035', '{explanation}\n作用范围：{target_scope}；置信度：{confidence}。\n{value}', explanation=f'{result.explanation}', target_scope=f'{result.target_scope}', confidence=f'{result.confidence}', value=f'{_quantification_tooltip(beneficiary.quantification, text_catalog=text_catalog)}')
         )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
@@ -324,16 +322,16 @@ def render_buff_benefit_results(
         )
         values = (
             result.source_character_name,
-            _buff_name(result),
+            _buff_name(result, text_catalog=text_catalog),
             beneficiary_label,
             "—" if gain is None else f"{gain:+,.0f}",
             "—",
             "—" if team_gain is None else f"{team_gain:+.2f}%",
             _team_gain_text(result),
             "—",
-            damage_coverage_text(getattr(result, "damage_coverage", None)),
+            damage_coverage_text(getattr(result, "damage_coverage", None), text_catalog=text_catalog),
         )
-        tooltip = f"{result.explanation}\n{_quantification_tooltip(result.quantification)}"
+        tooltip = f"{result.explanation}\n{_quantification_tooltip(result.quantification, text_catalog=text_catalog)}"
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)
             item.setToolTip(plain_tooltip(resolve_text_catalog(text_catalog).render('ui.battle_report.render_buff_benefit_results.item_2', tooltip=f'{tooltip}', buff_asset_path=f'{result.buff_asset_path}')))
@@ -349,18 +347,18 @@ def render_buff_benefit_results(
         )
         values = (
             result.source_character_name,
-            _buff_name(result),
+            _buff_name(result, text_catalog=text_catalog),
             scope_label,
             "—",
             "—",
             "—",
             _team_gain_text(result),
             "—",
-            damage_coverage_text(getattr(result, "damage_coverage", None)),
+            damage_coverage_text(getattr(result, "damage_coverage", None), text_catalog=text_catalog),
         )
         tooltip = (
             f"{result.explanation}\n"
-            f"{_quantification_tooltip(result.quantification)}"
+            f"{_quantification_tooltip(result.quantification, text_catalog=text_catalog)}"
         )
         for column, value in enumerate(values):
             item = QTableWidgetItem(value)

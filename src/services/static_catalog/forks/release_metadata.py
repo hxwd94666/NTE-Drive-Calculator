@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from src.domain.localization.catalog import localized_text
 from src.domain.catalog.static_catalog import CatalogLink
 from src.domain.catalog.static_catalog_terminology import LocalizedForkCampaign
 from src.services.static_catalog.mechanics.models import encode_record
@@ -338,7 +339,7 @@ class ForkItemDisplayNameService:
         return (
             term.display_name
             if term.display_name.endswith("级")
-            else f"{term.display_name}级"
+            else localized_text(None, 'auto.services.static_catalog.forks.release_metadata.quality_name.f833789ed', '{display_name}级', display_name=f'{term.display_name}')
         )
 
     def present_costs(

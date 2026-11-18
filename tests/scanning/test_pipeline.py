@@ -225,7 +225,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
         rule["sub_match"] = "all"
         self.assertFalse(preserve_rule_matches_item(drive, rule))
 
-    def test_post_action_type_range_filters_default_drive_shapes_and_tape_sets(self):
+    def test_post_action_type_range_defaults_include_all_and_explicit_lists_filter(self):
         from src.domain.inventory.post_actions import (
             default_post_action_config,
             summarize_post_action_filtering,
@@ -280,8 +280,19 @@ class StreamingScanPipelineTests(unittest.TestCase):
             role_scores={"A": 2.0},
         )
 
-        context = EquipmentMatchContext(matches=(RoleSuitMatch(
-            "A", 1, "suit", "森林萤火之心", True, frozenset({"H_3"}), frozenset()),))
+        # 未保存范围（None）默认包含全部驱动形状与卡带套装；只有显式列表才收窄范围。
+        context = EquipmentMatchContext(matches=(
+            RoleSuitMatch("A", 1, "suit", "森林萤火之心", True, frozenset({"H_3", "H_2"}), frozenset()),
+            RoleSuitMatch("A", 1, "suit-sonic", "音速蓝刺猬", False, frozenset({"H_3", "H_2"}), frozenset()),
+        ))
+        items = [(1, keep_drive, "normal"), (2, excluded_drive, "normal"),
+                 (3, keep_tape, "normal"), (4, excluded_tape, "normal")]
+        for _index, item, _state in items:
+            self.assertEqual("locked", target_state_for_item(item, "normal", config, FakeScoring(), score_context=context))
+        self.assertEqual(4, summarize_post_action_filtering(items, config)["post_action_candidate_count"])
+        self.assertEqual(0, summarize_post_action_filtering(items, config)["post_action_type_range_filtered_count"])
+
+        config["lock"].update(shape_ids=["H_3"], set_names=["「森林萤火之心」"])
         self.assertEqual("locked", target_state_for_item(keep_drive, "normal", config, FakeScoring(), score_context=context))
         self.assertEqual("normal", target_state_for_item(excluded_drive, "normal", config, FakeScoring(), score_context=context))
         self.assertEqual("locked", target_state_for_item(keep_tape, "normal", config, FakeScoring(), score_context=context))
@@ -295,15 +306,7 @@ class StreamingScanPipelineTests(unittest.TestCase):
                 "post_action_type_range_filtered_count": 2,
                 "preserve_rule_matched_count": 0,
             },
-            summarize_post_action_filtering(
-                [
-                    (1, keep_drive, "normal"),
-                    (2, excluded_drive, "normal"),
-                    (3, keep_tape, "normal"),
-                    (4, excluded_tape, "normal"),
-                ],
-                config,
-            ),
+            summarize_post_action_filtering(items, config),
         )
 
     def test_post_action_scores_only_usable_roles_when_context_is_strict(self):

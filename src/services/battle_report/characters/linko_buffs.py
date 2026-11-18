@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from collections.abc import Mapping, Sequence
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.native.team_state import compute_team_state
 from src.domain.battle_report.analysis.backend_contracts import available_battle_compute
 
@@ -140,7 +141,7 @@ class BattleLinkoCoattackBuffService:
                     "PassiveEffect/Passive3/Buff_Radio072_Passive3_"
                     f"{_ELEMENT_ASSET_SUFFIXES[element]}"
                 ),
-                buff_name=f"精确调频·{_ELEMENT_LABELS[element]}属性抗性降低",
+                buff_name=localized_text(None, 'auto.services.battle_report.characters.linko_buffs.infer.f96143e29', '精确调频·{value}属性抗性降低', value=f'{_ELEMENT_LABELS[element]}'),
                 source_effect_definition_id=_PASSIVE_ID,
                 source_kind="derived_linko_coattack_inference",
                 source_character_id=1072,
@@ -153,11 +154,7 @@ class BattleLinkoCoattackBuffService:
                 state_confidence=inference.confidence,
                 value_confidence="高",
                 inference_basis=(
-                    "官方被动确认同频合击按发起角色属性降低目标 8% 异能抗性、"
-                    "持续 12 秒且同属性只刷新；实机战报校验支持触发该次"
-                    "同频合击的首击即消费减抗；"
-                    "触发时刻与元素来自版本化同频合击"
-                    f"推论（{inference.confidence}），不是 Core 原生状态事件。"
+                    localized_text(None, 'auto.services.battle_report.characters.linko_buffs.infer.f756c0a95', '官方被动确认同频合击按发起角色属性降低目标 8% 异能抗性、持续 12 秒且同属性只刷新；实机战报校验支持触发该次同频合击的首击即消费减抗；触发时刻与元素来自版本化同频合击推论（{confidence}），不是 Core 原生状态事件。', confidence=f'{inference.confidence}')
                 ),
                 trigger_event_type="INFERRED_LINKO_COATTACK",
                 evidence_action_ids=tuple(
@@ -200,16 +197,14 @@ def _native_intervals(backend, *, inferences, hits, battle_end_us, time_stop_int
             interval_id=f"buff:linko:precision-tuning:{target}:{element}:{inference.qte_action_id or inference.event_id}",
             buff_asset_path="/Game/Blueprints/Abilities/Player/Ability_072_Radio/PassiveEffect/Passive3/"
                             f"Buff_Radio072_Passive3_{_ELEMENT_ASSET_SUFFIXES[element]}",
-            buff_name=f"精确调频·{_ELEMENT_LABELS[element]}属性抗性降低",
+            buff_name=localized_text(None, 'auto.services.battle_report.characters.linko_buffs.native_intervals.f96143e29', '精确调频·{value}属性抗性降低', value=f'{_ELEMENT_LABELS[element]}'),
             source_effect_definition_id=_PASSIVE_ID, source_kind="derived_linko_coattack_inference",
             source_character_id=1072, source_character_name=character_name, target_scope="target",
             start_us=row["start_us"], end_us=row["end_us"], stacks=1,
             duration_policy="RefreshWholeStackActiveClock12Seconds",
             state_confidence=inference.confidence, value_confidence="高",
             inference_basis=(
-                "官方被动确认同频合击按发起角色属性降低目标 8% 异能抗性、持续 12 秒且同属性只刷新；"
-                "实机战报校验支持触发该次同频合击的首击即消费减抗；触发时刻与元素来自版本化同频合击"
-                f"推论（{inference.confidence}），不是 Core 原生状态事件。"
+                localized_text(None, 'auto.services.battle_report.characters.linko_buffs.native_intervals.f756c0a95', '官方被动确认同频合击按发起角色属性降低目标 8% 异能抗性、持续 12 秒且同属性只刷新；实机战报校验支持触发该次同频合击的首击即消费减抗；触发时刻与元素来自版本化同频合击推论（{confidence}），不是 Core 原生状态事件。', confidence=f'{inference.confidence}')
             ),
             trigger_event_type="INFERRED_LINKO_COATTACK",
             evidence_action_ids=tuple(value for value in (inference.trigger_action_id, inference.qte_action_id) if value),

@@ -19,8 +19,9 @@ BOSS = "Worldboss_material_04"
 
 @pytest.fixture
 def solver(monkeypatch):
+    # 隔离入口还会收到求解会话；进程内替身只执行正式纯计算。
     monkeypatch.setattr("src.services.progression.stamina_planner.calculate_isolated_progression_stamina",
-                        calculate_progression_stamina)
+                        lambda request, **_kwargs: calculate_progression_stamina(request))
 
 
 @pytest.mark.parametrize("level,hunter,runs", [(3, 30, 15), (4, 40, 14), (5, 45, 12), (6, 50, 11), (7, 55, 10)])

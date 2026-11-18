@@ -22,9 +22,14 @@ from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationError
 from tests.equipment.test_role_loadout_slots import assignment, inventory_snapshot
 from tests.allocation.static_release_helpers import publish_test_manifest, ROOT
-from tests.allocation.test_weighted_save_owner import pump, qt_app  # noqa: F401 - 跨用例复用Qt实例fixture
+from tests.allocation.test_weighted_save_owner import pump as _owner_pump, qt_app  # noqa: F401 - 跨用例复用Qt实例fixture
 
 NTE_TEST_TIER = "core"
+
+
+def pump(app, condition, *, timeout=30):
+    # 本模块走真实 SQLite 保存（2 核机器单独约 3 秒）；4 秒仅适合内存任务，这里只作防卡死兜底。
+    _owner_pump(app, condition, timeout=timeout)
 
 
 TEST_SCORING_RULES = read_allocation_scoring_rules(ROOT / "config/stats.json")

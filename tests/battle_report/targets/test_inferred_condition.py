@@ -194,9 +194,9 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
                 "hits": (
                     _hit(
                         1,
-                        4_307_845.5,
+                        5_743_794.0,
                         "enemy-wire:feast",
-                        monster_id="mon_48_BP_Diy",
+                        monster_id="boss_17_BP_DiyBoss",
                     ),
                 )
             },
@@ -207,7 +207,7 @@ class BattleInferredTargetConditionServiceTests(unittest.TestCase):
         assert inferred is not None
         self.assertEqual("feast", inferred.environment_kind)
         self.assertEqual("DiyBossStage8", inferred.environment_ref)
-        self.assertEqual("墨菲克斯", inferred.identities[0].target_name)
+        self.assertEqual("玛门", inferred.identities[0].target_name)
         self.assertEqual(1, inferred.difficulty_id)
         options = dict(inferred.feast_options)
         self.assertEqual("LifeOP001_challenge", options["1"])

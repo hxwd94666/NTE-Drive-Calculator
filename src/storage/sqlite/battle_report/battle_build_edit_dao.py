@@ -342,7 +342,7 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
         character_id = _integer(profile.get("character_id"), "character_id", minimum=1)
         skills = profile.get("skill_levels") or {}
         if not isinstance(skills, Mapping):
-            raise UserDataValidationError(f"角色 {character_id} 的技能等级必须是对象")
+            raise UserDataValidationError(f"角色 {character_id} 的技能等级必须是对象")  # ui-text: internal
         normalized_skills = {
             str(skill_id).strip(): _integer(level, "skill_level", minimum=1)
             for skill_id, level in skills.items()
@@ -352,7 +352,7 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
             raise UserDataValidationError("技能基础等级不能高于 11")
         selected_skill_id = str(profile.get("selected_skill_id") or "").strip() or None
         if selected_skill_id and selected_skill_id not in normalized_skills:
-            raise UserDataValidationError("selected_skill_id 必须存在于 skill_levels")
+            raise UserDataValidationError("selected_skill_id 必须存在于 skill_levels")  # ui-text: internal
         awakenings = profile.get("selected_awaken_effect_ids") or ()
         if isinstance(awakenings, (str, bytes)) or not isinstance(awakenings, Sequence):
             raise UserDataValidationError("觉醒选择必须是列表")
@@ -480,7 +480,7 @@ class BattleBuildEditDaoMixin(UserDataDaoMixinHost):
             raise UserDataValidationError("战报配装类型必须是 core 或 module")
         item_id = str(item.get("item_id") or "").strip()
         if not item_id:
-            raise UserDataValidationError("战报配装缺少 item_id")
+            raise UserDataValidationError("战报配装缺少 item_id")  # ui-text: internal
         stats = item.get("stats") or ()
         if isinstance(stats, (str, bytes)) or not isinstance(stats, Sequence):
             raise UserDataValidationError("战报配装词条必须是列表")

@@ -128,11 +128,13 @@ def _api() -> WindowsLabels:
     return WindowsLabels()
 
 
-def _normal_builder(api: WindowsLabels) -> None:
-    if api.process_rid() < MEDIUM:
+def _admin_builder(api: WindowsLabels) -> None:
+    # 发行安装器成品须为 High，防止普通权限进程在构建后篡改；Windows 只允许管理员进程设置该标签。
+    if api.process_rid() < HIGH:
         raise RuntimeError(
-            "构建解释器处于 Low 完整性，安装器发布检查已停止；"
-            "请使用普通完整性的构建解释器重试。输出位置不变，未申请提权或修改工作区权限。")
+            "安装器须以管理员身份构建：成品要标记为 High 完整性以防普通权限进程篡改，"
+            "而 Windows 只允许管理员进程设置该标签。请以管理员身份重新运行构建；"
+            "输出位置不变，未创建目录、未修改任何文件或标签。")
 
 
 def _normalize(api: WindowsLabels, path: Path, *, directory: bool) -> bool:
@@ -154,11 +156,55 @@ def _normalize(api: WindowsLabels, path: Path, *, directory: bool) -> bool:
     return True
 
 
+ELEVATED_BUILD_ARGUMENT = "--elevated-build"
+
+
+def builder_is_admin() -> bool:
+    """非 Windows 不使用强制标签；Windows 上以当前 token 的完整性等级判断是否为管理员构建。"""
+    return sys.platform != "win32" or _api().process_rid() >= HIGH
+
+
+def request_elevated_build(argv: list[str]) -> bool:
+    """经系统 UAC 确认，在新的管理员控制台中重跑同一构建命令；用户取消或启动失败返回 False。
+
+    使用控制台解释器以便查看构建输出；标记参数只防止重复请求，不授予权限，新进程仍按 token 核验。
+    """
+    import os
+    import subprocess
+    from src.integrations.runtime.windows_privileges import request_elevated_process
+
+    args = [str(Path(argv[0]).resolve()), *(arg for arg in argv[1:] if arg != ELEVATED_BUILD_ARGUMENT),
+            ELEVATED_BUILD_ARGUMENT]
+    return request_elevated_process(sys.executable, subprocess.list2cmdline(args), os.getcwd())
+
+
+def disable_console_quick_edit() -> bool:
+    """关闭当前控制台的快速编辑：误点窗口进入“选择”模式会挂起输出，使构建看似卡住。
+
+    仅调整本控制台输入缓冲区的显示交互模式，尽力而为；读取或设置失败返回 False，不影响构建。
+    """
+    if sys.platform != "win32":
+        return False
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+    kernel32.GetStdHandle.restype = wintypes.HANDLE
+    kernel32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetConsoleMode.restype = wintypes.BOOL
+    kernel32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.SetConsoleMode.restype = wintypes.BOOL
+    # STD_INPUT_HANDLE=-10；ENABLE_QUICK_EDIT_MODE=0x40 须配合 ENABLE_EXTENDED_FLAGS=0x80 才能清除。
+    handle = kernel32.GetStdHandle(wintypes.DWORD(-10 & 0xFFFFFFFF))
+    mode = wintypes.DWORD()
+    if not handle or not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+        return False
+    return bool(kernel32.SetConsoleMode(handle, (mode.value & ~0x40) | 0x80))
+
+
 def prepare_installer_output(output: Path) -> bool:
     if sys.platform != "win32":
         return False
     api = _api()
-    _normal_builder(api)
+    _admin_builder(api)
     # 先检查既有父目录，再创建唯一归本安装器所有的输出目录，不跟随联接。
     parent = plain_directory_root(output.parent)
     output = parent / output.name
@@ -175,5 +221,5 @@ def finalize_installer_artifact(setup: Path) -> bool:
     if sys.platform != "win32":
         return False
     api = _api()
-    _normal_builder(api)
+    _admin_builder(api)
     return _normalize(api, setup, directory=False)

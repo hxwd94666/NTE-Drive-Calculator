@@ -35,5 +35,5 @@ def share_asset(group: str, key: str) -> Path | None:
 def share_template(name: str) -> Path:
     path = share_asset("templates", name)
     if path is None:
-        raise FileNotFoundError(f"分享面板缺少模板资源：{name}")
+        raise FileNotFoundError(f"分享面板缺少模板资源：{name}")  # ui-text: internal
     return path

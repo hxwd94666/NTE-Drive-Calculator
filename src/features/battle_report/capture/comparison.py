@@ -1,6 +1,7 @@
 # 在 Qt 线程协调固定 DLL 与抓包两路生命周期，各路继续独立采集和保存。
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import resolve_text_catalog
 from collections.abc import Callable, Mapping
@@ -82,7 +83,7 @@ class ComparisonCapture(QObject):
             return
         self._started = True
         self._states = {lane: BattleCaptureState(
-            phase='starting', message=f"正在启动{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}采集……", running=True,
+            phase='starting', message=localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.capture.comparison.start.f0f10e962', '正在启动{value}采集……', value=f"{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}"), running=True,
         ) for lane in _LANES}
         self._publish()
         for index, lane in enumerate(_LANES):
@@ -97,7 +98,7 @@ class ComparisonCapture(QObject):
                     self._states[unstarted] = BattleCaptureState(
                         phase='stopped', message='另一路启动失败，本路未启动。', running=False)
                 self._accept_state(lane, BattleCaptureState(
-                    phase='error', message=f"{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}启动失败。", running=False,
+                    phase='error', message=localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.capture.comparison.start.f16433adb', '{value}启动失败。', value=f"{ui_enum_text(getattr(self, 'text_catalog', None), _LABELS)[lane]}"), running=False,
                     error=str(error), error_code=type(error).__name__))
                 break
 

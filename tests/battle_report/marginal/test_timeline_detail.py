@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.features.battle_report.marginal.page import BattleMarginalPage
 from src.features.battle_report.timeline.layout import TimelineSelection
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleMarginalTimelineDetailTests(unittest.TestCase):

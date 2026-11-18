@@ -7,7 +7,8 @@ import subprocess
 import sys
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_SHAPES_OWNER = _PROJECT_ROOT / "src" / "domain" / "equipment" / "shapes.py"
+# 形状别名已按职责迁入 domain/equipment/geometry 子包。
+_SHAPES_OWNER = _PROJECT_ROOT / "src" / "domain" / "equipment" / "geometry" / "shapes.py"
 _EXPECTED_LABELS = {
     "EquipmentGeometry_Hen2": "H_2",
     "EquipmentGeometry_Hen3": "H_3",
@@ -29,7 +30,7 @@ def test_formal_shape_aliases_import_without_solver_or_database():
     code = (
         "import json, pathlib, sys; "
         f"sys.path.insert(0, {str(_PROJECT_ROOT)!r}); "
-        "from src.domain.equipment import shapes; "
+        "from src.domain.equipment.geometry import shapes; "
         "blocked = ('src.solver', 'src.storage', 'pydantic', 'PySide6', "
         "'src.services.equipment.blueprints', 'src.services.blueprint_service'); "
         "print(json.dumps({'owner': str(pathlib.Path(shapes.__file__).resolve()), "

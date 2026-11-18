@@ -51,16 +51,16 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
         slot = _integer(uid.get("slot"), f"items[{index}].uid.slot", minimum=0)
         kind = row.get("kind")
         if kind not in ("module", "core"):
-            raise UserDataValidationError(f"items[{index}].kind 必须是 module 或 core")
+            raise UserDataValidationError(f"items[{index}].kind 必须是 module 或 core")  # ui-text: internal
         if not isinstance(row.get("item_id"), str) or not row["item_id"]:
-            raise UserDataValidationError(f"items[{index}].item_id 不能为空")
+            raise UserDataValidationError(f"items[{index}].item_id 不能为空")  # ui-text: internal
         for field in ("level", "max_level"):
             _integer(row.get(field), f"items[{index}].{field}", minimum=0)
         if row["max_level"] < row["level"]:
-            raise UserDataValidationError(f"items[{index}].max_level 不能低于 level")
+            raise UserDataValidationError(f"items[{index}].max_level 不能低于 level")  # ui-text: internal
         for field in ("locked", "equipped"):
             if not isinstance(row.get(field), bool):
-                raise UserDataValidationError(f"items[{index}].{field} 必须是布尔值")
+                raise UserDataValidationError(f"items[{index}].{field} 必须是布尔值")  # ui-text: internal
         character_id = row.get("equipped_character_id")
         if character_id is not None:
             _integer(character_id, f"items[{index}].equipped_character_id", minimum=1)
@@ -72,11 +72,11 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
         for source_field, stat_group in (("main_stats", "main"), ("sub_stats", "sub")):
             stats = item.get(source_field, [])
             if not isinstance(stats, list):
-                raise UserDataValidationError(f"items[{item_index}].{source_field} 必须是数组")
+                raise UserDataValidationError(f"items[{item_index}].{source_field} 必须是数组")  # ui-text: internal
             for ordinal, raw_stat in enumerate(stats):
                 stat = _plain_object(raw_stat, f"items[{item_index}].{source_field}[{ordinal}]")
                 if not isinstance(stat.get("property_id"), str) or not stat["property_id"]:
-                    raise UserDataValidationError("背包词条 property_id 不能为空")
+                    raise UserDataValidationError("背包词条 property_id 不能为空")  # ui-text: internal
                 value = stat.get("value")
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
                     raise UserDataValidationError("背包词条 value 必须是数字")
@@ -94,7 +94,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
         before_commit: Callable[[], None] | None = None,
     ) -> int:
         if source not in SNAPSHOT_SOURCES:
-            raise UserDataValidationError(f"不支持的背包数据来源：{source}")
+            raise UserDataValidationError(f"不支持的背包数据来源：{source}")  # ui-text: internal
         original, payload = self._snapshot_payload(snapshot)
         if payload.get("complete") is not True:
             raise UserDataValidationError("只有完整背包快照才能设为当前数据")
@@ -105,7 +105,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
         if declared_count != len(items):
             raise UserDataValidationError(
                 f"快照 item_count 为 {declared_count}，但 items 实际有 {len(items)} 条"
-            )
+            )  # ui-text: internal
         generation = payload.get("generation")
         if generation is not None:
             generation = _integer(generation, "snapshot generation", minimum=0)
@@ -125,7 +125,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             item, serial, slot = self._validated_item(raw_item, index)
             uid = (serial, slot)
             if uid in seen_uids:
-                raise UserDataValidationError(f"背包 UID 重复：serial={serial}, slot={slot}")
+                raise UserDataValidationError(f"背包 UID 重复：serial={serial}, slot={slot}")  # ui-text: internal
             seen_uids.add(uid)
             normalized_items.append((item, serial, slot, self._validated_stats(item, index)))
         _mark_duplicate_modules([item for item, _serial, _slot, _stats in normalized_items])
@@ -142,7 +142,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
             if _integer(declared_character_count, "snapshot character_count", minimum=0) != len(raw_characters):
                 raise UserDataValidationError(
                     f"快照 character_count 为 {declared_character_count}，但 characters 实际有 {len(raw_characters)} 条"
-                )
+                )  # ui-text: internal
         normalized_characters: list[tuple[int, int, int]] = []
         seen_character_ids: set[int] = set()
         seen_character_uids: set[tuple[int, int]] = set()
@@ -191,7 +191,7 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                 ),
             )
             if cursor.lastrowid is None:
-                raise UserDataError("创建背包快照后未返回 snapshot_id")
+                raise UserDataError("创建背包快照后未返回 snapshot_id")  # ui-text: internal
             snapshot_id = int(cursor.lastrowid)
             for item, serial, slot, stats in normalized_items:
                 save_stage = "insert_item"
@@ -535,16 +535,16 @@ class InventorySnapshotDaoMixin(UserDataDaoMixinHost):
                 began = True
             summary = self.inventory_snapshot_summary(raw_snapshot_id)
             if summary is None:
-                raise UserDataValidationError(f"背包快照不存在：{raw_snapshot_id}")
+                raise UserDataValidationError(f"背包快照不存在：{raw_snapshot_id}")  # ui-text: internal
             items = self.list_inventory_items(raw_snapshot_id)
             if int(summary["stored_item_count"]) != len(items):
                 raise UserDataError(
                     f"背包快照 {raw_snapshot_id} 的物品数量不一致："
                     f"摘要={summary['stored_item_count']}，条目={len(items)}"
-                )
+                )  # ui-text: internal
             return summary, items
         except sqlite3.Error as exc:
-            raise UserDataError(f"无法原子读取背包快照：{raw_snapshot_id}") from exc
+            raise UserDataError(f"无法原子读取背包快照：{raw_snapshot_id}") from exc  # ui-text: internal
         finally:
             if began:
                 connection.rollback()

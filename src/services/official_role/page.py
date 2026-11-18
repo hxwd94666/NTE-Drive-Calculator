@@ -92,7 +92,7 @@ def save_official_role_tab_order(
 
     normalized = [int(character_id) for character_id in character_ids]
     if any(character_id <= 0 for character_id in normalized):
-        raise ValueError("角色 Tab 顺序包含无效 character_id")
+        raise ValueError("角色 Tab 顺序包含无效 character_id")  # ui-text: internal
     if len(set(normalized)) != len(normalized):
         raise ValueError("角色 Tab 顺序不能包含重复角色")
     with UserDataDao(user_database_path) as user_dao:

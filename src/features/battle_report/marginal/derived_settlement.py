@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import plain_label, resolve_text_catalog
 from collections import defaultdict
 
@@ -114,7 +115,7 @@ class BattleMarginalDerivedSettlementView(QFrame):
             values = (
                 "达芙蒂尔五觉·额外倾陷",
                 first.source_event_id,
-                f"总 {1 + len(group)} 次（基础 1 + 新增 {len(group)}）",
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.marginal.derived_settlement.render.f7bf7bf19', '总 {value} 次（基础 1 + 新增 {count}）', value=f'{1 + len(group)}', count=f'{len(group)}'),
                 f"{per_settlement:,.2f}",
                 f"{gain:+,.2f}",
                 f"{role_gain:+.2f}%",

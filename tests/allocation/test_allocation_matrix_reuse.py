@@ -94,7 +94,9 @@ def test_cold_dispatch_import_does_not_load_scipy():
     import subprocess
     import sys
 
-    names = ("reservation_matching", "drive_candidate_ranker", "role_priority_group_strategy", "role_priority_strategy")
+    # 求解模块已按职责迁入 reservations/、candidates/、strategies/ 子包。
+    names = ("reservations.reservation_matching", "candidates.drive_candidate_ranker",
+             "strategies.role_priority_group_strategy", "strategies.role_priority_strategy")
     sources = {"src.optimizer." + name: importlib.util.find_spec("src.optimizer." + name).origin for name in names}
     code = r"""
 import sys, json, importlib.util, subprocess

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from concurrent.futures import CancelledError
 from copy import deepcopy
@@ -16,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from src.app.page_tasks import PageCommitLane
 from src.app.window_geometry import fit_dialog_to_available_screen
-from src.domain.rewind.dual_target import RewindInventoryChanged
+from src.domain.rewind.dual_target import RewindSourceChanged
 from src.features.drive_assembly.input_backends import PyAutoGuiMouseBackend
 from src.integrations.runtime.operation_guard import bind_execution_guard
 from src.features.drive_assembly.rewind.execution import (
@@ -38,13 +40,21 @@ class RewindExecutionUiMixin:
         return deepcopy((self._strategy_key, self._preferences, self._saved_rewind_shape_ids,
                          self._rewind_options, target_matches))
 
-    def _confirm_rewind_inventory_change(self):
+    def _source_change_lines(self, changes):
+        # 库存在前，角色按正式 ID 稳定排序；显示名只作展示，不参与许可判断。
+        text, names = self.text_catalog.render, getattr(self, '_role_names', {})
+        ordered = sorted(changes, key=lambda row: (row.kind != 'inventory', row.character_id or 0, row.kind))
+        return '\n'.join(text('rewind.execution.source_changed.inventory') if row.character_id is None else
+                         text('rewind.execution.source_changed.' + row.kind,
+                              name=names.get(row.character_id, str(row.character_id))) for row in ordered)
+
+    def _confirm_rewind_source_change(self, changes):
         text = self.text_catalog.render
         message = QMessageBox(self)
-        message.setWindowTitle(text('rewind.execution.inventory_changed.title'))
+        message.setWindowTitle(text('rewind.execution.source_changed.title'))
         message.setIcon(QMessageBox.Warning)
         message.setTextFormat(Qt.PlainText)
-        message.setText(text('rewind.execution.inventory_changed.body'))
+        message.setText(text('rewind.execution.source_changed.body', changes=self._source_change_lines(changes)))
         message.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         set_button_text(message.button(QMessageBox.Ok), text('common.confirm'))
         set_button_text(message.button(QMessageBox.Cancel), text('common.cancel'))
@@ -59,33 +69,37 @@ class RewindExecutionUiMixin:
             message.deleteLater()
 
     def _check_saved_plan(self):
-        """返回本次冻结来源与库存许可；取消或其他来源异常时不产生执行许可。"""
+        """返回本次冻结来源与已确认的变化集合；取消或静态等硬门禁失败时不产生执行许可。"""
         guard = deepcopy(self._preferences.get('saved_guard'))
         if len(self._saved_rewind_shape_ids) != 8 or not guard:
-            return None, False
+            return None, frozenset()
         initial = self._rewind_execution_state()
-        confirmed = False
+        accepted = frozenset()
         try:
             if self._strategy_key == 'dual_target' and self._preferences.get('plan_origin') == 'dual_target' and not self._dual_request_matches_saved():
                 raise ValueError(self.text_catalog.render('rewind.dual.target_changed'))
             try:
                 self._service.validate_dual_target_guard(guard, checkpoint=self._check_selection_context)
-            except RewindInventoryChanged:
-                if not self._confirm_rewind_inventory_change():
+            except RewindSourceChanged as changed:
+                if not self._confirm_rewind_source_change(changed.changes):
                     return None
                 self._check_selection_context()
                 if self._rewind_execution_state() != initial:
                     raise ValueError(self.text_catalog.render('rewind.execution.plan_changed'))
-                self._service.validate_dual_target_guard(guard, checkpoint=self._check_selection_context,
-                                                       inventory_change_confirmed=True)
-                confirmed = True
+                try:
+                    self._service.validate_dual_target_guard(guard, checkpoint=self._check_selection_context,
+                                                           accepted_changes=changed.changes)
+                except RewindSourceChanged as later:
+                    # 确认期间又出现未展示的变化：本次许可不覆盖它，要求用户重新发起。
+                    raise ValueError(self.text_catalog.render('rewind.execution.plan_changed')) from later
+                accepted = changed.changes
         except CancelledError:
             return None
         except Exception as error:
             QMessageBox.warning(self, self.text_catalog.render('rewind.dual.stale_plan'), self._preference_error_text(error))
             return None
         # 确认只在调用栈与本次 worker 内传递，不落库、不存为长期忽略标记。
-        return guard, confirmed
+        return guard, accepted
 
     def _save_plan(self) -> None:
         _ui_text = resolve_text_catalog(getattr(self, 'text_catalog', None)).render
@@ -98,14 +112,8 @@ class RewindExecutionUiMixin:
         if getattr(self, "_recommendation_invalidated", False):
             QMessageBox.warning(self, _ui_text('rewind.execution.save_plan.qmessagebox'), plain_tooltip(_ui_text('rewind.execution.save_plan.qmessagebox.body')))
             return
+        # 保存直接覆盖本策略八槽，并原样记录生成时的冻结来源；库存或所选配装此后更新不阻止保存。
         analysis = getattr(self, "_generated_analysis", None)
-        if analysis is not None:
-            try:
-                self._validate_analysis(analysis)
-            except Exception as error:
-                QMessageBox.warning(self, _ui_text('rewind.execution.save_plan.qmessagebox_2'), self._preference_error_text(error))
-                self._save_plan_button.setEnabled(False)
-                return
         if not self._slots_complete():
             return
         shape_ids = [slot.shape.shape_id for slot in self._editable_slots if slot is not None]
@@ -124,9 +132,7 @@ class RewindExecutionUiMixin:
                                            self._preferences.get('plan_origin', 'manual'))
             try:
                 updated = saver(preferences, save_plan=True, analysis=analysis,
-                    expected_slots=analysis.selected_slots if analysis else (),
-                    static_identity=analysis.static_identity if analysis else None,
-                    checkpoint=self._check_selection_context)
+                                checkpoint=self._check_selection_context)
                 self._remember_preferences(updated)
             except Exception as error:
                 QMessageBox.warning(self, _ui_text('rewind.execution.save_plan.qmessagebox_3'), plain_tooltip(_ui_text('rewind.execution.save_plan.qmessagebox.state', error=self._preference_error_text(error))))
@@ -166,18 +172,19 @@ class RewindExecutionUiMixin:
             return
         if not self._rewind_context_current() or self.is_rewind_running():
             return
-        saved_guard, inventory_change_confirmed = None, False
+        saved_guard, accepted_changes = None, frozenset()
         if self._rewind_options.drive_customization == 'apply_plan':
             approval = self._check_saved_plan()
             if approval is None:
                 return
-            saved_guard, inventory_change_confirmed = approval
+            saved_guard, accepted_changes = approval
         if not self._rewind_context_current() or self.is_rewind_running():
             return
         request = RewindExecutionRequest(
             qualities=self._rewind_options.qualities,
             drive_customization=self._rewind_options.drive_customization,
             shape_ids=self._saved_rewind_shape_ids,
+            ten_limits=self._rewind_options.ten_limits,
         )
         hotkey_manager = self._rewind_hotkey_manager()
         active_owner = getattr(hotkey_manager, "active_owner", None)
@@ -227,8 +234,8 @@ class RewindExecutionUiMixin:
                 try:
                     self._service.validate_dual_target_guard(saved_guard,
                         checkpoint=lambda: execution_guard("interface_input"),
-                        inventory_change_confirmed=inventory_change_confirmed)
-                except RewindInventoryChanged:
+                        accepted_changes=accepted_changes)
+                except RewindSourceChanged:
                     # 尚未创建输入后端；通道交付对象状态，避免异常转成文字后丢失类型。
                     return needs_confirmation
             backend = PyAutoGuiMouseBackend(operation_guard=input_guard, verify_delivery=True)
@@ -250,7 +257,7 @@ class RewindExecutionUiMixin:
                 try:
                     hotkey_manager.stop(owner=self._rewind_hotkey_owner)
                 except Exception as cleanup_error:
-                    error = error or f"停止键收尾失败：{cleanup_error}"
+                    error = error or localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.rewind.execution_ui.terminal.f50ed8e33', '停止键收尾失败：{cleanup_error}', cleanup_error=f'{cleanup_error}')
             pending = getattr(self, "_rewind_pending_done", None)
             if pending is not None:
                 self._rewind_pending_done = None
@@ -264,7 +271,7 @@ class RewindExecutionUiMixin:
                 return
             if error is not None:
                 key = "rewind.execution.error." + str(error)
-                message = self.text_catalog.render(key) if key in self.text_catalog.messages else str(error)
+                message = self.text_catalog.render(key) if key in self.text_catalog.messages else ui_enum_text(self.text_catalog, str(error))
                 self._on_rewind_error(message)
             elif stop_requested.is_set():
                 self._on_rewind_error(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.toolbox.terminal.self'))
@@ -281,7 +288,7 @@ class RewindExecutionUiMixin:
                         return
                     self._start_rewind_execution()
 
-                # 首次检查后库存才更新：物理收尾并归还热键后，回到界面请求确认；从未重发输入。
+                # 首次检查后依据才更新：物理收尾并归还热键后，回到界面请求确认；从未重发输入。
                 QTimer.singleShot(0, self, resume)
             else:
                 self._on_rewind_complete(value)
@@ -341,11 +348,11 @@ class RewindExecutionUiMixin:
         if quality_remaining:
             quality_labels = {"gold": "金", "purple": "紫", "blue": "蓝"}
             remaining_text = "、".join(
-                f"{quality_labels.get(quality, quality)}剩{remaining}"
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.rewind.execution_ui.on_rewind_complete.f5f793103', '{value}剩{remaining}', value=f'{quality_labels.get(quality, quality)}', remaining=f'{remaining}')
                 for quality, remaining in quality_remaining
             )
         else:
-            remaining_text = f"剩余 {getattr(report, 'remaining_currency', 0)}"
+            remaining_text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.toolbox.rewind.execution_ui.on_rewind_complete.f43f955cf', '剩余 {value}', value=f"{getattr(report, 'remaining_currency', 0)}")
         self._start_rewind_button.setText(_ui_text('rewind.execution.on_rewind_complete.start_rewind_button.state', draws=f'{draws}', remaining_text=f'{remaining_text}'))
         self._start_rewind_button.setToolTip(plain_tooltip(_ui_text('rewind.execution.on_rewind_complete.start_rewind_button.hint')))
 

@@ -2,6 +2,7 @@
 """加载方式只记录本机意图；启动与清理复用正式模式 owner。"""
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from typing import Any
 
@@ -38,7 +39,7 @@ def equipment_plugin_loading_method_changed(window: Any, _index: int) -> None:
         window.work_mode_runtime.invalidate()
         window._refresh_equipment_plugin_status()
     except (EquipmentPluginDeploymentError, ModPluginLoadingError) as error:
-        QMessageBox.warning(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.equipment_plugin_loading_method_changed.qmessagebox'), str(error))
+        QMessageBox.warning(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.equipment_plugin_loading_method_changed.qmessagebox'), ui_enum_text(getattr(window, 'text_catalog', None), str(error)))
 
 
 def activate_equipment_plugin_loading_method(window: Any) -> None:
@@ -58,7 +59,7 @@ def start_equipment_mod_loader(window: Any) -> None:
     try:
         window.work_mode_service.require("native_load")
     except PermissionError as error:
-        QMessageBox.warning(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.start_equipment_mod_loader.qmessagebox'), str(error))
+        QMessageBox.warning(window, resolve_text_catalog(getattr(window, 'text_catalog', None)).render('ui.controllers.start_equipment_mod_loader.qmessagebox'), ui_enum_text(getattr(window, 'text_catalog', None), str(error)))
         return
     executable = window.work_mode_service.settings.game_executable
     if not executable.strip():

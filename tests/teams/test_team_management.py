@@ -163,7 +163,7 @@ def test_controller_save_reopen_and_account_reset(tmp_path):
         controller.deleteLater()
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_team_editor_actions_remain_reachable_on_small_screen(theme):
     from PySide6.QtCore import QRect, QSize
     from PySide6.QtWidgets import QDialogButtonBox

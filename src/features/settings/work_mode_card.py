@@ -1,4 +1,5 @@
 # 构建统一工作模式入口、逐功能检查结果与必要处理操作。
+from src.domain.localization.catalog import localized_text
 from src.ui.common.text_catalog import TextActionButton, plain_label, resolve_text_catalog, set_button_text
 from src.ui.common.enum_text import ui_enum_text
 from datetime import datetime
@@ -496,8 +497,7 @@ class ModeReportDialog(QDialog):
         self.settings_button.setVisible(not ready)
 
     def _set_result(self, detail):
-        header = (f"NTE Drive Calc {__version__} · {self.windowTitle()}\n"
-                  f"检测时间：{datetime.now().astimezone().isoformat(timespec='seconds')}")
+        header = (localized_text(getattr(self, 'text_catalog', None), 'auto.features.settings.work_mode_card.set_result.f7ff317ea', 'NTE Drive Calc {version} · {value}\n检测时间：{value_2}', version=f'{__version__}', value=f'{self.windowTitle()}', value_2=f"{datetime.now().astimezone().isoformat(timespec='seconds')}"))
         self._copy_text = header + "\n\n" + detail
         self.metadata.setText(header.replace("\n", "  ·  "))
         self.label.setText(self._copy_text)

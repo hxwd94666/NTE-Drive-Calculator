@@ -498,8 +498,9 @@ class OfficialRoleReplacementTests(unittest.TestCase):
                 side_effect=lambda items, _dao: [dict(item) for item in items],
             ),
             patch(
-                "src.services.official_role.equipment.replacement.calculate_official_role_damage",
-                return_value=110.0,
+                # 候选伤害改为批量计算；每个同槽候选返回同一替换后伤害。
+                "src.services.official_role.equipment.replacement.calculate_official_role_damage_batch",
+                side_effect=lambda details, _key, **_kwargs: [110.0] * len(details),
             ),
             patch(
                 "src.services.official_role.equipment.replacement.calculate_official_role_margins",

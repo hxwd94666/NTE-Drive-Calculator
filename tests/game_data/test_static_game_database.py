@@ -606,7 +606,8 @@ class StaticGameDatabaseTests(unittest.TestCase):
             connection.close()
 
         self.assertEqual(8, counts["feast_stage"])
-        self.assertEqual(32, counts["feast_stage_difficulty"])
+        # 关卡 7 双目标各有 4 个难度行（schema 044 支持多目标）。
+        self.assertEqual(36, counts["feast_stage_difficulty"])
         self.assertEqual(78, counts["feast_option"])
         self.assertEqual(7, counts["divination_buff"])
         self.assertEqual(7, counts["clone_activity_category"])

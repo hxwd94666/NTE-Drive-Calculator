@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from src.domain.localization.catalog import localized_text
 from src.domain.inventory.source_capabilities import is_visual_inventory_source
 from src.services.equipment.loadouts.frozen_loadout import resolve_plan_inventory_items
 from src.services.official_role.static_source import frozen_static_source
@@ -167,7 +168,7 @@ def load_role_inventory_contexts(user_dao, static_dao, catalog, character, chara
         )
         slot_display_name = _display_loadout_slot_name(character, slot)
         extra_saved_contexts[f"saved:{slot['slot_id']}"] = {
-            "title": f"已保存配装 · {slot_display_name}",
+            "title": localized_text(None, 'auto.services.official_role.detail.inventory_contexts.load_role_inventory_contexts.fae58b891', '已保存配装 · {slot_display_name}', slot_display_name=f'{slot_display_name}'),
             "items": resolve_plan_inventory_items(
                 user_dao,
                 plan,

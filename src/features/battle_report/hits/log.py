@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from src.domain.localization.catalog import localized_text
 from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 import math
@@ -34,11 +35,11 @@ def _time(value_us: int) -> str:
     return f"{minutes:02d}:{seconds - minutes * 60:06.3f}"
 
 
-def _hit_character_label(hit: BattleAnalysisHit) -> str:
+def _hit_character_label(hit: BattleAnalysisHit, *, text_catalog=None) -> str:
     return (
         hit.character_name
         if hit.direction == "outgoing"
-        else f"承伤：{hit.character_name}"
+        else localized_text(text_catalog, 'auto.features.battle_report.hits.log.hit_character_label.f35be80b6', '承伤：{character_name}', character_name=f'{hit.character_name}')
     )
 
 
@@ -118,7 +119,7 @@ class BattleAnalysisLogMixin:
                         "—" if signed_error is None else f"{signed_error:+.2f}%"
                     )
                     replay_text = f"{_number(replay.selected_damage)} / {error_text}"
-                crit_text = f"{crit_labels[replay.critical_state]}（推断，{replay.confidence}）"
+                crit_text = localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.hits.log.render_log.fbaecd2f6', '{value}（推断，{confidence}）', value=f'{crit_labels[replay.critical_state]}', confidence=f'{replay.confidence}')
                 details = "\n".join(
                     f"{factor.label}: {factor.value:g}（{factor.evidence_basis}）"
                     for factor in replay.factors
@@ -127,16 +128,16 @@ class BattleAnalysisLogMixin:
                 replay_tooltip = "\n".join(
                     value
                     for value in (
-                        f"观测：{replay.observed_damage:,.0f}",
+                        localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.hits.log.render_log.f664ce04a', '观测：{observed_damage}', observed_damage=f'{replay.observed_damage:,.0f}'),
                         (
                             "非暴击候选：—"
                             if replay.non_critical_damage is None
-                            else f"非暴击候选：{replay.non_critical_damage:,.2f}"
+                            else localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.hits.log.render_log.fbe595818', '非暴击候选：{non_critical_damage}', non_critical_damage=f'{replay.non_critical_damage:,.2f}')
                         ),
                         (
                             "暴击候选：—"
                             if replay.critical_damage is None
-                            else f"暴击候选：{replay.critical_damage:,.2f}"
+                            else localized_text(getattr(self, 'text_catalog', None), 'auto.features.battle_report.hits.log.render_log.f0056de0f', '暴击候选：{critical_damage}', critical_damage=f'{replay.critical_damage:,.2f}')
                         ),
                         details,
                         gaps,
@@ -151,7 +152,7 @@ class BattleAnalysisLogMixin:
             values = (
                 _time(self._display_time_us(hit.relative_time_us)),
                 str(hit.sequence),
-                _hit_character_label(hit),
+                _hit_character_label(hit, text_catalog=getattr(self, 'text_catalog', None)),
                 damage_source_name,
                 render_battle_event_type(
                     hit.classification,

@@ -6,6 +6,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.integrations.runtime.operation_guard import require_operation
 
 
@@ -21,7 +22,7 @@ class InventorySyncCancelled(Exception):
 class CaptureStartError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.domain_code = code
-        super().__init__(f"采集初始化失败（{code}），请重新检测环境。")
+        super().__init__(localized_text(None, 'auto.services.inventory.sync.capture_wait.init.f64865195', '采集初始化失败（{code}），请重新检测环境。', code=f'{code}'))
 
 
 def require_inventory_operation(service: Any, capability: str | None = None) -> None:

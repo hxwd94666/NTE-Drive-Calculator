@@ -24,7 +24,7 @@ def materialize_character_builds(
     for character_id, observed_name, profile in profiles:
         skills = profile.get("skill_levels") or {}
         if not isinstance(skills, Mapping):
-            raise UserDataError(f"角色 {character_id} 的冻结技能配置损坏")
+            raise UserDataError(f"角色 {character_id} 的冻结技能配置损坏")  # ui-text: internal
         (
             character_level,
             breakthrough_stage,

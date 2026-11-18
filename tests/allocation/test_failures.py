@@ -1,4 +1,4 @@
-# 验证同一冻结失败证据、保守短缺说明及正式facade和日志消费。
+# 验证同一冻结失败证据、保守短缺说明及正式facade消费。
 from __future__ import annotations
 
 from copy import deepcopy
@@ -10,7 +10,6 @@ from src.app.facade import NTEAppFacade
 from src.domain.equipment.properties.stat_catalog import StatCatalog
 from src.models.equipment import Drive
 from src.domain.allocation.failures import explain_allocation_failures, allocation_failure_text
-from src.solver.orchestrator import NTEPipelineOrchestrator
 
 NTE_TEST_TIER = "core"
 
@@ -170,16 +169,3 @@ class AllocationFailureTextTests(unittest.TestCase):
 
     def test_missing_reason_retains_diagnostic_fallback(self):
         self.assertEqual(allocation_failure_text(None), "本次未生成可保存方案，原因待诊断")
-
-    def test_failure_log_uses_the_same_reason_as_result_rendering(self):
-        plan = {
-            "valid": False, "reason": "本次候选暴击率上界 60% 低于最小值 70%",
-            "search_status": "candidate_truncated",
-            "group_search": {"members": 6, "completed": 5},
-        }
-        with patch("src.solver.orchestrator.logger") as log:
-            NTEPipelineOrchestrator._render_results(
-                SimpleNamespace(), {"Synthetic": plan}, Mock(), {},
-            )
-        log.error.assert_called_once()
-        self.assertIn(allocation_failure_text(plan), log.error.call_args.args)

@@ -14,6 +14,7 @@ import stat
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from concurrent.futures import CancelledError
+from src.domain.localization.catalog import localized_text
 from src.integrations.vision.recognition.resources import RecognitionResourceError
 from src.integrations.vision.recognition.ocr.model_resources import OcrModelResourceError
 from pathlib import Path
@@ -74,10 +75,7 @@ class ScreenshotCleanupPlan:
 
     def confirmation_text(self) -> str:
         prompt = (
-            "由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n"
-            f"将删除 {self.scan_delete_count} 个其它扫描截图、"
-            f"{self.temp_delete_count} 个临时鉴定粘贴截图，不可恢复。"
-            "\n未完成扫描暂存、发布恢复目录及其它子目录保持不变。"
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.scanning.files.file_lifecycle.confirmation_text.f18215e85', '由于增量逻辑设定，需要保留一张 raw_drive_0001.png，请勿删除。\n\n将删除 {scan_delete_count} 个其它扫描截图、{temp_delete_count} 个临时鉴定粘贴截图，不可恢复。\n未完成扫描暂存、发布恢复目录及其它子目录保持不变。', scan_delete_count=f'{self.scan_delete_count}', temp_delete_count=f'{self.temp_delete_count}')
         )
         if self.baseline_missing:
             prompt += "\n\n注意：丢失用于对比的截图，请重新全量扫描，或不要使用全自动增量扫描。"

@@ -48,7 +48,7 @@ def _shape_matrix(shape: dict[str, Any]) -> list[list[int]]:
     xs = [int(cell["x"]) for cell in cells]
     ys = [int(cell["y"]) for cell in cells]
     if not xs or not ys:
-        raise ValueError(f"官方形状 {shape.get('shape_id')} 没有格位定义")
+        raise ValueError(f"官方形状 {shape.get('shape_id')} 没有格位定义")  # ui-text: internal
     matrix = [[0] * (max(ys) - min(ys) + 1) for _ in range(max(xs) - min(xs) + 1)]
     for cell in cells:
         matrix[int(cell["x"]) - min(xs)][int(cell["y"]) - min(ys)] = 1
@@ -67,7 +67,7 @@ def _custom_board_matrix(cells: list[dict[str, Any]]) -> list[list[int]]:
             board[row][column] = 0
             enabled_count += 1
     if enabled_count != 20:
-        raise ValueError(f"自建角色底盘应为 20 格，实际为 {enabled_count} 格")
+        raise ValueError(f"自建角色底盘应为 20 格，实际为 {enabled_count} 格")  # ui-text: internal
     return board
 
 
@@ -261,7 +261,7 @@ def build_legacy_allocation_static_catalog(
                     continue
                 suit_name = str(default_suit["suit_name_zh"])
                 if suit_name not in sets_db:
-                    raise ValueError(f"角色 [{role_name}] 的官方默认套装不存在：{suit_name}")
+                    raise ValueError(f"角色 [{role_name}] 的官方默认套装不存在：{suit_name}")  # ui-text: internal
                 shape_bonus = get_effective_character_shape_bonus(
                     static_dao, character_id,
                 ) or {}

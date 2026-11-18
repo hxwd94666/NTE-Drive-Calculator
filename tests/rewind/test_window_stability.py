@@ -5,7 +5,7 @@ import json
 
 import pytest
 from PySide6.QtCore import QEvent, QObject, QRect, Qt
-from PySide6.QtWidgets import QToolButton, QWidget
+from PySide6.QtWidgets import QPushButton, QWidget
 
 from tests.rewind.test_dual_target_ui import setup_dialog, cleanup
 from tests.support.theme import themed_app as themed_app, settle
@@ -28,8 +28,7 @@ def test_leaving_dual_target_keeps_window_stable_and_preserves_saved_pool(tmp_pa
             analysis = service.inner.analyze_dual_target_shortfalls(dialog._dual_request())
             dialog._render_dual_results(analysis);settle(app)
             assert dialog.size() == size
-            details = dialog.findChild(QToolButton, 'rewindDualDetails')
-            details.click();settle(app)
+            assert dialog._result_tabs.widget(0).findChild(QPushButton, 'rewindDualOverlap') is not None
             assert dialog.size() == size
             # 用户可手动调整窗口；回切模式不应撤销这个尺寸，也不应强制回到曾记录的旧高度。
             dialog.resize(dialog.width(), 840);settle(app)

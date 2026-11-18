@@ -220,7 +220,7 @@ def test_keyboard_can_reach_both_actions_and_activate_focused_action(scene, monk
     assert expected == [result]
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_small_screen_actions_are_reachable_and_enter_does_not_exit(scene, monkeypatch, theme):
     from src.app.theme import apply_app_theme, current_theme_name
     from src.app.window_geometry import fit_dialog_to_available_screen

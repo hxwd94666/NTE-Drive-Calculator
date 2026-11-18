@@ -233,7 +233,7 @@ class WorkshopWeightTemplateService:
             raise RuntimeError("工坊权重接口返回内容不是有效 JSON") from exc
         if not isinstance(payload, Mapping) or int(payload.get("code") or 0) != 200:
             message = str(payload.get("msg") or "未知错误") if isinstance(payload, Mapping) else "格式异常"
-            raise RuntimeError(f"工坊权重接口返回失败：{message}")
+            raise RuntimeError(f"工坊权重接口返回失败：{message}")  # ui-text: internal
         records = payload.get("data")
         if not isinstance(records, list):
             raise RuntimeError("工坊权重接口 data 不是角色数组")

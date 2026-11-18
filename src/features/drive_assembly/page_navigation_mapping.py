@@ -249,7 +249,7 @@ def map_tape_set_selection(
     normalized_name = _normalize_tape_set_name(set_name)
     if normalized_name not in DEFAULT_TAPE_SET_OPTIONS:
         available = "、".join(DEFAULT_TAPE_SET_OPTIONS)
-        raise ValueError(f"未知套装: {set_name}。可用套装: {available}")
+        raise ValueError(f"未知套装: {set_name}。可用套装: {available}")  # ui-text: internal
     set_option = _scale_controls({normalized_name: DEFAULT_TAPE_SET_OPTIONS[normalized_name]}, screen_size, content_rect)[
         normalized_name
     ]

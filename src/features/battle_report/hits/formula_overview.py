@@ -236,14 +236,19 @@ class HitFormulaOverview(QWidget):
         self.victim.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.victim', portrait_basis=f'{portrait_basis}') + (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.victim_2', monster=f'{monster}') if monster else "")
                               + (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.victim_3') if monster and victim_icon is None else "")))
         self.hit_identity.setText(f"Hit #{hit.sequence} · {hit.relative_time_us / 1_000_000:.3f} s")
-        self.hit_identity.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.hit_identity', event_id=f'{hit.event_id}', value=f"{hit.ability_id or '未取得'}")))
+        self.hit_identity.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.hit_identity', event_id=f'{hit.event_id}', value=f"{hit.ability_id or resolve_text_catalog(getattr(self, 'text_catalog', None)).render('battle_report.hit_inspection.value.unavailable')}")))
         self.skill_name.setText(battle_hit_skill_label(hit.damage_name, hit.skill_name, hit.ability_id))
         self.skill_name.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_hit.skill_name', skill_name=f'{hit.skill_name}', damage_name=f'{hit.damage_name}', event_id=f'{hit.event_id}')))
-        crit = "" if replay is None else {
-            "critical": "暴击", "non_critical": "未暴击", "not_applicable": "不适用暴击",
-            "ambiguous": "暴击待定", "unreplayable": "暴击未知",
-        }.get(replay.critical_state, "暴击未知")
-        self.skill_meta.setText(" · ".join(x for x in ("" if replay is None else f"{replay.formula_type}公式", crit) if x))
+        catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
+        # 暴击判定为稳定状态码；展示文字只经文本目录渲染，未登记状态按“暴击未知”展示。
+        crit_key = {
+            "critical": "critical", "non_critical": "non_critical", "not_applicable": "not_applicable",
+            "ambiguous": "ambiguous",
+        }.get(getattr(replay, "critical_state", None), "unknown")
+        crit = "" if replay is None else catalog.render(f"ui.battle_report.hit_meta.crit.{crit_key}")
+        formula = "" if replay is None else catalog.render(
+            "ui.battle_report.hit_meta.formula", formula_type=f"{replay.formula_type}")
+        self.skill_meta.setText(" · ".join(x for x in (formula, crit) if x))
         panel = None if replay is None else replay.formula_panel_character_id
         self.formula_party.setVisible(panel not in (None, 0, hit.character_id))
         name = (participant_names or {}).get(panel, str(panel))

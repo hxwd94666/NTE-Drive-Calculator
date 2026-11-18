@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.targets.encounter import BattleEncounterCandidate
 from src.domain.battle_report.analysis.backend_contracts import BattleComputeBackend
 from src.domain.battle_report.analysis.snapshot import BattleAnalysisSnapshot
@@ -196,9 +197,7 @@ class BattleEncounterFitProjectionService:
             if row.candidate_ref == selection.winner_ref
         )
         score_audit = "、".join(
-            f"{row.candidate_ref}={row.robust_score:.6f}"
-            f"（{row.used_hit_count}击/{row.used_group_count}组，"
-            f"排除{row.excluded_hit_count}击）"
+            localized_text(None, 'auto.services.battle_report.targets.encounter.fit_projection.select.fee50d60c', '{candidate_ref}={robust_score}（{used_hit_count}击/{used_group_count}组，排除{excluded_hit_count}击）', candidate_ref=f'{row.candidate_ref}', robust_score=f'{row.robust_score:.6f}', used_hit_count=f'{row.used_hit_count}', used_group_count=f'{row.used_group_count}', excluded_hit_count=f'{row.excluded_hit_count}')
             for row in selection.scores
         )
         refined = BattleInferredTargetConditionService.select_residual_candidate(
@@ -209,9 +208,7 @@ class BattleEncounterFitProjectionService:
             score=selected_score,
             score_gap=selection.score_gap,
             audit_basis=(
-                f"残差裁决模式 {selection.selection_mode}；"
-                f"{selection.audit_summary} 候选鲁棒损失：{score_audit}；"
-                f"算法 {selection.algorithm_version}。"
+                localized_text(None, 'auto.services.battle_report.targets.encounter.fit_projection.select.f4c3fd833', '残差裁决模式 {selection_mode}；{audit_summary} 候选鲁棒损失：{score_audit}；算法 {algorithm_version}。', selection_mode=f'{selection.selection_mode}', audit_summary=f'{selection.audit_summary}', score_audit=f'{score_audit}', algorithm_version=f'{selection.algorithm_version}')
             ),
         )
         return BattleEncounterFitProjectionOutcome(

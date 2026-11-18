@@ -164,5 +164,5 @@ def rank_replacement_candidates_by_damage(
         current_margin = calc_tape_margin(role_data)
         ranked = [(calc_tape_replacement_margin(role_data, candidate), candidate) for candidate in candidates]
     else:
-        raise ValueError(f"不支持的装备类别：{item_kind}")
+        raise ValueError(f"不支持的装备类别：{item_kind}")  # ui-text: internal
     return current_margin, sorted(ranked, key=lambda entry: entry[0], reverse=True)

@@ -31,7 +31,7 @@ def warehouse_item_with_state(
 ) -> dict[str, Any]:
     """Apply a local state edit to one projected card without touching SQLite."""
     if target_state not in {"normal", "locked", "discarded"}:
-        raise ValueError(f"未知仓库状态：{target_state}")
+        raise ValueError(f"未知仓库状态：{target_state}")  # ui-text: internal
     if not item.get("state_known", True):
         raise ValueError("当前库存来源无法读取或修改锁定、弃置状态")
     updated = dict(item)

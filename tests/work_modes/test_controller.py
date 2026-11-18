@@ -66,7 +66,7 @@ def controller(tmp_path, monkeypatch, qt_app):
                         lambda self, detail: (popups.append("warning"), original_error(self, detail)))
     monkeypatch.setattr(module.QMessageBox, "warning", lambda *args: popups.append("warning"))
     monkeypatch.setattr(module.QMessageBox, "information", lambda *args: popups.append("info"))
-    monkeypatch.setattr(module, "confirm_mode", lambda *args: True)
+    monkeypatch.setattr(module, "confirm_mode", lambda *args, **_kwargs: True)
     window = QWidget()
     window.app_context = SimpleNamespace(generation=1, paths=SimpleNamespace(config_dir=tmp_path, root=tmp_path))
     window.global_hotkey_manager = SimpleNamespace(request_stop=lambda: events.append("input_stop"))
@@ -311,7 +311,7 @@ def test_home_guidance_navigates_to_workbench_instead_of_settings(controller, mo
     routes = []
     c._navigate = routes.append
 
-    def explain(_parent, _feature, _detail, navigate, target):
+    def explain(_parent, _feature, _detail, navigate, target, **_kwargs):
         navigate(target)
 
     monkeypatch.setattr(module, "explain_operation_unavailable", explain)
@@ -431,7 +431,8 @@ def test_paused_manual_check_does_not_connect(controller):
     c.runtime.tick = lambda **kwargs: observed.append(kwargs) or probe
     c.check(show=True)
     c._observer.run_jobs()
-    assert observed == [{"allow_connect": False}]
+    # 文案目录随调用透传；这里只核对暂停时不允许连接。
+    assert [call["allow_connect"] for call in observed] == [False]
 
 
 def test_offline_revokes_capture_and_queues_teardown_before_next_observation(controller):
@@ -538,7 +539,7 @@ def test_previous_persisted_snapshot_is_not_current_login_proof(controller):
     )
     captured = []
     original = policy.build_report
-    policy.build_report = lambda value: captured.append(value) or original(value)
+    policy.build_report = lambda value, **kwargs: captured.append(value) or original(value, **kwargs)
     c._apply((policy.settings.revision, 1, probe, 0))
     assert not captured[0].packet_snapshot and not captured[0].logged_in
     assert window.observed_sync_probes == captured
@@ -651,7 +652,7 @@ def test_cancel_then_reselect_survives_background_and_can_confirm(controller, mo
     for _ in range(2):
         c._apply((policy.settings.revision, 1, probe, 0))
     assert combo.currentData() == target
-    monkeypatch.setattr(module, "confirm_mode", lambda *args: False)
+    monkeypatch.setattr(module, "confirm_mode", lambda *args, **_kwargs: False)
     combo.activated.emit(combo.currentIndex())
     assert policy.settings.mode.value == initial
     assert combo.currentData() == initial
@@ -659,7 +660,7 @@ def test_cancel_then_reselect_survives_background_and_can_confirm(controller, mo
     combo.setCurrentIndex(combo.findData(target))
     c._apply((policy.settings.revision, 1, probe, 0))
     assert combo.currentData() == target
-    monkeypatch.setattr(module, "confirm_mode", lambda *args: True)
+    monkeypatch.setattr(module, "confirm_mode", lambda *args, **_kwargs: True)
     combo.activated.emit(combo.currentIndex())
     assert policy.settings.mode.value == target
     assert combo.currentData() == target

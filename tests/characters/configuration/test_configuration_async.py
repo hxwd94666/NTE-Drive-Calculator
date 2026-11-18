@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QVBoxLayout, QW
 from src.features.configuration.editing import form, commit
 from src.features.configuration.page_owner import BasicWeightPage
 from src.ui.controllers.configuration_controller import defer_page_transition
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 def wait(predicate):
@@ -48,7 +49,7 @@ def editor(tmp_path, monkeypatch):
              **{key: [] for key in ("property_labels", "sub_choices", "main_choices", "shape_bonus_choices", "shape_label_choices", "suit_choices")}}
     monkeypatch.setattr(controller, "load_form_data", lambda: deepcopy(model))
 
-    def render(_window, roles, active_role=None):
+    def render(_window, roles, active_role=None, **_kwargs):
         rendered.append(deepcopy(roles))
         window.config_form_layout.addWidget(QLabel("fixture form"))
     monkeypatch.setattr(form, "render_roles_form", render)

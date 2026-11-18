@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.domain.localization.catalog import localized_text
 from src.features.static_catalog.contracts import (
     CatalogDetail,
     CatalogDomain,
@@ -228,7 +229,7 @@ class StaticCatalogCounterfactualProvider(_FormulaProviderBase):
             ).casefold()
         )
         return self._page(
-            tuple(self._item(entry) for entry in matched),
+            tuple(self._item(entry, text_catalog=getattr(self, 'text_catalog', None)) for entry in matched),
             offset=offset,
             limit=limit,
         )
@@ -308,14 +309,15 @@ class StaticCatalogCounterfactualProvider(_FormulaProviderBase):
             ),
         )
         return CatalogDetail(
-            item=self._item(entry),
+            item=self._item(entry, text_catalog=getattr(self, 'text_catalog', None)),
             sections=sections,
             notes=tuple(notes),
         )
 
     @classmethod
-    def _item(cls, entry: CounterfactualSupportEntry) -> CatalogItem:
-        subtitle = f"{entry.category} · 生产状态 {entry.status}"
+    def _item(cls, entry: CounterfactualSupportEntry, *, text_catalog=None) -> CatalogItem:
+        subtitle = localized_text(text_catalog, "static_catalog.counterfactual.item.subtitle", "{category} · 生产状态 {status}",
+                                  category=f"{entry.category}", status=f"{entry.status}")
         if entry.key == "native_counterfactual_core":
             subtitle += " · C++ 独立差分验证，非生产入口"
         return CatalogItem(

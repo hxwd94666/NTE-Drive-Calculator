@@ -46,9 +46,9 @@ def normalize_frozen_advancement(
         fork_level = None
         fork_stage = None
     elif fork_level is None:
-        raise UserDataError(f"角色 {character_id} 的冻结弧盘缺少等级")
+        raise UserDataError(f"角色 {character_id} 的冻结弧盘缺少等级")  # ui-text: internal
     elif fork_stage is None:
-        raise UserDataError(f"角色 {character_id} 的冻结弧盘缺少突破阶段")
+        raise UserDataError(f"角色 {character_id} 的冻结弧盘缺少突破阶段")  # ui-text: internal
     elif not _valid_breakthrough_stage_for_level(fork_level, fork_stage):
         raise UserDataValidationError("弧盘等级与突破阶段不匹配")
     frozen_profile = dict(profile)

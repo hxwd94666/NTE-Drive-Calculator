@@ -86,11 +86,11 @@ def _uid(value: Mapping[str, Any], field: str) -> dict[str, int]:
     for component in ("slot", "serial"):
         raw = value.get(component)
         if isinstance(raw, bool) or not isinstance(raw, int):
-            raise EquipmentApplyError(f"{field}.{component} 必须是整数")
+            raise EquipmentApplyError(f"{field}.{component} 必须是整数")  # ui-text: internal
         if raw <= 0 or raw >= MAX_UID_COMPONENT:
             raise EquipmentApplyError(
                 f"{field}.{component} 必须在 1 到 {MAX_UID_COMPONENT - 1} 之间"
-            )
+            )  # ui-text: internal
         result[component] = raw
     return result
 
@@ -171,7 +171,7 @@ class EquipmentApplyService:
                     raise EquipmentApplyError(
                         "极速全角色方案冲突："
                         f"[{previous_target}] 与 [{role_name}] 指向同一个角色实例"
-                    )
+                    )  # ui-text: internal
         for role_name, plan in validated:
             for assignment in plan["assignments"]:
                 uid_pair = self._uid_pair(assignment)
@@ -181,7 +181,7 @@ class EquipmentApplyService:
                         "极速全角色方案冲突："
                         f"装备 UID {uid_pair} 同时被 [{previous_role}]、[{role_name}] 使用。"
                         "请先在方案中替换其中一个装备后再执行。"
-                    )
+                    )  # ui-text: internal
 
     def _dispatch_with_busy_retry(
         self,
@@ -271,7 +271,7 @@ class EquipmentApplyService:
                 raise EquipmentApplyError(
                     f"当前稳定背包快照未包含{requested_label}主角实例 UID；"
                     "请改为自动或选择当前账号实际主角"
-                )
+                )  # ui-text: internal
             return (requested_id,)
         if len(present_ids) == 1:
             return (next(iter(present_ids)),)
@@ -311,7 +311,7 @@ class EquipmentApplyService:
         if len(current_candidates) > 1:
             raise EquipmentApplyError(
                 f"当前稳定背包中角色 {character_id} 对应多个角色实例 UID"
-            )
+            )  # ui-text: internal
 
         # 手动映射仅兜底缺失的历史角色列表，不覆盖当前快照独立采集的角色UID。
         manual_candidates = {
@@ -324,7 +324,7 @@ class EquipmentApplyService:
         if len(manual_candidates) > 1:
             raise EquipmentApplyError(
                 f"角色 {character_id} 存在多个手动保存的实例 UID，请在装配前整理映射"
-            )
+            )  # ui-text: internal
 
         # nte-core 0.3.5 的角色列表在实际使用中可能发生临时缩短（例如同一
         # 账号上一份快照有 14 名角色、下一份只有 12 名）。映射表属于账号
@@ -351,7 +351,7 @@ class EquipmentApplyService:
             raise EquipmentApplyError(
                 f"角色 {character_id} 在账号实例缓存中存在多个 UID，"
                 "请先在一键装配中手动选择角色实例并保存映射"
-            )
+            )  # ui-text: internal
         raise EquipmentApplyError(
             "当前稳定背包和该账号的角色实例缓存均未包含该角色 UID；"
             "请启动背包同步并等待 nte-core 完成一次稳定快照"
@@ -381,7 +381,7 @@ class EquipmentApplyService:
             raise EquipmentApplyError("指定的稳定背包快照不存在")
         plan = self.read_plan(plan_id)
         if plan is None:
-            raise EquipmentApplyError(f"装配方案 {plan_id} 不存在")
+            raise EquipmentApplyError(f"装配方案 {plan_id} 不存在")  # ui-text: internal
         inventory_by_uid = {
             (item["uid_serial"], item["uid_slot"]): item
             for item in self.user_dao.list_inventory_items(snapshot_id)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from tests.rewind.preferences_fixture import ProfileServiceFixture
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 import os
 
@@ -372,7 +373,7 @@ def test_rewind_execution_dialog_shows_stop_key_and_disables_custom_for_blue_onl
         for button in dialog.findChildren(QPushButton, "rewindCustomizationTile")
     }
 
-    assert "执行期间可按设置中的全局停止键F12停止。" in descriptions
+    assert "只进行十连抽取，执行期间可按设置中的全局停止键F12停止。" in descriptions
     assert dialog.options().drive_customization == "none"
     assert custom_buttons["none"].isChecked()
     assert not custom_buttons["enabled"].isEnabled()

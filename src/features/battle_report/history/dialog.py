@@ -40,15 +40,17 @@ def _local_time(value: str) -> str:
         return value
 
 
-def _scene_label(entry: BattleReportHistoryEntry) -> str:
+def _scene_label(entry: BattleReportHistoryEntry, catalog=None) -> str:
+    # 环境名称是正式游戏数据，原样保留；只有来源后缀与兜底说明经目录渲染。
+    catalog = resolve_text_catalog(catalog)
     if entry.environment_name:
-        suffix = "（推断）" if entry.environment_source == "inferred" else "（已确认）"
-        return f"{entry.environment_name}{suffix}"
+        source = "inferred" if entry.environment_source == "inferred" else "confirmed"
+        return catalog.render(f"battle_report.history.scene.{source}", name=f"{entry.environment_name}")
     if entry.combat_context_kind != "abyss":
-        return "未知场景"
+        return catalog.render("battle_report.history.scene.unknown")
     if entry.abyss_floor is None:
-        return "深渊"
-    return f"深渊 · 第 {entry.abyss_floor} 层"
+        return catalog.render("battle_report.history.scene.abyss")
+    return catalog.render("battle_report.history.scene.abyss_floor", floor=f"{entry.abyss_floor}")
 
 
 class BattleReportHistoryDialog(QDialog):
@@ -128,17 +130,18 @@ class BattleReportHistoryDialog(QDialog):
         self.empty_label.setVisible(not entries)
         for row, entry in enumerate(entries):
             self.table.setItem(row, 0, self._text_item(str(entry.battle_record_id)))
-            kind = self._text_item("完整" if entry.native_capture else "部分")
+            catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
+            kind = self._text_item(catalog.render(
+                "battle_report.history.capture.complete" if entry.native_capture else "battle_report.history.capture.partial"))
             kind.setToolTip(plain_tooltip(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.battle_report.set_entries.kind')))
             self.table.setItem(row, 1, kind)
             self.table.setCellWidget(row, 2, self._characters_widget(entry))
             self.table.setItem(row, 3, self._text_item(_local_time(entry.saved_at_utc)))
-            self.table.setItem(row, 4, self._text_item(_scene_label(entry)))
-            summary = (
-                f"伤害 {_format_number(entry.total_damage)}  ·  "
-                f"DPS {_format_number(entry.total_dps)}\n"
-                f"{entry.duration_seconds:.1f}s  ·  {entry.total_hits:,} 命中"
-            )
+            self.table.setItem(row, 4, self._text_item(_scene_label(entry, catalog)))
+            summary = catalog.render(
+                "battle_report.history.summary", damage=_format_number(entry.total_damage),
+                dps=_format_number(entry.total_dps), seconds=f"{entry.duration_seconds:.1f}",
+                hits=f"{entry.total_hits:,}")
             self.table.setItem(row, 5, self._text_item(summary))
             self.table.setCellWidget(row, 6, self._status_widget(entry, text_catalog=getattr(self, 'text_catalog', None)))
             self.table.setCellWidget(row, 7, self._actions_widget(entry))

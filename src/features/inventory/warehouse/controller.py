@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.ui.common.enum_text import ui_enum_text
+from src.domain.localization.catalog import localized_text
 from src.observability.stage_timings import StageTimings, timed_call
 
 from src.ui.common.text_catalog import TextActionButton, plain_label, plain_tooltip, resolve_text_catalog
@@ -594,10 +596,7 @@ def _on_warehouse_state_applied(self, result):
             for item in getattr(self, "_warehouse_all_items", [])
         ]
     result_message = (
-        f"弃置/锁定操作结果：弃置 {summary['discard_set_count']} 件，"
-        f"锁定 {summary['lock_set_count']} 件，"
-        f"取消弃置 {summary['discard_clear_count']} 件，"
-        f"取消锁定 {summary['lock_clear_count']} 件。"
+        localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.warehouse.controller.on_warehouse_state_applied.fed9c6854', '弃置/锁定操作结果：弃置 {value} 件，锁定 {value_2} 件，取消弃置 {value_3} 件，取消锁定 {value_4} 件。', value=f"{summary['discard_set_count']}", value_2=f"{summary['lock_set_count']}", value_3=f"{summary['discard_clear_count']}", value_4=f"{summary['lock_clear_count']}")
     )
     if getattr(result, "inventory_reduction_observed", False):
         result_message += (
@@ -605,8 +604,7 @@ def _on_warehouse_state_applied(self, result):
         )
     if getattr(result, "verified", False) and not getattr(result, "inventory_reduction_observed", False):
         result_message += (
-            f"\n\n已通过游戏返回的新稳定快照 "
-            f"#{after_snapshot_id} 确认，仓库将自动刷新。"
+            localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.warehouse.controller.on_warehouse_state_applied.f55ac201c', '\n\n已通过游戏返回的新稳定快照 #{after_snapshot_id} 确认，仓库将自动刷新。', after_snapshot_id=f'{after_snapshot_id}')
         )
         timed_call(timings, "gui.result_prompt", QMessageBox.information,
             self,
@@ -616,8 +614,7 @@ def _on_warehouse_state_applied(self, result):
     else:
         if not getattr(result, "verified", False):
             result_message += (
-                "\n\n修改指令已经提交，但尚未从游戏快照完整确认。"
-                f"\n{getattr(result, 'verification_error', None) or '等待后续背包快照确认。'}"
+                localized_text(getattr(self, 'text_catalog', None), 'auto.features.inventory.warehouse.controller.on_warehouse_state_applied.f1700c2ce', '\n\n修改指令已经提交，但尚未从游戏快照完整确认。\n{value}', value=f"{getattr(result, 'verification_error', None) or ui_enum_text(getattr(self, 'text_catalog', None), '等待后续背包快照确认。')}")
             )
         timed_call(timings, "gui.result_prompt", QMessageBox.warning,
             self,

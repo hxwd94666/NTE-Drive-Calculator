@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QWidget
 
 from src.domain.localization.catalog import TextCatalog
 from src.integrations.preferences.locale_files import bundled_text_catalog
+from src.ui.common.display_projection import project
 
 
 def resolve_text_catalog(catalog: TextCatalog | None) -> TextCatalog:
@@ -24,7 +25,8 @@ def plain_label(text="", parent=None) -> QLabel:
 
 
 def plain_tooltip(text) -> str:
-    value = str(text)
+    # 富文本外壳会让整句匹配失效，因此在转义前先做显示投影。
+    value = project(str(text))
     # 空的富文本外壳仍会让 Qt 弹出边框；无内容时必须真正清除提示属性。
     return "<qt>" + escape(value).replace("\n", "<br>") + "</qt>" if value.strip() else ""
 
@@ -59,7 +61,7 @@ class _ElisionTooltip:
         super().setToolTip(tooltip)
 
     def _set_full_text(self, text):
-        value = str(text)
+        value = project(str(text))
         # 文案换成另一条状态时不沿用旧原因；同值重绘和窗口变化保留已有帮助。
         # 显式空字符串表示调用方不要提示，这个意图仍需跨文案更新保留。
         if value != getattr(self, '_full_text', None) and getattr(self, '_explicit_text_tooltip', None):
@@ -118,7 +120,7 @@ class ElidedTextLabel(_ElisionTooltip, QLabel):
 class _ButtonTextFilter(QObject):
     def __init__(self, button, text):
         super().__init__(button)
-        self.text = str(text)
+        self.text = project(str(text))
         self._automatic_tooltip = ''
 
     def refresh(self, button):
@@ -160,7 +162,7 @@ class TextActionButton(_ElisionTooltip, QPushButton):
 
     def __init__(self, text, parent=None):
         super().__init__(parent)
-        self._full_text = str(text)
+        self._full_text = project(str(text))
         self.setAccessibleName(self._full_text)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._refresh()

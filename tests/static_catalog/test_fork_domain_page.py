@@ -29,6 +29,7 @@ from src.services.static_catalog.common.terminology import (
 )
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
 from src.ui.progression.progression_material_card import ProgressionMaterialCard
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 ROOT = Path(__file__).resolve().parents[2]

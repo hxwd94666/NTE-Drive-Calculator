@@ -26,7 +26,7 @@ def _load(path: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
-        raise DistributionError(f"数据维护记录损坏：{path}；请先恢复记录。") from error
+        raise DistributionError(f"数据维护记录损坏：{path}；请先恢复记录。") from error  # ui-text: internal
 
 
 def _databases(root: Path) -> list[tuple[Path, dict]]:
@@ -79,7 +79,7 @@ def prepare_data_upgrade(root: Path, package: Path, distribution: Distribution,
     pending = root / "maintenance" / "pending-upgrade.json"
     if pending.exists():
         identity = _load(pending).get("recovery_id", "unknown")
-        raise DistributionError(f"上次数据升级未完成（恢复点 {identity}）；请显式恢复后再启动。")
+        raise DistributionError(f"上次数据升级未完成（恢复点 {identity}）；请显式恢复后再启动。")  # ui-text: internal
     databases = _databases(root)
     for path, info in databases:
         if info["account_id"] is not None:

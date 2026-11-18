@@ -43,8 +43,12 @@ def test_d3d_confirmation_leads_with_game_exit_and_defaults_to_cancel(monkeypatc
         assert dialog.objectName() == 'd3dDeploymentConfirmation'
         assert '完全退出游戏' in dialog.findChild(QLabel, 'd3dDeploymentExitWarning').text()
         assert 'd3d12.dll' in dialog.findChild(QLabel, 'd3dDeploymentChanges').text()
-        buttons = {button.text(): button for button in dialog.findChildren(QPushButton)}
+        # 按真实弹出时的布局核对：完整文字保存在可访问名称，布局后显示文字不得被省略。
+        dialog.show()
+        app.processEvents()
+        buttons = {button.accessibleName() or button.text(): button for button in dialog.findChildren(QPushButton)}
         assert set(buttons) == {'取消', '已退出游戏，继续部署'}
+        assert all(button.text() == name for name, button in buttons.items())
         assert buttons['取消'].isDefault()
         buttons[action].click()
         return dialog.result()

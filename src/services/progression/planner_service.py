@@ -301,9 +301,9 @@ class CultivationPlannerService:
                     continue
                 maximum = _skill_maximum_level(skill)
                 if not 1 <= target.current_level <= maximum:
-                    raise ValueError(f"{skill.name_zh or skill.skill_id} 当前等级无效")
+                    raise ValueError(f"{skill.name_zh or skill.skill_id} 当前等级无效")  # ui-text: internal
                 if not target.current_level <= target.target_level <= maximum:
-                    raise ValueError(f"{skill.name_zh or skill.skill_id} 目标等级无效")
+                    raise ValueError(f"{skill.name_zh or skill.skill_id} 目标等级无效")  # ui-text: internal
                 if target.current_level == target.target_level:
                     continue
                 projection = project_skill_level_requirements(

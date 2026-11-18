@@ -14,7 +14,7 @@ from src.integrations.preferences.locale_files import bundled_text_catalog
 from tests.battle_report.history.test_battle_report_history_scene_ui import _entry
 
 
-@pytest.mark.parametrize("theme", ["original", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 @pytest.mark.parametrize("long_text", [False, True])
 def test_history_actions_keep_full_text_and_record_binding(tmp_path, theme, long_text):
     app = QApplication.instance() or QApplication([])

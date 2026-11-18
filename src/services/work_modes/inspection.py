@@ -9,6 +9,7 @@ from pathlib import Path
 from dataclasses import replace
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.localization.catalog import TextCatalog, localized_text
 from src.domain.preferences.work_mode import (
     Capability,
@@ -304,7 +305,7 @@ def detection_failure_detail(
         local_detail = detail.replace('\n', ' | ')
         if context is not None and context.executable_path:
             path = context.executable_path.replace('\r', r'\r').replace('\n', r'\n')
-            local_detail += f' | Core 路径：{path}'
+            local_detail += localized_text(text_catalog, 'auto.services.work_modes.inspection.detection_failure_detail.f0a5dd6a8', ' | Core 路径：{path}', path=f'{path}')
         logger.warning('environment.detection_failed | {}', local_detail)
     return detail
 

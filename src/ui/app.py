@@ -1,5 +1,6 @@
 # PySide6 主窗口入口和功能模块挂载。
 """组合桌面窗口及功能 owner；数据准备只在显式启动时执行。"""
+from src.ui.common.enum_text import ui_enum_text
 from src.ui.common.text_catalog import plain_tooltip, resolve_text_catalog
 from src.ui.startup.process_privileges import ensure_process_privileges
 from src.ui.composition.axis_allocation_composition import build_axis_allocation_selection_service, build_team_report_matching_service
@@ -97,6 +98,12 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
         self.text_catalog = self._language_settings.startup().catalog
         from src.app.theme import install_dialog_defaults
         install_dialog_defaults(QApplication.instance(), catalog=self.text_catalog)
+        # 冻结目录后打开显示边界投影；中文目录为空操作，业务判断与数据仍用原文。
+        from src.ui.common.display_projection import set_display_catalog
+        from src.integrations.static_catalog.game_names import official_game_names
+        set_display_catalog(self.text_catalog, excluded=(
+            frozenset() if self.text_catalog.locale == "zh-CN"
+            else official_game_names(self.app_context.paths.static_database_path)))
         from src.ui.role_suit_matching.controller import RoleSuitMatchingController
         self.role_suit_matching = RoleSuitMatchingController(
             self.app_context, self.text_catalog, self)
@@ -642,12 +649,12 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 except Exception:
                     logger.error("账号恢复受阻，自动监听仍在退场；新的副作用权限已撤销")
                 self.setEnabled(False)
-                QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.accounts.delete_account.qmessagebox'), str(exc))
+                QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.accounts.delete_account.qmessagebox'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
                 return exc.committed
             if not self.equipment_persistence_controller.is_running():
                 self.equipment_persistence_controller.rebuild()
             committed = isinstance(exc, AccountSwitchError) and exc.committed
-            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_8') if committed else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_9'), str(exc))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_8') if committed else resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_9'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
             return committed
         log_event("INFO", "account.switch_succeeded", "账号切换完成", operation,
                   target_account_id=account_id, new_context_generation=self.app_context.generation)
@@ -655,7 +662,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
             try:
                 self._maybe_auto_start_inventory_sync()
             except Exception as exc:
-                QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_8'), str(exc))
+                QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.app.switch_account.qmessagebox_8'), ui_enum_text(getattr(self, 'text_catalog', None), str(exc)))
         return True
 
     def _on_app_context_account_changed(self, event: AccountChangedEvent):

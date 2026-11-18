@@ -6,6 +6,7 @@ from src.features.battle_report.analysis.target_conditions import BattleTargetCo
 from src.features.battle_report.analysis.target_vitals import BattleTargetVitalPanel
 from src.services.battle_report.targets.catalog import BattleTargetCatalogService
 from src.storage.sqlite.static_game_data_dao import StaticGameDataDao
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class BattleTargetConditionUiTests(unittest.TestCase):
@@ -34,7 +35,7 @@ class BattleTargetConditionUiTests(unittest.TestCase):
 
         self.assertEqual("DiyBossStage8", preset["environment_ref"])
         self.assertEqual(4, preset["difficulty_id"])
-        # 正式服当前 Stage8 极难为 77 级墨菲克斯，静态档案防御为 1062。
+        # 正式服当前 Stage8 目标为玛门（boss_17_BP_DiyBoss），极难静态档案防御为 1062。
         self.assertEqual(1062.0, preset["enemy_defense_base"])
         self.assertEqual(0.5, preset["resistances"]["cosmos"])
         self.assertEqual("DamageUpGeneralBase", preset["witch_buff_property_id"])
@@ -89,7 +90,7 @@ class BattleTargetConditionUiTests(unittest.TestCase):
         self.assertEqual(4, emitted[0]["difficulty_id"])
         self.assertEqual(0.125, emitted[0]["defense_reduction"])
         self.assertEqual(
-            ["mon_48_BP_Diy"],
+            ["boss_17_BP_DiyBoss"],
             list(emitted[0]["selected_target_ids"]),
         )
 

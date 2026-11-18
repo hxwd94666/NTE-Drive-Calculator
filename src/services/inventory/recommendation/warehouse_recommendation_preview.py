@@ -60,7 +60,7 @@ class RecommendationGuard:
         missing=[uid for uid in self.required_retained_uids
                  if targets.get(uid,'discarded' if uid in self.initially_discarded_uids else 'normal')=='discarded']
         if missing:
-            raise ValueError(f'有 {len(missing)} 件已验证配装所需装备未保留。请同时采用所需恢复建议，或重新计算后再弃置。')
+            raise ValueError(f'有 {len(missing)} 件已验证配装所需装备未保留。请同时采用所需恢复建议，或重新计算后再弃置。')  # ui-text: internal
 
     @timed("guard.total")
     def require_current(self, *, check_snapshot=True, timings=None):

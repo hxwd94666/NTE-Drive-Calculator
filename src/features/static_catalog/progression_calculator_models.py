@@ -220,7 +220,7 @@ class ProgressionCalculatorOrchestrator:
             return self._prepare_fork(request)
         if isinstance(request, Mapping):
             return self._prepare_character(request)
-        raise TypeError("公共养成计算器只接受角色字典或 ForkProgressionRequest")
+        raise TypeError("公共养成计算器只接受角色字典或 ForkProgressionRequest")  # ui-text: internal
 
     def identification_level(
         self,
@@ -306,15 +306,15 @@ class ProgressionCalculatorOrchestrator:
     ) -> ProgressionCalculatorSession:
         kind = str(request.get("kind") or "").strip()
         if kind not in {"character_level", "skill"}:
-            raise ValueError(f"不支持的角色养成请求：{kind or '<empty>'}")
+            raise ValueError(f"不支持的角色养成请求：{kind or '<empty>'}")  # ui-text: internal
         character_id = str(request.get("character_id") or "").strip()
         if not character_id:
-            raise ValueError("角色养成请求缺少 character_id")
+            raise ValueError("角色养成请求缺少 character_id")  # ui-text: internal
         entity_id = character_id
         if kind == "skill":
             skill_id = str(request.get("skill_id") or "").strip()
             if not skill_id:
-                raise ValueError("技能养成请求缺少 skill_id")
+                raise ValueError("技能养成请求缺少 skill_id")  # ui-text: internal
             entity_id = f"{character_id}:{skill_id}"
         status = _status(request.get("requirement_status"), default=None)
         raw_requirements = _tuple_value(request.get("requirements"), "requirements")
@@ -392,7 +392,7 @@ class ProgressionCalculatorOrchestrator:
         for raw in requirements:
             item_id = str(_field(raw, "item_id") or "").strip()
             if not item_id:
-                raise ValueError("材料需求缺少稳定 item_id")
+                raise ValueError("材料需求缺少稳定 item_id")  # ui-text: internal
             term = self._terminology.resolve(
                 "item",
                 item_id,
@@ -492,18 +492,18 @@ def _status(value: object, *, default: StaminaPlanStatus | None) -> StaminaPlanS
     try:
         return StaminaPlanStatus(str(value))
     except ValueError as exc:
-        raise ValueError(f"无效的材料需求状态：{value!r}") from exc
+        raise ValueError(f"无效的材料需求状态：{value!r}") from exc  # ui-text: internal
 
 
 def _tuple_value(value: object, label: str) -> tuple[object, ...]:
     if value is None:
         return ()
     if isinstance(value, (str, bytes, Mapping)):
-        raise TypeError(f"{label} 必须是 DTO 序列")
+        raise TypeError(f"{label} 必须是 DTO 序列")  # ui-text: internal
     try:
         return tuple(value)  # type: ignore[arg-type] # validated generic DTO iterable
     except TypeError as exc:
-        raise TypeError(f"{label} 必须是 DTO 序列") from exc
+        raise TypeError(f"{label} 必须是 DTO 序列") from exc  # ui-text: internal
 
 
 def _gaps(value: object) -> tuple[ProgressionUpstreamGap, ...]:
@@ -541,13 +541,13 @@ def _optional_nonnegative_int(value: object) -> int | None:
 
 def _nonnegative_int(value: object, label: str) -> int:
     if isinstance(value, bool):
-        raise ValueError(f"{label} 必须是非负整数")
+        raise ValueError(f"{label} 必须是非负整数")  # ui-text: internal
     try:
         parsed = int(str(value).strip())
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"{label} 必须是非负整数") from exc
+        raise ValueError(f"{label} 必须是非负整数") from exc  # ui-text: internal
     if parsed < 0 or str(value).strip() != str(parsed):
-        raise ValueError(f"{label} 必须是非负整数")
+        raise ValueError(f"{label} 必须是非负整数")  # ui-text: internal
     return parsed
 
 

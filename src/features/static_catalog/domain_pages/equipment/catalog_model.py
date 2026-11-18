@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.services.static_catalog.common.terminology import (
     StaticCatalogTerminologyService,
 )
@@ -373,7 +374,7 @@ class EquipmentCatalogPageController:
         return (
             term.display_name
             if term.display_name.endswith("级")
-            else f"{term.display_name}级"
+            else localized_text(getattr(self, 'text_catalog', None), 'auto.features.static_catalog.domain_pages.equipment.catalog_model.quality_name.f833789ed', '{display_name}级', display_name=f'{term.display_name}')
         )
 
     def graduations(self, suit_id: str) -> tuple[GraduationLink, ...]:

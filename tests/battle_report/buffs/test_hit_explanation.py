@@ -16,6 +16,7 @@ from src.services.battle_report.buffs.hit_explanation import (
     BattleHitBuffExplanationService,
 )
 from src.services.battle_report.buffs.attribute_projection import BattleBuffAttributeProjectionService
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 def _hit() -> BattleAnalysisHit:

@@ -100,25 +100,25 @@ def _canonical_characters(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     declared_count = payload.get("character_count")
     if declared_count is not None:
         if isinstance(declared_count, bool) or not isinstance(declared_count, int) or declared_count < 0:
-            raise ValueError("背包快照 character_count 必须是非负整数")
+            raise ValueError("背包快照 character_count 必须是非负整数")  # ui-text: internal
         if declared_count != len(characters):
             raise ValueError(
                 f"背包快照声明 {declared_count} 个角色，但实际包含 {len(characters)} 条"
-            )
+            )  # ui-text: internal
     result: list[dict[str, Any]] = []
     seen_character_ids: set[int] = set()
     seen_uids: set[tuple[int, int]] = set()
     for index, raw_character in enumerate(characters):
         if not isinstance(raw_character, Mapping):
-            raise ValueError(f"角色实例 characters[{index}] 必须是对象")
+            raise ValueError(f"角色实例 characters[{index}] 必须是对象")  # ui-text: internal
         character_id = _integer_or_none(raw_character.get("character_id"))
         uid = raw_character.get("uid")
         if character_id is None or character_id <= 0 or not isinstance(uid, Mapping):
-            raise ValueError(f"角色实例 characters[{index}] 缺少有效 character_id 或 uid")
+            raise ValueError(f"角色实例 characters[{index}] 缺少有效 character_id 或 uid")  # ui-text: internal
         slot = _integer_or_none(uid.get("slot"))
         serial = _integer_or_none(uid.get("serial"))
         if slot is None or serial is None or slot <= 0 or serial <= 0:
-            raise ValueError(f"角色实例 characters[{index}].uid 必须包含正整数 slot/serial")
+            raise ValueError(f"角色实例 characters[{index}].uid 必须包含正整数 slot/serial")  # ui-text: internal
         if character_id in seen_character_ids or (slot, serial) in seen_uids:
             raise ValueError("背包快照包含重复角色实例")
         seen_character_ids.add(character_id)
@@ -136,30 +136,30 @@ def _validated_content(
 
     item_count = payload.get("item_count")
     if isinstance(item_count, bool) or not isinstance(item_count, int) or item_count < 0:
-        raise ValueError("背包快照 item_count 必须是非负整数")
+        raise ValueError("背包快照 item_count 必须是非负整数")  # ui-text: internal
     items = payload.get("items")
     if not isinstance(items, list):
         raise ValueError("背包快照 items 必须是数组")
     if item_count != len(items):
         raise ValueError(
             f"背包快照声明 {item_count} 件，但实际包含 {len(items)} 条"
-        )
+        )  # ui-text: internal
 
     canonical_items: list[dict[str, Any]] = []
     uids: set[tuple[int, int]] = set()
     for index, raw_item in enumerate(items):
         if not isinstance(raw_item, Mapping):
-            raise ValueError(f"背包条目 items[{index}] 必须是对象")
+            raise ValueError(f"背包条目 items[{index}] 必须是对象")  # ui-text: internal
         uid = raw_item.get("uid")
         if not isinstance(uid, Mapping):
-            raise ValueError(f"背包条目 items[{index}].uid 必须是对象")
+            raise ValueError(f"背包条目 items[{index}].uid 必须是对象")  # ui-text: internal
         slot = _integer_or_none(uid.get("slot"))
         serial = _integer_or_none(uid.get("serial"))
         if slot is None or serial is None:
-            raise ValueError(f"背包条目 items[{index}].uid 必须包含非负整数 slot/serial")
+            raise ValueError(f"背包条目 items[{index}].uid 必须包含非负整数 slot/serial")  # ui-text: internal
         key = (slot, serial)
         if key in uids:
-            raise ValueError(f"背包快照包含重复 UID：slot={slot}, serial={serial}")
+            raise ValueError(f"背包快照包含重复 UID：slot={slot}, serial={serial}")  # ui-text: internal
         uids.add(key)
         canonical_items.append(_canonical_item(raw_item))
 
@@ -198,7 +198,7 @@ class InventorySnapshotStabilizer:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if settle_seconds <= 0:
-            raise ValueError("settle_seconds 必须大于 0")
+            raise ValueError("settle_seconds 必须大于 0")  # ui-text: internal
         self.settle_seconds = float(settle_seconds)
         self._clock = clock
         self._candidate: StableInventorySnapshot | None = None

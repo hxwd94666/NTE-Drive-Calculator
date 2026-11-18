@@ -25,6 +25,7 @@ class AllocationPreviewDiscardTests(unittest.TestCase):
             _allocation_lock_snapshot=object(), _selected_locked_role_names=frozenset({"role"}),
             _allocation_custom_weapons={"role": "fork"}, _pending_sel=["role"],
             _equipment_presentation=SimpleNamespace(clear=lambda: cleared.append(True)),
+            _pending_timings=None, btn_save=None,
         )
         AllocationController.clear_preview(owner)
         self.assertEqual({}, owner.final_plan)

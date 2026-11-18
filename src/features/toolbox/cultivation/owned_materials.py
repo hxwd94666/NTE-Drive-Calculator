@@ -466,7 +466,7 @@ def visible_materials(
     if scope == "all":
         return materials
     if scope != "stamina":
-        raise ValueError(f"未知材料范围：{scope}")
+        raise ValueError(f"未知材料范围：{scope}")  # ui-text: internal
     return tuple(item for item in materials if item.item_id in stamina_item_ids)
 
 

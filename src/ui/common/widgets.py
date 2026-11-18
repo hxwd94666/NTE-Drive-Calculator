@@ -116,7 +116,7 @@ class SearchableComboBox(NoWheelComboBox):
 
     def eventFilter(self, obj, event):
         if obj is self.lineEdit() and event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress):
-            QTimer.singleShot(0, self._open_all)
+            QTimer.singleShot(0, self, self._open_all)
         return super().eventFilter(obj, event)
 
 

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
 from src.domain.characters.native_role_sync import NativeRoleSyncResult
 from src.features.official_role.dependencies import OfficialRoleDependencies
 from src.features.official_role.sync_controller import CharacterProfileSyncController, RoleSyncResultText
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 class DeferredThread:

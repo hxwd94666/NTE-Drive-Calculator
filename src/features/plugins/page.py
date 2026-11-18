@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import theme_color
+from src.ui.common.enum_text import ui_enum_text
 
 
 class _ToggleSwitch(QCheckBox):
@@ -99,7 +100,7 @@ class PluginsPage(QWidget):
         try:
             self.quick_wheel.set_enabled(enabled)
         except (OSError, RuntimeError, ValueError) as error:
-            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.init.wheel_badge_wheel_layout'), str(error))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.init.wheel_badge_wheel_layout'), ui_enum_text(self.text_catalog, str(error)))
         self._refresh_wheel()
 
     def _refresh_wheel(self):
@@ -111,7 +112,7 @@ class PluginsPage(QWidget):
         self.wheel_toggle.blockSignals(False)
         self.wheel_toggle.setEnabled(self.service.policy.allowed("native_load") or self.quick_wheel.enabled)
         text, tone = self._wheel_status_presentation(self.quick_wheel.status, self.quick_wheel.enabled)
-        self._set_badge(self.wheel_badge, text, tone, self.quick_wheel.status)
+        self._set_badge(self.wheel_badge, text, tone, self.quick_wheel.status, self.text_catalog)
         self.wheel_status.setText(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.refresh_wheel.wheel_status', owned_count=f'{self.quick_wheel.owned_count}'))
 
     @staticmethod
@@ -167,7 +168,7 @@ class PluginsPage(QWidget):
         options.setSpacing(24)
         boxes = {}
         for field, text in fields:
-            box = QCheckBox(text)
+            box = QCheckBox(ui_enum_text(self.text_catalog, text))
             box.toggled.connect(lambda enabled, field=field: self._update(**{field: enabled}))
             options.addWidget(box)
             boxes[field] = box
@@ -208,9 +209,10 @@ class PluginsPage(QWidget):
         return "等待连接", "active"
 
     @staticmethod
-    def _set_badge(status: QLabel, text: str, tone: str, detail: str) -> None:
-        status.setText(text)
-        status.setToolTip(detail if detail and detail != text else "")
+    def _set_badge(status: QLabel, text: str, tone: str, detail: str, catalog=None) -> None:
+        # 状态判定用服务原文；只有展示文字经目录投影，原文不同于标签时作为诊断提示保留。
+        status.setText(ui_enum_text(catalog, text))
+        status.setToolTip(ui_enum_text(catalog, detail) if detail and detail != text else "")
         status.setProperty("tone", tone)
         status.style().unpolish(status)
         status.style().polish(status)
@@ -229,7 +231,7 @@ class PluginsPage(QWidget):
             toggle.setEnabled(allowed or checked)
             toggle.blockSignals(False)
             text, tone = self._status_presentation(raw_status, checked)
-            self._set_badge(status, text, tone, raw_status)
+            self._set_badge(status, text, tone, raw_status, self.text_catalog)
             for field, box in self.option_boxes[key].items():
                 box.blockSignals(True)
                 box.setChecked(getattr(settings, field))
@@ -246,7 +248,7 @@ class PluginsPage(QWidget):
         }
         self.notice.setText(
             self.service.load_error
-            or next((status for status in active_statuses if status not in known_statuses), "")
+            or ui_enum_text(self.text_catalog, next((status for status in active_statuses if status not in known_statuses), ""))
             or (resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.init.notice') if allowed else
                 resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.refresh.notice'))
         )
@@ -276,7 +278,7 @@ class PluginsPage(QWidget):
         try:
             self.service.update(**changes)
         except (PermissionError, OSError, ValueError) as error:
-            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.update.qmessagebox'), str(error))
+            QMessageBox.warning(self, resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.plugins.update.qmessagebox'), ui_enum_text(self.text_catalog, str(error)))
         else:
             self.request_apply()
         self.refresh()

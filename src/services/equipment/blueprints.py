@@ -23,7 +23,7 @@ def official_shape_matrix(shape: dict) -> list[list[int]]:
     if not cells:
         raise ValueError(
             f"官方形状 {shape.get('shape_id') or '未知'} 未提供格子数据"
-        )
+        )  # ui-text: internal
     rows = [int(cell["x"]) for cell in cells]
     columns = [int(cell["y"]) for cell in cells]
     min_row, min_column = min(rows), min(columns)
@@ -73,7 +73,7 @@ def official_board(plan: dict) -> list[list[int]]:
         raise ValueError(
             f"{plan.get('character_name_zh') or plan.get('character_id')} "
             f"的官方盘面应为 20 格，实际为 {playable} 格"
-        )
+        )  # ui-text: internal
     return board
 
 
@@ -91,7 +91,7 @@ def custom_board(cells: Iterable[dict]) -> list[list[int]]:
             board[row][column] = 0
             enabled_count += 1
     if enabled_count != 20:
-        raise ValueError(f"自建角色底盘应为 20 格，实际为 {enabled_count} 格")
+        raise ValueError(f"自建角色底盘应为 20 格，实际为 {enabled_count} 格")  # ui-text: internal
     return board
 
 

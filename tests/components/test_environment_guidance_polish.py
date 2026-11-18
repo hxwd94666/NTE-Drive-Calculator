@@ -152,7 +152,7 @@ def test_upgrade_same_mode_cancel_restores_selection_without_resuming(controller
     policy.set_paused(True)
     frozen = policy.settings
     c._upgrade_action("mode")
-    monkeypatch.setattr(work_mode_controller, "confirm_mode", lambda *_args: False)
+    monkeypatch.setattr(work_mode_controller, "confirm_mode", lambda *_args, **_kwargs: False)
     c.select_mode("low")
     assert combo.currentData() == "low" and policy.settings == frozen
 

@@ -38,7 +38,7 @@ def prepare_role_calculation_values(detail, context_key, *, base_property_weight
     with role_damage_calculator(source, checkpoint=checkpoint) as calculator:
         margins = calculate_official_role_margins(source, context_key, calculator=calculator)
         weights = calculate_official_role_final_weights(source, context_key, margins=margins,
-            base_property_weights=base, base_main_property_weights=mains)
+            base_property_weights=base, base_main_property_weights=mains, calculator=calculator)
         weighted = {**source, 'property_weights': weights['property_weights'],
                     'main_property_weights': weights['main_property_weights']}
         graduation_rate({**source, 'property_weights': base, 'main_property_weights': mains},

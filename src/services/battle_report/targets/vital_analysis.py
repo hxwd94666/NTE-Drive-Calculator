@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.services.battle_report.targets.observation import target_event_sequence
 
 from src.domain.battle_report.targets.profiles import BattleMaxHpReductionEvent, BattleTargetCondition
@@ -433,8 +434,7 @@ class BattleTargetVitalAnalysisService:
             hp_ratio = min(1.0, max(0.0, settlement_hp / old_max_hp))
             effective_hp_loss = max_hp_reduction * hp_ratio
             basis += (
-                f" 结算前生命取同一旧 HPMax 附近逐击的最小可靠 HPAfter "
-                f"{settlement_hp:g}；下降后首行正式伤害不重复扣除此结算。"
+                localized_text(None, 'auto.services.battle_report.targets.vital_analysis.derive.fed218ffb', ' 结算前生命取同一旧 HPMax 附近逐击的最小可靠 HPAfter {settlement_hp}；下降后首行正式伤害不重复扣除此结算。', settlement_hp=f'{settlement_hp:g}')
             )
 
             evidence_ids = tuple(
@@ -707,9 +707,9 @@ class BattleTargetVitalAnalysisService:
                 damage=event.effective_hp_loss,
                 evidence_event_ids=(),
                 detail_lines=(
-                    f"最大生命 {event.old_max_hp:,.0f} → {event.new_max_hp:,.0f}",
-                    f"结算前生命比例 {event.hp_ratio_before * 100:.2f}%",
-                    f"归因置信度 {event.attribution_confidence} / 结算置信度 {event.calculation_confidence}",
+                    localized_text(None, 'auto.services.battle_report.targets.vital_analysis.timeline_groups.ff83674d4', '最大生命 {old_max_hp} → {new_max_hp}', old_max_hp=f'{event.old_max_hp:,.0f}', new_max_hp=f'{event.new_max_hp:,.0f}'),
+                    localized_text(None, 'auto.services.battle_report.targets.vital_analysis.timeline_groups.f4d4a3bf6', '结算前生命比例 {value}%', value=f'{event.hp_ratio_before * 100:.2f}'),
+                    localized_text(None, 'auto.services.battle_report.targets.vital_analysis.timeline_groups.f492e125c', '归因置信度 {attribution_confidence} / 结算置信度 {calculation_confidence}', attribution_confidence=f'{event.attribution_confidence}', calculation_confidence=f'{event.calculation_confidence}'),
                     event.inference_basis,
                 ),
             )

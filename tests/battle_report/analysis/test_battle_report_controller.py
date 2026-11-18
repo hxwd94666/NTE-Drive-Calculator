@@ -236,7 +236,7 @@ def test_start_freezes_raw_capture_setting_and_account_directory(compare: bool, 
             created.append(kwargs)
 
     class Pair(_StartedCaptureService):
-        def __init__(self, *, services, parent, defer_packet_start=False):
+        def __init__(self, *, services, parent, defer_packet_start=False, **_kwargs):
             self.services = services
             self.started = False
             self.comparison_changed = SimpleNamespace(connect=lambda _callback: None)

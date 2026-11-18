@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.domain.localization.catalog import localized_text
 from src.domain.official_role.advancement import character_growth_choices, fork_breakthrough_choices
 
 
@@ -34,7 +35,7 @@ def character_level_summary(
 
 def fork_level_summary(
     detail: Mapping[str, Any],
-    profile: Mapping[str, Any],
+    profile: Mapping[str, Any], *, text_catalog=None,
 ) -> str:
     fork_id = str(profile.get("fork_id") or "")
     if not fork_id:
@@ -62,7 +63,7 @@ def fork_level_summary(
             suffix = "（突破前）"
         elif int(stage) == int(choices[-1].get("stage") or 0):
             suffix = "（突破后）"
-    return f"弧盘 Lv.{level}{suffix}/精{refinement}"
+    return localized_text(text_catalog, 'auto.features.battle_report.editing.change_summary.fork_level_summary.f97c1ce7c', '弧盘 Lv.{level}{suffix}/精{refinement}', level=f'{level}', suffix=f'{suffix}', refinement=f'{refinement}')
 
 
 __all__ = ["character_level_summary", "fork_level_summary"]

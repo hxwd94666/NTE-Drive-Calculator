@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.quantification import BattleDamageQuantification, QuantificationStatus
 from src.domain.battle_report.counterfactual.results import BattleDamageCoverage
 
@@ -41,7 +42,7 @@ def quantified_coverage_text(
 
 
 def damage_coverage_text(
-    coverage: BattleDamageCoverage | None,
+    coverage: BattleDamageCoverage | None, *, text_catalog=None,
 ) -> str:
     if coverage is None or coverage.basis_damage <= 0.0:
         return "—"
@@ -49,8 +50,8 @@ def damage_coverage_text(
     unresolved = coverage.unresolved_percent or 0.0
     if unresolved > 0.0:
         if covered > 0.0:
-            return f"至少 {covered:.1f}%（另 {unresolved:.1f}% 未判定）"
-        return f"未判定 {unresolved:.1f}%"
+            return localized_text(text_catalog, 'auto.features.battle_report.analysis.quantification.damage_coverage_text.f7f8a48ff', '至少 {covered}%（另 {unresolved}% 未判定）', covered=f'{covered:.1f}', unresolved=f'{unresolved:.1f}')
+        return localized_text(text_catalog, 'auto.features.battle_report.analysis.quantification.damage_coverage_text.f84dfdb42', '未判定 {unresolved}%', unresolved=f'{unresolved:.1f}')
     return f"{covered:.1f}%"
 
 
@@ -59,7 +60,7 @@ def format_quantified_value(
     status: QuantificationStatus,
     complete_value: float | None,
     quantified_value: float | None,
-    formatter: Callable[[float], str],
+    formatter: Callable[[float], str], text_catalog=None,
 ) -> str:
     if status == "complete":
         return "—" if complete_value is None else formatter(complete_value)
@@ -67,7 +68,7 @@ def format_quantified_value(
         return (
             "—"
             if quantified_value is None
-            else f"已量化 {formatter(quantified_value)}"
+            else localized_text(text_catalog, 'auto.features.battle_report.analysis.quantification.format_quantified_value.f33760be3', '已量化 {value}', value=f'{formatter(quantified_value)}')
         )
     if status == "not_applicable":
         return "不适用"

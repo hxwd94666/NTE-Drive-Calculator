@@ -64,8 +64,10 @@ class ProfileServiceFixture:
         return self.load_preferences('dual_target')
 
     def save_dual_target_preferences(self, value, *, guard=None, checkpoint=lambda: None, **kwargs):
-        if guard is not None:
-            self.inner.validate_dual_target_guard(guard)
+        # 与正式保存一致：只拒绝静态换版，库存或所选配装更新照常覆盖并保留原冻结来源。
+        static_identity = getattr(self.inner, 'static_identity', None)
+        if guard is not None and static_identity is not None and guard.static_identity != static_identity():
+            raise ValueError('rewind_source_changed')
         fields = dict(value, strategy='dual_target')
         if 'saved_rewind_shape_ids' in fields:
             fields.update(saved_guard=guard_payload(guard) if guard else None,

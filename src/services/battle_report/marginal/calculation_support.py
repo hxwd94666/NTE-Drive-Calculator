@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.quantification import (
     BattleCounterfactualRatio, BattleDamageQuantification, BattleQuantificationGap, QuantificationStatus,
 )
@@ -321,13 +322,10 @@ def marginal_assumption(
         if property_id in {"CritBase", "CritDamageBase"}:
             policies = "/".join(sorted(set(critical_policies))) or "unknown"
             return (
-                f"当前相关逐击暴击策略为 {policies}，变化缺少正式策略；"
-                "未知不会退回本场暴击拟合，也不会显示为零收益。"
+                localized_text(None, 'auto.services.battle_report.marginal.calculation_support.marginal_assumption.f35caf784', '当前相关逐击暴击策略为 {policies}，变化缺少正式策略；未知不会退回本场暴击拟合，也不会显示为零收益。', policies=f'{policies}')
             )
         return (
-            "当前相关变化缺少必要公式输入，本项未量化；"
-            f"已将 {applied_count} 个动态 Buff 区间按击投影，"
-            f"{excluded_count} 个区间未进入数值。"
+            localized_text(None, 'auto.services.battle_report.marginal.calculation_support.marginal_assumption.f846d64ab', '当前相关变化缺少必要公式输入，本项未量化；已将 {applied_count} 个动态 Buff 区间按击投影，{excluded_count} 个区间未进入数值。', applied_count=f'{applied_count}', excluded_count=f'{excluded_count}')
         )
     if status == "partial":
         return (
@@ -337,11 +335,11 @@ def marginal_assumption(
     if status == "not_applicable":
         if property_id in {"CritBase", "CritDamageBase"}:
             policies = "/".join(sorted(set(critical_policies))) or "unknown"
-            return f"当前相关逐击暴击策略为 {policies}，已证明该单位变化不作用。"
+            return localized_text(None, 'auto.services.battle_report.marginal.calculation_support.marginal_assumption.ff6d496e1', '当前相关逐击暴击策略为 {policies}，已证明该单位变化不作用。', policies=f'{policies}')
         return "已证明该属性单位变化不作用于当前相关逐击，收益精确为零。"
     if property_id in {"CritBase", "CritDamageBase"}:
         policies = "/".join(sorted(set(critical_policies))) or "character"
-        basis = f"按逐击 {policies} 暴击策略比较理论期望，以逐击伤害加权，不冻结本场暴击结果。"
+        basis = localized_text(None, 'auto.services.battle_report.marginal.calculation_support.marginal_assumption.fb325b15c', '按逐击 {policies} 暴击策略比较理论期望，以逐击伤害加权，不冻结本场暴击结果。', policies=f'{policies}')
     elif property_id == "MagBase":
         basis = (
             "仅重放已保存结构化环合公式的覆纹、创生、浊燃与黯星逐击；"
@@ -352,8 +350,7 @@ def marginal_assumption(
     else:
         basis = "以真实逐击伤害为锚点，仅替换角色属性相关乘区。"
     return (
-        f"{basis}已将 {applied_count} 个动态 Buff 区间按击投影；"
-        f"{excluded_count} 个区间因常驻重复或证据不足未进入数值。"
+        localized_text(None, 'auto.services.battle_report.marginal.calculation_support.marginal_assumption.f363897bf', '{basis}已将 {applied_count} 个动态 Buff 区间按击投影；{excluded_count} 个区间因常驻重复或证据不足未进入数值。', basis=f'{basis}', applied_count=f'{applied_count}', excluded_count=f'{excluded_count}')
     )
 
 
@@ -371,6 +368,5 @@ def formula_context_assumption(
     if not confidences:
         return ""
     return (
-        f" 其中包含公式身份推论（置信度：{'/'.join(confidences)}）；"
-        "逐击数值可重放不会提高该身份推论的置信度。"
+        localized_text(None, 'auto.services.battle_report.marginal.calculation_support.formula_context_assumption.ff5c9efb8', ' 其中包含公式身份推论（置信度：{value}）；逐击数值可重放不会提高该身份推论的置信度。', value=f"{'/'.join(confidences)}")
     )

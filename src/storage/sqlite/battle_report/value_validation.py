@@ -22,5 +22,5 @@ def _optional_text(value: Any) -> str | None:
 def _required_text(value: Any, label: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
-        raise UserDataValidationError(f"{label} 不能为空")
+        raise UserDataValidationError(f"{label} 不能为空")  # ui-text: internal
     return normalized

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 
 from src.services.work_modes.service import WorkModeService
+from src.ui.common.text_catalog import plain_tooltip
 from src.ui.controllers.environment_controller import (
     _deploy_equipment_plugin, _diagnose_nte_core,
     _refresh_equipment_plugin_status,
@@ -54,7 +55,8 @@ def test_deploy_stops_with_clear_message_while_game_is_running(game_running, war
     warning.assert_called_once_with(
         window,
         "部署装备插件",
-        "检测到游戏正在运行。\n请完全退出游戏后再部署插件。",
+        # 提示正文统一经 plain_tooltip 按纯文本呈现。
+        plain_tooltip("检测到游戏正在运行。\n请完全退出游戏后再部署插件。"),
     )
 
 

@@ -97,3 +97,27 @@ def test_append_migration_preserves_single_target_difficulty_options_and_foreign
     assert (row["stage_id"],row["boss_monster_id"],row["monster_level"],row["pack_id"]) == ('legacy','boss_actual',60,'boss_pack')
     assert database.execute("SELECT option_id FROM feast_stage_option").fetchone()[0] == 'option'
     assert database.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_single_target_display_name_yields_to_unique_family_formal_name(database):
+    # 关卡换 Boss 后展示文案仍写旧名：同一数字家族在深渊刷怪中有唯一正式名时以其为准。
+    database.executescript("""
+        CREATE TABLE abyss_monster_pool_entry(monster_class_path TEXT, monster_name_zh TEXT);
+        INSERT INTO abyss_monster_pool_entry VALUES
+            ('/Game/Monster/boss_17/Abyss/Boss_017_BP_Abyss.Boss_017_BP_Abyss_C','玛门');
+        INSERT INTO monster_instance_profile VALUES('monster_static_big_world','boss_17_BP_DiyBoss');
+        INSERT INTO monster_instance_profile_variant VALUES
+            ('monster_static_big_world','boss_17_BP_DiyBoss','clone_level',60,'standard','boss17_pack');
+        DELETE FROM clone_spawn_member;
+        INSERT INTO clone_spawn_member VALUES('formal_spawn',0,0,'boss_17_BP_DiyBoss',3,60);
+    """)
+    value = builder(database)
+    value._import_feast_catalog()
+    row = dict(database.execute("SELECT boss_monster_id, boss_name_zh FROM feast_stage_difficulty").fetchone())
+    assert row == {"boss_monster_id": "boss_17_BP_DiyBoss", "boss_name_zh": "玛门"}
+    # 家族没有其他正式名时，仍沿用关卡展示文案。
+    database.execute("DELETE FROM abyss_monster_pool_entry")
+    for table in ("feast_stage_option", "feast_stage_difficulty", "feast_stage_member", "feast_stage"):
+        database.execute(f"DELETE FROM {table}")
+    value._import_feast_catalog()
+    assert database.execute("SELECT boss_name_zh FROM feast_stage_difficulty").fetchone()[0] == "总览名称"

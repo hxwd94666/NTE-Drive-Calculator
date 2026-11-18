@@ -12,13 +12,13 @@ def reject_links(path: Path) -> None:
     """检查已有父链，拒绝 junction/symlink 将数据写入另一个归属。"""
     for part in (path, *path.parents):
         if part.is_symlink():
-            raise DistributionError(f"数据路径包含链接：{part}")
+            raise DistributionError(f"数据路径包含链接：{part}")  # ui-text: internal
         try:
             attributes = getattr(part.lstat(), "st_file_attributes", 0)
         except FileNotFoundError:
             continue
         if attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
-            raise DistributionError(f"数据路径包含重解析点：{part}")
+            raise DistributionError(f"数据路径包含重解析点：{part}")  # ui-text: internal
 
 
 class DataRootLease:
@@ -44,7 +44,7 @@ class DataRootLease:
                 fcntl.flock(self._stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
             self._stream.close()
-            raise DistributionError(f"数据目录正由其他进程使用：{self.root}；请先退出该程序。") from error
+            raise DistributionError(f"数据目录正由其他进程使用：{self.root}；请先退出该程序。") from error  # ui-text: internal
 
     def close(self) -> None:
         if not self._stream.closed:

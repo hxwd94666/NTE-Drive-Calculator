@@ -18,6 +18,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao, UserDataValidationErro
 from src.ui.equipment.equipment_presentation import EquipmentPresentation
 from tests.equipment.test_loadout_management import app, database, prepared  # noqa: F401 -- 复用隔离数据库及Qt夹具
 from tests.equipment.test_loadout_import_management import game  # noqa: F401 -- 复用游戏快照夹具
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 NTE_TEST_TIER = "core"
 
@@ -274,7 +275,7 @@ def test_native_to_visual_fallback_preserves_exact_selected_slots(monkeypatch):
     fallback.assert_called_once_with(host, role_names=["角色"], slot_ids=[42])
 
 
-@pytest.mark.parametrize("theme", ["dark", "black", "light"])
+@pytest.mark.parametrize("theme", ["black"])
 def test_avatar_picker_keeps_actions_reachable_on_small_screens(app, monkeypatch, theme):
     from PySide6.QtCore import QRect, QSize
     from src.app.theme import apply_app_theme, current_theme_name

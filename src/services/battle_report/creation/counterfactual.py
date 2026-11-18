@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.domain.localization.catalog import localized_text
 from src.domain.battle_report.counterfactual.results import (
     BattleBuffBeneficiaryResult, BattleBuffCounterfactualResult, BattleDamageCoverage,
 )
@@ -189,9 +190,7 @@ class BattleCreationPassiveCounterfactualService:
                 confidence="高",
                 method="explicit_fixed_axis_event_removal",
                 explanation=(
-                    "仅删除真实固定轴上由正式 Ability/GE 明确证明属于该被动的"
-                    f" {len(matched)} 个逐击；直接伤害已量化，下游状态和派生"
-                    "联动保持未量化。"
+                    localized_text(None, 'auto.services.battle_report.creation.counterfactual.calculate.f4514b9d5', '仅删除真实固定轴上由正式 Ability/GE 明确证明属于该被动的 {count} 个逐击；直接伤害已量化，下游状态和派生联动保持未量化。', count=f'{len(matched)}')
                 ),
                 quantification=quantification,
                 beneficiaries=beneficiaries,

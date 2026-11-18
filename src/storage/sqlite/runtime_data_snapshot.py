@@ -21,7 +21,7 @@ def database_identity(path: Path, account_id: str | None = None) -> dict:
         version = int(db.execute("SELECT MAX(version) FROM schema_migration").fetchone()[0] or 0)
         limit = SCHEMA_VERSION if account_id is not None else SHARED_SCHEMA_VERSION
         if version > limit:
-            raise DataSnapshotError(f"数据结构版本 {version} 高于当前程序支持的 {limit}；请使用匹配程序。")
+            raise DataSnapshotError(f"数据结构版本 {version} 高于当前程序支持的 {limit}；请使用匹配程序。")  # ui-text: internal
         if account_id is not None:
             actual = db.execute("SELECT account_id FROM database_profile WHERE singleton_id=1").fetchone()
             if not actual or actual[0] != account_id:

@@ -60,7 +60,7 @@ def decode_battle_report_bundle(data: bytes) -> dict[str, Any]:
     if magic != BATTLE_REPORT_BUNDLE_MAGIC:
         raise BattleReportBundleError("文件不是 NTE 战报包")
     if version != BATTLE_REPORT_BUNDLE_VERSION:
-        raise BattleReportBundleError(f"不支持的战报包容器版本：{version}")
+        raise BattleReportBundleError(f"不支持的战报包容器版本：{version}")  # ui-text: internal
     if compression != _COMPRESSION_ZLIB or flags != 0:
         raise BattleReportBundleError("战报包使用了当前版本不支持的编码")
     if packed_size > _MAX_COMPRESSED_BYTES or raw_size > _MAX_JSON_BYTES:

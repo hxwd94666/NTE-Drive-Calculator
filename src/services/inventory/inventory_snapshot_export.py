@@ -25,7 +25,7 @@ def export_inventory_snapshot(
             raise ValueError("尚无可导出的稳定背包快照")
         summary = user_dao.inventory_snapshot_summary(selected_id)
         if summary is None or not summary.get("complete"):
-            raise ValueError(f"背包快照 {selected_id} 不存在或未完成")
+            raise ValueError(f"背包快照 {selected_id} 不存在或未完成")  # ui-text: internal
         return {
             "snapshot_id": selected_id,
             "source": summary["source"],

@@ -318,7 +318,7 @@ class StaticCatalogMiscService:
     def detail(self, entity_kind: str, entity_key: str) -> CatalogDetail | SourceTrace:
         domain = _ENTITY_DOMAIN.get(str(entity_kind))
         if domain is None:
-            raise ValueError(f"不支持的资料库实体：{entity_kind!r}")
+            raise ValueError(f"不支持的资料库实体：{entity_kind!r}")  # ui-text: internal
         if entity_kind == "source_file":
             return self.source_trace(source_file_id=int(entity_key))
         if entity_kind == "source_row":
@@ -333,7 +333,7 @@ class StaticCatalogMiscService:
             else:
                 raw = None
         if raw is None:
-            raise LookupError(f"资料库中不存在 {entity_kind}:{entity_key}")
+            raise LookupError(f"资料库中不存在 {entity_kind}:{entity_key}")  # ui-text: internal
         return self._detail_from_raw(entity_kind, entity_key, raw)
 
     def source_trace(

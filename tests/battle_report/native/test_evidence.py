@@ -11,6 +11,7 @@ from src.integrations.battle_analysis.page_wire import decode
 from src.services.battle_report.native.evidence_rendering import render_native_evidence
 from tests.battle_report.buffs.test_hit_explanation import _hit
 from tests.components.native_execution_fixture import execution_evidence
+from tests.support.qt_cleanup import dispose_windows_created_by_test as dispose_windows_created_by_test
 
 
 def native_hit(attacker=None, victim=None):

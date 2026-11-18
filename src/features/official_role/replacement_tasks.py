@@ -93,7 +93,9 @@ class ReplacementTaskOwner(QObject):
     def prepare(self, read):
         """保留模态bool交互，但exec只泵Qt事件，SHA/query在已有PageTaskLane。"""
         result, errors = [], []
-        progress = QProgressDialog("正在准备替换候选…", "取消", 0, 0, self.parent())
+        catalog = resolve_text_catalog(getattr(self, 'text_catalog', None))
+        progress = QProgressDialog(catalog.render('ui.official_role.show_replacement_optimizer.status_label'),
+                                   catalog.render('common.cancel'), 0, 0, self.parent())
         progress.setWindowTitle(resolve_text_catalog(getattr(self, 'text_catalog', None)).render('ui.inventory.open_official_saved_plan_optimizer.qmessagebox'))
         progress.setWindowModality(Qt.WindowModal)
         progress.setAutoClose(False)

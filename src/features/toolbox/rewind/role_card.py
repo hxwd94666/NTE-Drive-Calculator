@@ -11,7 +11,7 @@ class RewindRoleCard(RoleSelectionCard):
         self.set_reference(role, selected_reference)
 
     def set_reference(self, role, selected_reference):
-        display = rewind_role_card_presentation(role, selected_reference)
+        display = rewind_role_card_presentation(role, selected_reference, text_catalog=getattr(self, 'text_catalog', None))
         self.selection_button.setProperty("rewindCalculationScore", display.score)
         self.selection_button.setToolTip(display.detail)
         self.selection_button.setAccessibleDescription(display.detail)

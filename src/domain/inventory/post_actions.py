@@ -17,8 +17,6 @@ from src.utils.set_name import normalize_set_display_name
 GRADE_ORDER = ["ACE", "SSS", "SS", "S", "A", "B", "C", "D"]
 GRADE_RATIOS = {"D": 0.0, "C": 0.2, "B": 0.3, "A": 0.4, "S": 0.5, "SS": 0.6, "SSS": 0.7, "ACE": 0.8}
 EQUIPMENT_STATES = {"normal", "locked", "discarded"}
-DEFAULT_EXCLUDED_SHAPE_IDS = {"H_2", "V_2"}
-DEFAULT_EXCLUDED_SET_NAMES = {"音速蓝刺猬", "音速索尼克"}
 # 模块名与装备类型名只用于迁移规则名和校验消息；业务分支仍按稳定 ID 判断。
 _MODULE_TITLE_TEXTS = {"discard": "弃置模块", "lock": "锁定模块"}
 _ITEM_TYPE_TEXTS = {"tape": "卡带", "drive": "驱动"}
@@ -337,27 +335,17 @@ def _type_matches(item: BaseEquipment, type_scope: str) -> bool:
     return True
 
 
-def _range_value_matches(value: str, selected_values: list[str] | None, default_excluded_values: set[str]) -> bool:
-    if selected_values is None:
-        return value not in default_excluded_values
-    return value in set(selected_values)
-
-
 def _type_range_matches(item: BaseEquipment, module_config: dict) -> bool:
+    # 未保存范围（None）包含全部驱动形状和卡带套装；只有显式列表收窄范围，与界面默认全选一致。
     if isinstance(item, Drive):
-        return _range_value_matches(
-            str(getattr(item, "shape_id", "") or ""),
-            module_config.get("shape_ids"),
-            DEFAULT_EXCLUDED_SHAPE_IDS,
-        )
+        selected_shapes = module_config.get("shape_ids")
+        return selected_shapes is None or str(getattr(item, "shape_id", "") or "") in set(selected_shapes)
     if isinstance(item, Tape):
         selected_sets = module_config.get("set_names")
-        item_set = normalize_set_display_name(getattr(item, "set_name", ""))
         if selected_sets is None:
-            return item_set not in {
-                normalize_set_display_name(value)
-                for value in DEFAULT_EXCLUDED_SET_NAMES
-            }
+            return True
+        # 静态选项带「」外框，装备名可能不带；两侧按规范名比较。
+        item_set = normalize_set_display_name(getattr(item, "set_name", ""))
         return item_set in {
             normalize_set_display_name(value)
             for value in selected_sets
