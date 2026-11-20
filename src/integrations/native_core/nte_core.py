@@ -23,7 +23,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.integrations.native_core.nte_core_events import CoalescingEventQueue as _CoalescingEventQueue
-from src.integrations.native_core.nte_core_battle_client import NteCoreBattleQueryMixin
+from src.integrations.native_core.nte_core_battle_client import (
+    query_battle_axis as _query_battle_axis,
+    query_battle_record as _query_battle_record,
+)
 from src.integrations.game_runtime.native_capture_process import native_capture_game_pid
 from src.integrations.native_core.nte_core_protocol import (
     JsonObject,
@@ -140,7 +143,7 @@ def resolve_nte_core_executable(executable: str | os.PathLike[str] | None = None
     )
 
 
-class NteCoreClient(NteCoreBattleQueryMixin):
+class NteCoreClient:
     """管理 Core 进程与原始 DTO；匹配事件在专用回调线程接管，未匹配事件进入事件队列。
     所属组件退出时调用方必须关闭客户端。"""
 
@@ -779,6 +782,16 @@ class NteCoreClient(NteCoreBattleQueryMixin):
         if self.is_running:
             self._process.terminate()
         self._finish_process()
+
+    def get_battle_record(
+        self, *, battle_record_id: str | None = None, subtract_time_stop: bool = True,
+    ) -> JsonObject | None:
+        return _query_battle_record(self.call, battle_record_id=battle_record_id, subtract_time_stop=subtract_time_stop)
+
+    def get_battle_axis(
+        self, *, battle_record_id: str, cursor: str | None = None, limit: int = 500,
+    ) -> JsonObject | None:
+        return _query_battle_axis(self.call, battle_record_id=battle_record_id, cursor=cursor, limit=limit)
 
     def __enter__(self) -> NteCoreClient:
         return self.start()

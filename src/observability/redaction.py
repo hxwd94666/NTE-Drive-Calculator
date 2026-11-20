@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import traceback
 from collections.abc import Mapping, Sequence
@@ -99,6 +100,17 @@ def redact_log_fields(fields: Mapping[str, Any]) -> dict[str, object]:
         str(key): _REDACTED if _sensitive_key(key) else _safe_value(value)
         for key, value in fields.items()
     }
+
+
+def user_id_hash(value: object) -> str:
+    """Return a deterministic short SHA-256 digest for UID logging without leaking raw IDs."""
+
+    if value is None:
+        return "unknown"
+    normalized = str(value).strip()
+    if not normalized or normalized == "未知":
+        return "unknown"
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def safe_exception(error: BaseException) -> dict[str, str]:
