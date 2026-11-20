@@ -11,6 +11,7 @@ import time
 from typing import Any, Protocol
 
 from src.integrations.runtime.operation_guard import OperationGuard, require_operation
+from src.observability.redaction import user_id_hash
 from src.storage.sqlite.user_data_dao import UserDataDao
 from src.utils.logger import logger
 
@@ -341,10 +342,9 @@ class EquipmentApplyService:
             slot, serial = next(iter(cached_candidates))
             logger.warning(
                 "当前稳定快照未返回角色 {} 的实例 UID，"
-                "回退使用该账号此前采集的唯一实例缓存（slot={}, serial={}）",
+                "回退使用该账号此前采集的唯一实例缓存（user_id_hash={}）",
                 character_id,
-                slot,
-                serial,
+                user_id_hash(f"{slot}:{serial}"),
             )
             return {"slot": slot, "serial": serial}
         if len(cached_candidates) > 1:

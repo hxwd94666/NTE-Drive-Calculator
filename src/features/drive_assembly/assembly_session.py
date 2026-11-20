@@ -15,6 +15,7 @@ import mss
 import numpy as np
 
 from src.domain.localization.catalog import localized_text
+from src.observability.redaction import user_id_hash
 from src.features.drive_assembly.executor import (
     AssemblyExecutionReport,
     AssemblyExecutionStopped,
@@ -575,7 +576,7 @@ def _log_assembly_plan_diagnostics(
             drive = block.get("drive") if isinstance(block.get("drive"), dict) else {}
             logger.info(
                 "驱动装配目标 | "
-                f"角色={role_name} | 块={block.get('block_id')} | uid={drive.get('uid', '未知')} | "
+                f"角色={role_name} | 块={block.get('block_id')} | user_id_hash={user_id_hash(drive.get('uid'))} | "
                 f"形状={block.get('drive_type') or drive.get('shape_id', '未知')} | 品质={drive.get('quality', '未知')} | "
                 f"套装={block.get('set_name') or drive.get('set_name', '未筛选')} | 副词条={drive.get('sub_stats', {})} | "
                 f"格子={block.get('cells', [])} | 质心={block.get('grid_centroid') or block.get('shape_centroid')} | "

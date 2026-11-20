@@ -71,3 +71,21 @@ def create_bundled_analysis_client(
             component_identity=identity,
         )
     return None
+
+
+def create_battle_axis_group_postprocess_client(
+    *,
+    static_database_path: Path | None,
+    cancelled: Callable[[], bool] | None = None,
+) -> NteAnalysisCoreClient:
+    """Return a dedicated NteAnalysisCoreClient verified for battle_axis_group_postprocess_v1."""
+
+    client = create_bundled_analysis_client(
+        static_database_path=static_database_path,
+        cancelled=cancelled,
+    )
+    if client is None:
+        raise NativeAnalysisError("独立分析组件未部署，无法执行战报轴团队后处理")
+    if not client.supports_battle_axis_group_postprocess:
+        raise NativeAnalysisError("独立分析组件缺少 battle_axis_group_postprocess_v1 能力，请更新配套分析组件")
+    return client
